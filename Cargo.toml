@@ -1,0 +1,23 @@
+[package]
+name = "hex3"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Graphics
+wgpu = "27"
+winit = "0.30"
+pollster = "0.4"
+
+# Math
+glam = { version = "0.29", features = ["bytemuck"] }
+bytemuck = { version = "1.19", features = ["derive"] }
+
+# Utilities
+rand = "0.8"
+rand_chacha = "0.3"
+log = "0.4"
+env_logger = "0.11"
+
+# Convex hull
+qhull-enhanced = "0.1"
