@@ -1,12 +1,17 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::cmp::Reverse;
+use std::collections::{BinaryHeap, HashMap, HashSet};
 
 use glam::Vec3;
+use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
+use ordered_float::OrderedFloat;
 use rand::seq::SliceRandom;
 use rand::Rng;
+use rand_distr::{Distribution, Normal};
 
 use super::tectonics::{
-    assign_plate_types_by_coverage_with_rng, calculate_boundary_stress, elevation_to_color,
-    generate_euler_poles_with_rng, generate_heightmap, propagate_stress, EulerPole, PlateType,
+    assign_plate_types_by_coverage_with_rng, calculate_boundary_stress, constants,
+    elevation_to_color, generate_euler_poles_with_rng, generate_heightmap_with_noise,
+    propagate_stress, EulerPole, PlateType,
 };
 use super::SphericalVoronoi;
 
@@ -22,12 +27,12 @@ pub struct TectonicPlates {
     pub euler_poles: Vec<EulerPole>,
     /// Boundary stress at each cell (before propagation).
     pub boundary_stress: Vec<f32>,
-    /// Compression at each cell (from convergent boundaries, always >= 0).
-    pub cell_compression: Vec<f32>,
-    /// Tension at each cell (from divergent boundaries, always >= 0).
-    pub cell_tension: Vec<f32>,
+    /// Propagated stress at each cell (positive = compression, negative = tension).
+    pub cell_stress: Vec<f32>,
     /// Elevation at each cell.
     pub cell_elevation: Vec<f32>,
+    /// Noise contribution at each cell (for visualization).
+    pub cell_noise: Vec<f32>,
     /// Indices of cells that are on plate boundaries.
     pub boundary_cells: Vec<usize>,
     /// Cell adjacency graph (neighbors for each cell).
@@ -59,15 +64,17 @@ impl TectonicPlates {
         // Build adjacency graph
         let adjacency = build_adjacency(voronoi);
 
-        // Select random seed cells
-        let num_cells = voronoi.cells.len();
-        let seeds = select_seeds_with_rng(num_cells, num_plates, rng);
+        // Select spaced seed cells (minimum angular distance between seeds)
+        let seeds = select_seeds_spaced(voronoi, num_plates, rng);
 
-        // Flood fill to assign cells to plates
-        let cell_plate = flood_fill(&adjacency, &seeds, num_cells);
+        // Generate target sizes for varied plate sizes
+        let target_sizes = generate_target_sizes(num_plates, rng);
 
-        // Assign plate types based on target continental coverage
-        let plate_types = assign_plate_types_by_coverage_with_rng(&cell_plate, num_plates, rng);
+        // Weighted flood fill: target_size controls size, noise creates irregular boundaries
+        let cell_plate = flood_fill_weighted(&adjacency, &seeds, &target_sizes, voronoi, rng);
+
+        // Assign plate types (larger plates more likely continental)
+        let plate_types = assign_plate_types_by_coverage_with_rng(&cell_plate, num_plates, &target_sizes, rng);
 
         // Generate random Euler poles for plate motion
         let euler_poles = generate_euler_poles_with_rng(num_plates, rng);
@@ -77,12 +84,20 @@ impl TectonicPlates {
             calculate_boundary_stress(&adjacency, &cell_plate, &euler_poles, &plate_types, voronoi);
 
         // Propagate stress inward with decay (plate-constrained sum model)
-        let (cell_compression, cell_tension) =
-            propagate_stress(&boundary_stress, &cell_plate, voronoi);
+        let cell_stress = propagate_stress(&boundary_stress, &cell_plate, voronoi);
 
-        // Generate heightmap from compression and tension
-        let cell_elevation =
-            generate_heightmap(&cell_compression, &cell_tension, &cell_plate, &plate_types);
+        // Create fBm for elevation noise (seeded from rng for reproducibility)
+        let elevation_fbm: Fbm<Perlin> = Fbm::new(rng.gen())
+            .set_octaves(constants::ELEVATION_NOISE_OCTAVES);
+
+        // Generate heightmap from stress and plate types with noise
+        let (cell_elevation, cell_noise) = generate_heightmap_with_noise(
+            &cell_stress,
+            &cell_plate,
+            &plate_types,
+            voronoi,
+            &elevation_fbm,
+        );
 
         // Find boundary cells (cells adjacent to cells on different plates)
         let boundary_cells = find_boundary_cells(&adjacency, &cell_plate);
@@ -93,9 +108,9 @@ impl TectonicPlates {
             plate_types,
             euler_poles,
             boundary_stress,
-            cell_compression,
-            cell_tension,
+            cell_stress,
             cell_elevation,
+            cell_noise,
             boundary_cells,
             adjacency,
         }
@@ -104,6 +119,21 @@ impl TectonicPlates {
     /// Get the color for a given cell based on its elevation (hypsometric tinting).
     pub fn cell_color_elevation(&self, cell_idx: usize) -> Vec3 {
         elevation_to_color(self.cell_elevation[cell_idx])
+    }
+
+    /// Get the color for a given cell based on its noise contribution.
+    /// Green = positive noise (uplift), magenta = negative noise (depression).
+    pub fn cell_color_noise(&self, cell_idx: usize) -> Vec3 {
+        let noise = self.cell_noise[cell_idx];
+        // Scale to visible range (noise is typically small, ~0.01 to 0.1)
+        let t = (noise.abs() * 10.0).min(1.0);
+        if noise >= 0.0 {
+            // Positive: gray to green
+            Vec3::new(0.3 * (1.0 - t), 0.3 + 0.7 * t, 0.3 * (1.0 - t))
+        } else {
+            // Negative: gray to magenta
+            Vec3::new(0.3 + 0.7 * t, 0.3 * (1.0 - t), 0.3 + 0.7 * t)
+        }
     }
 
     /// Get the color for a given cell based on its plate assignment.
@@ -147,20 +177,20 @@ impl TectonicPlates {
     }
 
     /// Get the color for a given cell based on its stress value.
-    /// Red = convergent (compression), Blue = divergent (extension), Gray = neutral.
+    /// Red = compression (positive), Blue = tension (negative), Gray = neutral.
     pub fn cell_color_stress(&self, cell_idx: usize) -> Vec3 {
-        let compression = self.cell_compression[cell_idx];
-        let tension = self.cell_tension[cell_idx];
+        let stress = self.cell_stress[cell_idx];
 
-        // Two-field visualization:
-        // Red channel = compression intensity
-        // Blue channel = tension intensity
-        // Purple = both present (interesting geological zones)
-        let r = (compression / 0.5).clamp(0.0, 1.0);
-        let b = (tension / 0.3).clamp(0.0, 1.0);
-        let base = 0.2;
-
-        Vec3::new(base + r * 0.8, base, base + b * 0.8)
+        // Single-field visualization:
+        // Red = compression (positive stress)
+        // Blue = tension (negative stress)
+        if stress > 0.0 {
+            let t = (stress / 0.5).clamp(0.0, 1.0);
+            Vec3::new(0.2 + t * 0.8, 0.2, 0.2)
+        } else {
+            let t = (-stress / 0.3).clamp(0.0, 1.0);
+            Vec3::new(0.2, 0.2, 0.2 + t * 0.8)
+        }
     }
 
     /// Legacy method - defaults to elevation coloring.
@@ -516,33 +546,222 @@ fn build_adjacency(voronoi: &SphericalVoronoi) -> Vec<Vec<usize>> {
     adjacency
 }
 
-/// Select N random cell indices as plate seeds using a provided RNG.
-fn select_seeds_with_rng<R: Rng>(num_cells: usize, num_plates: usize, rng: &mut R) -> Vec<usize> {
-    let mut indices: Vec<usize> = (0..num_cells).collect();
-    indices.shuffle(rng);
-    indices.truncate(num_plates);
-    indices
+/// Compute minimum angular distance between seeds based on plate count.
+/// Uses a fraction of the ideal spacing (if seeds were perfectly distributed).
+fn min_seed_distance(num_plates: usize) -> f32 {
+    use super::tectonics::constants;
+    // Ideal angular radius if N seeds perfectly tile the sphere
+    let ideal = (1.0 - 2.0 / num_plates as f32).acos();
+    ideal * constants::SEED_SPACING_FRACTION
 }
 
-/// Flood fill from seeds to assign all cells to plates.
+/// Select plate seeds with minimum angular distance between them.
 ///
-/// Uses BFS, expanding all plates simultaneously for balanced sizes.
-fn flood_fill(adjacency: &[Vec<usize>], seeds: &[usize], num_cells: usize) -> Vec<u32> {
-    let mut cell_plate = vec![u32::MAX; num_cells]; // Unassigned
-    let mut frontier: VecDeque<(usize, u32)> = VecDeque::new();
+/// Uses rejection sampling: shuffle cells, accept each if it's far enough from
+/// all previously accepted seeds. Min distance scales with plate count.
+fn select_seeds_spaced<R: Rng>(
+    voronoi: &SphericalVoronoi,
+    num_plates: usize,
+    rng: &mut R,
+) -> Vec<usize> {
+    let min_dist = min_seed_distance(num_plates);
 
-    // Initialize seeds
-    for (plate_id, &seed_cell) in seeds.iter().enumerate() {
-        cell_plate[seed_cell] = plate_id as u32;
-        frontier.push_back((seed_cell, plate_id as u32));
+    let mut indices: Vec<usize> = (0..voronoi.cells.len()).collect();
+    indices.shuffle(rng);
+
+    let mut seeds: Vec<usize> = Vec::with_capacity(num_plates);
+    let mut seed_positions: Vec<Vec3> = Vec::with_capacity(num_plates);
+
+    for &cell_idx in &indices {
+        if seeds.len() >= num_plates {
+            break;
+        }
+
+        let pos = voronoi.generators[cell_idx];
+
+        // Check distance from all existing seeds
+        let far_enough = seed_positions
+            .iter()
+            .all(|&seed_pos| pos.dot(seed_pos).clamp(-1.0, 1.0).acos() >= min_dist);
+
+        if far_enough {
+            seeds.push(cell_idx);
+            seed_positions.push(pos);
+        }
     }
 
-    // BFS - expand all plates simultaneously
-    while let Some((cell, plate_id)) = frontier.pop_front() {
-        for &neighbor in &adjacency[cell] {
+    seeds
+}
+
+/// Generate target sizes for plates using log-normal distribution.
+///
+/// Target size controls how many cells a plate will claim. The log-normal distribution
+/// creates realistic size variation (like Earth's plates: Pacific huge, Juan de Fuca tiny).
+fn generate_target_sizes<R: Rng>(num_plates: usize, rng: &mut R) -> Vec<f32> {
+    use super::tectonics::constants;
+
+    let normal = Normal::new(0.0, constants::TARGET_SIZE_SIGMA as f64).unwrap();
+
+    // Generate raw log-normal values
+    let mut sizes: Vec<f32> = (0..num_plates)
+        .map(|_| (normal.sample(rng) as f32).exp())
+        .collect();
+
+    // Clamp ratio between max and min
+    let max_val = sizes.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let min_val = sizes.iter().cloned().fold(f32::INFINITY, f32::min);
+
+    if max_val > min_val * constants::TARGET_SIZE_MAX_RATIO {
+        // Scale up small values to fit within ratio
+        let target_min = max_val / constants::TARGET_SIZE_MAX_RATIO;
+        for s in &mut sizes {
+            if *s < target_min {
+                *s = target_min;
+            }
+        }
+    }
+
+    // Normalize so sum = num_plates (makes fill_ratio intuitive)
+    let sum: f32 = sizes.iter().sum();
+    let scale = num_plates as f32 / sum;
+    for s in &mut sizes {
+        *s *= scale;
+    }
+
+    sizes
+}
+
+/// Per-plate state for flood fill.
+struct PlateState {
+    seed_pos: Vec3,
+    target_size: f32,
+    noise_offset: Vec3,
+}
+
+impl PlateState {
+    fn new<R: Rng>(seed_pos: Vec3, target_size: f32, rng: &mut R) -> Self {
+        let noise_offset = Vec3::new(
+            rng.gen::<f32>() * 100.0,
+            rng.gen::<f32>() * 100.0,
+            rng.gen::<f32>() * 100.0,
+        );
+        PlateState { seed_pos, target_size, noise_offset }
+    }
+}
+
+/// Calculate priority for a cell (lower = claim sooner).
+fn compute_priority(
+    cell_pos: Vec3,
+    plate: &PlateState,
+    total_neighbors: usize,
+    same_plate_neighbors: usize,
+    fbm: &Fbm<Perlin>,
+) -> f32 {
+    use super::tectonics::constants;
+
+    // Arc distance from seed, scaled by target_size
+    // Larger plates see smaller effective distances, so they grow larger
+    let distance = plate.seed_pos.dot(cell_pos).clamp(-1.0, 1.0).acos();
+    let scaled_distance = distance / plate.target_size;
+
+    // Noise at this position (with plate-specific offset)
+    let noise_pos = cell_pos * constants::NOISE_FREQUENCY as f32 + plate.noise_offset;
+    let noise_val = fbm.get([noise_pos.x as f64, noise_pos.y as f64, noise_pos.z as f64]) as f32;
+
+    // Net perimeter change: lower = better (less perimeter added)
+    let perimeter_delta = total_neighbors as f32 - 2.0 * same_plate_neighbors as f32;
+
+    scaled_distance + constants::NOISE_WEIGHT * noise_val * 0.5
+        + constants::NEIGHBOR_BONUS * perimeter_delta
+}
+
+/// Weighted flood fill with single global priority queue.
+///
+/// Algorithm:
+/// 1. Single global queue of (priority, cell_idx, plate_id)
+/// 2. Pop globally best cell, claim it for associated plate
+/// 3. Add unclaimed neighbors to global queue
+/// 4. Distance naturally causes plates to alternate
+fn flood_fill_weighted<R: Rng>(
+    adjacency: &[Vec<usize>],
+    seeds: &[usize],
+    target_sizes: &[f32],
+    voronoi: &SphericalVoronoi,
+    rng: &mut R,
+) -> Vec<u32> {
+    use super::tectonics::constants;
+
+    let num_cells = voronoi.cells.len();
+    let mut cell_plate = vec![u32::MAX; num_cells]; // Unassigned
+
+    // Create fBm noise generator
+    let fbm: Fbm<Perlin> = Fbm::new(rng.gen())
+        .set_frequency(constants::NOISE_FREQUENCY)
+        .set_octaves(constants::NOISE_OCTAVES);
+
+    // Initialize plate states
+    let plates: Vec<PlateState> = seeds
+        .iter()
+        .enumerate()
+        .map(|(plate_id, &seed_cell)| {
+            let seed_pos = voronoi.generators[seed_cell];
+            PlateState::new(seed_pos, target_sizes[plate_id], rng)
+        })
+        .collect();
+
+    // Single global priority queue: (priority, cell_idx, plate_id)
+    let mut queue: BinaryHeap<Reverse<(OrderedFloat<f32>, usize, usize)>> = BinaryHeap::new();
+
+    // Initialize: claim seeds and add their neighbors to queue
+    for (plate_id, &seed_cell) in seeds.iter().enumerate() {
+        cell_plate[seed_cell] = plate_id as u32;
+
+        for &neighbor in &adjacency[seed_cell] {
             if cell_plate[neighbor] == u32::MAX {
-                cell_plate[neighbor] = plate_id;
-                frontier.push_back((neighbor, plate_id));
+                let neighbor_pos = voronoi.generators[neighbor];
+                let total_neighbors = adjacency[neighbor].len();
+                let same_plate_neighbors = adjacency[neighbor]
+                    .iter()
+                    .filter(|&&n| cell_plate[n] == plate_id as u32)
+                    .count();
+                let priority = compute_priority(
+                    neighbor_pos,
+                    &plates[plate_id],
+                    total_neighbors,
+                    same_plate_neighbors,
+                    &fbm,
+                );
+                queue.push(Reverse((OrderedFloat(priority), neighbor, plate_id)));
+            }
+        }
+    }
+
+    // Main loop: pop globally best cell
+    while let Some(Reverse((_, cell_idx, plate_id))) = queue.pop() {
+        if cell_plate[cell_idx] != u32::MAX {
+            continue; // Already claimed
+        }
+
+        // Claim cell
+        cell_plate[cell_idx] = plate_id as u32;
+
+        // Add unclaimed neighbors to global queue
+        for &neighbor in &adjacency[cell_idx] {
+            if cell_plate[neighbor] == u32::MAX {
+                let neighbor_pos = voronoi.generators[neighbor];
+                let total_neighbors = adjacency[neighbor].len();
+                let same_plate_neighbors = adjacency[neighbor]
+                    .iter()
+                    .filter(|&&n| cell_plate[n] == plate_id as u32)
+                    .count();
+                let priority = compute_priority(
+                    neighbor_pos,
+                    &plates[plate_id],
+                    total_neighbors,
+                    same_plate_neighbors,
+                    &fbm,
+                );
+                queue.push(Reverse((OrderedFloat(priority), neighbor, plate_id)));
             }
         }
     }

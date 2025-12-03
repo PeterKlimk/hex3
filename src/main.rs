@@ -41,6 +41,8 @@ enum RenderMode {
     Elevation,
     Plates,
     Stress,
+    Relief,
+    Noise,
 }
 
 impl RenderMode {
@@ -49,6 +51,8 @@ impl RenderMode {
             RenderMode::Elevation => "Elevation",
             RenderMode::Plates => "Plates",
             RenderMode::Stress => "Stress",
+            RenderMode::Relief => "Relief",
+            RenderMode::Noise => "Noise",
         }
     }
 }
@@ -71,6 +75,8 @@ struct WorldBuffers {
     elevation_buffers: RenderModeBuffers,
     plates_buffers: RenderModeBuffers,
     stress_buffers: RenderModeBuffers,
+    relief_buffers: RenderModeBuffers,
+    noise_buffers: RenderModeBuffers,
     map_edge_vertex_buffer: wgpu::Buffer,
     map_edge_index_buffer: wgpu::Buffer,
     globe_index_buffer: wgpu::Buffer,
@@ -113,6 +119,9 @@ struct AppState {
 
     // Current world seed
     seed: u64,
+
+    // Display options
+    show_edges: bool,
 
     // FPS tracking
     frame_count: u32,
@@ -191,11 +200,24 @@ impl ApplicationHandler for App {
                             state.render_mode = RenderMode::Stress;
                             state.window.request_redraw();
                         }
+                        PhysicalKey::Code(KeyCode::Digit4) => {
+                            state.render_mode = RenderMode::Relief;
+                            state.window.request_redraw();
+                        }
+                        PhysicalKey::Code(KeyCode::Digit5) => {
+                            state.render_mode = RenderMode::Noise;
+                            state.window.request_redraw();
+                        }
                         PhysicalKey::Code(KeyCode::KeyR) => {
                             // Regenerate world with new random seed
                             let new_seed: u64 = rand::random();
                             state.world = generate_world_buffers(&state.gpu.device, new_seed);
                             state.seed = new_seed;
+                            state.window.request_redraw();
+                        }
+                        PhysicalKey::Code(KeyCode::KeyE) => {
+                            // Toggle edge visibility
+                            state.show_edges = !state.show_edges;
                             state.window.request_redraw();
                         }
                         PhysicalKey::Code(KeyCode::Escape) => {
@@ -303,6 +325,13 @@ fn generate_world_buffers(device: &wgpu::Device, seed: u64) -> WorldBuffers {
         VoronoiMesh::from_voronoi_with_colors(&voronoi, |i| plates.cell_color_plate(i));
     let mesh_stress =
         VoronoiMesh::from_voronoi_with_colors(&voronoi, |i| plates.cell_color_stress(i));
+    let mesh_relief = VoronoiMesh::from_voronoi_with_elevation(
+        &voronoi,
+        |i| plates.cell_color_elevation(i),
+        |i| plates.cell_elevation[i],
+    );
+    let mesh_noise =
+        VoronoiMesh::from_voronoi_with_colors(&voronoi, |i| plates.cell_color_noise(i));
 
     // Generate edge line segments for each mode
     let dark_color = Vec3::new(0.1, 0.1, 0.1);
@@ -314,6 +343,13 @@ fn generate_world_buffers(device: &wgpu::Device, seed: u64) -> WorldBuffers {
         let key = if a < b { (a, b) } else { (b, a) };
         boundary_edge_colors.get(&key).copied().unwrap_or(dark_color)
     });
+
+    // Relief mode edges with elevation displacement
+    let edge_vertices_relief = VoronoiMesh::edge_lines_with_elevation(
+        &voronoi,
+        |_, _| dark_color,
+        |i| plates.cell_elevation[i],
+    );
     println!("{:.1}ms", start.elapsed().as_secs_f64() * 1000.0);
 
     // Generate plate overlay geometry
@@ -352,6 +388,8 @@ fn generate_world_buffers(device: &wgpu::Device, seed: u64) -> WorldBuffers {
     let (map_vertices_elevation, map_indices) = mesh_elevation.to_map_vertices();
     let (map_vertices_plates, _) = mesh_plates.to_map_vertices();
     let (map_vertices_stress, _) = mesh_stress.to_map_vertices();
+    let (map_vertices_relief, _) = mesh_relief.to_map_vertices();
+    let (map_vertices_noise, _) = mesh_noise.to_map_vertices();
     let (map_edge_vertices, map_edge_indices) = mesh_elevation.to_map_edge_vertices(&voronoi);
     println!("{:.1}ms", start.elapsed().as_secs_f64() * 1000.0);
 
@@ -405,6 +443,36 @@ fn generate_world_buffers(device: &wgpu::Device, seed: u64) -> WorldBuffers {
         num_globe_edge_vertices: edge_vertices_dark.len() as u32,
     };
 
+    let relief_buffers = RenderModeBuffers {
+        globe_vertex_buffer: create_vertex_buffer(
+            device,
+            &mesh_relief.vertices,
+            "relief_globe_vertex",
+        ),
+        map_vertex_buffer: create_vertex_buffer(device, &map_vertices_relief, "relief_map_vertex"),
+        globe_edge_vertex_buffer: create_vertex_buffer(
+            device,
+            &edge_vertices_relief,
+            "relief_globe_edge_vertex",
+        ),
+        num_globe_edge_vertices: edge_vertices_relief.len() as u32,
+    };
+
+    let noise_buffers = RenderModeBuffers {
+        globe_vertex_buffer: create_vertex_buffer(
+            device,
+            &mesh_noise.vertices,
+            "noise_globe_vertex",
+        ),
+        map_vertex_buffer: create_vertex_buffer(device, &map_vertices_noise, "noise_map_vertex"),
+        globe_edge_vertex_buffer: create_vertex_buffer(
+            device,
+            &edge_vertices_dark,
+            "noise_globe_edge_vertex",
+        ),
+        num_globe_edge_vertices: edge_vertices_dark.len() as u32,
+    };
+
     // Print world statistics
     let num_cells = plates.cell_elevation.len();
     let water_count = plates.cell_elevation.iter().filter(|&&e| e < 0.0).count();
@@ -445,6 +513,8 @@ fn generate_world_buffers(device: &wgpu::Device, seed: u64) -> WorldBuffers {
         elevation_buffers,
         plates_buffers,
         stress_buffers,
+        relief_buffers,
+        noise_buffers,
         map_edge_vertex_buffer: create_vertex_buffer(
             device,
             &map_edge_vertices,
@@ -586,7 +656,8 @@ async fn create_app_state(window: Arc<Window>) -> AppState {
     );
     println!("Ready! Drag to rotate, scroll to zoom.");
     println!("  Tab: toggle map view");
-    println!("  1/2/3: Elevation/Plates/Stress modes");
+    println!("  1-5: Elevation/Plates/Stress/Relief/Noise modes");
+    println!("  E: toggle edges");
     println!("  R: regenerate world");
 
     AppState {
@@ -605,6 +676,7 @@ async fn create_app_state(window: Arc<Window>) -> AppState {
         depth_view,
         world,
         seed,
+        show_edges: true,
         frame_count: 0,
         fps_update_time: Instant::now(),
         current_fps: 0.0,
@@ -648,6 +720,8 @@ fn render(state: &mut AppState) {
         RenderMode::Elevation => &state.world.elevation_buffers,
         RenderMode::Plates => &state.world.plates_buffers,
         RenderMode::Stress => &state.world.stress_buffers,
+        RenderMode::Relief => &state.world.relief_buffers,
+        RenderMode::Noise => &state.world.noise_buffers,
     };
 
     // Choose buffers and pipeline based on view mode
@@ -729,22 +803,24 @@ fn render(state: &mut AppState) {
         render_pass.draw_indexed(0..num_indices, 0, 0..1);
 
         // Draw edges (different approach for globe vs map)
-        match state.view_mode {
-            ViewMode::Globe => {
-                // Globe: per-mode colored edges (non-indexed, vertex colors)
-                render_pass.set_pipeline(&state.colored_line_pipeline);
-                render_pass.set_vertex_buffer(0, mode_buffers.globe_edge_vertex_buffer.slice(..));
-                render_pass.draw(0..mode_buffers.num_globe_edge_vertices, 0..1);
-            }
-            ViewMode::Map => {
-                // Map: shared dark edges (indexed)
-                render_pass.set_pipeline(&state.edge_pipeline);
-                render_pass.set_vertex_buffer(0, state.world.map_edge_vertex_buffer.slice(..));
-                render_pass.set_index_buffer(
-                    state.world.map_edge_index_buffer.slice(..),
-                    wgpu::IndexFormat::Uint32,
-                );
-                render_pass.draw_indexed(0..state.world.num_map_edge_indices, 0, 0..1);
+        if state.show_edges {
+            match state.view_mode {
+                ViewMode::Globe => {
+                    // Globe: per-mode colored edges (non-indexed, vertex colors)
+                    render_pass.set_pipeline(&state.colored_line_pipeline);
+                    render_pass.set_vertex_buffer(0, mode_buffers.globe_edge_vertex_buffer.slice(..));
+                    render_pass.draw(0..mode_buffers.num_globe_edge_vertices, 0..1);
+                }
+                ViewMode::Map => {
+                    // Map: shared dark edges (indexed)
+                    render_pass.set_pipeline(&state.edge_pipeline);
+                    render_pass.set_vertex_buffer(0, state.world.map_edge_vertex_buffer.slice(..));
+                    render_pass.set_index_buffer(
+                        state.world.map_edge_index_buffer.slice(..),
+                        wgpu::IndexFormat::Uint32,
+                    );
+                    render_pass.draw_indexed(0..state.world.num_map_edge_indices, 0, 0..1);
+                }
             }
         }
 

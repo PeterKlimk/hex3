@@ -2,7 +2,7 @@ use glam::{Mat4, Vec3};
 use std::f32::consts::FRAC_PI_4;
 
 /// Maximum tilt angle (like a globe on a stand - can't flip over).
-const MAX_TILT: f32 = FRAC_PI_4; // 45 degrees up or down
+const MAX_TILT: f32 = 1.4; // ~80 degrees up or down
 
 /// An orbit camera that rotates around a target point.
 /// Behaves like a globe: free horizontal spin, limited vertical tilt.

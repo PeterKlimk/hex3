@@ -44,8 +44,9 @@ Hex3 is a spherical Voronoi-based planet generator with tectonic plate simulatio
 2. Convex hull of points → dual graph → SphericalVoronoi (cells, vertices)
 3. Flood fill from seeds → TectonicPlates (cell assignments, Euler poles)
 4. Euler pole velocities → boundary stress → propagated stress fields
-5. Stress + plate type → elevation via sqrt response curves
+5. Stress + plate type → elevation via sqrt response curves + fBm noise
 6. Elevation → hypsometric coloring → VoronoiMesh → GPU buffers
+7. Relief view: vertices displaced radially by averaged elevation
 
 ### Core Types
 
@@ -56,17 +57,24 @@ Hex3 is a spherical Voronoi-based planet generator with tectonic plate simulatio
 
 ### Tectonic Simulation
 
-Plates rotate around Euler poles. At boundaries, relative velocity determines:
-- **Convergent** (positive stress): mountains, volcanic arcs, trenches
+Plates rotate around Euler poles. At boundaries, relative velocity determines stress:
+- **Convergent** (positive stress): mountains, volcanic arcs
 - **Divergent** (negative stress): rifts (continental), mid-ocean ridges (oceanic)
 
-Six plate interaction types with distinct multipliers in `tectonics::constants`.
+Eight plate interaction multipliers (4 convergent + 4 divergent) in `tectonics::constants`:
+- Convergent: `CONV_CONT_CONT`, `CONV_CONT_OCEAN`, `CONV_OCEAN_CONT`, `CONV_OCEAN_OCEAN`
+- Divergent: `DIV_CONT_CONT`, `DIV_CONT_OCEAN`, `DIV_OCEAN_CONT`, `DIV_OCEAN_OCEAN`
+
+Stress is weighted by edge arc length for density-independent results (`STRESS_SCALE` controls magnitude). Elevation response differs by plate type:
+- **Continental**: asymmetric (compression → mountains, tension → rifts capped above ocean floor)
+- **Oceanic**: both cause uplift, but compression can create islands while tension is capped underwater
 
 ## Controls (Runtime)
 
 - Drag: rotate globe
 - Scroll: zoom
 - Tab: toggle globe/map view
-- 1/2/3: Elevation/Plates/Stress render modes
+- 1-5: Elevation/Plates/Stress/Relief/Noise render modes
+- E: toggle edge visibility
 - R: regenerate world with new seed
 - Esc: quit

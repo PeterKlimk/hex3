@@ -54,6 +54,42 @@ impl VoronoiMesh {
     where
         F: Fn(usize) -> Vec3,
     {
+        Self::from_voronoi_with_elevation(voronoi, color_fn, |_| 0.0)
+    }
+
+    /// Generate a mesh with elevation displacement and custom colors.
+    /// Vertices are displaced radially: pos * (1.0 + elevation * RELIEF_SCALE)
+    /// Vertex elevations are averaged across all cells sharing that vertex to avoid gaps.
+    pub fn from_voronoi_with_elevation<C, E>(
+        voronoi: &SphericalVoronoi,
+        color_fn: C,
+        elevation_fn: E,
+    ) -> Self
+    where
+        C: Fn(usize) -> Vec3,
+        E: Fn(usize) -> f32,
+    {
+        use super::tectonics::constants::RELIEF_SCALE;
+
+        // Step 1: Compute per-vertex elevation by averaging all cells sharing each vertex
+        let mut vertex_elevation_sum = vec![0.0f32; voronoi.vertices.len()];
+        let mut vertex_cell_count = vec![0u32; voronoi.vertices.len()];
+
+        for (cell_idx, cell) in voronoi.cells.iter().enumerate() {
+            let elevation = elevation_fn(cell_idx);
+            for &vertex_idx in &cell.vertex_indices {
+                vertex_elevation_sum[vertex_idx] += elevation;
+                vertex_cell_count[vertex_idx] += 1;
+            }
+        }
+
+        let vertex_elevations: Vec<f32> = vertex_elevation_sum
+            .iter()
+            .zip(&vertex_cell_count)
+            .map(|(&sum, &count)| if count > 0 { sum / count as f32 } else { 0.0 })
+            .collect();
+
+        // Step 2: Build mesh using vertex elevations (not cell elevations)
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
         let mut edge_set: HashSet<(u32, u32)> = HashSet::new();
@@ -63,26 +99,22 @@ impl VoronoiMesh {
                 continue;
             }
 
-            // Get color from color function
+            // Color based on cell elevation (not averaged)
             let color = color_fn(cell_idx);
-
-            // Get cell vertices
-            let cell_verts: Vec<Vec3> = cell
-                .vertex_indices
-                .iter()
-                .map(|&idx| voronoi.vertices[idx])
-                .collect();
 
             // Base index for this cell's vertices
             let base_idx = vertices.len() as u32;
 
-            // Add vertices (on unit sphere, position == normal)
-            for &v in &cell_verts {
-                vertices.push(MeshVertex::new(v, v, color));
+            // Add vertices with displaced positions using averaged elevation
+            for &vertex_idx in &cell.vertex_indices {
+                let original_pos = voronoi.vertices[vertex_idx];
+                let displacement = 1.0 + vertex_elevations[vertex_idx] * RELIEF_SCALE;
+                let displaced_pos = original_pos * displacement;
+                vertices.push(MeshVertex::new(displaced_pos, original_pos, color));
             }
 
             // Fan triangulation from first vertex
-            let n = cell_verts.len();
+            let n = cell.vertex_indices.len();
             for i in 1..n - 1 {
                 indices.push(base_idx);
                 indices.push(base_idx + i as u32);
@@ -93,18 +125,11 @@ impl VoronoiMesh {
             for i in 0..n {
                 let a = cell.vertex_indices[i] as u32;
                 let b = cell.vertex_indices[(i + 1) % n] as u32;
-                // Canonical ordering to avoid duplicates
                 let edge = if a < b { (a, b) } else { (b, a) };
                 edge_set.insert(edge);
             }
         }
 
-        // Convert edge set to flat index array
-        // But we need to use our mesh vertices, not voronoi vertices
-        // So we need a separate vertex buffer for edges, or recompute
-
-        // For edge rendering, we'll create a separate vertex buffer
-        // using the original voronoi vertices with a dark color
         let edge_indices = build_edge_indices(voronoi, &edge_set);
 
         VoronoiMesh {
@@ -131,6 +156,40 @@ impl VoronoiMesh {
     where
         F: Fn(usize, usize) -> Vec3,
     {
+        Self::edge_lines_with_elevation(voronoi, edge_color_fn, |_| 0.0)
+    }
+
+    /// Generate edge line segments with elevation displacement and per-edge colors.
+    /// Vertex elevations are averaged across adjacent cells, matching `from_voronoi_with_elevation`.
+    pub fn edge_lines_with_elevation<F, E>(
+        voronoi: &SphericalVoronoi,
+        edge_color_fn: F,
+        elevation_fn: E,
+    ) -> Vec<MeshVertex>
+    where
+        F: Fn(usize, usize) -> Vec3,
+        E: Fn(usize) -> f32,
+    {
+        use super::tectonics::constants::RELIEF_SCALE;
+
+        // Compute per-vertex elevation by averaging all cells sharing each vertex
+        let mut vertex_elevation_sum = vec![0.0f32; voronoi.vertices.len()];
+        let mut vertex_cell_count = vec![0u32; voronoi.vertices.len()];
+
+        for (cell_idx, cell) in voronoi.cells.iter().enumerate() {
+            let elevation = elevation_fn(cell_idx);
+            for &vertex_idx in &cell.vertex_indices {
+                vertex_elevation_sum[vertex_idx] += elevation;
+                vertex_cell_count[vertex_idx] += 1;
+            }
+        }
+
+        let vertex_elevations: Vec<f32> = vertex_elevation_sum
+            .iter()
+            .zip(&vertex_cell_count)
+            .map(|(&sum, &count)| if count > 0 { sum / count as f32 } else { 0.0 })
+            .collect();
+
         let mut vertices = Vec::new();
         let mut processed: HashSet<(usize, usize)> = HashSet::new();
 
@@ -153,9 +212,11 @@ impl VoronoiMesh {
                 let v1 = voronoi.vertices[edge.1];
                 let color = edge_color_fn(edge.0, edge.1);
 
-                // Slight offset for z-fighting
-                let v0_lifted = v0 * 1.001;
-                let v1_lifted = v1 * 1.001;
+                // Displace by elevation plus slight offset for z-fighting
+                let displacement0 = 1.0 + vertex_elevations[edge.0] * RELIEF_SCALE;
+                let displacement1 = 1.0 + vertex_elevations[edge.1] * RELIEF_SCALE;
+                let v0_lifted = v0 * displacement0 * 1.001;
+                let v1_lifted = v1 * displacement1 * 1.001;
 
                 vertices.push(MeshVertex::new(v0_lifted, v0, color));
                 vertices.push(MeshVertex::new(v1_lifted, v1, color));
