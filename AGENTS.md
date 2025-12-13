@@ -23,11 +23,13 @@ Hex3 is a spherical Voronoi-based planet generator with tectonic plate simulatio
 
 ```
 src/
+├── lib.rs              # Library crate entry (re-exports geometry/render)
 ├── geometry/           # Computational geometry
 │   ├── voronoi.rs      # Spherical Voronoi via convex hull duality
 │   ├── convex_hull.rs  # 3D convex hull (qhull)
 │   ├── lloyd.rs        # Lloyd relaxation for even point distribution
 │   ├── plates.rs       # TectonicPlates struct, flood fill assignment
+│   ├── sphere.rs       # Random points on unit sphere
 │   ├── tectonics.rs    # Euler poles, stress calculation, elevation
 │   └── mesh.rs         # Voronoi → triangle mesh, map projection
 ├── render/             # wgpu rendering
@@ -43,11 +45,11 @@ src/
 
 1. Random points on unit sphere → Lloyd relaxation → even distribution
 2. Convex hull → dual graph → `SphericalVoronoi` (cells, vertices)
-3. Flood fill from seeds → `TectonicPlates` (assignments, Euler poles)
+3. Spaced seeds + varied target sizes → weighted flood fill → `TectonicPlates` (assignments, Euler poles)
 4. Euler pole velocities → boundary stress (edge-length weighted)
 5. Stress propagation (plate-constrained, exponential decay)
 6. Stress + plate type → elevation (sqrt response curves) + fBm noise
-7. Elevation → hypsometric coloring → `VoronoiMesh` → GPU buffers
+7. Elevation → hypsometric coloring → `VoronoiMesh` → globe/map GPU buffers
 8. Relief view: vertices displaced radially by averaged elevation
 
 ### Core Types
@@ -71,12 +73,12 @@ All multipliers in `tectonics::constants`. Sign comes from convergence direction
 **Convergent:**
 - `CONV_CONT_CONT` (1.5) - Himalayas-style collision
 - `CONV_CONT_OCEAN` (1.2) - Andes-style mountains on continental side
-- `CONV_OCEAN_CONT` (0.15) - Subducting oceanic plate (minimal stress)
+- `CONV_OCEAN_CONT` (0.1) - Subducting oceanic plate (minimal uplift)
 - `CONV_OCEAN_OCEAN` (0.4) - Island arc volcanism
 
 **Divergent:**
 - `DIV_CONT_CONT` (0.6) - Continental rift (East African Rift)
-- `DIV_CONT_OCEAN` (0.15) - Passive margin rifting (modest)
+- `DIV_CONT_OCEAN` (0.1) - Passive margin rifting (modest)
 - `DIV_OCEAN_CONT` (0.3) - Oceanic side thermal uplift
 - `DIV_OCEAN_OCEAN` (0.5) - Mid-ocean ridge
 
@@ -95,9 +97,22 @@ All multipliers in `tectonics::constants`. Sign comes from convergence direction
 - **R**: regenerate world (new seed)
 - **Esc**: quit
 
+Notes:
+- Plates mode (globe view) overlays plate velocity arrows and Euler pole markers.
+
 ## Key Constants (tectonics.rs)
 
 ```rust
+// Plate generation
+CONTINENTAL_FRACTION = 0.30   // Target continental coverage (by cell count)
+SEED_SPACING_FRACTION = 0.5   // Seed minimum spacing vs ideal
+TARGET_SIZE_SIGMA = 0.4       // Plate size variance (log-normal)
+TARGET_SIZE_MAX_RATIO = 4.0   // Largest/smallest plate ratio cap
+NOISE_WEIGHT = 1.0            // Boundary irregularity vs distance
+NEIGHBOR_BONUS = 0.1          // Encourages compact plate shapes
+NOISE_FREQUENCY = 2.0         // Plate boundary noise frequency
+NOISE_OCTAVES = 4             // Plate boundary noise octaves
+
 // Stress & Elevation
 STRESS_SCALE = 25.0           // Global stress magnitude
 STRESS_DECAY_LENGTH = 0.04    // Propagation distance (radians)
@@ -124,7 +139,7 @@ RELIEF_SCALE = 0.1            // Elevation displacement multiplier
 Modify constants in `src/geometry/tectonics.rs::constants`
 
 ### Changing cell count or plate count
-Modify `NUM_CELLS` and `NUM_PLATES` in `src/main.rs`
+Modify `NUM_CELLS` and `NUM_PLATES` in `src/main.rs` (and `LLOYD_ITERATIONS` if needed)
 
 ### Adding new render modes
 1. Add variant to `RenderMode` enum in main.rs
@@ -134,7 +149,7 @@ Modify `NUM_CELLS` and `NUM_PLATES` in `src/main.rs`
 
 ### Existing render modes
 - **Elevation** (1): Hypsometric coloring (ocean blue → land green/brown → mountain white)
-- **Plates** (2): Plate colors + boundary stress colors on edges
+- **Plates** (2): Plate colors + boundary convergence colors on edges + velocity arrows + Euler pole markers (globe only)
 - **Stress** (3): Red = compression, blue = tension
 - **Relief** (4): 3D displaced terrain with hypsometric colors
 - **Noise** (5): Green = positive noise, magenta = negative noise

@@ -118,7 +118,7 @@ fn order_vertices_ccw(generator: Vec3, vertex_indices: &[usize], vertices: &[Vec
         })
         .collect();
 
-    indexed.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+    indexed.sort_by(|a, b| a.1.total_cmp(&b.1));
 
     indexed.into_iter().map(|(idx, _)| idx).collect()
 }

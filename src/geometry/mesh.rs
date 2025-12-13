@@ -152,7 +152,10 @@ impl VoronoiMesh {
     /// Generate edge line segments with per-edge colors.
     /// Returns vertex pairs (non-indexed) for direct line rendering.
     /// `edge_color_fn` takes (vertex_idx_a, vertex_idx_b) and returns the color for that edge.
-    pub fn edge_lines_with_colors<F>(voronoi: &SphericalVoronoi, edge_color_fn: F) -> Vec<MeshVertex>
+    pub fn edge_lines_with_colors<F>(
+        voronoi: &SphericalVoronoi,
+        edge_color_fn: F,
+    ) -> Vec<MeshVertex>
     where
         F: Fn(usize, usize) -> Vec3,
     {

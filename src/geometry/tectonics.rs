@@ -233,8 +233,11 @@ pub fn calculate_boundary_stress(
         let plate_a = cell_plate[cell_idx] as usize;
         let cell_pos = voronoi.generators[cell_idx];
         let type_a = plate_types[plate_a];
-        let cell_verts: HashSet<usize> =
-            voronoi.cells[cell_idx].vertex_indices.iter().copied().collect();
+        let cell_verts: HashSet<usize> = voronoi.cells[cell_idx]
+            .vertex_indices
+            .iter()
+            .copied()
+            .collect();
 
         for &neighbor_idx in &adjacency[cell_idx] {
             let plate_b = cell_plate[neighbor_idx] as usize;
@@ -245,9 +248,13 @@ pub fn calculate_boundary_stress(
                 let type_b = plate_types[plate_b];
 
                 // Find shared edge vertices and compute arc length
-                let neighbor_verts: HashSet<usize> =
-                    voronoi.cells[neighbor_idx].vertex_indices.iter().copied().collect();
-                let shared: Vec<usize> = cell_verts.intersection(&neighbor_verts).copied().collect();
+                let neighbor_verts: HashSet<usize> = voronoi.cells[neighbor_idx]
+                    .vertex_indices
+                    .iter()
+                    .copied()
+                    .collect();
+                let shared: Vec<usize> =
+                    cell_verts.intersection(&neighbor_verts).copied().collect();
 
                 let edge_length = if shared.len() == 2 {
                     let v0 = voronoi.vertices[shared[0]];
@@ -264,15 +271,27 @@ pub fn calculate_boundary_stress(
                 let vel_a = euler_poles[plate_a].velocity_at(boundary_point);
                 let vel_b = euler_poles[plate_b].velocity_at(boundary_point);
 
-                // Relative velocity
+                // Relative velocity (already tangent to sphere at boundary_point)
                 let relative_vel = vel_a - vel_b;
 
-                // Boundary normal points from cell A toward cell B
-                let boundary_normal = (neighbor_pos - cell_pos).normalize();
+                // Boundary direction: project chord into tangent plane at boundary_point
+                let chord = neighbor_pos - cell_pos;
+                let tangent_normal = chord - boundary_point * chord.dot(boundary_point);
+                let tangent_normal = if tangent_normal.length_squared() > 1e-10 {
+                    tangent_normal.normalize()
+                } else {
+                    // Degenerate case: cells are antipodal, use arbitrary tangent
+                    let up = if boundary_point.y.abs() < 0.9 {
+                        Vec3::Y
+                    } else {
+                        Vec3::X
+                    };
+                    boundary_point.cross(up).normalize()
+                };
 
-                // If A moves toward B (relative_vel aligns with normal) → positive (convergent)
+                // If A moves toward B (relative_vel aligns with tangent_normal) → positive (convergent)
                 // If A moves away from B → negative (divergent)
-                let convergence = relative_vel.dot(boundary_normal);
+                let convergence = relative_vel.dot(tangent_normal);
 
                 // Apply 6-way plate interaction logic
                 // All multipliers are positive magnitudes; sign comes from convergence
@@ -369,7 +388,10 @@ pub fn stress_to_elevation(stress: f32, plate_type: PlateType) -> f32 {
         PlateType::Continental => {
             // Asymmetric response: compression → mountains, tension → rifts
             let (sens, max) = if stress >= 0.0 {
-                (constants::CONT_COMPRESSION_SENS, constants::CONT_MAX_MOUNTAIN)
+                (
+                    constants::CONT_COMPRESSION_SENS,
+                    constants::CONT_MAX_MOUNTAIN,
+                )
             } else {
                 (constants::CONT_TENSION_SENS, constants::CONT_MAX_RIFT)
             };
@@ -385,7 +407,9 @@ pub fn stress_to_elevation(stress: f32, plate_type: PlateType) -> f32 {
             } else {
                 constants::OCEAN_TENSION_MAX
             };
-            let effect = (stress.abs() * constants::OCEAN_SENSITIVITY).sqrt().min(max);
+            let effect = (stress.abs() * constants::OCEAN_SENSITIVITY)
+                .sqrt()
+                .min(max);
             constants::OCEANIC_BASE + effect
         }
     }

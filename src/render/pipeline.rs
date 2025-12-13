@@ -80,6 +80,11 @@ impl<'a> PipelineBuilder<'a> {
         self
     }
 
+    pub fn no_depth(mut self) -> Self {
+        self.depth_format = None;
+        self
+    }
+
     pub fn label(mut self, label: &'a str) -> Self {
         self.label = Some(label);
         self

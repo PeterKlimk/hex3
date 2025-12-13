@@ -104,7 +104,7 @@ struct AppState {
     // Pipelines (static - don't change on regeneration)
     fill_pipeline: wgpu::RenderPipeline,
     map_fill_pipeline: wgpu::RenderPipeline,
-    edge_pipeline: wgpu::RenderPipeline,
+    map_edge_pipeline: wgpu::RenderPipeline,
     colored_line_pipeline: wgpu::RenderPipeline,
 
     // Uniform buffer and bind group (static)
@@ -341,7 +341,10 @@ fn generate_world_buffers(device: &wgpu::Device, seed: u64) -> WorldBuffers {
     let boundary_edge_colors = plates.build_boundary_edge_colors(&voronoi);
     let edge_vertices_plates = VoronoiMesh::edge_lines_with_colors(&voronoi, |a, b| {
         let key = if a < b { (a, b) } else { (b, a) };
-        boundary_edge_colors.get(&key).copied().unwrap_or(dark_color)
+        boundary_edge_colors
+            .get(&key)
+            .copied()
+            .unwrap_or(dark_color)
     });
 
     // Relief mode edges with elevation displacement
@@ -626,16 +629,18 @@ async fn create_app_state(window: Arc<Window>) -> AppState {
         .vertex_layout(MeshVertex::desc())
         .bind_group_layout(&bind_group_layout)
         .cull_mode(None)
+        .no_depth()
         .label("map_fill_pipeline")
         .build();
 
-    let edge_pipeline = PipelineBuilder::new(&gpu.device, gpu.format)
+    let map_edge_pipeline = PipelineBuilder::new(&gpu.device, gpu.format)
         .shader(&edge_shader)
         .vertex_layout(MeshVertex::desc())
         .bind_group_layout(&bind_group_layout)
         .topology(PrimitiveTopology::LineList)
         .cull_mode(None)
-        .label("edge_pipeline")
+        .no_depth()
+        .label("map_edge_pipeline")
         .build();
 
     let colored_line_pipeline = PipelineBuilder::new(&gpu.device, gpu.format)
@@ -669,7 +674,7 @@ async fn create_app_state(window: Arc<Window>) -> AppState {
         render_mode: RenderMode::Elevation,
         fill_pipeline,
         map_fill_pipeline,
-        edge_pipeline,
+        map_edge_pipeline,
         colored_line_pipeline,
         uniform_buffer,
         bind_group,
@@ -808,12 +813,13 @@ fn render(state: &mut AppState) {
                 ViewMode::Globe => {
                     // Globe: per-mode colored edges (non-indexed, vertex colors)
                     render_pass.set_pipeline(&state.colored_line_pipeline);
-                    render_pass.set_vertex_buffer(0, mode_buffers.globe_edge_vertex_buffer.slice(..));
+                    render_pass
+                        .set_vertex_buffer(0, mode_buffers.globe_edge_vertex_buffer.slice(..));
                     render_pass.draw(0..mode_buffers.num_globe_edge_vertices, 0..1);
                 }
                 ViewMode::Map => {
-                    // Map: shared dark edges (indexed)
-                    render_pass.set_pipeline(&state.edge_pipeline);
+                    // Map: shared dark edges (indexed, no depth test)
+                    render_pass.set_pipeline(&state.map_edge_pipeline);
                     render_pass.set_vertex_buffer(0, state.world.map_edge_vertex_buffer.slice(..));
                     render_pass.set_index_buffer(
                         state.world.map_edge_index_buffer.slice(..),

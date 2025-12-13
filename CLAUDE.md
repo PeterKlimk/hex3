@@ -10,6 +10,7 @@ cargo build --release    # Build release
 cargo run --release      # Run (release recommended for performance)
 cargo test               # Run all tests
 cargo test voronoi       # Run tests matching "voronoi"
+cargo test lloyd         # Run tests matching "lloyd"
 cargo clippy             # Lint
 cargo fmt                # Format
 ```
@@ -22,27 +23,29 @@ Hex3 is a spherical Voronoi-based planet generator with tectonic plate simulatio
 
 ### Module Structure
 
-- **`geometry/`** - Computational geometry for spherical surfaces
+- **`src/lib.rs`** - Library crate entry (re-exports `geometry` and `render`)
+- **`src/geometry/`** - Computational geometry for spherical surfaces
   - `voronoi.rs` - Spherical Voronoi diagram via convex hull duality
   - `convex_hull.rs` - 3D convex hull using qhull
   - `lloyd.rs` - Lloyd relaxation for point distribution
   - `plates.rs` - Tectonic plate assignment via flood fill
+  - `sphere.rs` - Uniform random points on a unit sphere
   - `tectonics.rs` - Euler pole rotation, stress propagation, elevation generation
   - `mesh.rs` - Voronoi to triangle mesh conversion, map projection
 
-- **`render/`** - wgpu rendering infrastructure
+- **`src/render/`** - wgpu rendering infrastructure
   - `context.rs` - GPU device/surface setup
   - `pipeline.rs` - Render pipeline builder
   - `camera.rs` - Orbit camera with controller
   - `buffer.rs`, `uniform.rs`, `vertex.rs` - GPU buffer utilities
 
-- **`shaders/`** - WGSL shaders (sphere.wgsl, edge.wgsl, colored_line.wgsl)
+- **`src/shaders/`** - WGSL shaders (sphere.wgsl, edge.wgsl, colored_line.wgsl)
 
 ### Key Data Flow
 
 1. Random points on unit sphere → Lloyd relaxation → evenly distributed points
 2. Convex hull of points → dual graph → SphericalVoronoi (cells, vertices)
-3. Flood fill from seeds → TectonicPlates (cell assignments, Euler poles)
+3. Spaced seeds + varied target sizes → weighted flood fill → TectonicPlates (cell assignments, Euler poles)
 4. Euler pole velocities → boundary stress → propagated stress fields
 5. Stress + plate type → elevation via sqrt response curves + fBm noise
 6. Elevation → hypsometric coloring → VoronoiMesh → GPU buffers
@@ -78,3 +81,12 @@ Stress is weighted by edge arc length for density-independent results (`STRESS_S
 - E: toggle edge visibility
 - R: regenerate world with new seed
 - Esc: quit
+
+Notes:
+- Plates mode (globe view) overlays plate velocity arrows and Euler pole markers.
+
+## Common Edit Points
+
+- World resolution: `src/main.rs` (`NUM_CELLS`, `LLOYD_ITERATIONS`, `NUM_PLATES`)
+- Tectonics + terrain tuning: `src/geometry/tectonics.rs::constants`
+- Plate generation heuristics: `src/geometry/plates.rs` (seed spacing, target sizes, noise)

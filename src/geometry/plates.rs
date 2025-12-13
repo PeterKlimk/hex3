@@ -74,7 +74,8 @@ impl TectonicPlates {
         let cell_plate = flood_fill_weighted(&adjacency, &seeds, &target_sizes, voronoi, rng);
 
         // Assign plate types (larger plates more likely continental)
-        let plate_types = assign_plate_types_by_coverage_with_rng(&cell_plate, num_plates, &target_sizes, rng);
+        let plate_types =
+            assign_plate_types_by_coverage_with_rng(&cell_plate, num_plates, &target_sizes, rng);
 
         // Generate random Euler poles for plate motion
         let euler_poles = generate_euler_poles_with_rng(num_plates, rng);
@@ -87,8 +88,8 @@ impl TectonicPlates {
         let cell_stress = propagate_stress(&boundary_stress, &cell_plate, voronoi);
 
         // Create fBm for elevation noise (seeded from rng for reproducibility)
-        let elevation_fbm: Fbm<Perlin> = Fbm::new(rng.gen())
-            .set_octaves(constants::ELEVATION_NOISE_OCTAVES);
+        let elevation_fbm: Fbm<Perlin> =
+            Fbm::new(rng.gen()).set_octaves(constants::ELEVATION_NOISE_OCTAVES);
 
         // Generate heightmap from stress and plate types with noise
         let (cell_elevation, cell_noise) = generate_heightmap_with_noise(
@@ -153,7 +154,10 @@ impl TectonicPlates {
         match plate_type {
             PlateType::Continental => {
                 // Warm palette: yellows, oranges, browns, olive greens (hue 30-90)
-                let idx = continental_plates.iter().position(|&p| p == plate_id).unwrap_or(0);
+                let idx = continental_plates
+                    .iter()
+                    .position(|&p| p == plate_id)
+                    .unwrap_or(0);
                 let t = if continental_plates.len() > 1 {
                     idx as f32 / (continental_plates.len() - 1) as f32
                 } else {
@@ -164,7 +168,10 @@ impl TectonicPlates {
             }
             PlateType::Oceanic => {
                 // Cool palette: teals, blues, cyans (hue 180-240)
-                let idx = oceanic_plates.iter().position(|&p| p == plate_id).unwrap_or(0);
+                let idx = oceanic_plates
+                    .iter()
+                    .position(|&p| p == plate_id)
+                    .unwrap_or(0);
                 let t = if oceanic_plates.len() > 1 {
                     idx as f32 / (oceanic_plates.len() - 1) as f32
                 } else {
@@ -231,12 +238,19 @@ impl TectonicPlates {
                 processed_cell_pairs.insert(cell_pair);
 
                 // Find shared vertices (the edge between these cells)
-                let cell_verts: HashSet<usize> =
-                    voronoi.cells[cell_idx].vertex_indices.iter().copied().collect();
-                let neighbor_verts: HashSet<usize> =
-                    voronoi.cells[neighbor_idx].vertex_indices.iter().copied().collect();
+                let cell_verts: HashSet<usize> = voronoi.cells[cell_idx]
+                    .vertex_indices
+                    .iter()
+                    .copied()
+                    .collect();
+                let neighbor_verts: HashSet<usize> = voronoi.cells[neighbor_idx]
+                    .vertex_indices
+                    .iter()
+                    .copied()
+                    .collect();
 
-                let shared: Vec<usize> = cell_verts.intersection(&neighbor_verts).copied().collect();
+                let shared: Vec<usize> =
+                    cell_verts.intersection(&neighbor_verts).copied().collect();
 
                 if shared.len() != 2 {
                     continue;
@@ -258,11 +272,23 @@ impl TectonicPlates {
                 let vel_b = self.euler_poles[plate_b].velocity_at(boundary_point);
                 let relative_vel = vel_a - vel_b;
 
-                // Boundary normal points from cell A toward cell B
-                let boundary_normal = (neighbor_pos - cell_pos).normalize();
-                // If A moves toward B (relative_vel aligns with normal) → positive (convergent)
+                // Boundary direction: project chord into tangent plane at boundary_point
+                let chord = neighbor_pos - cell_pos;
+                let tangent_normal = chord - boundary_point * chord.dot(boundary_point);
+                let tangent_normal = if tangent_normal.length_squared() > 1e-10 {
+                    tangent_normal.normalize()
+                } else {
+                    // Degenerate case: use arbitrary tangent
+                    let up = if boundary_point.y.abs() < 0.9 {
+                        Vec3::Y
+                    } else {
+                        Vec3::X
+                    };
+                    boundary_point.cross(up).normalize()
+                };
+                // If A moves toward B (relative_vel aligns with tangent_normal) → positive (convergent)
                 // If A moves away from B → negative (divergent)
-                let convergence = relative_vel.dot(boundary_normal);
+                let convergence = relative_vel.dot(tangent_normal);
 
                 // Edge color shows motion type (convergent/divergent), not plate-type-specific stress
                 let stress = convergence;
@@ -425,12 +451,19 @@ impl TectonicPlates {
                 processed_edges.insert(cell_pair);
 
                 // Find the shared edge (vertices that both cells have in common)
-                let cell_verts: HashSet<usize> =
-                    voronoi.cells[cell_idx].vertex_indices.iter().copied().collect();
-                let neighbor_verts: HashSet<usize> =
-                    voronoi.cells[neighbor_idx].vertex_indices.iter().copied().collect();
+                let cell_verts: HashSet<usize> = voronoi.cells[cell_idx]
+                    .vertex_indices
+                    .iter()
+                    .copied()
+                    .collect();
+                let neighbor_verts: HashSet<usize> = voronoi.cells[neighbor_idx]
+                    .vertex_indices
+                    .iter()
+                    .copied()
+                    .collect();
 
-                let shared: Vec<usize> = cell_verts.intersection(&neighbor_verts).copied().collect();
+                let shared: Vec<usize> =
+                    cell_verts.intersection(&neighbor_verts).copied().collect();
 
                 if shared.len() != 2 {
                     continue; // Should always be 2 for adjacent Voronoi cells
@@ -448,12 +481,24 @@ impl TectonicPlates {
                 let vel_b = self.euler_poles[plate_b].velocity_at(boundary_point);
                 let relative_vel = vel_a - vel_b;
 
-                // Boundary normal points from cell A toward cell B
-                let boundary_normal = (neighbor_pos - cell_pos).normalize();
+                // Boundary direction: project chord into tangent plane at boundary_point
+                let chord = neighbor_pos - cell_pos;
+                let tangent_normal = chord - boundary_point * chord.dot(boundary_point);
+                let tangent_normal = if tangent_normal.length_squared() > 1e-10 {
+                    tangent_normal.normalize()
+                } else {
+                    // Degenerate case: use arbitrary tangent
+                    let up = if boundary_point.y.abs() < 0.9 {
+                        Vec3::Y
+                    } else {
+                        Vec3::X
+                    };
+                    boundary_point.cross(up).normalize()
+                };
 
-                // If A moves toward B (relative_vel aligns with normal) → positive (convergent)
+                // If A moves toward B (relative_vel aligns with tangent_normal) → positive (convergent)
                 // If A moves away from B → negative (divergent)
-                let convergence = relative_vel.dot(boundary_normal);
+                let convergence = relative_vel.dot(tangent_normal);
 
                 // Edge color shows motion type (convergent/divergent), not plate-type-specific stress
                 let stress = convergence;
@@ -559,12 +604,13 @@ fn min_seed_distance(num_plates: usize) -> f32 {
 ///
 /// Uses rejection sampling: shuffle cells, accept each if it's far enough from
 /// all previously accepted seeds. Min distance scales with plate count.
+/// Falls back to progressively relaxed distances if needed.
 fn select_seeds_spaced<R: Rng>(
     voronoi: &SphericalVoronoi,
     num_plates: usize,
     rng: &mut R,
 ) -> Vec<usize> {
-    let min_dist = min_seed_distance(num_plates);
+    let base_min_dist = min_seed_distance(num_plates);
 
     let mut indices: Vec<usize> = (0..voronoi.cells.len()).collect();
     indices.shuffle(rng);
@@ -572,6 +618,7 @@ fn select_seeds_spaced<R: Rng>(
     let mut seeds: Vec<usize> = Vec::with_capacity(num_plates);
     let mut seed_positions: Vec<Vec3> = Vec::with_capacity(num_plates);
 
+    // First pass: use full minimum distance
     for &cell_idx in &indices {
         if seeds.len() >= num_plates {
             break;
@@ -582,11 +629,55 @@ fn select_seeds_spaced<R: Rng>(
         // Check distance from all existing seeds
         let far_enough = seed_positions
             .iter()
-            .all(|&seed_pos| pos.dot(seed_pos).clamp(-1.0, 1.0).acos() >= min_dist);
+            .all(|&seed_pos| pos.dot(seed_pos).clamp(-1.0, 1.0).acos() >= base_min_dist);
 
         if far_enough {
             seeds.push(cell_idx);
             seed_positions.push(pos);
+        }
+    }
+
+    // Fallback: progressively relax distance constraint until we have enough seeds
+    let mut relaxation = 0.75;
+    while seeds.len() < num_plates && relaxation > 0.0 {
+        let relaxed_dist = base_min_dist * relaxation;
+        indices.shuffle(rng);
+
+        for &cell_idx in &indices {
+            if seeds.len() >= num_plates {
+                break;
+            }
+
+            // Skip if already a seed
+            if seeds.contains(&cell_idx) {
+                continue;
+            }
+
+            let pos = voronoi.generators[cell_idx];
+
+            let far_enough = seed_positions
+                .iter()
+                .all(|&seed_pos| pos.dot(seed_pos).clamp(-1.0, 1.0).acos() >= relaxed_dist);
+
+            if far_enough {
+                seeds.push(cell_idx);
+                seed_positions.push(pos);
+            }
+        }
+
+        relaxation -= 0.25;
+    }
+
+    // Final fallback: if still short, add any remaining cells
+    if seeds.len() < num_plates {
+        for &cell_idx in &indices {
+            if seeds.len() >= num_plates {
+                break;
+            }
+            if !seeds.contains(&cell_idx) {
+                seeds.push(cell_idx);
+                seed_positions.push(voronoi.generators[cell_idx]);
+            }
         }
     }
 
@@ -645,7 +736,11 @@ impl PlateState {
             rng.gen::<f32>() * 100.0,
             rng.gen::<f32>() * 100.0,
         );
-        PlateState { seed_pos, target_size, noise_offset }
+        PlateState {
+            seed_pos,
+            target_size,
+            noise_offset,
+        }
     }
 }
 
@@ -671,7 +766,8 @@ fn compute_priority(
     // Net perimeter change: lower = better (less perimeter added)
     let perimeter_delta = total_neighbors as f32 - 2.0 * same_plate_neighbors as f32;
 
-    scaled_distance + constants::NOISE_WEIGHT * noise_val * 0.5
+    scaled_distance
+        + constants::NOISE_WEIGHT * noise_val * 0.5
         + constants::NEIGHBOR_BONUS * perimeter_delta
 }
 
