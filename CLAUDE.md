@@ -77,13 +77,24 @@ Stress is weighted by edge arc length for density-independent results (`STRESS_S
 - Drag: rotate globe
 - Scroll: zoom
 - Tab: toggle globe/map view
-- 1-5: Elevation/Plates/Stress/Relief/Noise render modes
+- 1-7: Render modes:
+  - 1: Relief (default) - 3D terrain + lakes
+  - 2: Terrain - flat terrain + lakes
+  - 3: Elevation - raw elevation only
+  - 4: Plates - plate boundaries and velocities
+  - 5: Stress - tectonic stress field
+  - 6: Noise - fBm noise contribution
+  - 7: Hydrology - flow accumulation coloring
 - E: toggle edge visibility
+- V: toggle river visibility (after Stage 2)
 - R: regenerate world with new seed
+- Space: advance to next stage (Stage 2 = Hydrology)
+- Up/Down: adjust climate ratio (wetter/drier) - controls lake levels (Stage 2)
 - Esc: quit
 
 Notes:
 - Plates mode (globe view) overlays plate velocity arrows and Euler pole markers.
+- Rivers follow terrain elevation in Relief mode, flat in other modes.
 
 ## Common Edit Points
 

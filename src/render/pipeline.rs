@@ -19,6 +19,7 @@ pub struct PipelineBuilder<'a> {
     depth_format: Option<TextureFormat>,
     depth_write: bool,
     depth_bias: f32,
+    alpha_blend: bool,
     label: Option<&'a str>,
 }
 
@@ -36,6 +37,7 @@ impl<'a> PipelineBuilder<'a> {
             depth_format: Some(TextureFormat::Depth32Float),
             depth_write: true,
             depth_bias: 0.0,
+            alpha_blend: false,
             label: None,
         }
     }
@@ -85,6 +87,11 @@ impl<'a> PipelineBuilder<'a> {
         self
     }
 
+    pub fn alpha_blend(mut self) -> Self {
+        self.alpha_blend = true;
+        self
+    }
+
     pub fn label(mut self, label: &'a str) -> Self {
         self.label = Some(label);
         self
@@ -116,7 +123,11 @@ impl<'a> PipelineBuilder<'a> {
                     entry_point: Some("fs_main"),
                     targets: &[Some(ColorTargetState {
                         format: self.format,
-                        blend: Some(BlendState::REPLACE),
+                        blend: Some(if self.alpha_blend {
+                            BlendState::ALPHA_BLENDING
+                        } else {
+                            BlendState::REPLACE
+                        }),
                         write_mask: ColorWrites::ALL,
                     })],
                     compilation_options: Default::default(),
