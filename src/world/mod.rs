@@ -8,7 +8,7 @@
 //! - Plates - Tectonic plate assignment via flood fill
 //! - Dynamics - Plate motion (Euler poles) and types (continental/oceanic)
 //! - Stress - Boundary stress calculation and propagation
-//! - Elevation - Terrain height from stress + noise
+//! - Elevation - Terrain height from features + noise
 //!
 //! **Stage 2: Hydrosphere**
 //! - Hydrology - Depression filling, drainage, rivers
@@ -19,6 +19,7 @@ mod constants;
 mod boundary;
 mod dynamics;
 mod elevation;
+mod features;
 mod hydrology;
 mod plates;
 mod stress;
@@ -30,6 +31,7 @@ pub use constants::*;
 pub use boundary::{collect_plate_boundaries, BoundaryKind, PlateBoundaryEdge, SubductionPolarity};
 pub use dynamics::{Dynamics, EulerPole, PlateType};
 pub use elevation::{Elevation, NoiseLayerData};
+pub use features::FeatureFields;
 pub use hydrology::{Basin, CellWaterState, Hydrology, WaterBody, DEFAULT_CLIMATE_RATIO};
 pub use plates::Plates;
 pub use stress::StressField;
@@ -56,8 +58,11 @@ pub struct World {
     /// Plate dynamics (motion and types).
     pub dynamics: Option<Dynamics>,
 
-    /// Stress field from plate interactions.
+    /// Stress field from plate interactions (for visualization).
     pub stress: Option<StressField>,
+
+    /// Tectonic feature fields (trench, arc, ridge, collision, activity).
+    pub features: Option<FeatureFields>,
 
     /// Terrain elevation.
     pub elevation: Option<Elevation>,
@@ -82,6 +87,7 @@ impl World {
             plates: None,
             dynamics: None,
             stress: None,
+            features: None,
             elevation: None,
             hydrology: None,
         }
@@ -100,6 +106,7 @@ impl World {
         self.generate_plates(num_plates);
         self.generate_dynamics();
         self.generate_stress();
+        self.generate_features();
         self.generate_elevation();
     }
 
@@ -133,18 +140,30 @@ impl World {
         ));
     }
 
-    /// Generate elevation from stress.
-    /// Requires stress and dynamics to be generated first.
+    /// Generate tectonic feature fields (trench, arc, ridge, collision, activity).
+    /// Requires plates and dynamics to be generated first.
+    pub fn generate_features(&mut self) {
+        let plates = self.plates.as_ref().expect("Plates must be generated first");
+        let dynamics = self.dynamics.as_ref().expect("Dynamics must be generated first");
+        self.features = Some(FeatureFields::compute(
+            &self.tessellation,
+            plates,
+            dynamics,
+        ));
+    }
+
+    /// Generate elevation from tectonic features.
+    /// Requires features and dynamics to be generated first.
     pub fn generate_elevation(&mut self) {
         let plates = self.plates.as_ref().expect("Plates must be generated first");
         let dynamics = self.dynamics.as_ref().expect("Dynamics must be generated first");
-        let stress = self.stress.as_ref().expect("Stress must be generated first");
+        let features = self.features.as_ref().expect("Features must be generated first");
         let mut rng = ChaCha8Rng::seed_from_u64(self.seed.wrapping_add(3));
         self.elevation = Some(Elevation::generate(
             &self.tessellation,
             plates,
             dynamics,
-            stress,
+            features,
             &mut rng,
         ));
     }

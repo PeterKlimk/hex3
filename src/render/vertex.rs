@@ -1,6 +1,6 @@
 use wgpu::{BufferAddress, VertexAttribute, VertexBufferLayout, VertexFormat, VertexStepMode};
 
-use crate::geometry::{MeshVertex, SurfaceVertex, UnifiedVertex};
+use crate::geometry::{LayeredVertex, MeshVertex, SurfaceVertex, UnifiedVertex};
 
 impl UnifiedVertex {
     /// Describe the vertex buffer layout for wgpu.
@@ -98,6 +98,44 @@ impl SurfaceVertex {
                     offset: std::mem::size_of::<[f32; 4]>() as BufferAddress,
                     shader_location: 2,
                     format: VertexFormat::Float32x4,
+                },
+            ],
+        }
+    }
+}
+
+impl LayeredVertex {
+    /// Describe the vertex buffer layout for wgpu.
+    ///
+    /// Layout: position (vec3), normal (vec3), layers[0..4] (vec4), layer4 + padding (f32)
+    pub fn desc() -> VertexBufferLayout<'static> {
+        VertexBufferLayout {
+            array_stride: std::mem::size_of::<LayeredVertex>() as BufferAddress,
+            step_mode: VertexStepMode::Vertex,
+            attributes: &[
+                // Position (vec3)
+                VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: VertexFormat::Float32x3,
+                },
+                // Normal (vec3)
+                VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 3]>() as BufferAddress,
+                    shader_location: 1,
+                    format: VertexFormat::Float32x3,
+                },
+                // Layers 0-3 (vec4)
+                VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 6]>() as BufferAddress,
+                    shader_location: 2,
+                    format: VertexFormat::Float32x4,
+                },
+                // Layer 4 (f32) - padding follows but not mapped
+                VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 10]>() as BufferAddress,
+                    shader_location: 3,
+                    format: VertexFormat::Float32,
                 },
             ],
         }

@@ -77,14 +77,15 @@ Stress is weighted by edge arc length for density-independent results (`STRESS_S
 - Drag: rotate globe
 - Scroll: zoom
 - Tab: toggle globe/map view
-- 1-7: Render modes:
+- 1-8: Render modes:
   - 1: Relief (default) - 3D terrain + lakes
   - 2: Terrain - flat terrain + lakes
   - 3: Elevation - raw elevation only
   - 4: Plates - plate boundaries and velocities
   - 5: Stress - tectonic stress field
-  - 6: Noise - fBm noise contribution
+  - 6: Noise - fBm noise contribution (press again to cycle layers)
   - 7: Hydrology - flow accumulation coloring
+  - 8: Features - tectonic feature fields (press again to cycle: Trench/Arc/Ridge/Collision/Activity)
 - E: toggle edge visibility
 - V: toggle river visibility (after Stage 2)
 - R: regenerate world with new seed

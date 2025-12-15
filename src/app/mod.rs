@@ -18,8 +18,6 @@ use winit::{
 pub use state::AppState;
 pub use view::{RenderMode, ViewMode};
 
-use world::generate_world_buffers;
-
 pub struct App {
     pub state: Option<AppState>,
     pub auto_stage2: bool,
@@ -104,18 +102,8 @@ impl ApplicationHandler for App {
                         PhysicalKey::Code(KeyCode::Digit6) => {
                             if state.render_mode == RenderMode::Noise {
                                 // Already in noise mode - cycle through layers
+                                // (layer selection is handled via shader uniform, no buffer regen needed)
                                 state.noise_layer = state.noise_layer.cycle();
-                                // Wait for GPU to finish before regenerating buffers
-                                let _ = state.gpu.device.poll(wgpu::PollType::Wait {
-                                    submission_index: None,
-                                    timeout: None,
-                                });
-                                // Regenerate buffers with new noise layer
-                                state.world_buffers = generate_world_buffers(
-                                    &state.gpu.device,
-                                    &state.world_data,
-                                    state.noise_layer,
-                                );
                                 println!("Noise layer: {}", state.noise_layer.name());
                             } else {
                                 state.render_mode = RenderMode::Noise;
@@ -124,6 +112,17 @@ impl ApplicationHandler for App {
                         }
                         PhysicalKey::Code(KeyCode::Digit7) => {
                             state.render_mode = RenderMode::Hydrology;
+                            state.window.request_redraw();
+                        }
+                        PhysicalKey::Code(KeyCode::Digit8) => {
+                            if state.render_mode == RenderMode::Features {
+                                // Already in features mode - cycle through layers
+                                // (layer selection is handled via shader uniform, no buffer regen needed)
+                                state.feature_layer = state.feature_layer.cycle();
+                                println!("Feature layer: {}", state.feature_layer.name());
+                            } else {
+                                state.render_mode = RenderMode::Features;
+                            }
                             state.window.request_redraw();
                         }
                         PhysicalKey::Code(KeyCode::KeyR) => {
@@ -145,12 +144,12 @@ impl ApplicationHandler for App {
                             state.window.request_redraw();
                         }
                         PhysicalKey::Code(KeyCode::ArrowUp) => {
-                            if state.adjust_climate(0.1) {
+                            if state.adjust_climate(0.05) {
                                 state.window.request_redraw();
                             }
                         }
                         PhysicalKey::Code(KeyCode::ArrowDown) => {
-                            if state.adjust_climate(-0.1) {
+                            if state.adjust_climate(-0.05) {
                                 state.window.request_redraw();
                             }
                         }

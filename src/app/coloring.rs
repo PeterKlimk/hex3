@@ -5,7 +5,7 @@
 
 use glam::Vec3;
 
-use super::view::NoiseLayer;
+use super::view::{FeatureLayer, NoiseLayer};
 use hex3::geometry::Material;
 use hex3::world::{CellWaterState, PlateType, World};
 
@@ -190,6 +190,12 @@ pub fn cell_color_terrain(world: &World, cell_idx: usize) -> Vec3 {
             CellWaterState::Ocean => return ocean_color(depth),
             CellWaterState::LakeWater => return lake_color(depth),
             CellWaterState::DryBasin | CellWaterState::Land => {}
+        }
+    } else {
+        // Stage 1 fallback: use elevation < 0 as ocean proxy
+        let elev = elevation.values[cell_idx];
+        if elev < 0.0 {
+            return ocean_color(-elev);
         }
     }
 
@@ -444,4 +450,79 @@ pub fn cell_material(world: &World, cell_idx: usize) -> Material {
             Material::Land
         }
     }
+}
+
+/// Get the color for a cell based on a tectonic feature field.
+pub fn cell_color_feature(world: &World, cell_idx: usize, layer: FeatureLayer) -> Vec3 {
+    let features = world
+        .features
+        .as_ref()
+        .expect("Features must be generated");
+
+    match layer {
+        FeatureLayer::Trench => {
+            // Trench: blue scale (deeper = more blue)
+            let value = features.trench[cell_idx];
+            let t = (value / 0.2).clamp(0.0, 1.0);
+            Vec3::new(0.1, 0.15 + 0.15 * t, 0.3 + 0.6 * t)
+        }
+        FeatureLayer::Arc => {
+            // Arc: orange/red scale (higher = more red)
+            let value = features.arc[cell_idx];
+            let t = (value / 0.25).clamp(0.0, 1.0);
+            Vec3::new(0.3 + 0.6 * t, 0.2 + 0.3 * t, 0.1)
+        }
+        FeatureLayer::Ridge => {
+            // Ridge: green scale (higher = more green)
+            let value = features.ridge[cell_idx];
+            let t = (value / 0.2).clamp(0.0, 1.0);
+            Vec3::new(0.1, 0.3 + 0.6 * t, 0.15 + 0.15 * t)
+        }
+        FeatureLayer::Collision => {
+            // Collision: purple scale (higher = more purple)
+            let value = features.collision[cell_idx];
+            let t = (value / 0.35).clamp(0.0, 1.0);
+            Vec3::new(0.3 + 0.5 * t, 0.1, 0.3 + 0.5 * t)
+        }
+        FeatureLayer::Activity => {
+            // Activity: grayscale (0 = dark, 1 = white)
+            let value = features.activity[cell_idx];
+            let gray = 0.1 + 0.9 * value;
+            Vec3::new(gray, gray, gray)
+        }
+    }
+}
+
+/// Get all 5 noise layer values for a cell.
+/// Order: [Combined, Macro, Hills, Ridges, Micro]
+pub fn cell_noise_layers(world: &World, cell_idx: usize) -> [f32; 5] {
+    let elevation = world
+        .elevation
+        .as_ref()
+        .expect("Elevation must be generated");
+
+    [
+        elevation.noise_contribution[cell_idx],
+        elevation.noise_layers.macro_layer[cell_idx],
+        elevation.noise_layers.hills_layer[cell_idx],
+        elevation.noise_layers.ridge_layer[cell_idx],
+        elevation.noise_layers.micro_layer[cell_idx],
+    ]
+}
+
+/// Get all 5 feature layer values for a cell.
+/// Order: [Trench, Arc, Ridge, Collision, Activity]
+pub fn cell_feature_layers(world: &World, cell_idx: usize) -> [f32; 5] {
+    let features = world
+        .features
+        .as_ref()
+        .expect("Features must be generated");
+
+    [
+        features.trench[cell_idx],
+        features.arc[cell_idx],
+        features.ridge[cell_idx],
+        features.collision[cell_idx],
+        features.activity[cell_idx],
+    ]
 }

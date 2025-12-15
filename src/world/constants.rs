@@ -6,6 +6,12 @@ pub const CONTINENTAL_FRACTION: f32 = 0.30;
 /// Global stress scale factor (compensates for edge-length weighting).
 pub const STRESS_SCALE: f32 = 35.0;
 
+/// Scale factor for boundary forcing used by boundary-anchored features (arcs, trenches, ridges).
+///
+/// Kept separate from `STRESS_SCALE` so terrain tuning doesn't have to affect Stress-mode
+/// visualization. Defaults to the same value for backward-compatible behavior.
+pub const FEATURE_FORCE_SCALE: f32 = STRESS_SCALE;
+
 /// How far stress propagates from boundaries (in radians).
 /// 0.04 radians ≈ 2.3° ≈ 255km on Earth scale.
 pub const STRESS_DECAY_LENGTH: f32 = 0.04;
@@ -21,11 +27,39 @@ pub const DIFFUSION_MAX_ITERS: usize = 50;
 /// Convergence tolerance for early termination.
 pub const DIFFUSION_TOLERANCE: f32 = 0.001;
 
-/// Base elevation for continental plates.
+/// Base elevation for continental plate interiors.
+/// Represents typical continental elevation (~500m above sea level).
 pub const CONTINENTAL_BASE: f32 = 0.05;
 
-/// Base elevation for oceanic plates.
-pub const OCEANIC_BASE: f32 = -0.3;
+/// Depth at mid-ocean ridge crests (young, hot oceanic crust).
+/// Represents ~2500m below sea level.
+pub const RIDGE_CREST_DEPTH: f32 = -0.25;
+
+/// Depth of old oceanic crust far from ridges (abyssal plain).
+/// Represents ~4500-5000m below sea level (thermally subsided).
+pub const ABYSSAL_DEPTH: f32 = -0.45;
+
+/// Characteristic distance for oceanic thermal subsidence (radians).
+/// 0.25 rad ≈ 1600 km on Earth. Ocean floor deepens from ridge crest
+/// to abyssal depth over roughly this distance (sqrt decay).
+pub const THERMAL_SUBSIDENCE_WIDTH: f32 = 0.25;
+
+/// Elevation at continent-ocean margin (continental shelf edge).
+/// Both continental and oceanic crust meet at this depth, representing
+/// the outer continental shelf (~200-400m below sea level on Earth).
+/// This allows continental shelves to be submerged while oceanic crust
+/// rises slightly toward the margin.
+pub const MARGIN_DEPTH: f32 = -0.035;
+
+/// Width of continental shelf transition (radians).
+/// 0.04 rad ≈ 255 km on Earth. Controls how far inland the shelf/coast
+/// transition extends before reaching full continental base elevation.
+pub const CONTINENTAL_SHELF_WIDTH: f32 = 0.04;
+
+/// Width of oceanic transition from margin to abyssal plain (radians).
+/// 0.08 rad ≈ 510 km on Earth. Represents continental slope (~100 km)
+/// plus continental rise (~400 km) - the gradual descent to abyssal depths.
+pub const OCEANIC_TRANSITION_WIDTH: f32 = 0.08;
 
 /// Angular velocity range for random Euler poles.
 pub const MAX_ANGULAR_VELOCITY: f32 = 1.0;
@@ -61,7 +95,8 @@ pub const OCEAN_TENSION_MAX: f32 = 0.12;
 pub const CONV_CONT_CONT: f32 = 1.5;
 
 /// Ocean+Ocean: Volcanic island arc.
-pub const CONV_OCEAN_OCEAN: f32 = 0.4;
+/// Higher than before to enable island formation above deep ocean floor.
+pub const CONV_OCEAN_OCEAN: f32 = 0.8;
 
 /// Cont side of Cont+Ocean: Andes-style coastal mountains.
 pub const CONV_CONT_OCEAN: f32 = 1.2;
@@ -126,10 +161,10 @@ pub const NOISE_OCTAVES: usize = 4;
 // - Micro very small, mostly cosmetic
 
 // --- Stress modulation ---
-/// Stress percentile for normalization (stress values below this → 0, above → 1).
-/// Using smoothstep around this value for gradual transition.
+/// Lower stress threshold for regime weighting.
+/// Used with `STRESS_HIGH_THRESHOLD` in a smoothstep to map stress → 0..1.
 pub const STRESS_LOW_THRESHOLD: f32 = 0.05;
-/// Upper stress threshold for smoothstep normalization.
+/// Upper stress threshold for regime weighting smoothstep.
 pub const STRESS_HIGH_THRESHOLD: f32 = 0.4;
 
 // --- Macro layer (continental tilt) ---
@@ -151,7 +186,10 @@ pub const HILLS_FREQUENCY: f64 = 3.0;
 pub const HILLS_OCTAVES: usize = 3;
 /// Amplitude multiplier for oceanic plates.
 pub const HILLS_OCEANIC_MULT: f32 = 0.2;
-// Hills are suppressed by stress: amp *= (1 - stress_factor * 0.8)
+// Hills are suppressed in active compressional orogens (see TerrainNoise::sample).
+/// Downward bias applied to continental hills in extensional regimes.
+/// Helps suggest rift basins/grabens in bedrock before erosion/sedimentation.
+pub const HILLS_EXT_BIAS: f32 = 0.25;
 
 // --- Ridge layer (mountain grain) ---
 /// Base amplitude for ridge layer.
@@ -169,7 +207,7 @@ pub const RIDGE_OCEANIC_MULT: f32 = 0.15;
 // --- Micro layer (surface texture) ---
 /// Base amplitude for micro layer - cosmetic only.
 /// Note: For unified shader path, see MICRO_AMPLITUDE in unified.wgsl
-pub const MICRO_AMPLITUDE: f32 = 0.04;
+pub const MICRO_AMPLITUDE: f32 = 0.02;
 /// Frequency for micro layer (high = fine detail).
 pub const MICRO_FREQUENCY: f64 = 16.0;
 /// Octaves for micro layer.
@@ -187,22 +225,86 @@ pub const TRENCH_SENSITIVITY: f32 = 0.06;
 /// Maximum trench depth (positive magnitude; applied as negative elevation).
 pub const TRENCH_MAX_DEPTH: f32 = 0.18;
 /// Trench decay length from the boundary (radians).
-pub const TRENCH_DECAY: f32 = 0.01;
+/// 0.020 rad ≈ 127 km on Earth.
+pub const TRENCH_DECAY: f32 = 0.020;
 
 /// Volcanic arc / cordillera uplift sensitivity (sqrt response of boundary forcing).
-pub const ARC_SENSITIVITY: f32 = 0.08;
-/// Maximum arc uplift.
-pub const ARC_MAX_UPLIFT: f32 = 0.22;
+///
+/// Split by overriding plate type:
+/// - Continental: cordillera-style uplift
+/// - Oceanic: island-arc uplift, needs more headroom above deep ocean base to avoid
+///   "single-cell" emergent speckling at coarse resolutions.
+pub const ARC_CONT_SENSITIVITY: f32 = 0.12;
+pub const ARC_OCEAN_SENSITIVITY: f32 = 0.55;
+
+/// Maximum arc uplift (cap applied after sqrt response).
+pub const ARC_CONT_MAX_UPLIFT: f32 = 0.48;
+pub const ARC_OCEAN_MAX_UPLIFT: f32 = 0.55;
+
 /// Peak offset of arc uplift inland from the boundary (radians).
-pub const ARC_PEAK_DIST: f32 = 0.015;
+/// 0.045 rad ≈ 287 km on Earth (large-end: 200-350+ km inland).
+pub const ARC_CONT_PEAK_DIST: f32 = 0.045;
+pub const ARC_OCEAN_PEAK_DIST: f32 = 0.045;
+
 /// Arc band width (radians).
-pub const ARC_WIDTH: f32 = 0.012;
+/// 0.060 rad ≈ 382 km on Earth. Wider band = more cells in the arc belt.
+pub const ARC_CONT_WIDTH: f32 = 0.060;
+pub const ARC_OCEAN_WIDTH: f32 = 0.045;
+
 /// Near-boundary suppression distance for arcs (forearc gap), radians.
-pub const ARC_GAP: f32 = 0.004;
+/// 0.015 rad ≈ 96 km on Earth.
+pub const ARC_CONT_GAP: f32 = 0.015;
+pub const ARC_OCEAN_GAP: f32 = 0.015;
 
 /// Mid-ocean ridge uplift sensitivity (sqrt response of boundary forcing).
-pub const RIDGE_SENSITIVITY: f32 = 0.05;
+pub const RIDGE_SENSITIVITY: f32 = 0.006;
 /// Maximum ridge uplift.
-pub const RIDGE_MAX_UPLIFT: f32 = 0.16;
+pub const RIDGE_MAX_UPLIFT: f32 = 0.02;
 /// Ridge decay length from the boundary (radians).
-pub const RIDGE_DECAY: f32 = 0.012;
+/// Note: broad ridge swell is already captured by `thermal_oceanic_depth(ridge_distance)`;
+/// this term is meant to add a narrower axial high on top.
+/// 0.015 rad ≈ 96 km on Earth.
+pub const RIDGE_DECAY: f32 = 0.015;
+
+/// Continental collision uplift sensitivity (sqrt response).
+pub const COLLISION_SENSITIVITY: f32 = 0.10;
+/// Maximum collision uplift (Himalaya-scale).
+pub const COLLISION_MAX_UPLIFT: f32 = 0.35;
+/// Collision band width (radians). Broader than arcs.
+/// 0.080 rad ≈ 510 km on Earth (broad orogenic belts/plateaus).
+pub const COLLISION_WIDTH: f32 = 0.080;
+/// Collision peak offset from boundary (radians).
+/// 0.035 rad ≈ 223 km on Earth.
+pub const COLLISION_PEAK_DIST: f32 = 0.035;
+
+/// Decay length for tectonic activity field (radians).
+/// Controls how far "tectonically active" influence spreads from boundaries.
+pub const ACTIVITY_DECAY_LENGTH: f32 = 0.05;
+
+// Boundary classification thresholds
+
+/// Normal velocity threshold for transform classification.
+/// If |convergence| < this AND shear dominates, classify as transform.
+pub const TRANSFORM_NORMAL_THRESHOLD: f32 = 0.02;
+
+/// Ratio threshold: shear must exceed convergence by this factor to be transform.
+pub const TRANSFORM_RATIO: f32 = 2.0;
+
+// Plate-pair regime classification (ridge vs subduction vs transform)
+//
+// We classify the boundary regime per touching plate pair by aggregating kinematics over
+// all edges between the two plates, instead of per edge. This prevents tiny sign-flip
+// patches (from boundary geometry noise) from spawning large boundary-anchored features.
+
+/// Minimum total boundary length (radians) required to classify a plate-pair as
+/// convergent or divergent; shorter contacts are treated as transform/inactive.
+///
+/// 0.05 rad ≈ 318 km on Earth.
+pub const PLATE_PAIR_MIN_BOUNDARY_LENGTH: f32 = 0.05;
+
+/// Minimum boundary length (radians) that must have consistent-sign normal motion
+/// (|convergence| >= TRANSFORM_NORMAL_THRESHOLD) for a plate-pair to be classified as
+/// convergent or divergent.
+///
+/// 0.03 rad ≈ 191 km on Earth.
+pub const PLATE_PAIR_MIN_ACTIVE_LENGTH: f32 = 0.03;

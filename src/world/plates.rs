@@ -250,7 +250,6 @@ fn flood_fill_weighted<R: Rng>(
 
     // Create fBm noise generator
     let fbm: Fbm<Perlin> = Fbm::new(rng.gen())
-        .set_frequency(NOISE_FREQUENCY)
         .set_octaves(NOISE_OCTAVES);
 
     // Initialize plate states

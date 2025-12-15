@@ -117,6 +117,188 @@ impl SurfaceVertex {
     }
 }
 
+/// A vertex for layered visualization (noise layers, feature fields).
+///
+/// Stores 5 scalar values that can be selected via shader uniform,
+/// enabling instant layer switching without buffer regeneration.
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct LayeredVertex {
+    /// Position on unit sphere
+    pub position: [f32; 3],
+    /// Surface normal
+    pub normal: [f32; 3],
+    /// 5 layer values (selected by uniform in shader)
+    pub layers: [f32; 5],
+    pub _padding: f32, // Align to 16 bytes (48 bytes total = 3 * 16)
+}
+
+impl LayeredVertex {
+    pub fn new(position: Vec3, normal: Vec3, layers: [f32; 5]) -> Self {
+        Self {
+            position: position.to_array(),
+            normal: normal.to_array(),
+            layers,
+            _padding: 0.0,
+        }
+    }
+}
+
+/// A mesh with layered data for visualization modes.
+pub struct LayeredMesh {
+    /// Vertices with layer data.
+    pub vertices: Vec<LayeredVertex>,
+    /// Triangle indices (groups of 3).
+    pub indices: Vec<u32>,
+}
+
+impl LayeredMesh {
+    /// Generate a layered mesh from a Voronoi diagram.
+    ///
+    /// `layer_fn` returns 5 layer values for each cell.
+    pub fn from_voronoi<F>(voronoi: &SphericalVoronoi, layer_fn: F) -> Self
+    where
+        F: Fn(usize) -> [f32; 5],
+    {
+        let mut vertices = Vec::new();
+        let mut indices = Vec::new();
+
+        for cell in &voronoi.cells {
+            if cell.vertex_indices.len() < 3 {
+                continue;
+            }
+
+            let generator = voronoi.generators[cell.generator_index];
+            let normal = generator; // On unit sphere, normal = position
+            let layers = layer_fn(cell.generator_index);
+
+            // Fan triangulation from the generator point
+            let base_idx = vertices.len() as u32;
+
+            // Center vertex (at generator)
+            vertices.push(LayeredVertex::new(generator, normal, layers));
+
+            // Perimeter vertices
+            for &vi in &cell.vertex_indices {
+                let v = voronoi.vertices[vi];
+                vertices.push(LayeredVertex::new(v, normal, layers));
+            }
+
+            // Triangles (fan from center)
+            let n = cell.vertex_indices.len() as u32;
+            for i in 0..n {
+                indices.push(base_idx); // center
+                indices.push(base_idx + 1 + i);
+                indices.push(base_idx + 1 + (i + 1) % n);
+            }
+        }
+
+        Self { vertices, indices }
+    }
+
+    /// Project vertices to 2D equirectangular map coordinates.
+    pub fn to_map_vertices(&self) -> (Vec<LayeredVertex>, Vec<u32>) {
+        // First pass: project all vertices
+        let projected: Vec<(f32, f32)> = self
+            .vertices
+            .iter()
+            .map(|v| {
+                let p = Vec3::from_array(v.position);
+                sphere_to_equirectangular(p)
+            })
+            .collect();
+
+        // Second pass: identify cell boundaries from triangle structure
+        let mut cell_ranges: Vec<(usize, usize)> = Vec::new();
+        let mut current_fan_center: Option<u32> = None;
+        let mut cell_start = 0;
+
+        for (tri_idx, tri) in self.indices.chunks(3).enumerate() {
+            let fan_center = tri[0];
+
+            match current_fan_center {
+                None => {
+                    current_fan_center = Some(fan_center);
+                }
+                Some(prev_center) => {
+                    if fan_center != prev_center {
+                        cell_ranges.push((cell_start, tri_idx));
+                        cell_start = tri_idx;
+                        current_fan_center = Some(fan_center);
+                    }
+                }
+            }
+        }
+
+        // Don't forget the last cell
+        if !self.indices.is_empty() {
+            cell_ranges.push((cell_start, self.indices.len() / 3));
+        }
+
+        // Third pass: build output with per-cell wrapping correction
+        let mut new_vertices = Vec::with_capacity(self.vertices.len());
+        let mut new_indices = Vec::with_capacity(self.indices.len());
+
+        for (cell_start_tri, cell_end_tri) in cell_ranges {
+            // Collect all vertex indices used by this cell
+            let mut cell_vertex_indices: Vec<u32> = Vec::new();
+            for tri_idx in cell_start_tri..cell_end_tri {
+                let i = tri_idx * 3;
+                cell_vertex_indices.push(self.indices[i]);
+                cell_vertex_indices.push(self.indices[i + 1]);
+                cell_vertex_indices.push(self.indices[i + 2]);
+            }
+            cell_vertex_indices.sort_unstable();
+            cell_vertex_indices.dedup();
+
+            // Get projected x coords for this cell
+            let x_coords: Vec<f32> = cell_vertex_indices
+                .iter()
+                .map(|&idx| projected[idx as usize].0)
+                .collect();
+
+            let min_x = x_coords.iter().copied().fold(f32::INFINITY, f32::min);
+            let max_x = x_coords.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+            let x_span = max_x - min_x;
+
+            // If span > 1.0, the cell crosses the antimeridian
+            let needs_wrap = x_span > 1.0;
+
+            // Map old vertex index -> new vertex index for this cell
+            let base_new_idx = new_vertices.len() as u32;
+            let mut old_to_new: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
+
+            for (local_idx, &old_idx) in cell_vertex_indices.iter().enumerate() {
+                old_to_new.insert(old_idx, base_new_idx + local_idx as u32);
+
+                let (mut x, y) = projected[old_idx as usize];
+
+                if needs_wrap && x < 0.0 {
+                    x += 2.0;
+                }
+
+                let old_v = &self.vertices[old_idx as usize];
+                new_vertices.push(LayeredVertex {
+                    position: [x, y, 0.0],
+                    normal: [0.0, 0.0, 1.0],
+                    layers: old_v.layers,
+                    _padding: 0.0,
+                });
+            }
+
+            // Emit triangles with remapped indices
+            for tri_idx in cell_start_tri..cell_end_tri {
+                let i = tri_idx * 3;
+                new_indices.push(old_to_new[&self.indices[i]]);
+                new_indices.push(old_to_new[&self.indices[i + 1]]);
+                new_indices.push(old_to_new[&self.indices[i + 2]]);
+            }
+        }
+
+        (new_vertices, new_indices)
+    }
+}
+
 /// A renderable mesh generated from a spherical Voronoi diagram.
 pub struct VoronoiMesh {
     /// Vertices for the filled triangles.

@@ -6,12 +6,12 @@ use winit::dpi::PhysicalSize;
 use winit::window::Window;
 
 use hex3::render::{
-    CameraController, FillPipelineKind, GpuContext, IndexedDraw, LineDraw, OrbitCamera,
-    RenderScene, Renderer, SurfaceLineDraw, Uniforms,
+    CameraController, FillPipelineKind, GpuContext, IndexedDraw, LayerUniforms, LineDraw,
+    OrbitCamera, RenderScene, Renderer, SurfaceLineDraw, Uniforms,
 };
 use hex3::world::{World, DEFAULT_CLIMATE_RATIO};
 
-use super::view::{NoiseLayer, RenderMode, RiverMode, ViewMode};
+use super::view::{FeatureLayer, NoiseLayer, RenderMode, RiverMode, ViewMode};
 use super::world::{advance_to_stage_2, create_world, generate_world_buffers, WorldBuffers};
 
 pub struct AppState {
@@ -31,6 +31,7 @@ pub struct AppState {
     pub show_edges: bool,
     pub river_mode: RiverMode,
     pub noise_layer: NoiseLayer,
+    pub feature_layer: FeatureLayer,
 
     /// Rendering effect toggle
     pub hemisphere_lighting: bool,
@@ -52,7 +53,8 @@ impl AppState {
         let seed: u64 = rand::random();
         let world_data = create_world(seed);
         let noise_layer = NoiseLayer::Combined;
-        let world_buffers = generate_world_buffers(&gpu.device, &world_data, noise_layer);
+        let feature_layer = FeatureLayer::default();
+        let world_buffers = generate_world_buffers(&gpu.device, &world_data, noise_layer, feature_layer);
 
         let mut camera = OrbitCamera::new();
         camera.set_aspect(gpu.aspect());
@@ -71,7 +73,7 @@ impl AppState {
         );
         println!("Ready! Drag to rotate, scroll to zoom.");
         println!("  Tab: toggle map view");
-        println!("  1-7: Relief/Terrain/Elevation/Plates/Stress/Noise/Hydrology");
+        println!("  1-8: Relief/Terrain/Elevation/Plates/Stress/Noise/Hydrology/Features");
         println!("  E: toggle edges | V: cycle rivers (Off/Major/All)");
         println!("  H: toggle hemisphere lighting");
         println!("  R: regenerate | Space: advance stage");
@@ -91,6 +93,7 @@ impl AppState {
             show_edges: false,
             river_mode: RiverMode::Major,
             noise_layer: NoiseLayer::Combined,
+            feature_layer: FeatureLayer::default(),
             hemisphere_lighting: true,
             frame_count: 0,
             fps_update_time: Instant::now(),
@@ -108,7 +111,7 @@ impl AppState {
     pub fn regenerate_world(&mut self, seed: u64) {
         self.world_data = create_world(seed);
         self.world_buffers =
-            generate_world_buffers(&self.gpu.device, &self.world_data, self.noise_layer);
+            generate_world_buffers(&self.gpu.device, &self.world_data, self.noise_layer, self.feature_layer);
         self.seed = seed;
     }
 
@@ -120,7 +123,7 @@ impl AppState {
             1 => {
                 advance_to_stage_2(&mut self.world_data);
                 self.world_buffers =
-                    generate_world_buffers(&self.gpu.device, &self.world_data, self.noise_layer);
+                    generate_world_buffers(&self.gpu.device, &self.world_data, self.noise_layer, self.feature_layer);
                 println!("Advanced to Stage 2: Hydrosphere");
                 true
             }
@@ -155,7 +158,7 @@ impl AppState {
 
         // Now regenerate buffers (needs immutable borrow of world_data)
         self.world_buffers =
-            generate_world_buffers(&self.gpu.device, &self.world_data, self.noise_layer);
+            generate_world_buffers(&self.gpu.device, &self.world_data, self.noise_layer, self.feature_layer);
 
         println!(
             "Climate ratio: {:.2} | Lakes: {} with water, {} overflowing",
@@ -202,11 +205,27 @@ impl AppState {
 
         let mode_buffers = self.world_buffers.for_mode(self.render_mode);
 
-        // Use unified pipeline for Relief mode (material-aware lighting)
+        // Determine which pipeline to use based on render mode
         let use_unified = self.render_mode == RenderMode::Relief;
+        let use_layered_noise = self.render_mode == RenderMode::Noise;
+        let use_layered_features = self.render_mode == RenderMode::Features;
 
-        let (fill_pipeline, fill) = match (self.view_mode, use_unified) {
-            (ViewMode::Globe, true) => (
+        // Set layer uniforms if using layered pipeline
+        if use_layered_noise {
+            self.renderer.set_layer_uniforms(
+                &self.gpu,
+                &LayerUniforms::noise(self.noise_layer.idx() as u32),
+            );
+        } else if use_layered_features {
+            self.renderer.set_layer_uniforms(
+                &self.gpu,
+                &LayerUniforms::features(self.feature_layer.idx() as u32),
+            );
+        }
+
+        let (fill_pipeline, fill) = match (self.view_mode, use_unified, use_layered_noise, use_layered_features) {
+            // Unified pipeline for Relief mode
+            (ViewMode::Globe, true, _, _) => (
                 FillPipelineKind::UnifiedGlobe,
                 IndexedDraw {
                     vertex_buffer: &self.world_buffers.unified_globe_vertex_buffer,
@@ -214,7 +233,7 @@ impl AppState {
                     index_count: self.world_buffers.num_unified_globe_indices,
                 },
             ),
-            (ViewMode::Map, true) => (
+            (ViewMode::Map, true, _, _) => (
                 FillPipelineKind::UnifiedMap,
                 IndexedDraw {
                     vertex_buffer: &self.world_buffers.unified_map_vertex_buffer,
@@ -222,7 +241,42 @@ impl AppState {
                     index_count: self.world_buffers.num_unified_map_indices,
                 },
             ),
-            (ViewMode::Globe, false) => (
+            // Layered pipeline for Noise mode
+            (ViewMode::Globe, _, true, _) => (
+                FillPipelineKind::LayeredGlobe,
+                IndexedDraw {
+                    vertex_buffer: &self.world_buffers.noise_globe_vertex_buffer,
+                    index_buffer: &self.world_buffers.noise_globe_index_buffer,
+                    index_count: self.world_buffers.num_noise_globe_indices,
+                },
+            ),
+            (ViewMode::Map, _, true, _) => (
+                FillPipelineKind::LayeredMap,
+                IndexedDraw {
+                    vertex_buffer: &self.world_buffers.noise_map_vertex_buffer,
+                    index_buffer: &self.world_buffers.noise_map_index_buffer,
+                    index_count: self.world_buffers.num_noise_map_indices,
+                },
+            ),
+            // Layered pipeline for Features mode
+            (ViewMode::Globe, _, _, true) => (
+                FillPipelineKind::LayeredGlobe,
+                IndexedDraw {
+                    vertex_buffer: &self.world_buffers.features_globe_vertex_buffer,
+                    index_buffer: &self.world_buffers.features_globe_index_buffer,
+                    index_count: self.world_buffers.num_features_globe_indices,
+                },
+            ),
+            (ViewMode::Map, _, _, true) => (
+                FillPipelineKind::LayeredMap,
+                IndexedDraw {
+                    vertex_buffer: &self.world_buffers.features_map_vertex_buffer,
+                    index_buffer: &self.world_buffers.features_map_index_buffer,
+                    index_count: self.world_buffers.num_features_map_indices,
+                },
+            ),
+            // Legacy pipeline for other modes
+            (ViewMode::Globe, _, _, _) => (
                 FillPipelineKind::Globe,
                 IndexedDraw {
                     vertex_buffer: &mode_buffers.globe_vertex_buffer,
@@ -230,7 +284,7 @@ impl AppState {
                     index_count: self.world_buffers.num_globe_indices,
                 },
             ),
-            (ViewMode::Map, false) => (
+            (ViewMode::Map, _, _, _) => (
                 FillPipelineKind::Map,
                 IndexedDraw {
                     vertex_buffer: &mode_buffers.map_vertex_buffer,

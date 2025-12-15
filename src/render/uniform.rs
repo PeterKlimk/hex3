@@ -2,6 +2,35 @@ use glam::{Mat4, Vec3};
 
 use crate::world::RELIEF_SCALE;
 
+/// Uniforms for layered visualization (noise/features modes).
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct LayerUniforms {
+    /// Which layer to display (0-4).
+    pub layer_index: u32,
+    /// Colormap mode: 0 = noise, 1 = features.
+    pub colormap_mode: u32,
+    pub _padding: [u32; 2],
+}
+
+impl LayerUniforms {
+    pub fn noise(layer_index: u32) -> Self {
+        Self {
+            layer_index,
+            colormap_mode: 0,
+            _padding: [0; 2],
+        }
+    }
+
+    pub fn features(layer_index: u32) -> Self {
+        Self {
+            layer_index,
+            colormap_mode: 1,
+            _padding: [0; 2],
+        }
+    }
+}
+
 /// Uniforms for the main shader.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]

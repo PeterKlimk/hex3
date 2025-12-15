@@ -71,6 +71,67 @@ impl NoiseLayer {
             Self::Micro => "Micro",
         }
     }
+
+    /// Get the index of this layer (for shader uniform).
+    pub fn idx(self) -> usize {
+        match self {
+            Self::Combined => 0,
+            Self::Macro => 1,
+            Self::Hills => 2,
+            Self::Ridges => 3,
+            Self::Micro => 4,
+        }
+    }
+}
+
+/// Which tectonic feature field to visualize in Features mode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum FeatureLayer {
+    /// Trench depth (subduction)
+    #[default]
+    Trench,
+    /// Volcanic arc uplift
+    Arc,
+    /// Mid-ocean ridge uplift
+    Ridge,
+    /// Continental collision uplift
+    Collision,
+    /// Tectonic activity (noise modulator)
+    Activity,
+}
+
+impl FeatureLayer {
+    /// Cycle to the next feature layer view.
+    pub fn cycle(self) -> Self {
+        match self {
+            Self::Trench => Self::Arc,
+            Self::Arc => Self::Ridge,
+            Self::Ridge => Self::Collision,
+            Self::Collision => Self::Activity,
+            Self::Activity => Self::Trench,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Trench => "Trench",
+            Self::Arc => "Arc",
+            Self::Ridge => "Ridge",
+            Self::Collision => "Collision",
+            Self::Activity => "Activity",
+        }
+    }
+
+    /// Get the index of this layer (for shader uniform).
+    pub fn idx(self) -> usize {
+        match self {
+            Self::Trench => 0,
+            Self::Arc => 1,
+            Self::Ridge => 2,
+            Self::Collision => 3,
+            Self::Activity => 4,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -89,10 +150,12 @@ pub enum RenderMode {
     Noise,
     /// Flow accumulation and drainage
     Hydrology,
+    /// Tectonic feature fields (trench, arc, ridge, collision, activity)
+    Features,
 }
 
 impl RenderMode {
-    pub const COUNT: usize = 7;
+    pub const COUNT: usize = 8;
 
     pub fn idx(self) -> usize {
         match self {
@@ -103,6 +166,7 @@ impl RenderMode {
             Self::Stress => 4,
             Self::Noise => 5,
             Self::Hydrology => 6,
+            Self::Features => 7,
         }
     }
 
@@ -115,6 +179,7 @@ impl RenderMode {
             Self::Stress => "Stress",
             Self::Noise => "Noise",
             Self::Hydrology => "Hydrology",
+            Self::Features => "Features",
         }
     }
 

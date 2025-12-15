@@ -2,15 +2,16 @@ use std::time::Instant;
 
 use glam::Vec3;
 
-use hex3::geometry::{Material, MeshVertex, SurfaceVertex, UnifiedMesh, UnifiedVertex, VoronoiMesh};
+use hex3::geometry::{LayeredMesh, Material, MeshVertex, SurfaceVertex, UnifiedMesh, UnifiedVertex, VoronoiMesh};
 use hex3::render::{create_index_buffer, create_vertex_buffer};
 use hex3::world::{PlateType, World};
 
 use super::coloring::{
-    cell_color_elevation, cell_color_hydrology, cell_color_noise, cell_color_plate,
-    cell_color_stress, cell_color_terrain, cell_material,
+    cell_color_elevation, cell_color_feature, cell_color_hydrology, cell_color_noise,
+    cell_color_plate, cell_color_stress, cell_color_terrain, cell_feature_layers,
+    cell_material, cell_noise_layers,
 };
-use super::view::{NoiseLayer, RenderMode};
+use super::view::{FeatureLayer, NoiseLayer, RenderMode};
 use super::visualization::{build_boundary_edge_colors, generate_pole_markers, generate_velocity_arrows};
 
 pub const NUM_CELLS: usize = 40000;
@@ -78,6 +79,19 @@ pub struct WorldBuffers {
     pub unified_map_index_buffer: wgpu::Buffer,
     pub num_unified_globe_indices: u32,
     pub num_unified_map_indices: u32,
+    // Layered buffers for noise/features visualization (instant layer switching)
+    pub noise_globe_vertex_buffer: wgpu::Buffer,
+    pub noise_globe_index_buffer: wgpu::Buffer,
+    pub noise_map_vertex_buffer: wgpu::Buffer,
+    pub noise_map_index_buffer: wgpu::Buffer,
+    pub num_noise_globe_indices: u32,
+    pub num_noise_map_indices: u32,
+    pub features_globe_vertex_buffer: wgpu::Buffer,
+    pub features_globe_index_buffer: wgpu::Buffer,
+    pub features_map_vertex_buffer: wgpu::Buffer,
+    pub features_map_index_buffer: wgpu::Buffer,
+    pub num_features_globe_indices: u32,
+    pub num_features_map_indices: u32,
 }
 
 impl WorldBuffers {
@@ -125,6 +139,11 @@ pub fn create_world(seed: u64) -> World {
     print!("Generating stress... ");
     let start = Instant::now();
     world.generate_stress();
+    println!("{:.1}ms", start.elapsed().as_secs_f64() * 1000.0);
+
+    print!("Generating features... ");
+    let start = Instant::now();
+    world.generate_features();
     println!("{:.1}ms", start.elapsed().as_secs_f64() * 1000.0);
 
     print!("Generating elevation... ");
@@ -210,6 +229,7 @@ pub fn generate_world_buffers(
     device: &wgpu::Device,
     world: &World,
     noise_layer: NoiseLayer,
+    feature_layer: FeatureLayer,
 ) -> WorldBuffers {
     let voronoi = &world.tessellation.voronoi;
     let elevation = world.elevation.as_ref().unwrap();
@@ -272,6 +292,12 @@ pub fn generate_world_buffers(
         VoronoiMesh::from_voronoi_with_colors(voronoi, |i| cell_color_noise(world, i, noise_layer));
     let mesh_hydrology =
         VoronoiMesh::from_voronoi_with_colors(voronoi, |i| cell_color_hydrology(world, i));
+    let mesh_features =
+        VoronoiMesh::from_voronoi_with_colors(voronoi, |i| cell_color_feature(world, i, feature_layer));
+
+    // Layered meshes for instant layer switching (all 5 layers baked in)
+    let layered_noise = LayeredMesh::from_voronoi(voronoi, |i| cell_noise_layers(world, i));
+    let layered_features = LayeredMesh::from_voronoi(voronoi, |i| cell_feature_layers(world, i));
 
     // Subtle gray for cell borders
     let edge_color = Vec3::new(0.35, 0.35, 0.35);
@@ -360,9 +386,13 @@ pub fn generate_world_buffers(
     let (map_vertices_relief, _) = mesh_relief.to_map_vertices();
     let (map_vertices_noise, _) = mesh_noise.to_map_vertices();
     let (map_vertices_hydrology, _) = mesh_hydrology.to_map_vertices();
+    let (map_vertices_features, _) = mesh_features.to_map_vertices();
     let (map_edge_vertices, map_edge_indices) = mesh_terrain.to_map_edge_vertices(voronoi);
     // Unified mesh map projection
     let (unified_map_vertices, unified_map_indices) = unified_mesh.to_map_vertices();
+    // Layered mesh map projections
+    let (noise_map_vertices, noise_map_indices) = layered_noise.to_map_vertices();
+    let (features_map_vertices, features_map_indices) = layered_features.to_map_vertices();
     println!("{:.1}ms", start.elapsed().as_secs_f64() * 1000.0);
 
     let terrain_buffers = RenderModeBuffers {
@@ -482,8 +512,27 @@ pub fn generate_world_buffers(
         num_globe_edge_vertices: edge_vertices_default.len() as u32,
     };
 
+    let features_buffers = RenderModeBuffers {
+        globe_vertex_buffer: create_vertex_buffer(
+            device,
+            &mesh_features.vertices,
+            "features_globe_vertex",
+        ),
+        map_vertex_buffer: create_vertex_buffer(
+            device,
+            &map_vertices_features,
+            "features_map_vertex",
+        ),
+        globe_edge_vertex_buffer: create_vertex_buffer(
+            device,
+            &edge_vertices_default,
+            "features_globe_edge_vertex",
+        ),
+        num_globe_edge_vertices: edge_vertices_default.len() as u32,
+    };
+
     WorldBuffers {
-        // Order matches RenderMode: Relief, Terrain, Elevation, Plates, Stress, Noise, Hydrology
+        // Order matches RenderMode: Relief, Terrain, Elevation, Plates, Stress, Noise, Hydrology, Features
         mode_buffers: [
             relief_buffers,
             terrain_buffers,
@@ -492,6 +541,7 @@ pub fn generate_world_buffers(
             stress_buffers,
             noise_buffers,
             hydrology_buffers,
+            features_buffers,
         ],
         map_edge_vertex_buffer: create_vertex_buffer(
             device,
@@ -543,6 +593,19 @@ pub fn generate_world_buffers(
         unified_map_index_buffer: create_index_buffer(device, &unified_map_indices, "unified_map_index"),
         num_unified_globe_indices: unified_mesh.indices.len() as u32,
         num_unified_map_indices: unified_map_indices.len() as u32,
+        // Layered mesh buffers (instant layer switching)
+        noise_globe_vertex_buffer: create_vertex_buffer(device, &layered_noise.vertices, "noise_globe_vertex"),
+        noise_globe_index_buffer: create_index_buffer(device, &layered_noise.indices, "noise_globe_index"),
+        noise_map_vertex_buffer: create_vertex_buffer(device, &noise_map_vertices, "noise_map_vertex"),
+        noise_map_index_buffer: create_index_buffer(device, &noise_map_indices, "noise_map_index"),
+        num_noise_globe_indices: layered_noise.indices.len() as u32,
+        num_noise_map_indices: noise_map_indices.len() as u32,
+        features_globe_vertex_buffer: create_vertex_buffer(device, &layered_features.vertices, "features_globe_vertex"),
+        features_globe_index_buffer: create_index_buffer(device, &layered_features.indices, "features_globe_index"),
+        features_map_vertex_buffer: create_vertex_buffer(device, &features_map_vertices, "features_map_vertex"),
+        features_map_index_buffer: create_index_buffer(device, &features_map_indices, "features_map_index"),
+        num_features_globe_indices: layered_features.indices.len() as u32,
+        num_features_map_indices: features_map_indices.len() as u32,
     }
 }
 
