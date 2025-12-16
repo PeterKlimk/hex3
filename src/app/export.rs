@@ -21,10 +21,7 @@ pub fn export_world(world: &World, seed: u64, path: &Path) {
     let file = File::create(path).expect("Failed to create export file");
 
     // Check if we should gzip based on extension
-    let is_gzip = path
-        .extension()
-        .map(|ext| ext == "gz")
-        .unwrap_or(false);
+    let is_gzip = path.extension().map(|ext| ext == "gz").unwrap_or(false);
 
     if is_gzip {
         let encoder = GzEncoder::new(BufWriter::new(file), Compression::default());
@@ -129,7 +126,11 @@ impl WorldExport {
             plate_id.push(plates.cell_plate[i]);
 
             let ptype = dynamics.plate_type(plates.cell_plate[i] as usize);
-            plate_type.push(if ptype == PlateType::Continental { 0 } else { 1 });
+            plate_type.push(if ptype == PlateType::Continental {
+                0
+            } else {
+                1
+            });
 
             // Latitude from cell center (z coordinate on unit sphere)
             let center = world.tessellation.cell_center(i);
@@ -193,7 +194,9 @@ impl WorldExport {
             let euler = dynamics.euler_pole(pid);
 
             // Count cells in this plate
-            let cell_count = plates.cell_plate.iter()
+            let cell_count = plates
+                .cell_plate
+                .iter()
                 .filter(|&&p| p as usize == pid)
                 .count();
 

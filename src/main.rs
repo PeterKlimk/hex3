@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use clap::Parser;
 use winit::event_loop::{ControlFlow, EventLoop};
 
-use app::world::{advance_to_stage_2, advance_to_stage_3, create_world};
+use app::world::{advance_to_stage_2, advance_to_stage_3, create_world_with_options};
 
 /// Hex3 - Spherical Voronoi planet generator
 #[derive(Parser, Debug)]
@@ -26,6 +26,10 @@ struct Cli {
     /// Export world data to file (supports .json and .json.gz)
     #[arg(long, value_name = "FILE")]
     export: Option<PathBuf>,
+
+    /// Use GPU-style Voronoi algorithm (experimental)
+    #[arg(long)]
+    gpu_voronoi: bool,
 
     /// Legacy flag: equivalent to --stage 2
     #[arg(long, hide = true)]
@@ -48,20 +52,23 @@ fn main() {
     };
 
     if cli.headless {
-        run_headless(cli.seed, target_stage, cli.export);
+        run_headless(cli.seed, target_stage, cli.export, cli.gpu_voronoi);
     } else {
-        run_interactive(cli.seed, target_stage, cli.export);
+        run_interactive(cli.seed, target_stage, cli.export, cli.gpu_voronoi);
     }
 }
 
-fn run_headless(seed: Option<u64>, target_stage: u32, export_path: Option<PathBuf>) {
+fn run_headless(seed: Option<u64>, target_stage: u32, export_path: Option<PathBuf>, gpu_voronoi: bool) {
     let seed = seed.unwrap_or_else(rand::random);
-    println!("Headless mode: seed={}, target_stage={}", seed, target_stage);
+    println!(
+        "Headless mode: seed={}, target_stage={}, gpu_voronoi={}",
+        seed, target_stage, gpu_voronoi
+    );
 
     // Generate world
     print!("Generating world... ");
     let start = std::time::Instant::now();
-    let mut world = create_world(seed);
+    let mut world = create_world_with_options(seed, gpu_voronoi);
     println!("{:.1}ms", start.elapsed().as_secs_f64() * 1000.0);
 
     // Advance to target stage
@@ -90,7 +97,7 @@ fn run_headless(seed: Option<u64>, target_stage: u32, export_path: Option<PathBu
     }
 }
 
-fn run_interactive(seed: Option<u64>, target_stage: u32, export_path: Option<PathBuf>) {
+fn run_interactive(seed: Option<u64>, target_stage: u32, export_path: Option<PathBuf>, gpu_voronoi: bool) {
     let event_loop = EventLoop::new().expect("Failed to create event loop");
     event_loop.set_control_flow(ControlFlow::Wait);
 
@@ -98,6 +105,7 @@ fn run_interactive(seed: Option<u64>, target_stage: u32, export_path: Option<Pat
         seed,
         target_stage,
         export_path,
+        gpu_voronoi,
     };
 
     let mut app = app::App::new(config);

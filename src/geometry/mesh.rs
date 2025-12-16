@@ -196,8 +196,8 @@ impl LayeredMesh {
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
 
-        for cell in &voronoi.cells {
-            if cell.vertex_indices.len() < 3 {
+        for cell in voronoi.iter_cells() {
+            if cell.len() < 3 {
                 continue;
             }
 
@@ -216,7 +216,8 @@ impl LayeredMesh {
 
             // Center vertex (at generator)
             let center_wrap = wrap_offsets.as_ref().map(|w| w[0]).unwrap_or(0.0);
-            vertices.push(LayeredVertex::new(generator, normal, layers).with_wrap_offset(center_wrap));
+            vertices
+                .push(LayeredVertex::new(generator, normal, layers).with_wrap_offset(center_wrap));
 
             // Perimeter vertices
             for (local_idx, &vi) in cell.vertex_indices.iter().enumerate() {
@@ -476,8 +477,8 @@ impl UnifiedMesh {
     {
         // Step 1: Precompute materials and elevations for all cells
         let cell_materials: Vec<Material> =
-            (0..voronoi.cells.len()).map(|i| material_fn(i)).collect();
-        let cell_elevations: Vec<f32> = (0..voronoi.cells.len()).map(|i| elevation_fn(i)).collect();
+            (0..voronoi.num_cells()).map(|i| material_fn(i)).collect();
+        let cell_elevations: Vec<f32> = (0..voronoi.num_cells()).map(|i| elevation_fn(i)).collect();
 
         // Step 2: For each vertex, compute elevation based on adjacent cell types
         // Track: sum of land elevations, count of land cells, water_level if any water adjacent
@@ -485,12 +486,13 @@ impl UnifiedMesh {
         let mut vertex_land_count = vec![0u32; voronoi.vertices.len()];
         let mut vertex_water_level = vec![None::<f32>; voronoi.vertices.len()];
 
-        for (cell_idx, cell) in voronoi.cells.iter().enumerate() {
+        for cell_idx in 0..voronoi.num_cells() {
+            let cell = voronoi.cell(cell_idx);
             let material = cell_materials[cell_idx];
             let elevation = cell_elevations[cell_idx];
             let is_water = matches!(material, Material::Ocean | Material::Lake);
 
-            for &vertex_idx in &cell.vertex_indices {
+            for &vertex_idx in cell.vertex_indices {
                 if is_water {
                     // Track water level (use max in case of adjacent lakes at different levels)
                     vertex_water_level[vertex_idx] = Some(
@@ -534,8 +536,9 @@ impl UnifiedMesh {
         let mut indices = Vec::new();
         let mut edge_set: HashSet<(u32, u32)> = HashSet::new();
 
-        for (cell_idx, cell) in voronoi.cells.iter().enumerate() {
-            if cell.vertex_indices.len() < 3 {
+        for cell_idx in 0..voronoi.num_cells() {
+            let cell = voronoi.cell(cell_idx);
+            if cell.len() < 3 {
                 continue;
             }
 
@@ -572,11 +575,11 @@ impl UnifiedMesh {
                     vertex_elevations[vertex_idx]
                 };
                 // Use sphere normal for smooth lighting (no terrain shadows)
-                let wrap_offset = wrap_offsets
-                    .as_ref()
-                    .map(|w| w[local_idx])
-                    .unwrap_or(0.0);
-                vertices.push(UnifiedVertex::new(pos, pos, color, elevation, material).with_wrap_offset(wrap_offset));
+                let wrap_offset = wrap_offsets.as_ref().map(|w| w[local_idx]).unwrap_or(0.0);
+                vertices.push(
+                    UnifiedVertex::new(pos, pos, color, elevation, material)
+                        .with_wrap_offset(wrap_offset),
+                );
             }
 
             // Fan triangulation from first vertex
@@ -776,7 +779,10 @@ pub fn sphere_to_equirectangular(p: Vec3) -> (f32, f32) {
 /// to join the majority.
 pub fn compute_cell_wrap_offsets(positions: &[Vec3]) -> Option<Vec<f32>> {
     // Project all vertices to get x coordinates
-    let x_coords: Vec<f32> = positions.iter().map(|&p| sphere_to_equirectangular(p).0).collect();
+    let x_coords: Vec<f32> = positions
+        .iter()
+        .map(|&p| sphere_to_equirectangular(p).0)
+        .collect();
 
     let min_x = x_coords.iter().copied().fold(f32::INFINITY, f32::min);
     let max_x = x_coords.iter().copied().fold(f32::NEG_INFINITY, f32::max);
@@ -945,9 +951,10 @@ impl VoronoiMesh {
         let mut vertex_elevation_sum = vec![0.0f32; voronoi.vertices.len()];
         let mut vertex_cell_count = vec![0u32; voronoi.vertices.len()];
 
-        for (cell_idx, cell) in voronoi.cells.iter().enumerate() {
+        for cell_idx in 0..voronoi.num_cells() {
+            let cell = voronoi.cell(cell_idx);
             let elevation = elevation_fn(cell_idx);
-            for &vertex_idx in &cell.vertex_indices {
+            for &vertex_idx in cell.vertex_indices {
                 vertex_elevation_sum[vertex_idx] += elevation;
                 vertex_cell_count[vertex_idx] += 1;
             }
@@ -964,8 +971,9 @@ impl VoronoiMesh {
         let mut indices = Vec::new();
         let mut edge_set: HashSet<(u32, u32)> = HashSet::new();
 
-        for (cell_idx, cell) in voronoi.cells.iter().enumerate() {
-            if cell.vertex_indices.len() < 3 {
+        for cell_idx in 0..voronoi.num_cells() {
+            let cell = voronoi.cell(cell_idx);
+            if cell.len() < 3 {
                 continue;
             }
 
@@ -988,11 +996,11 @@ impl VoronoiMesh {
                 let original_pos = voronoi.vertices[vertex_idx];
                 let displacement = 1.0 + vertex_elevations[vertex_idx] * RELIEF_SCALE;
                 let displaced_pos = original_pos * displacement;
-                let wrap_offset = wrap_offsets
-                    .as_ref()
-                    .map(|w| w[local_idx])
-                    .unwrap_or(0.0);
-                vertices.push(MeshVertex::new(displaced_pos, original_pos, color).with_wrap_offset(wrap_offset));
+                let wrap_offset = wrap_offsets.as_ref().map(|w| w[local_idx]).unwrap_or(0.0);
+                vertices.push(
+                    MeshVertex::new(displaced_pos, original_pos, color)
+                        .with_wrap_offset(wrap_offset),
+                );
             }
 
             // Fan triangulation from first vertex
@@ -1061,20 +1069,21 @@ impl VoronoiMesh {
 
         // Precompute materials and elevations
         let cell_materials: Vec<Material> =
-            (0..voronoi.cells.len()).map(|i| material_fn(i)).collect();
-        let cell_elevations: Vec<f32> = (0..voronoi.cells.len()).map(|i| elevation_fn(i)).collect();
+            (0..voronoi.num_cells()).map(|i| material_fn(i)).collect();
+        let cell_elevations: Vec<f32> = (0..voronoi.num_cells()).map(|i| elevation_fn(i)).collect();
 
         // Water-aware vertex elevation (same logic as UnifiedMesh)
         let mut vertex_land_sum = vec![0.0f32; voronoi.vertices.len()];
         let mut vertex_land_count = vec![0u32; voronoi.vertices.len()];
         let mut vertex_water_level = vec![None::<f32>; voronoi.vertices.len()];
 
-        for (cell_idx, cell) in voronoi.cells.iter().enumerate() {
+        for cell_idx in 0..voronoi.num_cells() {
+            let cell = voronoi.cell(cell_idx);
             let material = cell_materials[cell_idx];
             let elevation = cell_elevations[cell_idx];
             let is_water = matches!(material, Material::Ocean | Material::Lake);
 
-            for &vertex_idx in &cell.vertex_indices {
+            for &vertex_idx in cell.vertex_indices {
                 if is_water {
                     vertex_water_level[vertex_idx] = Some(
                         vertex_water_level[vertex_idx]
@@ -1107,8 +1116,8 @@ impl VoronoiMesh {
         let mut processed: HashSet<(usize, usize)> = HashSet::new();
 
         // Collect all unique edges from all cells
-        for cell in &voronoi.cells {
-            let n = cell.vertex_indices.len();
+        for cell in voronoi.iter_cells() {
+            let n = cell.len();
             for i in 0..n {
                 let a = cell.vertex_indices[i];
                 let b = cell.vertex_indices[(i + 1) % n];

@@ -16,8 +16,8 @@ pub fn lloyd_relax(points: &mut [Vec3], iterations: usize) {
 fn lloyd_step(points: &mut [Vec3]) {
     let voronoi = SphericalVoronoi::compute(points);
 
-    for cell in &voronoi.cells {
-        if cell.vertex_indices.len() < 3 {
+    for cell in voronoi.iter_cells() {
+        if cell.len() < 3 {
             continue;
         }
 

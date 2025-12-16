@@ -2,6 +2,10 @@
 name = "hex3"
 version = "0.1.0"
 edition = "2021"
+default-run = "hex3"
+
+[profile.release]
+debug = true
 
 [dependencies]
 # Graphics
@@ -28,6 +32,9 @@ qhull-enhanced = "0.1"
 
 # Spatial indexing
 kiddo = "4"
+
+# Fast hashing for integer keys
+rustc-hash = "2"
 
 # CLI and serialization
 clap = { version = "4", features = ["derive"] }

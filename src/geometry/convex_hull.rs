@@ -28,7 +28,7 @@ impl ConvexHull {
         let qh = Qh::builder()
             .compute(true)
             .no_near_inside(true) // Q8: no interior points to handle
-            .no_narrow(true)      // Q10: not a narrow distribution
+            .no_narrow(true) // Q10: not a narrow distribution
             .build_from_iter(pts)
             .expect("Failed to compute convex hull");
 

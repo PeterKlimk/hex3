@@ -83,8 +83,25 @@ impl World {
     /// This only generates the tessellation. Call generation methods
     /// to build up additional layers.
     pub fn new(seed: u64, num_cells: usize, lloyd_iterations: usize) -> Self {
+        Self::new_with_options(seed, num_cells, lloyd_iterations, false)
+    }
+
+    /// Create a new world with options.
+    ///
+    /// If `gpu_voronoi` is true, uses the GPU-style half-space clipping algorithm
+    /// instead of convex hull duality for Voronoi computation.
+    pub fn new_with_options(
+        seed: u64,
+        num_cells: usize,
+        lloyd_iterations: usize,
+        gpu_voronoi: bool,
+    ) -> Self {
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
-        let tessellation = Tessellation::generate(num_cells, lloyd_iterations, &mut rng);
+        let tessellation = if gpu_voronoi {
+            Tessellation::generate_gpu_style(num_cells, lloyd_iterations, &mut rng)
+        } else {
+            Tessellation::generate(num_cells, lloyd_iterations, &mut rng)
+        };
 
         Self {
             seed,

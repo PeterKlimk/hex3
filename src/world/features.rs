@@ -221,12 +221,10 @@ impl FeatureFields {
                         // No subduction polarity = continent-continent collision
                         if b.type_a == PlateType::Continental && b.type_b == PlateType::Continental
                         {
-                            collision_seed_strength[b.cell_a] +=
-                                force_a * area_scale(b.cell_a);
+                            collision_seed_strength[b.cell_a] += force_a * area_scale(b.cell_a);
                             collision_seed_dist0[b.cell_a] =
                                 collision_seed_dist0[b.cell_a].min(dist0_a);
-                            collision_seed_strength[b.cell_b] +=
-                                force_b * area_scale(b.cell_b);
+                            collision_seed_strength[b.cell_b] += force_b * area_scale(b.cell_b);
                             collision_seed_dist0[b.cell_b] =
                                 collision_seed_dist0[b.cell_b].min(dist0_b);
                         }
@@ -243,12 +241,10 @@ impl FeatureFields {
                     // Mid-ocean ridges for ocean-ocean divergence
                     if b.type_a == PlateType::Oceanic && b.type_b == PlateType::Oceanic {
                         let force = opening * DIV_OCEAN_OCEAN * b.edge_length * FEATURE_FORCE_SCALE;
-                        ridge_seed_strength_ocean[b.cell_a] +=
-                            force * area_scale(b.cell_a);
+                        ridge_seed_strength_ocean[b.cell_a] += force * area_scale(b.cell_a);
                         ridge_seed_dist0_ocean[b.cell_a] =
                             ridge_seed_dist0_ocean[b.cell_a].min(dist0_a);
-                        ridge_seed_strength_ocean[b.cell_b] +=
-                            force * area_scale(b.cell_b);
+                        ridge_seed_strength_ocean[b.cell_b] += force * area_scale(b.cell_b);
                         ridge_seed_dist0_ocean[b.cell_b] =
                             ridge_seed_dist0_ocean[b.cell_b].min(dist0_b);
                     }
@@ -373,8 +369,7 @@ impl FeatureFields {
         let mut arc_shape_noise = vec![0.0f32; num_cells];
 
         // Additive noise for oceanic arc height variation.
-        let arc_noise_fbm: Fbm<Perlin> =
-            Fbm::new(ARC_NOISE_SEED).set_octaves(ARC_NOISE_OCTAVES);
+        let arc_noise_fbm: Fbm<Perlin> = Fbm::new(ARC_NOISE_SEED).set_octaves(ARC_NOISE_OCTAVES);
 
         for i in 0..num_cells {
             let plate_type = dynamics.plate_type(plates.cell_plate[i] as usize);
@@ -457,8 +452,7 @@ impl FeatureFields {
                         COLLISION_SENSITIVITY,
                         COLLISION_MAX_UPLIFT,
                     );
-                    collision[i] =
-                        uplift * gaussian_band(d, COLLISION_PEAK_DIST, COLLISION_WIDTH);
+                    collision[i] = uplift * gaussian_band(d, COLLISION_PEAK_DIST, COLLISION_WIDTH);
                 }
             }
         }
@@ -564,8 +558,9 @@ fn build_cell_pair_edge_midpoints(tessellation: &Tessellation) -> HashMap<(usize
     let voronoi = &tessellation.voronoi;
     let mut edge_to_cells: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
 
-    for (cell_idx, cell) in voronoi.cells.iter().enumerate() {
-        let verts = &cell.vertex_indices;
+    for cell_idx in 0..voronoi.num_cells() {
+        let cell = voronoi.cell(cell_idx);
+        let verts = cell.vertex_indices;
         let n = verts.len();
         for i in 0..n {
             let a = verts[i];
@@ -829,8 +824,7 @@ fn compute_diffused_field(
     // At ~10k cells, mean_neighbor_dist ≈ 0.06 rad. Scale proportionally.
     const REFERENCE_NEIGHBOR_DIST: f32 = 0.06;
     let resolution_scale = (REFERENCE_NEIGHBOR_DIST / mean_neighbor_dist).max(1.0);
-    let adaptive_max_iters =
-        ((DIFFUSION_MAX_ITERS as f32) * resolution_scale).ceil() as usize;
+    let adaptive_max_iters = ((DIFFUSION_MAX_ITERS as f32) * resolution_scale).ceil() as usize;
 
     // Build plate membership lists
     let mut plate_cells: Vec<Vec<usize>> = vec![Vec::new(); num_plates];
@@ -964,4 +958,3 @@ pub fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
     let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
 }
-

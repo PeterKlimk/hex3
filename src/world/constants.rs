@@ -242,7 +242,6 @@ pub const ARC_OCEAN_PEAK_DIST: f32 = 0.04;
 pub const ARC_CONT_WIDTH: f32 = 0.05;
 pub const ARC_OCEAN_WIDTH: f32 = 0.04;
 
-
 // Oceanic arc noise (multiplicative modulation for island clustering).
 // Noise determines which parts of the arc form islands vs remain underwater.
 /// Seed for arc noise.
@@ -361,4 +360,4 @@ pub const TERRAIN_RESISTANCE: f32 = 4.0;
 pub const PROJECTION_ITERATIONS: usize = 50;
 
 /// SOR relaxation factor (1.0-1.9, higher = faster but less stable).
-pub const SOR_OMEGA: f32 = 1.5;
+pub const SOR_OMEGA: f32 = 1.0;

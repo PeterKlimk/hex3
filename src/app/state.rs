@@ -16,7 +16,7 @@ use hex3::world::World;
 use super::view::{ClimateLayer, FeatureLayer, NoiseLayer, RenderMode, RiverMode, ViewMode};
 use super::visualization::WindParticles;
 use super::world::{
-    advance_to_stage_2, advance_to_stage_3, create_world, generate_colored_mesh,
+    advance_to_stage_2, advance_to_stage_3, create_world_with_options, generate_colored_mesh,
     generate_wind_particle_buffer, generate_world_buffers, WorldBuffers,
 };
 
@@ -33,6 +33,7 @@ pub struct AppState {
     pub world_data: World,
     pub world_buffers: WorldBuffers,
     pub seed: u64,
+    pub gpu_voronoi: bool,
 
     pub show_edges: bool,
     pub river_mode: RiverMode,
@@ -54,7 +55,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub async fn new(window: Arc<Window>, seed: u64) -> Self {
+    pub async fn new(window: Arc<Window>, seed: u64, gpu_voronoi: bool) -> Self {
         let total_start = Instant::now();
 
         print!("Initializing GPU... ");
@@ -62,7 +63,7 @@ impl AppState {
         let gpu = GpuContext::new(window.clone()).await;
         println!("{:.1}ms", start.elapsed().as_secs_f64() * 1000.0);
 
-        let world_data = create_world(seed);
+        let world_data = create_world_with_options(seed, gpu_voronoi);
         let world_buffers = generate_world_buffers(&gpu.device, &world_data);
 
         let mut camera = OrbitCamera::new();
@@ -100,6 +101,7 @@ impl AppState {
             world_data,
             world_buffers,
             seed,
+            gpu_voronoi,
             show_edges: false,
             river_mode: RiverMode::Major,
             noise_layer: NoiseLayer::Combined,
@@ -122,7 +124,7 @@ impl AppState {
     }
 
     pub fn regenerate_world(&mut self, seed: u64) {
-        self.world_data = create_world(seed);
+        self.world_data = create_world_with_options(seed, self.gpu_voronoi);
         self.world_buffers = generate_world_buffers(&self.gpu.device, &self.world_data);
         self.seed = seed;
         self.rng = ChaCha8Rng::seed_from_u64(seed);
@@ -152,8 +154,7 @@ impl AppState {
         match current {
             1 => {
                 advance_to_stage_2(&mut self.world_data);
-                self.world_buffers =
-                    generate_world_buffers(&self.gpu.device, &self.world_data);
+                self.world_buffers = generate_world_buffers(&self.gpu.device, &self.world_data);
                 // Create wind particles now that atmosphere exists
                 self.wind_particles = Some(WindParticles::new(
                     &self.world_data.tessellation,
@@ -164,8 +165,7 @@ impl AppState {
             }
             2 => {
                 advance_to_stage_3(&mut self.world_data);
-                self.world_buffers =
-                    generate_world_buffers(&self.gpu.device, &self.world_data);
+                self.world_buffers = generate_world_buffers(&self.gpu.device, &self.world_data);
                 println!("Advanced to Stage 3: Hydrosphere");
                 true
             }
@@ -319,22 +319,18 @@ impl AppState {
                 // Relief mode: use triangle-based rivers
                 let mesh = match self.river_mode {
                     RiverMode::Off => None,
-                    RiverMode::Major => {
-                        (self.world_buffers.num_river_mesh_major_indices > 0).then_some(
-                            IndexedDraw {
-                                vertex_buffer: &self.world_buffers.river_mesh_major_vertex_buffer,
-                                index_buffer: &self.world_buffers.river_mesh_major_index_buffer,
-                                index_count: self.world_buffers.num_river_mesh_major_indices,
-                            },
-                        )
-                    }
-                    RiverMode::All => {
-                        (self.world_buffers.num_river_mesh_all_indices > 0).then_some(IndexedDraw {
+                    RiverMode::Major => (self.world_buffers.num_river_mesh_major_indices > 0)
+                        .then_some(IndexedDraw {
+                            vertex_buffer: &self.world_buffers.river_mesh_major_vertex_buffer,
+                            index_buffer: &self.world_buffers.river_mesh_major_index_buffer,
+                            index_count: self.world_buffers.num_river_mesh_major_indices,
+                        }),
+                    RiverMode::All => (self.world_buffers.num_river_mesh_all_indices > 0)
+                        .then_some(IndexedDraw {
                             vertex_buffer: &self.world_buffers.river_mesh_all_vertex_buffer,
                             index_buffer: &self.world_buffers.river_mesh_all_index_buffer,
                             index_count: self.world_buffers.num_river_mesh_all_indices,
-                        })
-                    }
+                        }),
                 };
                 (None, mesh)
             } else {
@@ -362,7 +358,11 @@ impl AppState {
                 (&mut self.wind_particles, &self.world_data.atmosphere)
             {
                 // Update particles each frame
-                particles.update(&self.world_data.tessellation, &atmosphere.wind, &mut self.rng);
+                particles.update(
+                    &self.world_data.tessellation,
+                    &atmosphere.wind,
+                    &mut self.rng,
+                );
 
                 // Generate line vertices
                 let trails = particles.generate_trail_lines();

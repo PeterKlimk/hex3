@@ -5,7 +5,10 @@ use std::collections::HashMap;
 use glam::Vec3;
 use rand::Rng;
 
-use crate::geometry::{fibonacci_sphere_points_with_rng, lloyd_relax_kmeans, SphericalVoronoi};
+use crate::geometry::{
+    compute_voronoi_gpu_style, fibonacci_sphere_points_with_rng, gpu_voronoi::DEFAULT_K,
+    lloyd_relax_kmeans, SphericalVoronoi,
+};
 
 /// A spherical tessellation with Voronoi cells and cell adjacency.
 pub struct Tessellation {
@@ -65,9 +68,77 @@ impl Tessellation {
         Self { voronoi, adjacency }
     }
 
+    /// Generate a tessellation using the GPU-style Voronoi algorithm.
+    ///
+    /// Same point distribution as `generate`, but uses the half-space clipping
+    /// algorithm instead of convex hull duality for Voronoi computation.
+    pub fn generate_gpu_style<R: Rng>(num_cells: usize, _lloyd_iterations: usize, rng: &mut R) -> Self {
+        use crate::util::Timed;
+
+        let mean_spacing = (4.0 * std::f32::consts::PI / num_cells as f32).sqrt();
+        let jitter = mean_spacing * FIBONACCI_JITTER;
+
+        let mut points = {
+            let _t = Timed::debug("  Fibonacci points");
+            fibonacci_sphere_points_with_rng(num_cells, jitter, rng)
+        };
+
+        if LLOYD_ITERATIONS > 0 {
+            let _t = Timed::debug("  Lloyd relaxation");
+            lloyd_relax_kmeans(&mut points, LLOYD_ITERATIONS, LLOYD_SAMPLES_PER_SITE, rng);
+        }
+
+        let voronoi = {
+            let _t = Timed::debug("  GPU-style Voronoi computation");
+            compute_voronoi_gpu_style(&points, DEFAULT_K)
+        };
+
+        // Diagnostic: count cells with insufficient vertices
+        let bad_cells: Vec<usize> = (0..voronoi.num_cells())
+            .filter(|&i| voronoi.cell(i).len() < 3)
+            .collect();
+        if !bad_cells.is_empty() {
+            log::warn!(
+                "GPU Voronoi: {} cells have < 3 vertices (will have no adjacency): {:?}",
+                bad_cells.len(),
+                &bad_cells[..bad_cells.len().min(20)]
+            );
+        }
+
+        // Diagnostic: check for degenerate cells (duplicate vertex indices)
+        let degenerate_cells: Vec<usize> = (0..voronoi.num_cells())
+            .filter(|&i| {
+                let cell = voronoi.cell(i);
+                let indices = cell.vertex_indices;
+                let unique: std::collections::HashSet<_> = indices.iter().collect();
+                unique.len() < indices.len() || indices.len() < 3
+            })
+            .collect();
+        if !degenerate_cells.is_empty() {
+            log::warn!(
+                "GPU Voronoi: {} degenerate cells (duplicate vertices or <3): {:?}",
+                degenerate_cells.len(),
+                &degenerate_cells[..degenerate_cells.len().min(20)]
+            );
+        }
+
+        let adjacency = {
+            let _t = Timed::debug("  Build adjacency");
+            build_adjacency(&voronoi)
+        };
+
+        // Diagnostic: count orphan cells (no neighbors)
+        let orphan_count = adjacency.iter().filter(|a| a.is_empty()).count();
+        if orphan_count > 0 {
+            log::warn!("GPU Voronoi: {} cells have no neighbors (orphans)", orphan_count);
+        }
+
+        Self { voronoi, adjacency }
+    }
+
     /// Number of cells in this tessellation.
     pub fn num_cells(&self) -> usize {
-        self.voronoi.cells.len()
+        self.voronoi.num_cells()
     }
 
     /// Get the center point (generator) of a cell.
@@ -86,7 +157,8 @@ impl Tessellation {
     pub fn cell_areas(&self) -> Vec<f32> {
         let mut areas = vec![0.0f32; self.num_cells()];
 
-        for (cell_idx, cell) in self.voronoi.cells.iter().enumerate() {
+        for cell_idx in 0..self.num_cells() {
+            let cell = self.voronoi.cell(cell_idx);
             let center = self.cell_center(cell_idx);
             let verts: Vec<Vec3> = cell
                 .vertex_indices
@@ -127,8 +199,9 @@ fn build_adjacency(voronoi: &SphericalVoronoi) -> Vec<Vec<usize>> {
     // Map from edge (as canonical vertex pair) to list of cells containing that edge
     let mut edge_to_cells: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
 
-    for (cell_idx, cell) in voronoi.cells.iter().enumerate() {
-        let verts = &cell.vertex_indices;
+    for cell_idx in 0..voronoi.num_cells() {
+        let cell = voronoi.cell(cell_idx);
+        let verts = cell.vertex_indices;
         let n = verts.len();
 
         for i in 0..n {
@@ -141,7 +214,7 @@ fn build_adjacency(voronoi: &SphericalVoronoi) -> Vec<Vec<usize>> {
     }
 
     // Build adjacency from edges shared by exactly 2 cells
-    let mut adjacency: Vec<Vec<usize>> = vec![Vec::new(); voronoi.cells.len()];
+    let mut adjacency: Vec<Vec<usize>> = vec![Vec::new(); voronoi.num_cells()];
 
     for cells in edge_to_cells.values() {
         if cells.len() == 2 {
@@ -195,9 +268,11 @@ fn spherical_triangle_area(a: Vec3, b: Vec3, c: Vec3) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand_chacha::ChaCha8Rng;
+    use crate::geometry::{
+        fibonacci_sphere_points_with_rng, lloyd_relax_kmeans, lloyd_relax_voronoi,
+    };
     use rand::SeedableRng;
-    use crate::geometry::{fibonacci_sphere_points_with_rng, lloyd_relax_voronoi, lloyd_relax_kmeans};
+    use rand_chacha::ChaCha8Rng;
 
     fn measure_regularity(label: &str, points: &[Vec3]) -> (f32, f32, f32, usize) {
         let voronoi = SphericalVoronoi::compute(points);
@@ -209,9 +284,12 @@ mod tests {
         // Cell areas
         let mean_area = 4.0 * std::f32::consts::PI / n as f32;
         let mut areas: Vec<f32> = Vec::with_capacity(n);
-        for (cell_idx, cell) in voronoi.cells.iter().enumerate() {
+        for cell_idx in 0..voronoi.num_cells() {
+            let cell = voronoi.cell(cell_idx);
             let center = points[cell_idx];
-            let verts: Vec<Vec3> = cell.vertex_indices.iter()
+            let verts: Vec<Vec3> = cell
+                .vertex_indices
+                .iter()
                 .map(|&vi| voronoi.vertices[vi])
                 .collect();
             let nv = verts.len();
@@ -232,8 +310,10 @@ mod tests {
         let min_ratio = areas.iter().cloned().fold(f32::INFINITY, f32::min) / mean_area;
         let max_ratio = areas.iter().cloned().fold(0.0f32, f32::max) / mean_area;
 
-        println!("{}: CV={:.3}, min/mean={:.3}, max/mean={:.3}, orphans={}",
-            label, cv, min_ratio, max_ratio, orphans);
+        println!(
+            "{}: CV={:.3}, min/mean={:.3}, max/mean={:.3}, orphans={}",
+            label, cv, min_ratio, max_ratio, orphans
+        );
 
         (cv, min_ratio, max_ratio, orphans)
     }
@@ -261,7 +341,8 @@ mod tests {
         {
             let mut rng = ChaCha8Rng::seed_from_u64(99);
             let start = Instant::now();
-            let mut points = fibonacci_sphere_points_with_rng(num_cells, mean_spacing * 0.25, &mut rng);
+            let mut points =
+                fibonacci_sphere_points_with_rng(num_cells, mean_spacing * 0.25, &mut rng);
             lloyd_relax_voronoi(&mut points, 1);
             let elapsed = start.elapsed();
             let (cv, _, _, _) = measure_regularity("Fib j=0.25 + Voronoi Lloyd 1 iter", &points);
@@ -272,7 +353,8 @@ mod tests {
         {
             let mut rng = ChaCha8Rng::seed_from_u64(99);
             let start = Instant::now();
-            let mut points = fibonacci_sphere_points_with_rng(num_cells, mean_spacing * 0.25, &mut rng);
+            let mut points =
+                fibonacci_sphere_points_with_rng(num_cells, mean_spacing * 0.25, &mut rng);
             lloyd_relax_kmeans(&mut points, 1, 20, &mut rng);
             let elapsed = start.elapsed();
             let (cv, _, _, _) = measure_regularity("Fib j=0.25 + K-means 1 iter (20samp)", &points);
@@ -283,10 +365,12 @@ mod tests {
         {
             let mut rng = ChaCha8Rng::seed_from_u64(99);
             let start = Instant::now();
-            let mut points = fibonacci_sphere_points_with_rng(num_cells, mean_spacing * 0.25, &mut rng);
+            let mut points =
+                fibonacci_sphere_points_with_rng(num_cells, mean_spacing * 0.25, &mut rng);
             lloyd_relax_kmeans(&mut points, 2, 20, &mut rng);
             let elapsed = start.elapsed();
-            let (cv, _, _, _) = measure_regularity("Fib j=0.25 + K-means 2 iters (20samp)", &points);
+            let (cv, _, _, _) =
+                measure_regularity("Fib j=0.25 + K-means 2 iters (20samp)", &points);
             println!("  Time: {:?}, CV={:.3}\n", elapsed, cv);
         }
     }
@@ -302,7 +386,8 @@ mod tests {
 
         let areas = tess.cell_areas();
         let mean_area = tess.mean_cell_area();
-        let variance: f32 = areas.iter().map(|a| (a - mean_area).powi(2)).sum::<f32>() / areas.len() as f32;
+        let variance: f32 =
+            areas.iter().map(|a| (a - mean_area).powi(2)).sum::<f32>() / areas.len() as f32;
         let cv = variance.sqrt() / mean_area;
 
         // With j=0.25 + k-means Lloyd, CV is typically 0.10-0.16
@@ -312,12 +397,27 @@ mod tests {
         let max_area = areas.iter().cloned().fold(0.0f32, f32::max);
 
         // Cells should be within reasonable range of mean
-        assert!(min_area / mean_area > 0.4, "Smallest cell too small: {:.3}", min_area / mean_area);
-        assert!(max_area / mean_area < 2.0, "Largest cell too large: {:.3}", max_area / mean_area);
+        assert!(
+            min_area / mean_area > 0.4,
+            "Smallest cell too small: {:.3}",
+            min_area / mean_area
+        );
+        assert!(
+            max_area / mean_area < 2.0,
+            "Largest cell too large: {:.3}",
+            max_area / mean_area
+        );
 
-        println!("Cell regularity (j={}, {} k-means Lloyd, {}samp):",
-            FIBONACCI_JITTER, LLOYD_ITERATIONS, LLOYD_SAMPLES_PER_SITE);
-        println!("  CV: {:.3}, min/mean: {:.3}, max/mean: {:.3}, orphans: {}",
-            cv, min_area / mean_area, max_area / mean_area, orphans);
+        println!(
+            "Cell regularity (j={}, {} k-means Lloyd, {}samp):",
+            FIBONACCI_JITTER, LLOYD_ITERATIONS, LLOYD_SAMPLES_PER_SITE
+        );
+        println!(
+            "  CV: {:.3}, min/mean: {:.3}, max/mean: {:.3}, orphans: {}",
+            cv,
+            min_area / mean_area,
+            max_area / mean_area,
+            orphans
+        );
     }
 }

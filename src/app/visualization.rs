@@ -44,12 +44,12 @@ pub fn build_boundary_edge_colors(world: &World) -> HashMap<(usize, usize), Vec3
             }
             processed_cell_pairs.insert(cell_pair);
 
-            let cell_verts: HashSet<usize> = voronoi.cells[cell_idx]
+            let cell_verts: HashSet<usize> = voronoi.cell(cell_idx)
                 .vertex_indices
                 .iter()
                 .copied()
                 .collect();
-            let neighbor_verts: HashSet<usize> = voronoi.cells[neighbor_idx]
+            let neighbor_verts: HashSet<usize> = voronoi.cell(neighbor_idx)
                 .vertex_indices
                 .iter()
                 .copied()
@@ -227,7 +227,7 @@ pub struct WindParticles {
 
 impl WindParticles {
     /// Number of particles to simulate.
-    const NUM_PARTICLES: usize = 10000;
+    const NUM_PARTICLES: usize = 100000;
 
     /// Create a new wind particle system.
     pub fn new<R: Rng>(tessellation: &Tessellation, rng: &mut R) -> Self {
@@ -238,7 +238,7 @@ impl WindParticles {
         Self {
             particles,
             max_age: 120, // ~10 seconds at 60fps
-            dt: 0.01,    // very slow movement for gentle flow visualization
+            dt: 0.01,     // very slow movement for gentle flow visualization
         }
     }
 
@@ -268,7 +268,8 @@ impl WindParticles {
             particle.pos = new_pos;
 
             // Update cell tracking - check if we're closer to a neighbor
-            particle.cell_idx = find_nearest_cell_local(tessellation, particle.pos, particle.cell_idx);
+            particle.cell_idx =
+                find_nearest_cell_local(tessellation, particle.pos, particle.cell_idx);
 
             // Age and respawn
             particle.age += 1;

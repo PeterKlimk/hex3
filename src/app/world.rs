@@ -1,6 +1,8 @@
 use glam::Vec3;
 
-use hex3::geometry::{Material, MeshVertex, SurfaceVertex, UnifiedMesh, UnifiedVertex, VoronoiMesh};
+use hex3::geometry::{
+    Material, MeshVertex, SurfaceVertex, UnifiedMesh, UnifiedVertex, VoronoiMesh,
+};
 use hex3::render::{create_index_buffer, create_vertex_buffer};
 use hex3::util::Timed;
 use hex3::world::{PlateType, World};
@@ -96,18 +98,23 @@ impl WorldBuffers {
 
 /// Generate a new world (Stage 1: Lithosphere).
 pub fn create_world(seed: u64) -> World {
+    create_world_with_options(seed, false)
+}
+
+pub fn create_world_with_options(seed: u64, gpu_voronoi: bool) -> World {
     let _total = Timed::info("Stage 1 (Lithosphere)");
     log::info!(
-        "Generating world: seed={}, cells={}, lloyd={}, plates={}",
+        "Generating world: seed={}, cells={}, lloyd={}, plates={}, gpu_voronoi={}",
         seed,
         NUM_CELLS,
         LLOYD_ITERATIONS,
-        NUM_PLATES
+        NUM_PLATES,
+        gpu_voronoi
     );
 
     let mut world = {
         let _t = Timed::info("Tessellation");
-        World::new(seed, NUM_CELLS, LLOYD_ITERATIONS)
+        World::new_with_options(seed, NUM_CELLS, LLOYD_ITERATIONS, gpu_voronoi)
     };
 
     {
@@ -251,24 +258,18 @@ pub fn generate_colored_mesh(
         RenderMode::Plates => {
             VoronoiMesh::from_voronoi_with_colors(voronoi, |i| cell_color_plate(world, i))
         }
-        RenderMode::Noise => {
-            VoronoiMesh::from_voronoi_with_colors(voronoi, |i| {
-                cell_color_noise(world, i, noise_layer)
-            })
-        }
+        RenderMode::Noise => VoronoiMesh::from_voronoi_with_colors(voronoi, |i| {
+            cell_color_noise(world, i, noise_layer)
+        }),
         RenderMode::Hydrology => {
             VoronoiMesh::from_voronoi_with_colors(voronoi, |i| cell_color_hydrology(world, i))
         }
-        RenderMode::Features => {
-            VoronoiMesh::from_voronoi_with_colors(voronoi, |i| {
-                cell_color_feature(world, i, feature_layer)
-            })
-        }
-        RenderMode::Climate => {
-            VoronoiMesh::from_voronoi_with_colors(voronoi, |i| {
-                cell_color_climate(world, i, climate_layer)
-            })
-        }
+        RenderMode::Features => VoronoiMesh::from_voronoi_with_colors(voronoi, |i| {
+            cell_color_feature(world, i, feature_layer)
+        }),
+        RenderMode::Climate => VoronoiMesh::from_voronoi_with_colors(voronoi, |i| {
+            cell_color_climate(world, i, climate_layer)
+        }),
     };
 
     let vertex_buffer = create_vertex_buffer(device, &mesh.vertices, "colored_vertex");

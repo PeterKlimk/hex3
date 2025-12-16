@@ -55,11 +55,7 @@ pub fn fibonacci_sphere_points_with_rng<R: Rng>(n: usize, jitter: f32, rng: &mut
 /// Generate a random unit vector tangent to the sphere at point `p`.
 fn random_tangent_vector<R: Rng>(p: Vec3, rng: &mut R) -> Vec3 {
     // Find a vector not parallel to p
-    let arbitrary = if p.x.abs() < 0.9 {
-        Vec3::X
-    } else {
-        Vec3::Y
-    };
+    let arbitrary = if p.x.abs() < 0.9 { Vec3::X } else { Vec3::Y };
 
     // Create orthonormal basis on tangent plane
     let u = p.cross(arbitrary).normalize();
@@ -87,14 +83,15 @@ pub fn lloyd_relax_voronoi(points: &mut [Vec3], iterations: usize) {
         let voronoi = SphericalVoronoi::compute(points);
 
         // Move each point toward its cell's vertex centroid
-        for (i, cell) in voronoi.cells.iter().enumerate() {
-            if cell.vertex_indices.is_empty() {
+        for i in 0..voronoi.num_cells() {
+            let cell = voronoi.cell(i);
+            if cell.is_empty() {
                 continue;
             }
 
             // Compute centroid of cell vertices (spherical mean)
             let mut sum = Vec3::ZERO;
-            for &vi in &cell.vertex_indices {
+            for &vi in cell.vertex_indices {
                 sum += voronoi.vertices[vi];
             }
 
@@ -115,7 +112,12 @@ pub fn lloyd_relax_voronoi(points: &mut [Vec3], iterations: usize) {
 ///
 /// This approximates Voronoi cell centroids and is faster than full Voronoi
 /// for large point sets when samples_per_site is small (e.g., 10-20).
-pub fn lloyd_relax_kmeans<R: Rng>(points: &mut [Vec3], iterations: usize, samples_per_site: usize, rng: &mut R) {
+pub fn lloyd_relax_kmeans<R: Rng>(
+    points: &mut [Vec3],
+    iterations: usize,
+    samples_per_site: usize,
+    rng: &mut R,
+) {
     use kiddo::{ImmutableKdTree, SquaredEuclidean};
     use rayon::prelude::*;
 

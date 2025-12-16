@@ -477,7 +477,6 @@ pub fn cell_color_feature(world: &World, cell_idx: usize, layer: FeatureLayer) -
     }
 }
 
-
 /// Convert temperature to color using a gradient from cold (blue) to hot (red).
 /// Temperature is normalized 0-1, but can go negative at high elevations.
 fn temperature_to_color(temp: f32) -> Vec3 {
