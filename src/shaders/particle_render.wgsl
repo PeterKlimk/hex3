@@ -1,6 +1,7 @@
 // Particle trail rendering shader
 //
-// Renders particles as line segments from prev_position to position.
+// Renders particles as line segments from trail_end to position.
+// Trail length is based on wind magnitude, not movement distance.
 // Uses instancing: each instance is one particle, 2 vertices per instance.
 
 struct Uniforms {
@@ -18,7 +19,7 @@ struct Uniforms {
 struct Particle {
     position: vec3<f32>,
     cell: u32,
-    prev_position: vec3<f32>,
+    trail_end: vec3<f32>,
     age: f32,
 }
 
@@ -44,10 +45,10 @@ fn vs_main(
 ) -> VertexOutput {
     let p = particles[instance_idx];
 
-    // vertex_idx 0 = prev_position (tail), vertex_idx 1 = position (head)
+    // vertex_idx 0 = trail_end (tail), vertex_idx 1 = position (head)
     var world_pos: vec3<f32>;
     if (vertex_idx == 0u) {
-        world_pos = p.prev_position;
+        world_pos = p.trail_end;
     } else {
         world_pos = p.position;
     }
@@ -59,12 +60,12 @@ fn vs_main(
     let age_factor = 1.0 - (p.age / particle_uniforms.max_age);
     let alpha = pow(age_factor, 0.5); // sqrt for slower fade
 
-    // Skip drawing if particle just respawned (prev == current)
-    let moved = length(p.position - p.prev_position) > 1e-6;
+    // Skip drawing if no trail (trail_end == position)
+    let has_trail = length(p.position - p.trail_end) > 1e-6;
 
     var out: VertexOutput;
 
-    if (moved && p.age > 0.0) {
+    if (has_trail && p.age > 0.0) {
         out.position = uniforms.view_proj * vec4<f32>(world_pos, 1.0);
         // Cyan/white color for wind
         out.color = vec3<f32>(0.3 + 0.7 * alpha, 0.8 + 0.2 * alpha, 1.0) * alpha;
@@ -77,6 +78,9 @@ fn vs_main(
     return out;
 }
 
+// Alpha value matching colored_line.wgsl
+const LINE_ALPHA: f32 = 0.2;
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Discard nearly transparent pixels
@@ -84,5 +88,5 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     if (brightness < 0.01) {
         discard;
     }
-    return vec4<f32>(in.color, brightness);
+    return vec4<f32>(in.color, LINE_ALPHA);
 }

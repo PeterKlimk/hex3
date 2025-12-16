@@ -9,15 +9,14 @@ use winit::window::Window;
 
 use hex3::render::{
     CameraController, FillPipelineKind, GpuContext, IndexedDraw, LineDraw, OrbitCamera,
-    RenderScene, Renderer, SurfaceLineDraw, Uniforms,
+    RenderScene, Renderer, SurfaceLineDraw, Uniforms, WindParticleSystem, DEFAULT_NUM_PARTICLES,
 };
 use hex3::world::World;
 
 use super::view::{ClimateLayer, FeatureLayer, NoiseLayer, RenderMode, RiverMode, ViewMode};
-use super::visualization::WindParticles;
 use super::world::{
     advance_to_stage_2, advance_to_stage_3, create_world_with_options, generate_colored_mesh,
-    generate_wind_particle_buffer, generate_world_buffers, WorldBuffers,
+    generate_world_buffers, WorldBuffers,
 };
 
 pub struct AppState {
@@ -44,14 +43,18 @@ pub struct AppState {
     /// Rendering effect toggle
     pub hemisphere_lighting: bool,
 
-    /// Wind particle system (for Climate/Wind visualization).
-    pub wind_particles: Option<WindParticles>,
-    /// RNG for particle respawning.
+    /// GPU wind particle system (for Climate/Wind visualization).
+    pub gpu_particles: Option<WindParticleSystem>,
+    /// RNG for particle initialization.
     pub rng: ChaCha8Rng,
 
     pub frame_count: u32,
     pub fps_update_time: Instant,
     pub current_fps: f32,
+
+    last_frame_time: Instant,
+    wind_particle_speed_scale: f32,
+    wind_particle_trail_scale: f32,
 }
 
 impl AppState {
@@ -108,11 +111,14 @@ impl AppState {
             feature_layer: FeatureLayer::default(),
             climate_layer: ClimateLayer::default(),
             hemisphere_lighting: true,
-            wind_particles: None,
+            gpu_particles: None,
             rng: ChaCha8Rng::seed_from_u64(seed),
             frame_count: 0,
             fps_update_time: Instant::now(),
             current_fps: 0.0,
+            last_frame_time: Instant::now(),
+            wind_particle_speed_scale: 0.5,
+            wind_particle_trail_scale: 0.03,
         }
     }
 
@@ -128,7 +134,7 @@ impl AppState {
         self.world_buffers = generate_world_buffers(&self.gpu.device, &self.world_data);
         self.seed = seed;
         self.rng = ChaCha8Rng::seed_from_u64(seed);
-        self.wind_particles = None; // Will be recreated on stage advance
+        self.gpu_particles = None; // Will be recreated on stage advance
     }
 
     /// Regenerate the colored mesh for the current mode/layer settings.
@@ -155,11 +161,17 @@ impl AppState {
             1 => {
                 advance_to_stage_2(&mut self.world_data);
                 self.world_buffers = generate_world_buffers(&self.gpu.device, &self.world_data);
-                // Create wind particles now that atmosphere exists
-                self.wind_particles = Some(WindParticles::new(
-                    &self.world_data.tessellation,
-                    &mut self.rng,
-                ));
+                // Create GPU wind particles now that atmosphere exists
+                if let Some(atmosphere) = &self.world_data.atmosphere {
+                    self.gpu_particles = Some(WindParticleSystem::new(
+                        &self.gpu,
+                        &self.world_data.tessellation,
+                        atmosphere,
+                        DEFAULT_NUM_PARTICLES,
+                        self.renderer.bind_group_layout(),
+                        &mut self.rng,
+                    ));
+                }
                 println!("Advanced to Stage 2: Atmosphere");
                 true
             }
@@ -213,6 +225,11 @@ impl AppState {
     }
 
     pub fn render(&mut self) {
+        // Real frame time (used to tick fixed-rate simulations independent of render FPS).
+        let now = Instant::now();
+        let frame_dt = (now - self.last_frame_time).as_secs_f32().clamp(0.0, 0.1);
+        self.last_frame_time = now;
+
         let (view_proj, camera_pos) = match self.view_mode {
             ViewMode::Globe => (self.camera.view_projection(), self.camera.eye_position()),
             ViewMode::Map => {
@@ -349,42 +366,26 @@ impl AppState {
             (None, None)
         };
 
-        // Wind particles: update and render when in Climate/Wind mode on Globe view
-        let wind_particle_buffer = if self.view_mode == ViewMode::Globe
+        // GPU wind particles: update and render when in Climate/Wind mode on Globe view
+        let gpu_particles = if self.view_mode == ViewMode::Globe
             && self.render_mode == RenderMode::Climate
             && self.climate_layer == ClimateLayer::Wind
         {
-            if let (Some(particles), Some(atmosphere)) =
-                (&mut self.wind_particles, &self.world_data.atmosphere)
-            {
-                // Update particles each frame
+            if let Some(particles) = &mut self.gpu_particles {
+                // Simple per-frame update: movement is time-normalized, trail length is fixed
                 particles.update(
-                    &self.world_data.tessellation,
-                    &atmosphere.wind,
-                    &mut self.rng,
+                    &self.gpu,
+                    frame_dt,
+                    self.wind_particle_speed_scale,
+                    self.wind_particle_trail_scale,
                 );
-
-                // Generate line vertices
-                let trails = particles.generate_trail_lines();
-                if !trails.is_empty() {
-                    Some(generate_wind_particle_buffer(&self.gpu.device, &trails))
-                } else {
-                    None
-                }
+                Some(particles as &WindParticleSystem)
             } else {
                 None
             }
         } else {
             None
         };
-
-        // Create LineDraw reference from optional buffer
-        let wind_particles = wind_particle_buffer
-            .as_ref()
-            .map(|(buffer, count)| LineDraw {
-                vertex_buffer: buffer,
-                vertex_count: *count,
-            });
 
         self.renderer.render(
             &mut self.gpu,
@@ -397,7 +398,8 @@ impl AppState {
                 pole_markers,
                 rivers,
                 river_mesh,
-                wind_particles,
+                wind_particles: None, // Legacy CPU particles no longer used
+                gpu_particles,
             },
         );
 

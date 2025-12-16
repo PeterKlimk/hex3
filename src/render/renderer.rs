@@ -52,6 +52,8 @@ pub enum EdgeDraw<'a> {
     },
 }
 
+use super::WindParticleSystem;
+
 pub struct RenderScene<'a> {
     pub fill_pipeline: FillPipelineKind,
     pub fill: IndexedDraw<'a>,
@@ -62,8 +64,10 @@ pub struct RenderScene<'a> {
     pub rivers: Option<SurfaceLineDraw<'a>>,
     /// Triangle-based rivers (UnifiedVertex) - uses unified pipeline
     pub river_mesh: Option<IndexedDraw<'a>>,
-    /// Wind particle trails (MeshVertex lines)
+    /// Wind particle trails (MeshVertex lines) - legacy CPU particles
     pub wind_particles: Option<LineDraw<'a>>,
+    /// GPU wind particle system
+    pub gpu_particles: Option<&'a WindParticleSystem>,
 }
 
 pub struct Renderer {
@@ -78,6 +82,7 @@ pub struct Renderer {
     surface_line_pipeline: RenderPipeline,
     uniform_buffer: Buffer,
     layer_uniform_buffer: Buffer,
+    bind_group_layout: wgpu::BindGroupLayout,
     bind_group: BindGroup,
     layered_bind_group: BindGroup,
     depth_view: wgpu::TextureView,
@@ -274,10 +279,21 @@ impl Renderer {
             surface_line_pipeline,
             uniform_buffer,
             layer_uniform_buffer,
+            bind_group_layout,
             bind_group,
             layered_bind_group,
             depth_view,
         }
+    }
+
+    /// Get the main uniform bind group layout (for GPU particles to share).
+    pub fn bind_group_layout(&self) -> &wgpu::BindGroupLayout {
+        &self.bind_group_layout
+    }
+
+    /// Get the main uniform bind group.
+    pub fn bind_group(&self) -> &wgpu::BindGroup {
+        &self.bind_group
     }
 
     pub fn resize(&mut self, device: &Device, width: u32, height: u32) {
@@ -436,11 +452,16 @@ impl Renderer {
                 render_pass.draw_indexed(0..river_mesh.index_count, 0, 0..1);
             }
 
-            // Wind particle trails
+            // Wind particle trails (legacy CPU particles)
             if let Some(wind_particles) = scene.wind_particles {
                 render_pass.set_pipeline(&self.colored_line_pipeline);
                 render_pass.set_vertex_buffer(0, wind_particles.vertex_buffer.slice(..));
                 render_pass.draw(0..wind_particles.vertex_count, 0..1);
+            }
+
+            // GPU wind particles
+            if let Some(gpu_particles) = scene.gpu_particles {
+                gpu_particles.render(&mut render_pass);
             }
         }
 

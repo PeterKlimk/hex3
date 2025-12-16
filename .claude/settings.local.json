@@ -3,7 +3,10 @@
     "allow": [
       "Bash(git ls-tree:*)",
       "Bash(xargs -I {} sh -c 'echo \"\"\"\"=== {} ===\"\"\"\" && git show HEAD:{}')",
-      "Bash(git grep:*)"
+      "Bash(git grep:*)",
+      "Bash(cargo build:*)",
+      "Bash(cargo run:*)",
+      "Bash(timeout 10 cargo run:*)"
     ]
   }
 }

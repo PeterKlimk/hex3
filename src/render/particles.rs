@@ -11,9 +11,11 @@
 //!
 //! Particles track their current Voronoi cell and walk the adjacency graph to find
 //! which cell they're in. This is O(1) per frame since particles move slowly.
+//!
+//! Trail length is based on wind magnitude (independent of frame time), while
+//! movement is time-normalized for consistent behavior across frame rates.
 
 use bytemuck::{Pod, Zeroable};
-use glam::Vec3;
 use rand::Rng;
 use wgpu::util::DeviceExt;
 
@@ -32,7 +34,7 @@ pub const DEFAULT_NUM_PARTICLES: u32 = 100_000;
 struct GpuParticle {
     position: [f32; 3],
     cell: u32,
-    prev_position: [f32; 3],
+    trail_end: [f32; 3],
     age: f32,
 }
 
@@ -53,24 +55,28 @@ struct GpuWindVector {
 }
 
 /// Adjacency offset/count for a cell.
+/// Padded to 16 bytes for proper GPU struct alignment in storage buffers.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 struct GpuAdjacencyOffset {
     offset: u32,
     count: u32,
+    _padding: [u32; 2],
 }
 
 /// Simulation uniforms (compute shader).
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 struct ComputeUniforms {
-    dt: f32,
+    dt: f32,           // Frame time (seconds)
+    speed_scale: f32,  // How much wind moves particles per second
+    trail_scale: f32,  // Trail length per unit wind speed
+    time: f32,         // Total elapsed time
     num_particles: u32,
     num_cells: u32,
+    _pad0: [u32; 2],
     max_age: f32,
-    wind_scale: f32,
-    time: f32,
-    _padding: [f32; 2],
+    _pad1: [f32; 3],
 }
 
 /// Render uniforms for particle shader.
@@ -123,20 +129,7 @@ impl WindParticleSystem {
         rng: &mut R,
     ) -> Self {
         let num_cells = tessellation.num_cells() as u32;
-        let max_age = 15.0;
-
-        // Initialize particles randomly on sphere
-        let particles: Vec<GpuParticle> = (0..num_particles)
-            .map(|_| {
-                let pos = random_on_sphere(rng);
-                GpuParticle {
-                    position: [pos.x, pos.y, pos.z],
-                    cell: 0,
-                    prev_position: [pos.x, pos.y, pos.z],
-                    age: rng.gen_range(0.0..max_age * 0.5), // Stagger initial ages
-                }
-            })
-            .collect();
+        let max_age = 2.4; // ~120 frames at 50fps
 
         // Build cell centers buffer
         let cell_centers: Vec<GpuCellCenter> = (0..tessellation.num_cells())
@@ -145,6 +138,20 @@ impl WindParticleSystem {
                 GpuCellCenter {
                     position: [pos.x, pos.y, pos.z],
                     _padding: 0.0,
+                }
+            })
+            .collect();
+
+        // Initialize particles at random cell centers
+        let particles: Vec<GpuParticle> = (0..num_particles)
+            .map(|_| {
+                let cell = rng.gen_range(0..num_cells);
+                let pos = tessellation.cell_center(cell as usize);
+                GpuParticle {
+                    position: [pos.x, pos.y, pos.z],
+                    cell,
+                    trail_end: [pos.x, pos.y, pos.z],
+                    age: rng.gen_range(0.0..max_age * 0.5),
                 }
             })
             .collect();
@@ -168,7 +175,11 @@ impl WindParticleSystem {
             let offset = adjacency_data.len() as u32;
             let count = neighbors.len().min(MAX_NEIGHBORS) as u32;
 
-            adjacency_offsets.push(GpuAdjacencyOffset { offset, count });
+            adjacency_offsets.push(GpuAdjacencyOffset {
+                offset,
+                count,
+                _padding: [0; 2],
+            });
 
             for &n in neighbors.iter().take(MAX_NEIGHBORS) {
                 adjacency_data.push(n as u32);
@@ -213,13 +224,15 @@ impl WindParticleSystem {
                 });
 
         let compute_uniforms = ComputeUniforms {
-            dt: 0.016,
+            dt: 1.0 / 60.0,
+            speed_scale: 0.5,
+            trail_scale: 0.03,
+            time: 0.0,
             num_particles,
             num_cells,
+            _pad0: [0; 2],
             max_age,
-            wind_scale: 1.0,
-            time: 0.0,
-            _padding: [0.0; 2],
+            _pad1: [0.0; 3],
         };
 
         let compute_uniform_buffer =
@@ -511,18 +524,26 @@ impl WindParticleSystem {
     }
 
     /// Update particles for one frame (dispatch compute shader).
-    pub fn update(&mut self, ctx: &GpuContext, dt: f32, wind_scale: f32) {
+    ///
+    /// # Arguments
+    /// * `ctx` - GPU context
+    /// * `dt` - Frame time in seconds (for movement and aging)
+    /// * `speed_scale` - How much wind moves particles per second
+    /// * `trail_scale` - Trail length per unit wind speed (independent of dt)
+    pub fn update(&mut self, ctx: &GpuContext, dt: f32, speed_scale: f32, trail_scale: f32) {
         self.time += dt;
 
         // Update uniforms
         let uniforms = ComputeUniforms {
             dt,
+            speed_scale,
+            trail_scale,
+            time: self.time,
             num_particles: self.num_particles,
             num_cells: self.num_cells,
+            _pad0: [0; 2],
             max_age: self.max_age,
-            wind_scale,
-            time: self.time,
-            _padding: [0.0; 2],
+            _pad1: [0.0; 3],
         };
         ctx.queue.write_buffer(
             &self.compute_uniform_buffer,
@@ -574,15 +595,7 @@ impl WindParticleSystem {
     pub fn render<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>) {
         render_pass.set_pipeline(&self.render_pipeline);
         render_pass.set_bind_group(1, &self.render_bind_group, &[]);
-        // Draw 2 vertices per particle (line from prev to current position)
+        // Draw 2 vertices per particle (line from trail_end to current position)
         render_pass.draw(0..2, 0..self.num_particles);
     }
-}
-
-/// Generate a random point on the unit sphere.
-fn random_on_sphere<R: Rng>(rng: &mut R) -> Vec3 {
-    let z: f32 = rng.gen_range(-1.0..1.0);
-    let r = (1.0 - z * z).sqrt();
-    let phi: f32 = rng.gen_range(0.0..std::f32::consts::TAU);
-    Vec3::new(r * phi.cos(), z, r * phi.sin())
 }
