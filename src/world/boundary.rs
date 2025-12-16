@@ -161,7 +161,8 @@ fn classify_plate_pair(stats: PlatePairStats) -> BoundaryKind {
         return BoundaryKind::Transform;
     }
 
-    if mean_normal > TRANSFORM_NORMAL_THRESHOLD && stats.active_len_pos >= PLATE_PAIR_MIN_ACTIVE_LENGTH
+    if mean_normal > TRANSFORM_NORMAL_THRESHOLD
+        && stats.active_len_pos >= PLATE_PAIR_MIN_ACTIVE_LENGTH
     {
         BoundaryKind::Convergent
     } else if mean_normal < -TRANSFORM_NORMAL_THRESHOLD
@@ -405,7 +406,10 @@ pub fn collect_plate_boundaries(
 
     for b in &mut boundaries {
         let key = plate_pair_key(b.plate_a, b.plate_b);
-        let kind = pair_kind.get(&key).copied().unwrap_or(BoundaryKind::Transform);
+        let kind = pair_kind
+            .get(&key)
+            .copied()
+            .unwrap_or(BoundaryKind::Transform);
         b.kind = kind;
         b.subduction = lookup_subduction_polarity(
             kind,
@@ -445,7 +449,9 @@ mod tests {
 
     #[test]
     fn plate_pair_classification_gates_short_or_weak_contacts() {
-        use super::super::constants::{PLATE_PAIR_MIN_ACTIVE_LENGTH, PLATE_PAIR_MIN_BOUNDARY_LENGTH};
+        use super::super::constants::{
+            PLATE_PAIR_MIN_ACTIVE_LENGTH, PLATE_PAIR_MIN_BOUNDARY_LENGTH,
+        };
 
         // Too short: always transform.
         let mut stats = PlatePairStats::default();
@@ -481,8 +487,10 @@ mod tests {
                     continue;
                 }
 
-                let verts_a: HashSet<usize> = voronoi.cells[a].vertex_indices.iter().copied().collect();
-                let verts_b: HashSet<usize> = voronoi.cells[b].vertex_indices.iter().copied().collect();
+                let verts_a: HashSet<usize> =
+                    voronoi.cells[a].vertex_indices.iter().copied().collect();
+                let verts_b: HashSet<usize> =
+                    voronoi.cells[b].vertex_indices.iter().copied().collect();
                 let shared = verts_a.intersection(&verts_b).count();
 
                 assert_eq!(shared, 2, "cells {a} and {b} share {shared} vertices");

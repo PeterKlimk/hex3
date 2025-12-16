@@ -1,20 +1,20 @@
-use std::time::Instant;
-
 use glam::Vec3;
 
-use hex3::geometry::{LayeredMesh, Material, MeshVertex, SurfaceVertex, UnifiedMesh, UnifiedVertex, VoronoiMesh};
+use hex3::geometry::{Material, MeshVertex, SurfaceVertex, UnifiedMesh, UnifiedVertex, VoronoiMesh};
 use hex3::render::{create_index_buffer, create_vertex_buffer};
+use hex3::util::Timed;
 use hex3::world::{PlateType, World};
 
 use super::coloring::{
-    cell_color_elevation, cell_color_feature, cell_color_hydrology, cell_color_noise,
-    cell_color_plate, cell_color_stress, cell_color_terrain, cell_feature_layers,
-    cell_material, cell_noise_layers,
+    cell_color_climate, cell_color_elevation, cell_color_feature, cell_color_hydrology,
+    cell_color_noise, cell_color_plate, cell_color_terrain, cell_material,
 };
-use super::view::{FeatureLayer, NoiseLayer, RenderMode};
-use super::visualization::{build_boundary_edge_colors, generate_pole_markers, generate_velocity_arrows};
+use super::view::{ClimateLayer, FeatureLayer, NoiseLayer, RenderMode};
+use super::visualization::{
+    build_boundary_edge_colors, generate_pole_markers, generate_velocity_arrows,
+};
 
-pub const NUM_CELLS: usize = 40000;
+pub const NUM_CELLS: usize = 80000;
 pub const LLOYD_ITERATIONS: usize = 5;
 pub const NUM_PLATES: usize = 14;
 
@@ -37,145 +37,150 @@ const RIVER_MIN_WIDTH: f32 = 0.003;
 /// Maximum river width (major rivers)
 const RIVER_MAX_WIDTH: f32 = 0.015;
 
-/// Per-render-mode vertex buffers.
-pub struct RenderModeBuffers {
-    pub globe_vertex_buffer: wgpu::Buffer,
-    pub map_vertex_buffer: wgpu::Buffer,
-    pub globe_edge_vertex_buffer: wgpu::Buffer,
-    pub num_globe_edge_vertices: u32,
-}
-
-/// All regeneratable world data (buffers that change when the world is regenerated).
+/// All GPU buffers for world rendering.
+/// Simplified: one dynamic colored mesh + specialized buffers for Relief/rivers/overlays.
 pub struct WorldBuffers {
-    pub mode_buffers: [RenderModeBuffers; RenderMode::COUNT],
-    pub map_edge_vertex_buffer: wgpu::Buffer,
-    pub map_edge_index_buffer: wgpu::Buffer,
-    pub globe_index_buffer: wgpu::Buffer,
-    pub map_index_buffer: wgpu::Buffer,
-    pub arrow_vertex_buffer: wgpu::Buffer,
-    pub pole_marker_vertex_buffer: wgpu::Buffer,
-    pub pole_marker_index_buffer: wgpu::Buffer,
-    pub num_arrow_vertices: u32,
-    pub num_pole_marker_indices: u32,
-    pub num_globe_indices: u32,
-    pub num_map_indices: u32,
-    pub num_map_edge_indices: u32,
-    // Legacy river data (line-based) - kept for non-relief modes
+    // Dynamic colored mesh (regenerated on mode/layer switch) - used by most modes
+    pub colored_vertex_buffer: wgpu::Buffer,
+    pub colored_index_buffer: wgpu::Buffer,
+    pub num_colored_indices: u32,
+
+    // Edge lines (two variants: default gray, plates with colored boundaries)
+    pub edge_vertex_buffer: wgpu::Buffer,
+    pub edge_vertex_buffer_plates: wgpu::Buffer,
+    pub num_edge_vertices: u32,
+    pub num_edge_vertices_plates: u32,
+
+    // Relief mode: unified mesh with materials + elevation + relief edges
+    pub unified_vertex_buffer: wgpu::Buffer,
+    pub unified_index_buffer: wgpu::Buffer,
+    pub num_unified_indices: u32,
+    pub relief_edge_vertex_buffer: wgpu::Buffer,
+    pub num_relief_edge_vertices: u32,
+
+    // Rivers (line-based for non-relief, triangle mesh for relief)
     pub river_all_vertex_buffer: wgpu::Buffer,
     pub river_major_vertex_buffer: wgpu::Buffer,
     pub num_river_all_vertices: u32,
     pub num_river_major_vertices: u32,
-    // Triangle-based river mesh (Phase 2) - uses UnifiedVertex with Material::River
     pub river_mesh_all_vertex_buffer: wgpu::Buffer,
     pub river_mesh_all_index_buffer: wgpu::Buffer,
     pub river_mesh_major_vertex_buffer: wgpu::Buffer,
     pub river_mesh_major_index_buffer: wgpu::Buffer,
     pub num_river_mesh_all_indices: u32,
     pub num_river_mesh_major_indices: u32,
-    // Unified mesh buffers (material-aware lighting) for relief mode
-    pub unified_globe_vertex_buffer: wgpu::Buffer,
-    pub unified_map_vertex_buffer: wgpu::Buffer,
-    pub unified_globe_index_buffer: wgpu::Buffer,
-    pub unified_map_index_buffer: wgpu::Buffer,
-    pub num_unified_globe_indices: u32,
-    pub num_unified_map_indices: u32,
-    // Layered buffers for noise/features visualization (instant layer switching)
-    pub noise_globe_vertex_buffer: wgpu::Buffer,
-    pub noise_globe_index_buffer: wgpu::Buffer,
-    pub noise_map_vertex_buffer: wgpu::Buffer,
-    pub noise_map_index_buffer: wgpu::Buffer,
-    pub num_noise_globe_indices: u32,
-    pub num_noise_map_indices: u32,
-    pub features_globe_vertex_buffer: wgpu::Buffer,
-    pub features_globe_index_buffer: wgpu::Buffer,
-    pub features_map_vertex_buffer: wgpu::Buffer,
-    pub features_map_index_buffer: wgpu::Buffer,
-    pub num_features_globe_indices: u32,
-    pub num_features_map_indices: u32,
+
+    // Plate overlays (arrows + pole markers)
+    pub arrow_vertex_buffer: wgpu::Buffer,
+    pub pole_marker_vertex_buffer: wgpu::Buffer,
+    pub pole_marker_index_buffer: wgpu::Buffer,
+    pub num_arrow_vertices: u32,
+    pub num_pole_marker_indices: u32,
 }
 
 impl WorldBuffers {
-    pub fn for_mode(&self, mode: RenderMode) -> &RenderModeBuffers {
-        &self.mode_buffers[mode.idx()]
-    }
-
     /// Get the river buffer and vertex count for the given river mode.
     pub fn river_buffer(&self, mode: super::view::RiverMode) -> Option<(&wgpu::Buffer, u32)> {
         match mode {
             super::view::RiverMode::Off => None,
-            super::view::RiverMode::Major => Some((&self.river_major_vertex_buffer, self.num_river_major_vertices)),
-            super::view::RiverMode::All => Some((&self.river_all_vertex_buffer, self.num_river_all_vertices)),
+            super::view::RiverMode::Major => Some((
+                &self.river_major_vertex_buffer,
+                self.num_river_major_vertices,
+            )),
+            super::view::RiverMode::All => {
+                Some((&self.river_all_vertex_buffer, self.num_river_all_vertices))
+            }
         }
     }
 }
 
 /// Generate a new world (Stage 1: Lithosphere).
 pub fn create_world(seed: u64) -> World {
-    let total_start = Instant::now();
-    println!("Generating world with seed: {}", seed);
-
-    print!(
-        "Generating tessellation ({} cells, {} Lloyd iterations)... ",
-        NUM_CELLS, LLOYD_ITERATIONS
-    );
-    let start = Instant::now();
-    let mut world = World::new(seed, NUM_CELLS, LLOYD_ITERATIONS);
-    println!("{:.1}ms", start.elapsed().as_secs_f64() * 1000.0);
-
-    print!("Generating plates... ");
-    let start = Instant::now();
-    world.generate_plates(NUM_PLATES);
-    println!(
-        "{:.1}ms ({} plates)",
-        start.elapsed().as_secs_f64() * 1000.0,
+    let _total = Timed::info("Stage 1 (Lithosphere)");
+    log::info!(
+        "Generating world: seed={}, cells={}, lloyd={}, plates={}",
+        seed,
+        NUM_CELLS,
+        LLOYD_ITERATIONS,
         NUM_PLATES
     );
 
-    print!("Generating dynamics... ");
-    let start = Instant::now();
-    world.generate_dynamics();
-    println!("{:.1}ms", start.elapsed().as_secs_f64() * 1000.0);
+    let mut world = {
+        let _t = Timed::info("Tessellation");
+        World::new(seed, NUM_CELLS, LLOYD_ITERATIONS)
+    };
 
-    print!("Generating stress... ");
-    let start = Instant::now();
-    world.generate_stress();
-    println!("{:.1}ms", start.elapsed().as_secs_f64() * 1000.0);
+    {
+        let _t = Timed::info("Plates");
+        world.generate_plates(NUM_PLATES);
+    }
 
-    print!("Generating features... ");
-    let start = Instant::now();
-    world.generate_features();
-    println!("{:.1}ms", start.elapsed().as_secs_f64() * 1000.0);
+    {
+        let _t = Timed::info("Dynamics");
+        world.generate_dynamics();
+    }
 
-    print!("Generating elevation... ");
-    let start = Instant::now();
-    world.generate_elevation();
-    println!("{:.1}ms", start.elapsed().as_secs_f64() * 1000.0);
+    {
+        let _t = Timed::info("Features");
+        world.generate_features();
+    }
+
+    {
+        let _t = Timed::info("Elevation");
+        world.generate_elevation();
+    }
 
     print_world_stats(&world);
-
-    println!(
-        "\nStage 1 (Lithosphere): {:.1}ms",
-        total_start.elapsed().as_secs_f64() * 1000.0
-    );
 
     world
 }
 
-/// Advance world to Stage 2 (Hydrology).
+/// Advance world to Stage 2 (Atmosphere).
 pub fn advance_to_stage_2(world: &mut World) {
-    let start = Instant::now();
-    print!("Generating hydrology... ");
-    world.generate_hydrology();
-    println!("{:.1}ms", start.elapsed().as_secs_f64() * 1000.0);
+    let _total = Timed::info("Stage 2 (Atmosphere)");
+
+    {
+        let _t = Timed::info("Atmosphere");
+        world.generate_atmosphere();
+    }
+
+    // Print atmosphere stats
+    if let Some(atmosphere) = &world.atmosphere {
+        let stats = atmosphere.stats();
+        log::info!(
+            "Atmosphere: temp=[{:.2}, {:.2}], mean={:.2}, max_wind={:.2}, max_uplift={:.2}",
+            stats.min_temp,
+            stats.max_temp,
+            stats.mean_temp,
+            stats.max_wind,
+            stats.max_uplift
+        );
+    }
+}
+
+/// Advance world to Stage 3 (Hydrology).
+pub fn advance_to_stage_3(world: &mut World) {
+    let _total = Timed::info("Stage 3 (Hydrosphere)");
+
+    {
+        let _t = Timed::info("Hydrology");
+        world.generate_hydrology();
+    }
 
     // Print hydrology stats
     if let Some(hydrology) = &world.hydrology {
         let num_cells = world.num_cells();
 
         let ocean_cells = (0..num_cells).filter(|&i| hydrology.is_ocean(i)).count();
-        let lake_cells = (0..num_cells).filter(|&i| hydrology.is_lake_water(i)).count();
-        let dry_basin_cells = (0..num_cells).filter(|&i| hydrology.is_dry_basin(i)).count();
-        let land_cells = (0..num_cells).filter(|&i| !hydrology.is_submerged(i)).count();
+        let lake_cells = (0..num_cells)
+            .filter(|&i| hydrology.is_lake_water(i))
+            .count();
+        let dry_basin_cells = (0..num_cells)
+            .filter(|&i| hydrology.is_dry_basin(i))
+            .count();
+        let land_cells = (0..num_cells)
+            .filter(|&i| !hydrology.is_submerged(i))
+            .count();
         let non_ocean_cells = num_cells - ocean_cells;
         let lake_pct = if non_ocean_cells > 0 {
             100.0 * lake_cells as f32 / non_ocean_cells as f32
@@ -197,20 +202,20 @@ pub fn advance_to_stage_2(world: &mut World) {
             .copied()
             .fold(0.0f32, f32::max);
 
-        println!(
-            "  Ocean: {} cells, Land: {} cells, Lakes: {} cells ({:.1}% of non-ocean)",
-            ocean_cells, land_cells, lake_cells, lake_pct
-        );
-        println!(
-            "  Basins: {} total, {} dry",
+        log::info!(
+            "Hydrology: ocean={}, land={}, lakes={} ({:.1}%), basins={} ({} dry)",
+            ocean_cells,
+            land_cells,
+            lake_cells,
+            lake_pct,
             hydrology.basins.len(),
             dry_basin_cells
         );
-        println!("  Drainage coverage: {} cells", cells_with_drainage);
-        println!(
-            "  Rivers (flow >= {:.0}): {} cells, max flow: {:.0}",
-            river_min_flow,
+        log::info!(
+            "Rivers: drainage={} cells, rivers={} (flow>={:.0}), max_flow={:.0}",
+            cells_with_drainage,
             river_cells.len(),
+            river_min_flow,
             max_flow
         );
     }
@@ -224,34 +229,78 @@ fn river_thresholds(num_cells: usize) -> (f32, f32, f32) {
     (min_flow, outlet_threshold, branch_threshold)
 }
 
-/// Generate GPU buffers from a World.
-pub fn generate_world_buffers(
+/// Generate a colored mesh for a specific render mode and layer settings.
+/// This is fast (~5-10ms for 80k cells) and called on mode/layer switch.
+pub fn generate_colored_mesh(
     device: &wgpu::Device,
     world: &World,
+    mode: RenderMode,
     noise_layer: NoiseLayer,
     feature_layer: FeatureLayer,
-) -> WorldBuffers {
+    climate_layer: ClimateLayer,
+) -> (wgpu::Buffer, wgpu::Buffer, u32) {
+    let voronoi = &world.tessellation.voronoi;
+
+    let mesh = match mode {
+        RenderMode::Relief | RenderMode::Terrain => {
+            VoronoiMesh::from_voronoi_with_colors(voronoi, |i| cell_color_terrain(world, i))
+        }
+        RenderMode::Elevation => {
+            VoronoiMesh::from_voronoi_with_colors(voronoi, |i| cell_color_elevation(world, i))
+        }
+        RenderMode::Plates => {
+            VoronoiMesh::from_voronoi_with_colors(voronoi, |i| cell_color_plate(world, i))
+        }
+        RenderMode::Noise => {
+            VoronoiMesh::from_voronoi_with_colors(voronoi, |i| {
+                cell_color_noise(world, i, noise_layer)
+            })
+        }
+        RenderMode::Hydrology => {
+            VoronoiMesh::from_voronoi_with_colors(voronoi, |i| cell_color_hydrology(world, i))
+        }
+        RenderMode::Features => {
+            VoronoiMesh::from_voronoi_with_colors(voronoi, |i| {
+                cell_color_feature(world, i, feature_layer)
+            })
+        }
+        RenderMode::Climate => {
+            VoronoiMesh::from_voronoi_with_colors(voronoi, |i| {
+                cell_color_climate(world, i, climate_layer)
+            })
+        }
+    };
+
+    let vertex_buffer = create_vertex_buffer(device, &mesh.vertices, "colored_vertex");
+    let index_buffer = create_index_buffer(device, &mesh.indices, "colored_index");
+    let num_indices = mesh.indices.len() as u32;
+
+    (vertex_buffer, index_buffer, num_indices)
+}
+
+/// Generate GPU buffers from a World.
+/// Creates one dynamic colored mesh (initially Terrain mode) plus specialized buffers.
+pub fn generate_world_buffers(device: &wgpu::Device, world: &World) -> WorldBuffers {
     let voronoi = &world.tessellation.voronoi;
     let elevation = world.elevation.as_ref().unwrap();
 
-    print!("Building meshes for render modes... ");
-    let start = Instant::now();
+    let _t = Timed::debug("Build world buffers");
 
-    // Terrain mode: elevation coloring + lakes (default view)
-    let mesh_terrain =
-        VoronoiMesh::from_voronoi_with_colors(voronoi, |i| cell_color_terrain(world, i));
-    let mesh_elevation =
-        VoronoiMesh::from_voronoi_with_colors(voronoi, |i| cell_color_elevation(world, i));
-    let mesh_plates =
-        VoronoiMesh::from_voronoi_with_colors(voronoi, |i| cell_color_plate(world, i));
-    let mesh_stress =
-        VoronoiMesh::from_voronoi_with_colors(voronoi, |i| cell_color_stress(world, i));
-    // Relief mode uses terrain coloring (with lakes) + elevation displacement
-    // Water surfaces are flat (elevation 0 for ocean, water_level for lakes)
-    // Micro noise is added back for visual relief (it's excluded from simulation elevation)
-    let mesh_relief = VoronoiMesh::from_voronoi_with_elevation(
+    // Initial colored mesh (Terrain mode - will be regenerated on mode switch)
+    let (colored_vertex_buffer, colored_index_buffer, num_colored_indices) = generate_colored_mesh(
+        device,
+        world,
+        RenderMode::Terrain,
+        NoiseLayer::Combined,
+        FeatureLayer::Trench,
+        ClimateLayer::Temperature,
+    );
+
+    // Unified mesh with material-aware lighting for Relief mode
+    let unified_mesh = UnifiedMesh::from_voronoi_with_elevation(
         voronoi,
         |i| cell_color_terrain(world, i),
+        |i| cell_material(world, i),
         |i| {
             if let Some(hydrology) = &world.hydrology {
                 if hydrology.is_ocean(i) {
@@ -261,45 +310,11 @@ pub fn generate_world_buffers(
                     return hydrology.basin(i).map(|b| b.water_level).unwrap_or(0.0);
                 }
             }
-            // Simulation elevation only
-            elevation.values[i]
+            elevation.values[i].max(0.0)
         },
     );
 
-    // Unified mesh with material-aware lighting for relief mode
-    // Water surfaces are flat (elevation 0 for ocean, water_level for lakes)
-    // Shader adds procedural micro noise for land/river materials
-    let unified_mesh = UnifiedMesh::from_voronoi_with_elevation(
-        voronoi,
-        |i| cell_color_terrain(world, i),
-        |i| cell_material(world, i),
-        |i| {
-            if let Some(hydrology) = &world.hydrology {
-                if hydrology.is_ocean(i) {
-                    return 0.0; // Ocean surface at sea level
-                }
-                if hydrology.is_lake_water(i) {
-                    // Lake surface at water level
-                    return hydrology.basin(i).map(|b| b.water_level).unwrap_or(0.0);
-                }
-            }
-            // Simulation elevation only - shader adds micro noise
-            elevation.values[i]
-        },
-    );
-
-    let mesh_noise =
-        VoronoiMesh::from_voronoi_with_colors(voronoi, |i| cell_color_noise(world, i, noise_layer));
-    let mesh_hydrology =
-        VoronoiMesh::from_voronoi_with_colors(voronoi, |i| cell_color_hydrology(world, i));
-    let mesh_features =
-        VoronoiMesh::from_voronoi_with_colors(voronoi, |i| cell_color_feature(world, i, feature_layer));
-
-    // Layered meshes for instant layer switching (all 5 layers baked in)
-    let layered_noise = LayeredMesh::from_voronoi(voronoi, |i| cell_noise_layers(world, i));
-    let layered_features = LayeredMesh::from_voronoi(voronoi, |i| cell_feature_layers(world, i));
-
-    // Subtle gray for cell borders
+    // Edge lines: default gray + plates with colored boundaries
     let edge_color = Vec3::new(0.35, 0.35, 0.35);
     let edge_vertices_default = VoronoiMesh::edge_lines_with_colors(voronoi, |_, _| edge_color);
 
@@ -312,6 +327,7 @@ pub fn generate_world_buffers(
             .unwrap_or(edge_color)
     });
 
+    // Relief edges with elevation
     let edge_vertices_relief = VoronoiMesh::edge_lines_with_elevation(
         voronoi,
         |_, _| edge_color,
@@ -324,14 +340,12 @@ pub fn generate_world_buffers(
                     return hydrology.basin(i).map(|b| b.water_level).unwrap_or(0.0);
                 }
             }
-            elevation.values[i]
+            elevation.values[i].max(0.0)
         },
         |i| cell_material(world, i),
     );
-    println!("{:.1}ms", start.elapsed().as_secs_f64() * 1000.0);
 
-    print!("Generating plate overlays... ");
-    let start = Instant::now();
+    // Plate overlays
     let arrows = generate_velocity_arrows(world);
     let pole_markers = generate_pole_markers(world);
 
@@ -351,25 +365,22 @@ pub fn generate_world_buffers(
         .collect();
     let pole_marker_indices: Vec<u32> = (0..pole_marker_vertices.len() as u32).collect();
 
-    println!(
-        "{:.1}ms ({} arrows, {} pole markers, {} boundary edges colored)",
-        start.elapsed().as_secs_f64() * 1000.0,
+    log::debug!(
+        "Overlays: {} arrows, {} pole markers, {} boundary edges",
         arrows.len() / 3,
         pole_markers.len() / 3,
         boundary_edge_colors.len()
     );
 
-    // Generate river vertices using SurfaceVertex (legacy line-based)
+    // Rivers
     let river_all_vertices = generate_river_vertices_all(world);
     let river_major_vertices = generate_river_vertices_major(world);
-
-    // Generate triangle-based river meshes (Phase 2)
     let river_mesh_all = generate_river_mesh_all(world);
     let river_mesh_major = generate_river_mesh_major(world);
 
     if !river_all_vertices.is_empty() {
-        println!(
-            "  River segments: {} line, {} triangles (major: {} line, {} triangles)",
+        log::debug!(
+            "River segments: {} line, {} triangles (major: {} line, {} triangles)",
             river_all_vertices.len() / 2,
             river_mesh_all.indices.len() / 3,
             river_major_vertices.len() / 2,
@@ -377,235 +388,89 @@ pub fn generate_world_buffers(
         );
     }
 
-    print!("Map projection... ");
-    let start = Instant::now();
-    let (map_vertices_terrain, map_indices) = mesh_terrain.to_map_vertices();
-    let (map_vertices_elevation, _) = mesh_elevation.to_map_vertices();
-    let (map_vertices_plates, _) = mesh_plates.to_map_vertices();
-    let (map_vertices_stress, _) = mesh_stress.to_map_vertices();
-    let (map_vertices_relief, _) = mesh_relief.to_map_vertices();
-    let (map_vertices_noise, _) = mesh_noise.to_map_vertices();
-    let (map_vertices_hydrology, _) = mesh_hydrology.to_map_vertices();
-    let (map_vertices_features, _) = mesh_features.to_map_vertices();
-    let (map_edge_vertices, map_edge_indices) = mesh_terrain.to_map_edge_vertices(voronoi);
-    // Unified mesh map projection
-    let (unified_map_vertices, unified_map_indices) = unified_mesh.to_map_vertices();
-    // Layered mesh map projections
-    let (noise_map_vertices, noise_map_indices) = layered_noise.to_map_vertices();
-    let (features_map_vertices, features_map_indices) = layered_features.to_map_vertices();
-    println!("{:.1}ms", start.elapsed().as_secs_f64() * 1000.0);
-
-    let terrain_buffers = RenderModeBuffers {
-        globe_vertex_buffer: create_vertex_buffer(
-            device,
-            &mesh_terrain.vertices,
-            "terrain_globe_vertex",
-        ),
-        map_vertex_buffer: create_vertex_buffer(
-            device,
-            &map_vertices_terrain,
-            "terrain_map_vertex",
-        ),
-        globe_edge_vertex_buffer: create_vertex_buffer(
-            device,
-            &edge_vertices_default,
-            "terrain_globe_edge_vertex",
-        ),
-        num_globe_edge_vertices: edge_vertices_default.len() as u32,
-    };
-
-    let elevation_buffers = RenderModeBuffers {
-        globe_vertex_buffer: create_vertex_buffer(
-            device,
-            &mesh_elevation.vertices,
-            "elevation_globe_vertex",
-        ),
-        map_vertex_buffer: create_vertex_buffer(
-            device,
-            &map_vertices_elevation,
-            "elevation_map_vertex",
-        ),
-        globe_edge_vertex_buffer: create_vertex_buffer(
-            device,
-            &edge_vertices_default,
-            "elevation_globe_edge_vertex",
-        ),
-        num_globe_edge_vertices: edge_vertices_default.len() as u32,
-    };
-
-    let plates_buffers = RenderModeBuffers {
-        globe_vertex_buffer: create_vertex_buffer(
-            device,
-            &mesh_plates.vertices,
-            "plates_globe_vertex",
-        ),
-        map_vertex_buffer: create_vertex_buffer(device, &map_vertices_plates, "plates_map_vertex"),
-        globe_edge_vertex_buffer: create_vertex_buffer(
-            device,
-            &edge_vertices_plates,
-            "plates_globe_edge_vertex",
-        ),
-        num_globe_edge_vertices: edge_vertices_plates.len() as u32,
-    };
-
-    let stress_buffers = RenderModeBuffers {
-        globe_vertex_buffer: create_vertex_buffer(
-            device,
-            &mesh_stress.vertices,
-            "stress_globe_vertex",
-        ),
-        map_vertex_buffer: create_vertex_buffer(device, &map_vertices_stress, "stress_map_vertex"),
-        globe_edge_vertex_buffer: create_vertex_buffer(
-            device,
-            &edge_vertices_default,
-            "stress_globe_edge_vertex",
-        ),
-        num_globe_edge_vertices: edge_vertices_default.len() as u32,
-    };
-
-    let relief_buffers = RenderModeBuffers {
-        globe_vertex_buffer: create_vertex_buffer(
-            device,
-            &mesh_relief.vertices,
-            "relief_globe_vertex",
-        ),
-        map_vertex_buffer: create_vertex_buffer(device, &map_vertices_relief, "relief_map_vertex"),
-        globe_edge_vertex_buffer: create_vertex_buffer(
-            device,
-            &edge_vertices_relief,
-            "relief_globe_edge_vertex",
-        ),
-        num_globe_edge_vertices: edge_vertices_relief.len() as u32,
-    };
-
-    let noise_buffers = RenderModeBuffers {
-        globe_vertex_buffer: create_vertex_buffer(
-            device,
-            &mesh_noise.vertices,
-            "noise_globe_vertex",
-        ),
-        map_vertex_buffer: create_vertex_buffer(device, &map_vertices_noise, "noise_map_vertex"),
-        globe_edge_vertex_buffer: create_vertex_buffer(
-            device,
-            &edge_vertices_default,
-            "noise_globe_edge_vertex",
-        ),
-        num_globe_edge_vertices: edge_vertices_default.len() as u32,
-    };
-
-    let hydrology_buffers = RenderModeBuffers {
-        globe_vertex_buffer: create_vertex_buffer(
-            device,
-            &mesh_hydrology.vertices,
-            "hydrology_globe_vertex",
-        ),
-        map_vertex_buffer: create_vertex_buffer(
-            device,
-            &map_vertices_hydrology,
-            "hydrology_map_vertex",
-        ),
-        globe_edge_vertex_buffer: create_vertex_buffer(
-            device,
-            &edge_vertices_default,
-            "hydrology_globe_edge_vertex",
-        ),
-        num_globe_edge_vertices: edge_vertices_default.len() as u32,
-    };
-
-    let features_buffers = RenderModeBuffers {
-        globe_vertex_buffer: create_vertex_buffer(
-            device,
-            &mesh_features.vertices,
-            "features_globe_vertex",
-        ),
-        map_vertex_buffer: create_vertex_buffer(
-            device,
-            &map_vertices_features,
-            "features_map_vertex",
-        ),
-        globe_edge_vertex_buffer: create_vertex_buffer(
-            device,
-            &edge_vertices_default,
-            "features_globe_edge_vertex",
-        ),
-        num_globe_edge_vertices: edge_vertices_default.len() as u32,
-    };
+    drop(_t);
 
     WorldBuffers {
-        // Order matches RenderMode: Relief, Terrain, Elevation, Plates, Stress, Noise, Hydrology, Features
-        mode_buffers: [
-            relief_buffers,
-            terrain_buffers,
-            elevation_buffers,
-            plates_buffers,
-            stress_buffers,
-            noise_buffers,
-            hydrology_buffers,
-            features_buffers,
-        ],
-        map_edge_vertex_buffer: create_vertex_buffer(
+        // Dynamic colored mesh
+        colored_vertex_buffer,
+        colored_index_buffer,
+        num_colored_indices,
+
+        // Edges
+        edge_vertex_buffer: create_vertex_buffer(device, &edge_vertices_default, "edge_vertex"),
+        edge_vertex_buffer_plates: create_vertex_buffer(
             device,
-            &map_edge_vertices,
-            "map_edge_vertex_buffer",
+            &edge_vertices_plates,
+            "edge_vertex_plates",
         ),
-        map_edge_index_buffer: create_index_buffer(
+        num_edge_vertices: edge_vertices_default.len() as u32,
+        num_edge_vertices_plates: edge_vertices_plates.len() as u32,
+
+        // Relief mode
+        unified_vertex_buffer: create_vertex_buffer(
             device,
-            &map_edge_indices,
-            "map_edge_index_buffer",
+            &unified_mesh.vertices,
+            "unified_vertex",
         ),
-        globe_index_buffer: create_index_buffer(
+        unified_index_buffer: create_index_buffer(device, &unified_mesh.indices, "unified_index"),
+        num_unified_indices: unified_mesh.indices.len() as u32,
+        relief_edge_vertex_buffer: create_vertex_buffer(
             device,
-            &mesh_terrain.indices,
-            "globe_index_buffer",
+            &edge_vertices_relief,
+            "relief_edge_vertex",
         ),
-        map_index_buffer: create_index_buffer(device, &map_indices, "map_index_buffer"),
-        arrow_vertex_buffer: create_vertex_buffer(device, &arrow_vertices, "arrow_vertex_buffer"),
+        num_relief_edge_vertices: edge_vertices_relief.len() as u32,
+
+        // Rivers
+        river_all_vertex_buffer: create_vertex_buffer(
+            device,
+            &river_all_vertices,
+            "river_all_vertex",
+        ),
+        river_major_vertex_buffer: create_vertex_buffer(
+            device,
+            &river_major_vertices,
+            "river_major_vertex",
+        ),
+        num_river_all_vertices: river_all_vertices.len() as u32,
+        num_river_major_vertices: river_major_vertices.len() as u32,
+        river_mesh_all_vertex_buffer: create_vertex_buffer(
+            device,
+            &river_mesh_all.vertices,
+            "river_mesh_all_vertex",
+        ),
+        river_mesh_all_index_buffer: create_index_buffer(
+            device,
+            &river_mesh_all.indices,
+            "river_mesh_all_index",
+        ),
+        river_mesh_major_vertex_buffer: create_vertex_buffer(
+            device,
+            &river_mesh_major.vertices,
+            "river_mesh_major_vertex",
+        ),
+        river_mesh_major_index_buffer: create_index_buffer(
+            device,
+            &river_mesh_major.indices,
+            "river_mesh_major_index",
+        ),
+        num_river_mesh_all_indices: river_mesh_all.indices.len() as u32,
+        num_river_mesh_major_indices: river_mesh_major.indices.len() as u32,
+
+        // Plate overlays
+        arrow_vertex_buffer: create_vertex_buffer(device, &arrow_vertices, "arrow_vertex"),
         pole_marker_vertex_buffer: create_vertex_buffer(
             device,
             &pole_marker_vertices,
-            "pole_marker_vertex_buffer",
+            "pole_marker_vertex",
         ),
         pole_marker_index_buffer: create_index_buffer(
             device,
             &pole_marker_indices,
-            "pole_marker_index_buffer",
+            "pole_marker_index",
         ),
         num_arrow_vertices: arrow_vertices.len() as u32,
         num_pole_marker_indices: pole_marker_indices.len() as u32,
-        num_globe_indices: mesh_terrain.indices.len() as u32,
-        num_map_indices: map_indices.len() as u32,
-        num_map_edge_indices: map_edge_indices.len() as u32,
-        river_all_vertex_buffer: create_vertex_buffer(device, &river_all_vertices, "river_all_vertex_buffer"),
-        river_major_vertex_buffer: create_vertex_buffer(device, &river_major_vertices, "river_major_vertex_buffer"),
-        num_river_all_vertices: river_all_vertices.len() as u32,
-        num_river_major_vertices: river_major_vertices.len() as u32,
-        // Triangle-based river mesh buffers (Phase 2)
-        river_mesh_all_vertex_buffer: create_vertex_buffer(device, &river_mesh_all.vertices, "river_mesh_all_vertex"),
-        river_mesh_all_index_buffer: create_index_buffer(device, &river_mesh_all.indices, "river_mesh_all_index"),
-        river_mesh_major_vertex_buffer: create_vertex_buffer(device, &river_mesh_major.vertices, "river_mesh_major_vertex"),
-        river_mesh_major_index_buffer: create_index_buffer(device, &river_mesh_major.indices, "river_mesh_major_index"),
-        num_river_mesh_all_indices: river_mesh_all.indices.len() as u32,
-        num_river_mesh_major_indices: river_mesh_major.indices.len() as u32,
-        // Unified mesh buffers (material-aware lighting)
-        unified_globe_vertex_buffer: create_vertex_buffer(device, &unified_mesh.vertices, "unified_globe_vertex"),
-        unified_map_vertex_buffer: create_vertex_buffer(device, &unified_map_vertices, "unified_map_vertex"),
-        unified_globe_index_buffer: create_index_buffer(device, &unified_mesh.indices, "unified_globe_index"),
-        unified_map_index_buffer: create_index_buffer(device, &unified_map_indices, "unified_map_index"),
-        num_unified_globe_indices: unified_mesh.indices.len() as u32,
-        num_unified_map_indices: unified_map_indices.len() as u32,
-        // Layered mesh buffers (instant layer switching)
-        noise_globe_vertex_buffer: create_vertex_buffer(device, &layered_noise.vertices, "noise_globe_vertex"),
-        noise_globe_index_buffer: create_index_buffer(device, &layered_noise.indices, "noise_globe_index"),
-        noise_map_vertex_buffer: create_vertex_buffer(device, &noise_map_vertices, "noise_map_vertex"),
-        noise_map_index_buffer: create_index_buffer(device, &noise_map_indices, "noise_map_index"),
-        num_noise_globe_indices: layered_noise.indices.len() as u32,
-        num_noise_map_indices: noise_map_indices.len() as u32,
-        features_globe_vertex_buffer: create_vertex_buffer(device, &layered_features.vertices, "features_globe_vertex"),
-        features_globe_index_buffer: create_index_buffer(device, &layered_features.indices, "features_globe_index"),
-        features_map_vertex_buffer: create_vertex_buffer(device, &features_map_vertices, "features_map_vertex"),
-        features_map_index_buffer: create_index_buffer(device, &features_map_indices, "features_map_index"),
-        num_features_globe_indices: layered_features.indices.len() as u32,
-        num_features_map_indices: features_map_indices.len() as u32,
     }
 }
 
@@ -651,7 +516,12 @@ fn generate_river_vertices_all(world: &World) -> Vec<SurfaceVertex> {
         // Alpha based on logarithmic flow
         let alpha = 0.15 + 0.55 * (flow.ln() / log_max).clamp(0.0, 1.0);
 
-        vertices.push(SurfaceVertex::new(start_pos, start_elev, river_color, alpha));
+        vertices.push(SurfaceVertex::new(
+            start_pos,
+            start_elev,
+            river_color,
+            alpha,
+        ));
         vertices.push(SurfaceVertex::new(end_pos, end_elev, river_color, alpha));
     }
 
@@ -705,7 +575,12 @@ fn generate_river_vertices_major(world: &World) -> Vec<SurfaceVertex> {
         let flow = hydrology.flow_accumulation[cell_idx];
         let alpha = 0.15 + 0.55 * (flow.ln() / log_max).clamp(0.0, 1.0);
 
-        vertices.push(SurfaceVertex::new(start_pos, start_elev, river_color, alpha));
+        vertices.push(SurfaceVertex::new(
+            start_pos,
+            start_elev,
+            river_color,
+            alpha,
+        ));
         vertices.push(SurfaceVertex::new(end_pos, end_elev, river_color, alpha));
     }
 
@@ -751,7 +626,11 @@ fn river_segment_geometry(
 
 /// Generate vertices for lake outflow rivers (from overflowing lakes).
 /// These are added to the existing vertices vector.
-fn generate_lake_outflow_vertices(world: &World, vertices: &mut Vec<SurfaceVertex>, river_color: Vec3) {
+fn generate_lake_outflow_vertices(
+    world: &World,
+    vertices: &mut Vec<SurfaceVertex>,
+    river_color: Vec3,
+) {
     let Some(hydrology) = &world.hydrology else {
         return;
     };
@@ -767,22 +646,52 @@ fn generate_lake_outflow_vertices(world: &World, vertices: &mut Vec<SurfaceVerte
             let cell_idx = window[0];
             let downstream_idx = window[1];
 
-            let (start_pos, end_pos, start_elev, end_elev) =
-                river_segment_geometry(tessellation, elevation, hydrology, cell_idx, downstream_idx);
+            let (start_pos, end_pos, start_elev, end_elev) = river_segment_geometry(
+                tessellation,
+                elevation,
+                hydrology,
+                cell_idx,
+                downstream_idx,
+            );
 
-            vertices.push(SurfaceVertex::new(start_pos, start_elev, river_color, outflow_alpha));
-            vertices.push(SurfaceVertex::new(end_pos, end_elev, river_color, outflow_alpha));
+            vertices.push(SurfaceVertex::new(
+                start_pos,
+                start_elev,
+                river_color,
+                outflow_alpha,
+            ));
+            vertices.push(SurfaceVertex::new(
+                end_pos,
+                end_elev,
+                river_color,
+                outflow_alpha,
+            ));
         }
 
         // Add final segment to water (if path ends at land cell adjacent to water)
         if let Some(&last_cell) = path.last() {
             if let Some(downstream_idx) = hydrology.downstream(last_cell) {
                 if hydrology.is_submerged(downstream_idx) {
-                    let (start_pos, end_pos, start_elev, end_elev) =
-                        river_segment_geometry(tessellation, elevation, hydrology, last_cell, downstream_idx);
+                    let (start_pos, end_pos, start_elev, end_elev) = river_segment_geometry(
+                        tessellation,
+                        elevation,
+                        hydrology,
+                        last_cell,
+                        downstream_idx,
+                    );
 
-                    vertices.push(SurfaceVertex::new(start_pos, start_elev, river_color, outflow_alpha));
-                    vertices.push(SurfaceVertex::new(end_pos, end_elev, river_color, outflow_alpha));
+                    vertices.push(SurfaceVertex::new(
+                        start_pos,
+                        start_elev,
+                        river_color,
+                        outflow_alpha,
+                    ));
+                    vertices.push(SurfaceVertex::new(
+                        end_pos,
+                        end_elev,
+                        river_color,
+                        outflow_alpha,
+                    ));
                 }
             }
         }
@@ -988,8 +897,20 @@ fn generate_river_segment_quad(
 
     // Add segment vertices with elevation - shader does displacement
     let base_idx = vertices.len() as u32;
-    vertices.push(UnifiedVertex::new(p0, n1, color, start_elev, Material::River));
-    vertices.push(UnifiedVertex::new(p1, n1, color, start_elev, Material::River));
+    vertices.push(UnifiedVertex::new(
+        p0,
+        n1,
+        color,
+        start_elev,
+        Material::River,
+    ));
+    vertices.push(UnifiedVertex::new(
+        p1,
+        n1,
+        color,
+        start_elev,
+        Material::River,
+    ));
     vertices.push(UnifiedVertex::new(p2, n2, color, end_elev, Material::River));
     vertices.push(UnifiedVertex::new(p3, n2, color, end_elev, Material::River));
 
@@ -1117,12 +1038,38 @@ fn print_world_stats(world: &World) {
         .count();
     let continental_pct = 100.0 * continental_cells as f32 / num_cells as f32;
 
-    println!("\n=== World Statistics ===");
-    println!("  Cells: {}", num_cells);
-    println!("  Water: {:.1}%", water_pct);
-    println!("  Continental crust: {:.1}%", continental_pct);
-    println!(
-        "  Elevation: avg {:.3}, min {:.3}, max {:.3}",
-        avg_elevation, min_elevation, max_elevation
+    log::info!(
+        "Stats: cells={}, water={:.1}%, continental={:.1}%, elev=[{:.3}, {:.3}], avg={:.3}",
+        num_cells,
+        water_pct,
+        continental_pct,
+        min_elevation,
+        max_elevation,
+        avg_elevation
     );
+}
+
+// =============================================================================
+// Wind particle buffer generation
+// =============================================================================
+
+/// Generate a vertex buffer for wind particle trail lines.
+/// Each trail segment is a line from prev_pos to pos with per-vertex color.
+pub fn generate_wind_particle_buffer(
+    device: &wgpu::Device,
+    trails: &[(Vec3, Vec3, Vec3)], // (start, end, color)
+) -> (wgpu::Buffer, u32) {
+    let mut vertices = Vec::with_capacity(trails.len() * 2);
+
+    for &(start, end, color) in trails {
+        // Both vertices of the line share the same normal (radial) and color
+        let normal = ((start + end) * 0.5).normalize();
+        vertices.push(MeshVertex::new(start, normal, color));
+        vertices.push(MeshVertex::new(end, normal, color));
+    }
+
+    let buffer = create_vertex_buffer(device, &vertices, "wind_particle_vertex");
+    let count = vertices.len() as u32;
+
+    (buffer, count)
 }

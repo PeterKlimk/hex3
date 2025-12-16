@@ -1,9 +1,11 @@
 mod coloring;
+pub mod export;
 mod state;
 mod view;
 mod visualization;
-mod world;
+pub mod world;
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use winit::{
@@ -18,14 +20,24 @@ use winit::{
 pub use state::AppState;
 pub use view::{RenderMode, ViewMode};
 
+/// Configuration for the app from CLI arguments.
+pub struct AppConfig {
+    pub seed: Option<u64>,
+    pub target_stage: u32,
+    pub export_path: Option<PathBuf>,
+}
+
 pub struct App {
     pub state: Option<AppState>,
-    pub auto_stage2: bool,
+    pub config: AppConfig,
 }
 
 impl App {
-    pub fn new(auto_stage2: bool) -> Self {
-        Self { state: None, auto_stage2 }
+    pub fn new(config: AppConfig) -> Self {
+        Self {
+            state: None,
+            config,
+        }
     }
 }
 
@@ -45,11 +57,14 @@ impl ApplicationHandler for App {
                 .expect("Failed to create window"),
         );
 
-        let mut state = pollster::block_on(AppState::new(window));
+        let seed = self.config.seed.unwrap_or_else(rand::random);
+        let mut state = pollster::block_on(AppState::new(window, seed));
 
-        // Auto-advance to Stage 2 if flag is set
-        if self.auto_stage2 {
-            state.advance_stage();
+        // Advance to target stage
+        while state.world_data.current_stage() < self.config.target_stage {
+            if !state.advance_stage() {
+                break;
+            }
         }
 
         self.state = Some(state);
@@ -81,48 +96,60 @@ impl ApplicationHandler for App {
                         }
                         PhysicalKey::Code(KeyCode::Digit1) => {
                             state.render_mode = RenderMode::Relief;
+                            // Relief uses unified mesh, no color regeneration needed
                             state.window.request_redraw();
                         }
                         PhysicalKey::Code(KeyCode::Digit2) => {
                             state.render_mode = RenderMode::Terrain;
+                            state.regenerate_colors();
                             state.window.request_redraw();
                         }
                         PhysicalKey::Code(KeyCode::Digit3) => {
                             state.render_mode = RenderMode::Elevation;
+                            state.regenerate_colors();
                             state.window.request_redraw();
                         }
                         PhysicalKey::Code(KeyCode::Digit4) => {
                             state.render_mode = RenderMode::Plates;
+                            state.regenerate_colors();
                             state.window.request_redraw();
                         }
                         PhysicalKey::Code(KeyCode::Digit5) => {
-                            state.render_mode = RenderMode::Stress;
-                            state.window.request_redraw();
-                        }
-                        PhysicalKey::Code(KeyCode::Digit6) => {
                             if state.render_mode == RenderMode::Noise {
                                 // Already in noise mode - cycle through layers
-                                // (layer selection is handled via shader uniform, no buffer regen needed)
                                 state.noise_layer = state.noise_layer.cycle();
                                 println!("Noise layer: {}", state.noise_layer.name());
                             } else {
                                 state.render_mode = RenderMode::Noise;
                             }
+                            state.regenerate_colors();
+                            state.window.request_redraw();
+                        }
+                        PhysicalKey::Code(KeyCode::Digit6) => {
+                            state.render_mode = RenderMode::Hydrology;
+                            state.regenerate_colors();
                             state.window.request_redraw();
                         }
                         PhysicalKey::Code(KeyCode::Digit7) => {
-                            state.render_mode = RenderMode::Hydrology;
-                            state.window.request_redraw();
-                        }
-                        PhysicalKey::Code(KeyCode::Digit8) => {
                             if state.render_mode == RenderMode::Features {
                                 // Already in features mode - cycle through layers
-                                // (layer selection is handled via shader uniform, no buffer regen needed)
                                 state.feature_layer = state.feature_layer.cycle();
                                 println!("Feature layer: {}", state.feature_layer.name());
                             } else {
                                 state.render_mode = RenderMode::Features;
                             }
+                            state.regenerate_colors();
+                            state.window.request_redraw();
+                        }
+                        PhysicalKey::Code(KeyCode::Digit8) => {
+                            if state.render_mode == RenderMode::Climate {
+                                // Already in climate mode - cycle through layers
+                                state.climate_layer = state.climate_layer.cycle();
+                                println!("Climate layer: {}", state.climate_layer.name());
+                            } else {
+                                state.render_mode = RenderMode::Climate;
+                            }
+                            state.regenerate_colors();
                             state.window.request_redraw();
                         }
                         PhysicalKey::Code(KeyCode::KeyR) => {
@@ -157,9 +184,24 @@ impl ApplicationHandler for App {
                             state.hemisphere_lighting = !state.hemisphere_lighting;
                             println!(
                                 "Hemisphere lighting: {}",
-                                if state.hemisphere_lighting { "ON" } else { "OFF" }
+                                if state.hemisphere_lighting {
+                                    "ON"
+                                } else {
+                                    "OFF"
+                                }
                             );
                             state.window.request_redraw();
+                        }
+                        PhysicalKey::Code(KeyCode::KeyD) => {
+                            // Export world data
+                            let filename = format!(
+                                "hex3_dump_{}_{}_{}.json.gz",
+                                state.seed,
+                                state.world_data.tessellation.num_cells(),
+                                state.world_data.current_stage()
+                            );
+                            let path = std::path::PathBuf::from(&filename);
+                            export::export_world(&state.world_data, state.seed, &path);
                         }
                         PhysicalKey::Code(KeyCode::Escape) => event_loop.exit(),
                         _ => {}

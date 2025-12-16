@@ -36,19 +36,33 @@ pub struct UnifiedVertex {
     /// Simulation elevation (without micro noise). Shader adds micro noise.
     pub elevation: f32,
     pub material: u32,
-    pub _padding: u32, // Align to 16 bytes
+    /// Wrap offset for antimeridian handling in map view.
+    /// Added to x coordinate when projecting to equirectangular.
+    pub wrap_offset: f32,
 }
 
 impl UnifiedVertex {
-    pub fn new(position: Vec3, normal: Vec3, color: Vec3, elevation: f32, material: Material) -> Self {
+    pub fn new(
+        position: Vec3,
+        normal: Vec3,
+        color: Vec3,
+        elevation: f32,
+        material: Material,
+    ) -> Self {
         Self {
             position: position.to_array(),
             normal: normal.to_array(),
             color: color.to_array(),
             elevation,
             material: material as u32,
-            _padding: 0,
+            wrap_offset: 0.0,
         }
+    }
+
+    /// Create with explicit wrap offset for antimeridian handling.
+    pub fn with_wrap_offset(mut self, wrap_offset: f32) -> Self {
+        self.wrap_offset = wrap_offset;
+        self
     }
 
     /// Create a land vertex (most common case)
@@ -80,6 +94,8 @@ pub struct MeshVertex {
     pub position: [f32; 3],
     pub normal: [f32; 3],
     pub color: [f32; 3],
+    /// Wrap offset for antimeridian handling in map view.
+    pub wrap_offset: f32,
 }
 
 impl MeshVertex {
@@ -88,7 +104,14 @@ impl MeshVertex {
             position: position.to_array(),
             normal: normal.to_array(),
             color: color.to_array(),
+            wrap_offset: 0.0,
         }
+    }
+
+    /// Create with explicit wrap offset for antimeridian handling.
+    pub fn with_wrap_offset(mut self, wrap_offset: f32) -> Self {
+        self.wrap_offset = wrap_offset;
+        self
     }
 }
 
@@ -119,28 +142,38 @@ impl SurfaceVertex {
 
 /// A vertex for layered visualization (noise layers, feature fields).
 ///
-/// Stores 5 scalar values that can be selected via shader uniform,
+/// Stores 6 scalar values that can be selected via shader uniform,
 /// enabling instant layer switching without buffer regeneration.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct LayeredVertex {
     /// Position on unit sphere
     pub position: [f32; 3],
+    /// Wrap offset for antimeridian handling in map view.
+    pub wrap_offset: f32,
     /// Surface normal
     pub normal: [f32; 3],
-    /// 5 layer values (selected by uniform in shader)
-    pub layers: [f32; 5],
-    pub _padding: f32, // Align to 16 bytes (48 bytes total = 3 * 16)
+    /// Padding for alignment
+    pub _padding: f32,
+    /// 6 layer values (selected by uniform in shader)
+    pub layers: [f32; 6],
 }
 
 impl LayeredVertex {
-    pub fn new(position: Vec3, normal: Vec3, layers: [f32; 5]) -> Self {
+    pub fn new(position: Vec3, normal: Vec3, layers: [f32; 6]) -> Self {
         Self {
             position: position.to_array(),
+            wrap_offset: 0.0,
             normal: normal.to_array(),
-            layers,
             _padding: 0.0,
+            layers,
         }
+    }
+
+    /// Create with explicit wrap offset for antimeridian handling.
+    pub fn with_wrap_offset(mut self, wrap_offset: f32) -> Self {
+        self.wrap_offset = wrap_offset;
+        self
     }
 }
 
@@ -155,10 +188,10 @@ pub struct LayeredMesh {
 impl LayeredMesh {
     /// Generate a layered mesh from a Voronoi diagram.
     ///
-    /// `layer_fn` returns 5 layer values for each cell.
+    /// `layer_fn` returns 6 layer values for each cell.
     pub fn from_voronoi<F>(voronoi: &SphericalVoronoi, layer_fn: F) -> Self
     where
-        F: Fn(usize) -> [f32; 5],
+        F: Fn(usize) -> [f32; 6],
     {
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
@@ -172,16 +205,27 @@ impl LayeredMesh {
             let normal = generator; // On unit sphere, normal = position
             let layers = layer_fn(cell.generator_index);
 
+            // Compute wrap offsets for this cell (for map view antimeridian handling)
+            // Include generator (center) and all perimeter vertices
+            let mut cell_positions: Vec<Vec3> = vec![generator];
+            cell_positions.extend(cell.vertex_indices.iter().map(|&vi| voronoi.vertices[vi]));
+            let wrap_offsets = compute_cell_wrap_offsets(&cell_positions);
+
             // Fan triangulation from the generator point
             let base_idx = vertices.len() as u32;
 
             // Center vertex (at generator)
-            vertices.push(LayeredVertex::new(generator, normal, layers));
+            let center_wrap = wrap_offsets.as_ref().map(|w| w[0]).unwrap_or(0.0);
+            vertices.push(LayeredVertex::new(generator, normal, layers).with_wrap_offset(center_wrap));
 
             // Perimeter vertices
-            for &vi in &cell.vertex_indices {
+            for (local_idx, &vi) in cell.vertex_indices.iter().enumerate() {
                 let v = voronoi.vertices[vi];
-                vertices.push(LayeredVertex::new(v, normal, layers));
+                let wrap_offset = wrap_offsets
+                    .as_ref()
+                    .map(|w| w[local_idx + 1]) // +1 because generator is at index 0
+                    .unwrap_or(0.0);
+                vertices.push(LayeredVertex::new(v, normal, layers).with_wrap_offset(wrap_offset));
             }
 
             // Triangles (fan from center)
@@ -266,7 +310,8 @@ impl LayeredMesh {
 
             // Map old vertex index -> new vertex index for this cell
             let base_new_idx = new_vertices.len() as u32;
-            let mut old_to_new: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
+            let mut old_to_new: std::collections::HashMap<u32, u32> =
+                std::collections::HashMap::new();
 
             for (local_idx, &old_idx) in cell_vertex_indices.iter().enumerate() {
                 old_to_new.insert(old_idx, base_new_idx + local_idx as u32);
@@ -280,9 +325,10 @@ impl LayeredMesh {
                 let old_v = &self.vertices[old_idx as usize];
                 new_vertices.push(LayeredVertex {
                     position: [x, y, 0.0],
+                    wrap_offset: 0.0,
                     normal: [0.0, 0.0, 1.0],
-                    layers: old_v.layers,
                     _padding: 0.0,
+                    layers: old_v.layers,
                 });
             }
 
@@ -296,6 +342,84 @@ impl LayeredMesh {
         }
 
         (new_vertices, new_indices)
+    }
+
+    /// Project vertices using precomputed projection data.
+    ///
+    /// This is faster than `to_map_vertices` when projecting multiple
+    /// meshes with the same topology.
+    pub fn to_map_vertices_with_projection(
+        &self,
+        projection: &MapProjection,
+    ) -> (Vec<LayeredVertex>, Vec<u32>) {
+        let mut new_vertices = Vec::with_capacity(self.vertices.len());
+        let mut new_indices = Vec::with_capacity(self.indices.len());
+
+        for &(cell_start_tri, cell_end_tri) in &projection.cell_ranges {
+            // Collect all vertex indices used by this cell
+            let mut cell_vertex_indices: Vec<u32> = Vec::new();
+            for tri_idx in cell_start_tri..cell_end_tri {
+                let i = tri_idx * 3;
+                cell_vertex_indices.push(self.indices[i]);
+                cell_vertex_indices.push(self.indices[i + 1]);
+                cell_vertex_indices.push(self.indices[i + 2]);
+            }
+            cell_vertex_indices.sort_unstable();
+            cell_vertex_indices.dedup();
+
+            // Get projected x coords for this cell
+            let x_coords: Vec<f32> = cell_vertex_indices
+                .iter()
+                .map(|&idx| projection.projected[idx as usize].0)
+                .collect();
+
+            let min_x = x_coords.iter().copied().fold(f32::INFINITY, f32::min);
+            let max_x = x_coords.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+            let x_span = max_x - min_x;
+
+            // If span > 1.0, the cell crosses the antimeridian
+            let needs_wrap = x_span > 1.0;
+
+            // Map old vertex index -> new vertex index for this cell
+            let base_new_idx = new_vertices.len() as u32;
+            let mut old_to_new: std::collections::HashMap<u32, u32> =
+                std::collections::HashMap::new();
+
+            for (local_idx, &old_idx) in cell_vertex_indices.iter().enumerate() {
+                old_to_new.insert(old_idx, base_new_idx + local_idx as u32);
+
+                let (mut x, y) = projection.projected[old_idx as usize];
+
+                if needs_wrap && x < 0.0 {
+                    x += 2.0;
+                }
+
+                let old_v = &self.vertices[old_idx as usize];
+                new_vertices.push(LayeredVertex {
+                    position: [x, y, 0.0],
+                    wrap_offset: 0.0,
+                    normal: [0.0, 0.0, 1.0],
+                    _padding: 0.0,
+                    layers: old_v.layers,
+                });
+            }
+
+            // Emit triangles with remapped indices
+            for tri_idx in cell_start_tri..cell_end_tri {
+                let i = tri_idx * 3;
+                new_indices.push(old_to_new[&self.indices[i]]);
+                new_indices.push(old_to_new[&self.indices[i + 1]]);
+                new_indices.push(old_to_new[&self.indices[i + 2]]);
+            }
+        }
+
+        (new_vertices, new_indices)
+    }
+
+    /// Compute map projection data from this mesh.
+    pub fn compute_projection(&self) -> MapProjection {
+        let positions: Vec<[f32; 3]> = self.vertices.iter().map(|v| v.position).collect();
+        MapProjection::compute(&positions, &self.indices)
     }
 }
 
@@ -351,12 +475,9 @@ impl UnifiedMesh {
         E: Fn(usize) -> f32,
     {
         // Step 1: Precompute materials and elevations for all cells
-        let cell_materials: Vec<Material> = (0..voronoi.cells.len())
-            .map(|i| material_fn(i))
-            .collect();
-        let cell_elevations: Vec<f32> = (0..voronoi.cells.len())
-            .map(|i| elevation_fn(i))
-            .collect();
+        let cell_materials: Vec<Material> =
+            (0..voronoi.cells.len()).map(|i| material_fn(i)).collect();
+        let cell_elevations: Vec<f32> = (0..voronoi.cells.len()).map(|i| elevation_fn(i)).collect();
 
         // Step 2: For each vertex, compute elevation based on adjacent cell types
         // Track: sum of land elevations, count of land cells, water_level if any water adjacent
@@ -421,6 +542,14 @@ impl UnifiedMesh {
             let color = color_fn(cell_idx);
             let material = material_fn(cell_idx);
 
+            // Compute wrap offsets for this cell (for map view antimeridian handling)
+            let cell_positions: Vec<Vec3> = cell
+                .vertex_indices
+                .iter()
+                .map(|&vi| voronoi.vertices[vi])
+                .collect();
+            let wrap_offsets = compute_cell_wrap_offsets(&cell_positions);
+
             // Base index for this cell's vertices
             let base_idx = vertices.len() as u32;
 
@@ -430,7 +559,7 @@ impl UnifiedMesh {
             let is_water = matches!(material, Material::Ocean | Material::Lake);
             let cell_water_level = cell_elevations[cell_idx];
 
-            for &vertex_idx in &cell.vertex_indices {
+            for (local_idx, &vertex_idx) in cell.vertex_indices.iter().enumerate() {
                 let pos = voronoi.vertices[vertex_idx];
                 let elevation = if is_water {
                     // Water cells are flat at their water level
@@ -443,7 +572,11 @@ impl UnifiedMesh {
                     vertex_elevations[vertex_idx]
                 };
                 // Use sphere normal for smooth lighting (no terrain shadows)
-                vertices.push(UnifiedVertex::new(pos, pos, color, elevation, material));
+                let wrap_offset = wrap_offsets
+                    .as_ref()
+                    .map(|w| w[local_idx])
+                    .unwrap_or(0.0);
+                vertices.push(UnifiedVertex::new(pos, pos, color, elevation, material).with_wrap_offset(wrap_offset));
             }
 
             // Fan triangulation from first vertex
@@ -567,7 +700,7 @@ impl UnifiedMesh {
                     color: self.vertices[i].color,
                     elevation: 0.0, // Map view is flat
                     material: self.vertices[i].material,
-                    _padding: 0,
+                    wrap_offset: 0.0, // Not used in 2D map
                 });
             }
 
@@ -578,17 +711,211 @@ impl UnifiedMesh {
 
         (out_vertices, out_indices)
     }
+
+    /// Project vertices using precomputed projection data.
+    ///
+    /// This is much faster than `to_map_vertices` when projecting multiple
+    /// meshes with the same topology, as the expensive cell boundary detection
+    /// and wrap offset computation is done once and reused.
+    pub fn to_map_vertices_with_projection(
+        &self,
+        projection: &MapProjection,
+    ) -> (Vec<UnifiedVertex>, Vec<u32>) {
+        let mut out_vertices = Vec::with_capacity(self.indices.len());
+        let mut out_indices = Vec::with_capacity(self.indices.len());
+
+        for tri in self.indices.chunks(3) {
+            let i0 = tri[0] as usize;
+            let i1 = tri[1] as usize;
+            let i2 = tri[2] as usize;
+
+            let base = out_vertices.len() as u32;
+
+            for &i in &[i0, i1, i2] {
+                let (x, y) = projection.projected[i];
+                out_vertices.push(UnifiedVertex {
+                    position: [x + projection.wrap_offset[i], y, 0.0],
+                    normal: [0.0, 0.0, 1.0],
+                    color: self.vertices[i].color,
+                    elevation: 0.0, // Map view is flat
+                    material: self.vertices[i].material,
+                    wrap_offset: 0.0, // Not used in 2D map
+                });
+            }
+
+            out_indices.push(base);
+            out_indices.push(base + 1);
+            out_indices.push(base + 2);
+        }
+
+        (out_vertices, out_indices)
+    }
+
+    /// Compute map projection data from this mesh.
+    pub fn compute_projection(&self) -> MapProjection {
+        let positions: Vec<[f32; 3]> = self.vertices.iter().map(|v| v.position).collect();
+        MapProjection::compute(&positions, &self.indices)
+    }
 }
 
 /// Project a 3D sphere point to 2D equirectangular coordinates.
 /// Returns (x, y) in range [-1, 1] for both axes.
-fn sphere_to_equirectangular(p: Vec3) -> (f32, f32) {
+pub fn sphere_to_equirectangular(p: Vec3) -> (f32, f32) {
     let lon = p.z.atan2(p.x); // -PI to PI
     let lat = p.y.asin(); // -PI/2 to PI/2
 
     let x = lon / std::f32::consts::PI; // -1 to 1
     let y = lat / std::f32::consts::FRAC_PI_2; // -1 to 1
     (x, y)
+}
+
+/// Compute wrap offsets for vertices in a cell that crosses the antimeridian.
+///
+/// Returns a Vec of wrap offsets (one per vertex in the cell), or None if the
+/// cell doesn't need wrapping. Vertices near the "minority" side get offset
+/// to join the majority.
+pub fn compute_cell_wrap_offsets(positions: &[Vec3]) -> Option<Vec<f32>> {
+    // Project all vertices to get x coordinates
+    let x_coords: Vec<f32> = positions.iter().map(|&p| sphere_to_equirectangular(p).0).collect();
+
+    let min_x = x_coords.iter().copied().fold(f32::INFINITY, f32::min);
+    let max_x = x_coords.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+
+    // Cell crosses antimeridian if it spans more than half the map
+    if max_x - min_x <= 1.0 {
+        return None; // No wrapping needed
+    }
+
+    // Count vertices on each side
+    let left_count = x_coords.iter().filter(|&&x| x < 0.0).count();
+    let right_count = x_coords.len() - left_count;
+
+    // Compute wrap offset for each vertex
+    let offsets: Vec<f32> = x_coords
+        .iter()
+        .map(|&x| {
+            if left_count > right_count {
+                // Most vertices on left - wrap right vertices to left
+                if x > 0.5 {
+                    -2.0
+                } else {
+                    0.0
+                }
+            } else {
+                // Most vertices on right - wrap left vertices to right
+                if x < -0.5 {
+                    2.0
+                } else {
+                    0.0
+                }
+            }
+        })
+        .collect();
+
+    Some(offsets)
+}
+
+/// Precomputed map projection data that can be reused across meshes.
+///
+/// All meshes from the same SphericalVoronoi share the same topology (indices),
+/// so projection coordinates and antimeridian wrap offsets can be computed once
+/// and reused for all render mode variants.
+pub struct MapProjection {
+    /// Projected (x, y) coordinates for each vertex.
+    pub projected: Vec<(f32, f32)>,
+    /// Per-vertex wrap offset for antimeridian handling.
+    pub wrap_offset: Vec<f32>,
+    /// Cell ranges as (start_tri, end_tri) pairs.
+    pub cell_ranges: Vec<(usize, usize)>,
+}
+
+impl MapProjection {
+    /// Compute map projection data from positions and indices.
+    ///
+    /// This extracts the expensive geometric computations that are shared
+    /// across all meshes with the same topology.
+    pub fn compute(positions: &[[f32; 3]], indices: &[u32]) -> Self {
+        // First pass: project all vertices
+        let projected: Vec<(f32, f32)> = positions
+            .iter()
+            .map(|p| {
+                let pos = Vec3::from_array(*p);
+                sphere_to_equirectangular(pos)
+            })
+            .collect();
+
+        // Second pass: identify cell boundaries from triangle structure
+        // Each cell is a triangle fan where all triangles share the same first vertex
+        let mut cell_ranges: Vec<(usize, usize)> = Vec::new();
+        let mut current_fan_center: Option<u32> = None;
+        let mut cell_start = 0;
+
+        for (tri_idx, tri) in indices.chunks(3).enumerate() {
+            let fan_center = tri[0];
+
+            match current_fan_center {
+                None => {
+                    current_fan_center = Some(fan_center);
+                }
+                Some(prev_center) => {
+                    if fan_center != prev_center {
+                        cell_ranges.push((cell_start, tri_idx));
+                        cell_start = tri_idx;
+                        current_fan_center = Some(fan_center);
+                    }
+                }
+            }
+        }
+        let num_tris = indices.len() / 3;
+        if cell_start < num_tris {
+            cell_ranges.push((cell_start, num_tris));
+        }
+
+        // Third pass: compute wrap offset per cell
+        let mut wrap_offset: Vec<f32> = vec![0.0; positions.len()];
+
+        for &(start_tri, end_tri) in &cell_ranges {
+            let mut cell_vertex_indices: Vec<usize> = Vec::new();
+            for tri_idx in start_tri..end_tri {
+                let base = tri_idx * 3;
+                cell_vertex_indices.push(indices[base] as usize);
+                cell_vertex_indices.push(indices[base + 1] as usize);
+                cell_vertex_indices.push(indices[base + 2] as usize);
+            }
+            cell_vertex_indices.sort();
+            cell_vertex_indices.dedup();
+
+            let xs: Vec<f32> = cell_vertex_indices
+                .iter()
+                .map(|&i| projected[i].0)
+                .collect();
+            let min_x = xs.iter().cloned().fold(f32::INFINITY, f32::min);
+            let max_x = xs.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+
+            // Cell crosses antimeridian if it spans more than half the map
+            if max_x - min_x > 1.0 {
+                let left_count = xs.iter().filter(|&&x| x < 0.0).count();
+                let right_count = xs.len() - left_count;
+
+                for &i in &cell_vertex_indices {
+                    let x = projected[i].0;
+                    if left_count > right_count {
+                        if x > 0.5 {
+                            wrap_offset[i] = -2.0;
+                        }
+                    } else if x < -0.5 {
+                        wrap_offset[i] = 2.0;
+                    }
+                }
+            }
+        }
+
+        Self {
+            projected,
+            wrap_offset,
+            cell_ranges,
+        }
+    }
 }
 
 impl VoronoiMesh {
@@ -645,15 +972,27 @@ impl VoronoiMesh {
             // Color based on cell elevation (not averaged)
             let color = color_fn(cell_idx);
 
+            // Compute wrap offsets for this cell (for map view antimeridian handling)
+            let cell_positions: Vec<Vec3> = cell
+                .vertex_indices
+                .iter()
+                .map(|&vi| voronoi.vertices[vi])
+                .collect();
+            let wrap_offsets = compute_cell_wrap_offsets(&cell_positions);
+
             // Base index for this cell's vertices
             let base_idx = vertices.len() as u32;
 
             // Add vertices with displaced positions using averaged elevation
-            for &vertex_idx in &cell.vertex_indices {
+            for (local_idx, &vertex_idx) in cell.vertex_indices.iter().enumerate() {
                 let original_pos = voronoi.vertices[vertex_idx];
                 let displacement = 1.0 + vertex_elevations[vertex_idx] * RELIEF_SCALE;
                 let displaced_pos = original_pos * displacement;
-                vertices.push(MeshVertex::new(displaced_pos, original_pos, color));
+                let wrap_offset = wrap_offsets
+                    .as_ref()
+                    .map(|w| w[local_idx])
+                    .unwrap_or(0.0);
+                vertices.push(MeshVertex::new(displaced_pos, original_pos, color).with_wrap_offset(wrap_offset));
             }
 
             // Fan triangulation from first vertex
@@ -721,12 +1060,9 @@ impl VoronoiMesh {
         use crate::world::RELIEF_SCALE;
 
         // Precompute materials and elevations
-        let cell_materials: Vec<Material> = (0..voronoi.cells.len())
-            .map(|i| material_fn(i))
-            .collect();
-        let cell_elevations: Vec<f32> = (0..voronoi.cells.len())
-            .map(|i| elevation_fn(i))
-            .collect();
+        let cell_materials: Vec<Material> =
+            (0..voronoi.cells.len()).map(|i| material_fn(i)).collect();
+        let cell_elevations: Vec<f32> = (0..voronoi.cells.len()).map(|i| elevation_fn(i)).collect();
 
         // Water-aware vertex elevation (same logic as UnifiedMesh)
         let mut vertex_land_sum = vec![0.0f32; voronoi.vertices.len()];
@@ -908,6 +1244,7 @@ impl VoronoiMesh {
                     position: [x + wrap_offset[i], y, 0.0],
                     normal: [0.0, 0.0, 1.0],
                     color: self.vertices[i].color,
+                    wrap_offset: 0.0, // Not used in 2D map
                 });
             }
 
@@ -917,6 +1254,52 @@ impl VoronoiMesh {
         }
 
         (out_vertices, out_indices)
+    }
+
+    /// Project vertices using precomputed projection data.
+    ///
+    /// This is much faster than `to_map_vertices` when projecting multiple
+    /// meshes with the same topology, as the expensive cell boundary detection
+    /// and wrap offset computation is done once and reused.
+    pub fn to_map_vertices_with_projection(
+        &self,
+        projection: &MapProjection,
+    ) -> (Vec<MeshVertex>, Vec<u32>) {
+        let mut out_vertices = Vec::with_capacity(self.indices.len());
+        let mut out_indices = Vec::with_capacity(self.indices.len());
+
+        for tri in self.indices.chunks(3) {
+            let i0 = tri[0] as usize;
+            let i1 = tri[1] as usize;
+            let i2 = tri[2] as usize;
+
+            let base = out_vertices.len() as u32;
+
+            for &i in &[i0, i1, i2] {
+                let (x, y) = projection.projected[i];
+                out_vertices.push(MeshVertex {
+                    position: [x + projection.wrap_offset[i], y, 0.0],
+                    normal: [0.0, 0.0, 1.0],
+                    color: self.vertices[i].color,
+                    wrap_offset: 0.0, // Not used in 2D map
+                });
+            }
+
+            out_indices.push(base);
+            out_indices.push(base + 1);
+            out_indices.push(base + 2);
+        }
+
+        (out_vertices, out_indices)
+    }
+
+    /// Compute map projection data from this mesh.
+    ///
+    /// The returned projection can be reused with other meshes that have
+    /// the same topology (same indices).
+    pub fn compute_projection(&self) -> MapProjection {
+        let positions: Vec<[f32; 3]> = self.vertices.iter().map(|v| v.position).collect();
+        MapProjection::compute(&positions, &self.indices)
     }
 
     /// Project edge vertices to 2D equirectangular map coordinates.
@@ -994,8 +1377,7 @@ mod tests {
         let mut points = random_sphere_points(50);
         lloyd_relax(&mut points, 10);
         let voronoi = SphericalVoronoi::compute(&points);
-        let mesh =
-            VoronoiMesh::from_voronoi_with_colors(&voronoi, |_| Vec3::new(0.5, 0.5, 0.5));
+        let mesh = VoronoiMesh::from_voronoi_with_colors(&voronoi, |_| Vec3::new(0.5, 0.5, 0.5));
 
         assert!(!mesh.vertices.is_empty());
         assert!(!mesh.indices.is_empty());

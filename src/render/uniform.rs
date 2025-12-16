@@ -6,7 +6,7 @@ use crate::world::RELIEF_SCALE;
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct LayerUniforms {
-    /// Which layer to display (0-4).
+    /// Which layer to display (0-5).
     pub layer_index: u32,
     /// Colormap mode: 0 = noise, 1 = features.
     pub colormap_mode: u32,
@@ -46,10 +46,10 @@ pub struct Uniforms {
     pub relief_scale: f32,
     /// Hemisphere lighting toggle (1.0 = enabled, 0.0 = simple diffuse).
     pub hemisphere_lighting: f32,
-    // WGSL vec3 has 16-byte alignment, so _padding2 in shader starts at offset 112
-    // We need: 64 + 16 + 16 + 4 + (12 align) + 12 + 4 = 128 bytes total
-    // Simplest: use 7 f32s (28 bytes) to reach 128 from current offset 100
-    pub _padding2: [f32; 7],
+    /// Map mode (0.0 = globe view, 1.0 = equirectangular map view).
+    pub map_mode: f32,
+    /// Padding to align to 16 bytes.
+    pub _padding2: [f32; 6],
 }
 
 impl Uniforms {
@@ -61,7 +61,8 @@ impl Uniforms {
             light_dir: light_dir.normalize().to_array(),
             relief_scale: 0.0,
             hemisphere_lighting: 1.0,
-            _padding2: [0.0; 7],
+            map_mode: 0.0,
+            _padding2: [0.0; 6],
         }
     }
 
@@ -74,6 +75,12 @@ impl Uniforms {
     /// Set whether hemisphere lighting is enabled.
     pub fn with_hemisphere_lighting(mut self, enabled: bool) -> Self {
         self.hemisphere_lighting = if enabled { 1.0 } else { 0.0 };
+        self
+    }
+
+    /// Set whether map mode is enabled.
+    pub fn with_map_mode(mut self, enabled: bool) -> Self {
+        self.map_mode = if enabled { 1.0 } else { 0.0 };
         self
     }
 }

@@ -48,6 +48,8 @@ pub enum NoiseLayer {
     Ridges,
     /// Micro layer (surface texture)
     Micro,
+    /// Arc shape noise (oceanic arc coastline variation)
+    ArcShape,
 }
 
 impl NoiseLayer {
@@ -58,7 +60,8 @@ impl NoiseLayer {
             Self::Macro => Self::Hills,
             Self::Hills => Self::Ridges,
             Self::Ridges => Self::Micro,
-            Self::Micro => Self::Combined,
+            Self::Micro => Self::ArcShape,
+            Self::ArcShape => Self::Combined,
         }
     }
 
@@ -69,17 +72,7 @@ impl NoiseLayer {
             Self::Hills => "Hills",
             Self::Ridges => "Ridges",
             Self::Micro => "Micro",
-        }
-    }
-
-    /// Get the index of this layer (for shader uniform).
-    pub fn idx(self) -> usize {
-        match self {
-            Self::Combined => 0,
-            Self::Macro => 1,
-            Self::Hills => 2,
-            Self::Ridges => 3,
-            Self::Micro => 4,
+            Self::ArcShape => "ArcShape",
         }
     }
 }
@@ -98,6 +91,18 @@ pub enum FeatureLayer {
     Collision,
     /// Tectonic activity (noise modulator)
     Activity,
+}
+
+/// Which climate/atmosphere layer to visualize in Climate mode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum ClimateLayer {
+    /// Temperature (latitude + elevation)
+    #[default]
+    Temperature,
+    /// Wind speed
+    Wind,
+    /// Uplift (from projection solver)
+    Uplift,
 }
 
 impl FeatureLayer {
@@ -121,15 +126,23 @@ impl FeatureLayer {
             Self::Activity => "Activity",
         }
     }
+}
 
-    /// Get the index of this layer (for shader uniform).
-    pub fn idx(self) -> usize {
+impl ClimateLayer {
+    /// Cycle to the next climate layer view.
+    pub fn cycle(self) -> Self {
         match self {
-            Self::Trench => 0,
-            Self::Arc => 1,
-            Self::Ridge => 2,
-            Self::Collision => 3,
-            Self::Activity => 4,
+            Self::Temperature => Self::Wind,
+            Self::Wind => Self::Uplift,
+            Self::Uplift => Self::Temperature,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Temperature => "Temperature",
+            Self::Wind => "Wind",
+            Self::Uplift => "Uplift",
         }
     }
 }
@@ -144,42 +157,27 @@ pub enum RenderMode {
     Elevation,
     /// Plate boundaries and velocities
     Plates,
-    /// Stress field visualization
-    Stress,
     /// fBm noise contribution
     Noise,
     /// Flow accumulation and drainage
     Hydrology,
     /// Tectonic feature fields (trench, arc, ridge, collision, activity)
     Features,
+    /// Climate data (temperature, future: precipitation)
+    Climate,
 }
 
 impl RenderMode {
-    pub const COUNT: usize = 8;
-
-    pub fn idx(self) -> usize {
-        match self {
-            Self::Relief => 0,
-            Self::Terrain => 1,
-            Self::Elevation => 2,
-            Self::Plates => 3,
-            Self::Stress => 4,
-            Self::Noise => 5,
-            Self::Hydrology => 6,
-            Self::Features => 7,
-        }
-    }
-
     pub fn name(self) -> &'static str {
         match self {
             Self::Relief => "Relief",
             Self::Terrain => "Terrain",
             Self::Elevation => "Elevation",
             Self::Plates => "Plates",
-            Self::Stress => "Stress",
             Self::Noise => "Noise",
             Self::Hydrology => "Hydrology",
             Self::Features => "Features",
+            Self::Climate => "Climate",
         }
     }
 

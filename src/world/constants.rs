@@ -3,18 +3,8 @@
 /// Target fraction of surface area that should be continental.
 pub const CONTINENTAL_FRACTION: f32 = 0.30;
 
-/// Global stress scale factor (compensates for edge-length weighting).
-pub const STRESS_SCALE: f32 = 35.0;
-
-/// Scale factor for boundary forcing used by boundary-anchored features (arcs, trenches, ridges).
-///
-/// Kept separate from `STRESS_SCALE` so terrain tuning doesn't have to affect Stress-mode
-/// visualization. Defaults to the same value for backward-compatible behavior.
-pub const FEATURE_FORCE_SCALE: f32 = STRESS_SCALE;
-
-/// How far stress propagates from boundaries (in radians).
-/// 0.04 radians ≈ 2.3° ≈ 255km on Earth scale.
-pub const STRESS_DECAY_LENGTH: f32 = 0.04;
+/// Scale factor for boundary forcing used by tectonic features (arcs, trenches, ridges).
+pub const FEATURE_FORCE_SCALE: f32 = 35.0;
 
 // Screened diffusion solver parameters
 
@@ -40,9 +30,9 @@ pub const RIDGE_CREST_DEPTH: f32 = -0.25;
 pub const ABYSSAL_DEPTH: f32 = -0.45;
 
 /// Characteristic distance for oceanic thermal subsidence (radians).
-/// 0.25 rad ≈ 1600 km on Earth. Ocean floor deepens from ridge crest
+/// 1.5 rad ≈ 9550 km on Earth. Ocean floor deepens from ridge crest
 /// to abyssal depth over roughly this distance (sqrt decay).
-pub const THERMAL_SUBSIDENCE_WIDTH: f32 = 0.25;
+pub const THERMAL_SUBSIDENCE_WIDTH: f32 = 1.5;
 
 /// Elevation at continent-ocean margin (continental shelf edge).
 /// Both continental and oceanic crust meet at this depth, representing
@@ -232,29 +222,48 @@ pub const TRENCH_DECAY: f32 = 0.020;
 ///
 /// Split by overriding plate type:
 /// - Continental: cordillera-style uplift
-/// - Oceanic: island-arc uplift, needs more headroom above deep ocean base to avoid
-///   "single-cell" emergent speckling at coarse resolutions.
+/// - Oceanic: island-arc uplift, needs high sensitivity to overcome deep ocean base (-0.45)
 pub const ARC_CONT_SENSITIVITY: f32 = 0.12;
-pub const ARC_OCEAN_SENSITIVITY: f32 = 0.55;
+pub const ARC_OCEAN_SENSITIVITY: f32 = 1.2;
 
 /// Maximum arc uplift (cap applied after sqrt response).
 pub const ARC_CONT_MAX_UPLIFT: f32 = 0.48;
-pub const ARC_OCEAN_MAX_UPLIFT: f32 = 0.55;
+/// Oceanic arc max is lower to avoid mountains in shallow water near ridges.
+pub const ARC_OCEAN_MAX_UPLIFT: f32 = 0.40;
 
 /// Peak offset of arc uplift inland from the boundary (radians).
 /// 0.045 rad ≈ 287 km on Earth (large-end: 200-350+ km inland).
-pub const ARC_CONT_PEAK_DIST: f32 = 0.045;
-pub const ARC_OCEAN_PEAK_DIST: f32 = 0.045;
+pub const ARC_CONT_PEAK_DIST: f32 = 0.05;
+pub const ARC_OCEAN_PEAK_DIST: f32 = 0.04;
 
 /// Arc band width (radians).
 /// 0.060 rad ≈ 382 km on Earth. Wider band = more cells in the arc belt.
-pub const ARC_CONT_WIDTH: f32 = 0.060;
-pub const ARC_OCEAN_WIDTH: f32 = 0.045;
+/// Note: Real volcanic arcs are narrower (50-150 km), but wider values help visibility.
+pub const ARC_CONT_WIDTH: f32 = 0.05;
+pub const ARC_OCEAN_WIDTH: f32 = 0.04;
 
-/// Near-boundary suppression distance for arcs (forearc gap), radians.
-/// 0.015 rad ≈ 96 km on Earth.
-pub const ARC_CONT_GAP: f32 = 0.015;
-pub const ARC_OCEAN_GAP: f32 = 0.015;
+
+// Oceanic arc noise (multiplicative modulation for island clustering).
+// Noise determines which parts of the arc form islands vs remain underwater.
+/// Seed for arc noise.
+pub const ARC_NOISE_SEED: u32 = 0xA16C_0B3D;
+/// Frequency for island-scale variation (lower = larger island groups).
+pub const ARC_NOISE_FREQ: f64 = 8.0;
+/// Number of octaves for arc noise.
+pub const ARC_NOISE_OCTAVES: usize = 3;
+/// Noise threshold for island formation.
+/// Arc is multiplied by smoothstep(noise, threshold - width, threshold + width).
+/// Positive = fewer islands, negative = more islands.
+pub const ARC_ISLAND_THRESHOLD: f32 = -0.2;
+/// Transition width for island formation smoothstep.
+/// Larger = smoother transitions, smaller = sharper island boundaries.
+pub const ARC_ISLAND_TRANSITION: f32 = 0.5;
+
+/// Maximum volcanic island height (soft cap using tanh).
+/// Represents equilibrium between volcanic construction and erosion/subsidence.
+/// Islands above this height are smoothly compressed: H * tanh(h/H).
+/// 0.15 gives realistic volcanic island elevations (comparable to Hawaii's ~0.1-0.15 normalized).
+pub const VOLCANIC_ISLAND_MAX_HEIGHT: f32 = 0.15;
 
 /// Mid-ocean ridge uplift sensitivity (sqrt response of boundary forcing).
 pub const RIDGE_SENSITIVITY: f32 = 0.006;
@@ -270,12 +279,12 @@ pub const RIDGE_DECAY: f32 = 0.015;
 pub const COLLISION_SENSITIVITY: f32 = 0.10;
 /// Maximum collision uplift (Himalaya-scale).
 pub const COLLISION_MAX_UPLIFT: f32 = 0.35;
-/// Collision band width (radians). Broader than arcs.
-/// 0.080 rad ≈ 510 km on Earth (broad orogenic belts/plateaus).
-pub const COLLISION_WIDTH: f32 = 0.080;
+/// Collision band width (radians).
+/// 0.02 rad ≈ 127 km on Earth. Gives ~250-350 km effective mountain range width.
+pub const COLLISION_WIDTH: f32 = 0.02;
 /// Collision peak offset from boundary (radians).
-/// 0.035 rad ≈ 223 km on Earth.
-pub const COLLISION_PEAK_DIST: f32 = 0.035;
+/// 0.015 rad ≈ 96 km on Earth. Places peak near boundary, not far inland.
+pub const COLLISION_PEAK_DIST: f32 = 0.015;
 
 /// Decay length for tectonic activity field (radians).
 /// Controls how far "tectonically active" influence spreads from boundaries.
@@ -308,3 +317,48 @@ pub const PLATE_PAIR_MIN_BOUNDARY_LENGTH: f32 = 0.05;
 ///
 /// 0.03 rad ≈ 191 km on Earth.
 pub const PLATE_PAIR_MIN_ACTIVE_LENGTH: f32 = 0.03;
+
+// =============================================================================
+// Atmosphere constants (Stage 2: Wind simulation)
+// =============================================================================
+
+// --- Wind forcing ---
+
+/// Scale factor for pressure gradient → wind velocity.
+pub const PRESSURE_WIND_SCALE: f32 = 0.3;
+
+/// Weight of zonal (trade winds, westerlies) component in wind blend.
+pub const ZONAL_WEIGHT: f32 = 0.6;
+
+/// Weight of pressure-gradient component in wind blend.
+pub const PRESSURE_WEIGHT: f32 = 0.4;
+
+/// Strength multiplier for zonal wind patterns.
+pub const ZONAL_STRENGTH: f32 = 0.3;
+
+/// Surface wind Coriolis deflection angle (radians).
+/// Surface wind deflects ~45° from geostrophic flow (not full 90°).
+pub const SURFACE_CORIOLIS_ANGLE: f32 = 0.785; // 45 degrees
+
+// --- Terrain effects (before projection) ---
+
+/// How much terrain slope blocks uphill wind.
+/// Higher values = steeper slopes block more wind.
+pub const UPHILL_BLOCKING: f32 = 3.0;
+
+/// Katabatic (downhill) wind acceleration strength.
+/// Cold air drainage down slopes.
+pub const KATABATIC_STRENGTH: f32 = 0.2;
+
+// --- Projection solver ---
+
+/// Terrain resistance for edge weights in projection.
+/// Higher = mountains more impermeable to airflow routing.
+/// weight = exp(-max_elev * TERRAIN_RESISTANCE)
+pub const TERRAIN_RESISTANCE: f32 = 4.0;
+
+/// Number of SOR iterations for projection solver.
+pub const PROJECTION_ITERATIONS: usize = 50;
+
+/// SOR relaxation factor (1.0-1.9, higher = faster but less stable).
+pub const SOR_OMEGA: f32 = 1.5;

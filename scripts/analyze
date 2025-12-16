@@ -1,0 +1,50 @@
+#!/bin/bash
+# Generate and analyze a hex3 world
+#
+# Usage:
+#   ./scripts/analyze              # random seed
+#   ./scripts/analyze 12345        # specific seed
+#   ./scripts/analyze 12345 --show # show plot interactively
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+OUTPUT_DIR="${PROJECT_DIR}/analysis"
+
+# Parse arguments
+SEED="${1:-$RANDOM$RANDOM}"
+SHOW_FLAG=""
+if [[ "$2" == "--show" ]] || [[ "$1" == "--show" ]]; then
+    SHOW_FLAG="--show"
+    if [[ "$1" == "--show" ]]; then
+        SEED="$RANDOM$RANDOM"
+    fi
+fi
+
+# Ensure output directory exists
+mkdir -p "$OUTPUT_DIR"
+
+EXPORT_FILE="${OUTPUT_DIR}/world_${SEED}.json.gz"
+
+echo "=== Hex3 World Analysis ==="
+echo "Seed: $SEED"
+echo ""
+
+# Build and generate
+cargo build --release --manifest-path "$PROJECT_DIR/Cargo.toml" -q
+
+echo "Generating world..."
+"$PROJECT_DIR/target/release/hex3" --headless --seed "$SEED" --export "$EXPORT_FILE"
+
+echo ""
+echo "Analyzing..."
+"$SCRIPT_DIR/.venv/bin/python" "$SCRIPT_DIR/analyze_terrain.py" "$EXPORT_FILE" -o "$OUTPUT_DIR" $SHOW_FLAG
+
+# Clean up the large JSON file, keep the analysis
+rm "$EXPORT_FILE"
+
+echo ""
+echo "Output:"
+echo "  ${OUTPUT_DIR}/analysis_${SEED}.md"
+echo "  ${OUTPUT_DIR}/analysis_${SEED}.png"

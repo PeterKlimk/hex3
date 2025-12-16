@@ -79,8 +79,14 @@ impl TerrainNoise {
         let macro_pos = pos * MACRO_FREQUENCY as f32;
         let macro_sample =
             self.macro_fbm
-                .get([macro_pos.x as f64, macro_pos.y as f64, macro_pos.z as f64]) as f32;
-        let macro_amp = MACRO_AMPLITUDE * if is_continental { 1.0 } else { MACRO_OCEANIC_MULT };
+                .get([macro_pos.x as f64, macro_pos.y as f64, macro_pos.z as f64])
+                as f32;
+        let macro_amp = MACRO_AMPLITUDE
+            * if is_continental {
+                1.0
+            } else {
+                MACRO_OCEANIC_MULT
+            };
         let macro_contrib = macro_sample * macro_amp;
 
         // Hills layer: regional terrain.
@@ -88,12 +94,17 @@ impl TerrainNoise {
         let hills_pos = pos * HILLS_FREQUENCY as f32;
         let mut hills_sample =
             self.hills_fbm
-                .get([hills_pos.x as f64, hills_pos.y as f64, hills_pos.z as f64]) as f32;
+                .get([hills_pos.x as f64, hills_pos.y as f64, hills_pos.z as f64])
+                as f32;
         // In extension on continents, bias hills slightly downward to suggest rift basins/grabens.
         if is_continental {
             hills_sample -= HILLS_EXT_BIAS * ext_driver;
         }
-        let hills_plate_mult = if is_continental { 1.0 } else { HILLS_OCEANIC_MULT };
+        let hills_plate_mult = if is_continental {
+            1.0
+        } else {
+            HILLS_OCEANIC_MULT
+        };
         let hills_orogen_suppress = 1.0 - comp_driver * 0.8;
         let hills_amp = HILLS_AMPLITUDE * hills_plate_mult * hills_orogen_suppress;
         let hills_contrib = hills_sample * hills_amp;
@@ -102,10 +113,15 @@ impl TerrainNoise {
         let ridge_pos = pos * RIDGE_FREQUENCY as f32;
         let ridge_sample =
             self.ridges
-                .get([ridge_pos.x as f64, ridge_pos.y as f64, ridge_pos.z as f64]) as f32;
+                .get([ridge_pos.x as f64, ridge_pos.y as f64, ridge_pos.z as f64])
+                as f32;
         // RidgedMulti outputs ~0-1, bias slightly upward (ridges add more "up" than "down")
         let ridge_centered = ridge_sample - 0.4;
-        let ridge_plate_mult = if is_continental { 1.0 } else { RIDGE_OCEANIC_MULT };
+        let ridge_plate_mult = if is_continental {
+            1.0
+        } else {
+            RIDGE_OCEANIC_MULT
+        };
         let ridge_stress_mult = RIDGE_MIN_FACTOR + (1.0 - RIDGE_MIN_FACTOR) * comp_driver;
         let ridge_amp = RIDGE_AMPLITUDE * ridge_plate_mult * ridge_stress_mult;
         let ridge_contrib = ridge_centered * ridge_amp;
@@ -114,12 +130,24 @@ impl TerrainNoise {
         let micro_pos = pos * MICRO_FREQUENCY as f32;
         let micro_sample =
             self.micro_fbm
-                .get([micro_pos.x as f64, micro_pos.y as f64, micro_pos.z as f64]) as f32;
-        let micro_amp = MICRO_AMPLITUDE * if is_underwater { MICRO_UNDERWATER_MULT } else { 1.0 };
+                .get([micro_pos.x as f64, micro_pos.y as f64, micro_pos.z as f64])
+                as f32;
+        let micro_amp = MICRO_AMPLITUDE
+            * if is_underwater {
+                MICRO_UNDERWATER_MULT
+            } else {
+                1.0
+            };
         let micro_contrib = micro_sample * micro_amp;
 
         let combined = macro_contrib + hills_contrib + ridge_contrib + micro_contrib;
-        (combined, macro_contrib, hills_contrib, ridge_contrib, micro_contrib)
+        (
+            combined,
+            macro_contrib,
+            hills_contrib,
+            ridge_contrib,
+            micro_contrib,
+        )
     }
 }
 
@@ -131,8 +159,8 @@ fn compute_margin_distances(
     plates: &Plates,
     dynamics: &Dynamics,
 ) -> Vec<f32> {
-    use std::collections::BinaryHeap;
     use std::cmp::Ordering;
+    use std::collections::BinaryHeap;
 
     #[derive(PartialEq)]
     struct State {
@@ -145,7 +173,10 @@ fn compute_margin_distances(
     impl Ord for State {
         fn cmp(&self, other: &Self) -> Ordering {
             // Reverse for min-heap
-            other.dist.partial_cmp(&self.dist).unwrap_or(Ordering::Equal)
+            other
+                .dist
+                .partial_cmp(&self.dist)
+                .unwrap_or(Ordering::Equal)
         }
     }
 
@@ -197,7 +228,10 @@ fn compute_margin_distances(
 
             if new_dist < distance[neighbor] {
                 distance[neighbor] = new_dist;
-                heap.push(State { dist: new_dist, cell: neighbor });
+                heap.push(State {
+                    dist: new_dist,
+                    cell: neighbor,
+                });
             }
         }
     }
@@ -229,6 +263,64 @@ impl Elevation {
     /// Get elevation at a cell.
     pub fn at(&self, cell_idx: usize) -> f32 {
         self.values[cell_idx]
+    }
+
+    /// Compute elevation gradient (uphill direction) at a cell.
+    ///
+    /// Returns a Vec3 tangent to the sphere surface pointing in the direction
+    /// of steepest ascent. Magnitude roughly indicates slope steepness.
+    /// Returns zero vector for flat areas or cells with no neighbors.
+    pub fn gradient(&self, tessellation: &Tessellation, cell_idx: usize) -> glam::Vec3 {
+        use glam::Vec3;
+
+        let cell_elev = self.values[cell_idx];
+        let cell_pos = tessellation.cell_center(cell_idx);
+        let neighbors = tessellation.neighbors(cell_idx);
+
+        if neighbors.is_empty() {
+            return Vec3::ZERO;
+        }
+
+        // Accumulate gradient as weighted sum of directions to neighbors
+        let mut gradient = Vec3::ZERO;
+
+        for &n in neighbors {
+            let neighbor_elev = self.values[n];
+            let neighbor_pos = tessellation.cell_center(n);
+
+            // Direction from cell to neighbor (on sphere surface)
+            let to_neighbor = neighbor_pos - cell_pos;
+
+            // Project onto tangent plane (remove radial component)
+            let tangent_dir = to_neighbor - cell_pos * cell_pos.dot(to_neighbor);
+            let tangent_len = tangent_dir.length();
+            if tangent_len < 1e-6 {
+                continue;
+            }
+
+            // Arc distance between cells
+            let arc_dist = cell_pos.dot(neighbor_pos).clamp(-1.0, 1.0).acos();
+            if arc_dist < 1e-6 {
+                continue;
+            }
+
+            // Elevation difference (positive = neighbor is higher)
+            let elev_diff = neighbor_elev - cell_elev;
+
+            // Slope in this direction
+            let slope = elev_diff / arc_dist;
+
+            // Accumulate: direction weighted by slope
+            // Positive slope = uphill toward neighbor, so add that direction
+            gradient += tangent_dir.normalize() * slope;
+        }
+
+        gradient
+    }
+
+    /// Compute gradient magnitude (slope steepness) at a cell.
+    pub fn slope(&self, tessellation: &Tessellation, cell_idx: usize) -> f32 {
+        self.gradient(tessellation, cell_idx).length()
     }
 }
 
@@ -299,10 +391,8 @@ fn generate_heightmap_with_noise(
 
         // 2. Tectonic feature contributions (from FeatureFields)
         // Trench is negative (depression), others are positive (uplift)
-        let tectonic = -features.trench[i]
-            + features.arc[i]
-            + features.ridge[i]
-            + features.collision[i];
+        let tectonic =
+            -features.trench[i] + features.arc[i] + features.ridge[i] + features.collision[i];
 
         let structural_elevation = base + tectonic;
 
@@ -318,7 +408,16 @@ fn generate_heightmap_with_noise(
 
         // Simulation elevation excludes micro noise (micro is cosmetic only)
         let simulation_noise = macro_c + hills_c + ridge_c;
-        elevations.push(structural_elevation + simulation_noise);
+        let mut elevation = structural_elevation + simulation_noise;
+
+        // Cap volcanic island heights using tanh soft clamp.
+        // Oceanic crust above sea level can't grow indefinitely - erosion/subsidence limits height.
+        if !is_continental && elevation > 0.0 {
+            let max_island = VOLCANIC_ISLAND_MAX_HEIGHT;
+            elevation = max_island * (elevation / max_island).tanh();
+        }
+
+        elevations.push(elevation);
         noise_contributions.push(simulation_noise);
         macro_layer.push(macro_c);
         hills_layer.push(hills_c);

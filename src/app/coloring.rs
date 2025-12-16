@@ -5,7 +5,7 @@
 
 use glam::Vec3;
 
-use super::view::{FeatureLayer, NoiseLayer};
+use super::view::{ClimateLayer, FeatureLayer, NoiseLayer};
 use hex3::geometry::Material;
 use hex3::world::{CellWaterState, PlateType, World};
 
@@ -304,6 +304,13 @@ pub fn cell_color_noise(world: &World, cell_idx: usize, layer: NoiseLayer) -> Ve
         NoiseLayer::Hills => elevation.noise_layers.hills_layer[cell_idx],
         NoiseLayer::Ridges => elevation.noise_layers.ridge_layer[cell_idx],
         NoiseLayer::Micro => elevation.noise_layers.micro_layer[cell_idx],
+        NoiseLayer::ArcShape => {
+            world
+                .features
+                .as_ref()
+                .expect("Features must be generated")
+                .arc_shape_noise[cell_idx]
+        }
     };
 
     // Scale factor varies by layer (smaller layers need more amplification to be visible)
@@ -313,6 +320,7 @@ pub fn cell_color_noise(world: &World, cell_idx: usize, layer: NoiseLayer) -> Ve
         NoiseLayer::Hills => 12.0,
         NoiseLayer::Ridges => 10.0,
         NoiseLayer::Micro => 50.0, // Micro is very small, needs big scale
+        NoiseLayer::ArcShape => 1.0,
     };
 
     let t = (noise.abs() * scale).min(1.0);
@@ -368,23 +376,6 @@ pub fn cell_color_plate(world: &World, cell_idx: usize) -> Vec3 {
     }
 }
 
-/// Get the color for a cell based on its stress value.
-pub fn cell_color_stress(world: &World, cell_idx: usize) -> Vec3 {
-    let stress = world
-        .stress
-        .as_ref()
-        .expect("Stress must be generated")
-        .cell_stress[cell_idx];
-
-    if stress > 0.0 {
-        let t = (stress / 0.5).clamp(0.0, 1.0);
-        Vec3::new(0.2 + t * 0.8, 0.2, 0.2)
-    } else {
-        let t = (-stress / 0.3).clamp(0.0, 1.0);
-        Vec3::new(0.2, 0.2, 0.2 + t * 0.8)
-    }
-}
-
 /// Get the color for a cell based on hydrology data.
 ///
 /// Shows:
@@ -401,12 +392,8 @@ pub fn cell_color_hydrology(world: &World, cell_idx: usize) -> Vec3 {
 
     let depth = hydrology.water_depth(cell_idx);
     match hydrology.water_state(cell_idx) {
-        CellWaterState::Ocean => {
-            ocean_color(depth)
-        }
-        CellWaterState::LakeWater => {
-            lake_color(depth)
-        }
+        CellWaterState::Ocean => ocean_color(depth),
+        CellWaterState::LakeWater => lake_color(depth),
         CellWaterState::DryBasin => {
             // Dry basin - tan/beige (playa, salt flat)
             Vec3::new(0.75, 0.70, 0.55)
@@ -454,10 +441,7 @@ pub fn cell_material(world: &World, cell_idx: usize) -> Material {
 
 /// Get the color for a cell based on a tectonic feature field.
 pub fn cell_color_feature(world: &World, cell_idx: usize, layer: FeatureLayer) -> Vec3 {
-    let features = world
-        .features
-        .as_ref()
-        .expect("Features must be generated");
+    let features = world.features.as_ref().expect("Features must be generated");
 
     match layer {
         FeatureLayer::Trench => {
@@ -493,36 +477,106 @@ pub fn cell_color_feature(world: &World, cell_idx: usize, layer: FeatureLayer) -
     }
 }
 
-/// Get all 5 noise layer values for a cell.
-/// Order: [Combined, Macro, Hills, Ridges, Micro]
-pub fn cell_noise_layers(world: &World, cell_idx: usize) -> [f32; 5] {
-    let elevation = world
-        .elevation
-        .as_ref()
-        .expect("Elevation must be generated");
 
-    [
-        elevation.noise_contribution[cell_idx],
-        elevation.noise_layers.macro_layer[cell_idx],
-        elevation.noise_layers.hills_layer[cell_idx],
-        elevation.noise_layers.ridge_layer[cell_idx],
-        elevation.noise_layers.micro_layer[cell_idx],
-    ]
+/// Convert temperature to color using a gradient from cold (blue) to hot (red).
+/// Temperature is normalized 0-1, but can go negative at high elevations.
+fn temperature_to_color(temp: f32) -> Vec3 {
+    // Clamp to reasonable range
+    let t = temp.clamp(-0.5, 1.0);
+
+    // Multi-stop gradient: dark blue -> cyan -> green -> yellow -> orange -> red
+    if t < 0.0 {
+        // Below freezing: dark blue to cyan
+        let s = (t + 0.5) / 0.5; // 0 at -0.5, 1 at 0.0
+        Vec3::new(0.1, 0.1, 0.4).lerp(Vec3::new(0.2, 0.6, 0.8), s)
+    } else if t < 0.25 {
+        // Cold: cyan to green
+        let s = t / 0.25;
+        Vec3::new(0.2, 0.6, 0.8).lerp(Vec3::new(0.2, 0.7, 0.3), s)
+    } else if t < 0.5 {
+        // Cool: green to yellow
+        let s = (t - 0.25) / 0.25;
+        Vec3::new(0.2, 0.7, 0.3).lerp(Vec3::new(0.9, 0.85, 0.2), s)
+    } else if t < 0.75 {
+        // Warm: yellow to orange
+        let s = (t - 0.5) / 0.25;
+        Vec3::new(0.9, 0.85, 0.2).lerp(Vec3::new(0.95, 0.5, 0.1), s)
+    } else {
+        // Hot: orange to red
+        let s = (t - 0.75) / 0.25;
+        Vec3::new(0.95, 0.5, 0.1).lerp(Vec3::new(0.8, 0.1, 0.1), s)
+    }
 }
 
-/// Get all 5 feature layer values for a cell.
-/// Order: [Trench, Arc, Ridge, Collision, Activity]
-pub fn cell_feature_layers(world: &World, cell_idx: usize) -> [f32; 5] {
-    let features = world
-        .features
-        .as_ref()
-        .expect("Features must be generated");
+/// Convert wind speed to color (blue = calm, white = fast).
+fn wind_speed_to_color(speed: f32) -> Vec3 {
+    // Typical speeds are 0-0.5
+    let t = (speed / 0.5).clamp(0.0, 1.0);
 
-    [
-        features.trench[cell_idx],
-        features.arc[cell_idx],
-        features.ridge[cell_idx],
-        features.collision[cell_idx],
-        features.activity[cell_idx],
-    ]
+    if t < 0.25 {
+        // Calm: dark blue
+        let s = t / 0.25;
+        Vec3::new(0.1, 0.1, 0.3).lerp(Vec3::new(0.2, 0.4, 0.6), s)
+    } else if t < 0.5 {
+        // Light: cyan
+        let s = (t - 0.25) / 0.25;
+        Vec3::new(0.2, 0.4, 0.6).lerp(Vec3::new(0.4, 0.7, 0.8), s)
+    } else if t < 0.75 {
+        // Moderate: light cyan to white
+        let s = (t - 0.5) / 0.25;
+        Vec3::new(0.4, 0.7, 0.8).lerp(Vec3::new(0.8, 0.9, 0.95), s)
+    } else {
+        // Strong: white
+        let s = (t - 0.75) / 0.25;
+        Vec3::new(0.8, 0.9, 0.95).lerp(Vec3::new(1.0, 1.0, 1.0), s)
+    }
+}
+
+/// Convert uplift to color (green = low, yellow/red = high).
+fn uplift_to_color(uplift: f32) -> Vec3 {
+    // Uplift is normalized 0-1
+    let t = uplift.clamp(0.0, 1.0);
+
+    if t < 0.2 {
+        // Very low: dark green
+        let s = t / 0.2;
+        Vec3::new(0.1, 0.2, 0.1).lerp(Vec3::new(0.2, 0.4, 0.2), s)
+    } else if t < 0.4 {
+        // Low: green
+        let s = (t - 0.2) / 0.2;
+        Vec3::new(0.2, 0.4, 0.2).lerp(Vec3::new(0.5, 0.6, 0.2), s)
+    } else if t < 0.6 {
+        // Moderate: yellow-green
+        let s = (t - 0.4) / 0.2;
+        Vec3::new(0.5, 0.6, 0.2).lerp(Vec3::new(0.9, 0.8, 0.2), s)
+    } else if t < 0.8 {
+        // High: orange
+        let s = (t - 0.6) / 0.2;
+        Vec3::new(0.9, 0.8, 0.2).lerp(Vec3::new(0.9, 0.5, 0.1), s)
+    } else {
+        // Very high: red
+        let s = (t - 0.8) / 0.2;
+        Vec3::new(0.9, 0.5, 0.1).lerp(Vec3::new(0.8, 0.2, 0.1), s)
+    }
+}
+
+/// Get the color for a cell based on climate/atmosphere data.
+/// Falls back to latitude-based coloring if atmosphere not generated.
+pub fn cell_color_climate(world: &World, cell_idx: usize, layer: ClimateLayer) -> Vec3 {
+    if let Some(atmosphere) = &world.atmosphere {
+        match layer {
+            ClimateLayer::Temperature => temperature_to_color(atmosphere.temperature[cell_idx]),
+            ClimateLayer::Wind => {
+                // Use terrain colors for Wind layer - particles show direction
+                cell_color_terrain(world, cell_idx)
+            }
+            ClimateLayer::Uplift => uplift_to_color(atmosphere.uplift[cell_idx]),
+        }
+    } else {
+        // Fallback: use latitude-based approximation for temperature
+        let pos = world.tessellation.cell_center(cell_idx);
+        let lat_factor = pos.y.abs(); // 0 at equator, 1 at poles
+        let approx_temp = 1.0 - lat_factor * lat_factor;
+        temperature_to_color(approx_temp)
+    }
 }

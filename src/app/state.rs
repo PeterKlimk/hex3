@@ -2,17 +2,23 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use glam::{Mat4, Vec3};
+use rand::SeedableRng;
+use rand_chacha::ChaCha8Rng;
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
 
 use hex3::render::{
-    CameraController, FillPipelineKind, GpuContext, IndexedDraw, LayerUniforms, LineDraw,
-    OrbitCamera, RenderScene, Renderer, SurfaceLineDraw, Uniforms,
+    CameraController, FillPipelineKind, GpuContext, IndexedDraw, LineDraw, OrbitCamera,
+    RenderScene, Renderer, SurfaceLineDraw, Uniforms,
 };
-use hex3::world::{World, DEFAULT_CLIMATE_RATIO};
+use hex3::world::World;
 
-use super::view::{FeatureLayer, NoiseLayer, RenderMode, RiverMode, ViewMode};
-use super::world::{advance_to_stage_2, create_world, generate_world_buffers, WorldBuffers};
+use super::view::{ClimateLayer, FeatureLayer, NoiseLayer, RenderMode, RiverMode, ViewMode};
+use super::visualization::WindParticles;
+use super::world::{
+    advance_to_stage_2, advance_to_stage_3, create_world, generate_colored_mesh,
+    generate_wind_particle_buffer, generate_world_buffers, WorldBuffers,
+};
 
 pub struct AppState {
     pub window: Arc<Window>,
@@ -32,9 +38,15 @@ pub struct AppState {
     pub river_mode: RiverMode,
     pub noise_layer: NoiseLayer,
     pub feature_layer: FeatureLayer,
+    pub climate_layer: ClimateLayer,
 
     /// Rendering effect toggle
     pub hemisphere_lighting: bool,
+
+    /// Wind particle system (for Climate/Wind visualization).
+    pub wind_particles: Option<WindParticles>,
+    /// RNG for particle respawning.
+    pub rng: ChaCha8Rng,
 
     pub frame_count: u32,
     pub fps_update_time: Instant,
@@ -42,7 +54,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub async fn new(window: Arc<Window>) -> Self {
+    pub async fn new(window: Arc<Window>, seed: u64) -> Self {
         let total_start = Instant::now();
 
         print!("Initializing GPU... ");
@@ -50,11 +62,8 @@ impl AppState {
         let gpu = GpuContext::new(window.clone()).await;
         println!("{:.1}ms", start.elapsed().as_secs_f64() * 1000.0);
 
-        let seed: u64 = rand::random();
         let world_data = create_world(seed);
-        let noise_layer = NoiseLayer::Combined;
-        let feature_layer = FeatureLayer::default();
-        let world_buffers = generate_world_buffers(&gpu.device, &world_data, noise_layer, feature_layer);
+        let world_buffers = generate_world_buffers(&gpu.device, &world_data);
 
         let mut camera = OrbitCamera::new();
         camera.set_aspect(gpu.aspect());
@@ -68,16 +77,17 @@ impl AppState {
         let renderer = Renderer::new(&gpu, &initial_uniforms);
 
         println!(
-            "Total init: {:.1}ms",
-            total_start.elapsed().as_secs_f64() * 1000.0
+            "Total init: {:.1}ms (seed: {})",
+            total_start.elapsed().as_secs_f64() * 1000.0,
+            seed
         );
         println!("Ready! Drag to rotate, scroll to zoom.");
         println!("  Tab: toggle map view");
-        println!("  1-8: Relief/Terrain/Elevation/Plates/Stress/Noise/Hydrology/Features");
+        println!("  1-8: Relief/Terrain/Elevation/Plates/Noise/Hydrology/Features/Climate");
         println!("  E: toggle edges | V: cycle rivers (Off/Major/All)");
-        println!("  H: toggle hemisphere lighting");
+        println!("  H: toggle hemisphere lighting | D: export data");
         println!("  R: regenerate | Space: advance stage");
-        println!("  Up/Down: adjust climate (wetter/drier) [Stage 2]");
+        println!("  Up/Down: adjust climate (wetter/drier) [Stage 3]");
 
         Self {
             window,
@@ -94,7 +104,10 @@ impl AppState {
             river_mode: RiverMode::Major,
             noise_layer: NoiseLayer::Combined,
             feature_layer: FeatureLayer::default(),
+            climate_layer: ClimateLayer::default(),
             hemisphere_lighting: true,
+            wind_particles: None,
+            rng: ChaCha8Rng::seed_from_u64(seed),
             frame_count: 0,
             fps_update_time: Instant::now(),
             current_fps: 0.0,
@@ -110,9 +123,26 @@ impl AppState {
 
     pub fn regenerate_world(&mut self, seed: u64) {
         self.world_data = create_world(seed);
-        self.world_buffers =
-            generate_world_buffers(&self.gpu.device, &self.world_data, self.noise_layer, self.feature_layer);
+        self.world_buffers = generate_world_buffers(&self.gpu.device, &self.world_data);
         self.seed = seed;
+        self.rng = ChaCha8Rng::seed_from_u64(seed);
+        self.wind_particles = None; // Will be recreated on stage advance
+    }
+
+    /// Regenerate the colored mesh for the current mode/layer settings.
+    /// Fast operation (~5-10ms) called on mode or layer switch.
+    pub fn regenerate_colors(&mut self) {
+        let (vertex_buffer, index_buffer, num_indices) = generate_colored_mesh(
+            &self.gpu.device,
+            &self.world_data,
+            self.render_mode,
+            self.noise_layer,
+            self.feature_layer,
+            self.climate_layer,
+        );
+        self.world_buffers.colored_vertex_buffer = vertex_buffer;
+        self.world_buffers.colored_index_buffer = index_buffer;
+        self.world_buffers.num_colored_indices = num_indices;
     }
 
     /// Advance to the next simulation stage.
@@ -123,8 +153,20 @@ impl AppState {
             1 => {
                 advance_to_stage_2(&mut self.world_data);
                 self.world_buffers =
-                    generate_world_buffers(&self.gpu.device, &self.world_data, self.noise_layer, self.feature_layer);
-                println!("Advanced to Stage 2: Hydrosphere");
+                    generate_world_buffers(&self.gpu.device, &self.world_data);
+                // Create wind particles now that atmosphere exists
+                self.wind_particles = Some(WindParticles::new(
+                    &self.world_data.tessellation,
+                    &mut self.rng,
+                ));
+                println!("Advanced to Stage 2: Atmosphere");
+                true
+            }
+            2 => {
+                advance_to_stage_3(&mut self.world_data);
+                self.world_buffers =
+                    generate_world_buffers(&self.gpu.device, &self.world_data);
+                println!("Advanced to Stage 3: Hydrosphere");
                 true
             }
             _ => {
@@ -135,7 +177,7 @@ impl AppState {
     }
 
     /// Adjust climate ratio (precipitation/evaporation) by delta.
-    /// Only works if hydrology is generated (Stage 2+).
+    /// Only works if hydrology is generated (Stage 3+).
     /// Returns true if climate was changed.
     pub fn adjust_climate(&mut self, delta: f32) -> bool {
         // Check if hydrology exists and get current ratio
@@ -153,27 +195,21 @@ impl AppState {
         hydrology.set_climate_ratio(&self.world_data.tessellation, new_ratio);
 
         // Count stats before releasing the borrow
-        let overflowing = hydrology.basins.iter().filter(|b| b.is_overflowing()).count();
+        let overflowing = hydrology
+            .basins
+            .iter()
+            .filter(|b| b.is_overflowing())
+            .count();
         let with_water = hydrology.basins.iter().filter(|b| b.has_water()).count();
 
         // Now regenerate buffers (needs immutable borrow of world_data)
-        self.world_buffers =
-            generate_world_buffers(&self.gpu.device, &self.world_data, self.noise_layer, self.feature_layer);
+        self.world_buffers = generate_world_buffers(&self.gpu.device, &self.world_data);
 
         println!(
             "Climate ratio: {:.2} | Lakes: {} with water, {} overflowing",
             new_ratio, with_water, overflowing
         );
         true
-    }
-
-    /// Get current climate ratio (or default if hydrology not generated).
-    pub fn climate_ratio(&self) -> f32 {
-        self.world_data
-            .hydrology
-            .as_ref()
-            .map(|h| h.climate_ratio())
-            .unwrap_or(DEFAULT_CLIMATE_RATIO)
     }
 
     pub fn render(&mut self) {
@@ -199,151 +235,100 @@ impl AppState {
         // Enable relief displacement for relief mode
         let relief_enabled = self.render_mode.is_relief();
 
+        // Enable map mode for shader-based projection
+        let map_mode_enabled = self.view_mode == ViewMode::Map;
+
         let uniforms = Uniforms::new(view_proj, camera_pos, light_dir)
             .with_relief(relief_enabled)
-            .with_hemisphere_lighting(self.hemisphere_lighting);
+            .with_hemisphere_lighting(self.hemisphere_lighting)
+            .with_map_mode(map_mode_enabled);
 
-        let mode_buffers = self.world_buffers.for_mode(self.render_mode);
-
-        // Determine which pipeline to use based on render mode
+        // Select pipeline and buffers based on render mode
         let use_unified = self.render_mode == RenderMode::Relief;
-        let use_layered_noise = self.render_mode == RenderMode::Noise;
-        let use_layered_features = self.render_mode == RenderMode::Features;
 
-        // Set layer uniforms if using layered pipeline
-        if use_layered_noise {
-            self.renderer.set_layer_uniforms(
-                &self.gpu,
-                &LayerUniforms::noise(self.noise_layer.idx() as u32),
-            );
-        } else if use_layered_features {
-            self.renderer.set_layer_uniforms(
-                &self.gpu,
-                &LayerUniforms::features(self.feature_layer.idx() as u32),
-            );
-        }
-
-        let (fill_pipeline, fill) = match (self.view_mode, use_unified, use_layered_noise, use_layered_features) {
-            // Unified pipeline for Relief mode
-            (ViewMode::Globe, true, _, _) => (
-                FillPipelineKind::UnifiedGlobe,
-                IndexedDraw {
-                    vertex_buffer: &self.world_buffers.unified_globe_vertex_buffer,
-                    index_buffer: &self.world_buffers.unified_globe_index_buffer,
-                    index_count: self.world_buffers.num_unified_globe_indices,
-                },
-            ),
-            (ViewMode::Map, true, _, _) => (
-                FillPipelineKind::UnifiedMap,
-                IndexedDraw {
-                    vertex_buffer: &self.world_buffers.unified_map_vertex_buffer,
-                    index_buffer: &self.world_buffers.unified_map_index_buffer,
-                    index_count: self.world_buffers.num_unified_map_indices,
-                },
-            ),
-            // Layered pipeline for Noise mode
-            (ViewMode::Globe, _, true, _) => (
-                FillPipelineKind::LayeredGlobe,
-                IndexedDraw {
-                    vertex_buffer: &self.world_buffers.noise_globe_vertex_buffer,
-                    index_buffer: &self.world_buffers.noise_globe_index_buffer,
-                    index_count: self.world_buffers.num_noise_globe_indices,
-                },
-            ),
-            (ViewMode::Map, _, true, _) => (
-                FillPipelineKind::LayeredMap,
-                IndexedDraw {
-                    vertex_buffer: &self.world_buffers.noise_map_vertex_buffer,
-                    index_buffer: &self.world_buffers.noise_map_index_buffer,
-                    index_count: self.world_buffers.num_noise_map_indices,
-                },
-            ),
-            // Layered pipeline for Features mode
-            (ViewMode::Globe, _, _, true) => (
-                FillPipelineKind::LayeredGlobe,
-                IndexedDraw {
-                    vertex_buffer: &self.world_buffers.features_globe_vertex_buffer,
-                    index_buffer: &self.world_buffers.features_globe_index_buffer,
-                    index_count: self.world_buffers.num_features_globe_indices,
-                },
-            ),
-            (ViewMode::Map, _, _, true) => (
-                FillPipelineKind::LayeredMap,
-                IndexedDraw {
-                    vertex_buffer: &self.world_buffers.features_map_vertex_buffer,
-                    index_buffer: &self.world_buffers.features_map_index_buffer,
-                    index_count: self.world_buffers.num_features_map_indices,
-                },
-            ),
-            // Legacy pipeline for other modes
-            (ViewMode::Globe, _, _, _) => (
-                FillPipelineKind::Globe,
-                IndexedDraw {
-                    vertex_buffer: &mode_buffers.globe_vertex_buffer,
-                    index_buffer: &self.world_buffers.globe_index_buffer,
-                    index_count: self.world_buffers.num_globe_indices,
-                },
-            ),
-            (ViewMode::Map, _, _, _) => (
-                FillPipelineKind::Map,
-                IndexedDraw {
-                    vertex_buffer: &mode_buffers.map_vertex_buffer,
-                    index_buffer: &self.world_buffers.map_index_buffer,
-                    index_count: self.world_buffers.num_map_indices,
-                },
-            ),
+        let fill_pipeline = match (self.view_mode, use_unified) {
+            (ViewMode::Globe, true) => FillPipelineKind::UnifiedGlobe,
+            (ViewMode::Map, true) => FillPipelineKind::UnifiedMap,
+            (ViewMode::Globe, false) => FillPipelineKind::Globe,
+            (ViewMode::Map, false) => FillPipelineKind::Map,
         };
 
+        // Select vertex/index buffers: unified for Relief, colored for all other modes
+        let fill = if use_unified {
+            IndexedDraw {
+                vertex_buffer: &self.world_buffers.unified_vertex_buffer,
+                index_buffer: &self.world_buffers.unified_index_buffer,
+                index_count: self.world_buffers.num_unified_indices,
+            }
+        } else {
+            IndexedDraw {
+                vertex_buffer: &self.world_buffers.colored_vertex_buffer,
+                index_buffer: &self.world_buffers.colored_index_buffer,
+                index_count: self.world_buffers.num_colored_indices,
+            }
+        };
+
+        // Select edge buffer based on mode
         let edges = if self.show_edges {
-            Some(match self.view_mode {
-                ViewMode::Globe => hex3::render::EdgeDraw::GlobeColored(LineDraw {
-                    vertex_buffer: &mode_buffers.globe_edge_vertex_buffer,
-                    vertex_count: mode_buffers.num_globe_edge_vertices,
-                }),
-                ViewMode::Map => hex3::render::EdgeDraw::MapIndexed {
-                    vertex_buffer: &self.world_buffers.map_edge_vertex_buffer,
-                    index_buffer: &self.world_buffers.map_edge_index_buffer,
-                    index_count: self.world_buffers.num_map_edge_indices,
-                },
-            })
+            let (buffer, count) = if use_unified {
+                (
+                    &self.world_buffers.relief_edge_vertex_buffer,
+                    self.world_buffers.num_relief_edge_vertices,
+                )
+            } else if self.render_mode == RenderMode::Plates {
+                (
+                    &self.world_buffers.edge_vertex_buffer_plates,
+                    self.world_buffers.num_edge_vertices_plates,
+                )
+            } else {
+                (
+                    &self.world_buffers.edge_vertex_buffer,
+                    self.world_buffers.num_edge_vertices,
+                )
+            };
+            Some(hex3::render::EdgeDraw::GlobeColored(LineDraw {
+                vertex_buffer: buffer,
+                vertex_count: count,
+            }))
         } else {
             None
         };
 
-        let (arrows, pole_markers) = if self.render_mode == RenderMode::Plates
-            && self.view_mode == ViewMode::Globe
-        {
-            let arrows = (self.world_buffers.num_arrow_vertices > 0).then_some(LineDraw {
-                vertex_buffer: &self.world_buffers.arrow_vertex_buffer,
-                vertex_count: self.world_buffers.num_arrow_vertices,
-            });
-
-            let pole_markers =
-                (self.world_buffers.num_pole_marker_indices > 0).then_some(IndexedDraw {
-                    vertex_buffer: &self.world_buffers.pole_marker_vertex_buffer,
-                    index_buffer: &self.world_buffers.pole_marker_index_buffer,
-                    index_count: self.world_buffers.num_pole_marker_indices,
+        let (arrows, pole_markers) =
+            if self.render_mode == RenderMode::Plates && self.view_mode == ViewMode::Globe {
+                let arrows = (self.world_buffers.num_arrow_vertices > 0).then_some(LineDraw {
+                    vertex_buffer: &self.world_buffers.arrow_vertex_buffer,
+                    vertex_count: self.world_buffers.num_arrow_vertices,
                 });
 
-            (arrows, pole_markers)
-        } else {
-            (None, None)
-        };
+                let pole_markers =
+                    (self.world_buffers.num_pole_marker_indices > 0).then_some(IndexedDraw {
+                        vertex_buffer: &self.world_buffers.pole_marker_vertex_buffer,
+                        index_buffer: &self.world_buffers.pole_marker_index_buffer,
+                        index_count: self.world_buffers.num_pole_marker_indices,
+                    });
+
+                (arrows, pole_markers)
+            } else {
+                (None, None)
+            };
 
         // Rivers: Use triangle mesh for Relief mode, line-based for other modes
         let (rivers, river_mesh) = if self.view_mode == ViewMode::Globe {
             if use_unified {
                 // Relief mode: use triangle-based rivers
                 let mesh = match self.river_mode {
-                    super::view::RiverMode::Off => None,
-                    super::view::RiverMode::Major => {
-                        (self.world_buffers.num_river_mesh_major_indices > 0).then_some(IndexedDraw {
-                            vertex_buffer: &self.world_buffers.river_mesh_major_vertex_buffer,
-                            index_buffer: &self.world_buffers.river_mesh_major_index_buffer,
-                            index_count: self.world_buffers.num_river_mesh_major_indices,
-                        })
+                    RiverMode::Off => None,
+                    RiverMode::Major => {
+                        (self.world_buffers.num_river_mesh_major_indices > 0).then_some(
+                            IndexedDraw {
+                                vertex_buffer: &self.world_buffers.river_mesh_major_vertex_buffer,
+                                index_buffer: &self.world_buffers.river_mesh_major_index_buffer,
+                                index_count: self.world_buffers.num_river_mesh_major_indices,
+                            },
+                        )
                     }
-                    super::view::RiverMode::All => {
+                    RiverMode::All => {
                         (self.world_buffers.num_river_mesh_all_indices > 0).then_some(IndexedDraw {
                             vertex_buffer: &self.world_buffers.river_mesh_all_vertex_buffer,
                             index_buffer: &self.world_buffers.river_mesh_all_index_buffer,
@@ -354,7 +339,8 @@ impl AppState {
                 (None, mesh)
             } else {
                 // Other modes: use line-based rivers
-                let lines = self.world_buffers
+                let lines = self
+                    .world_buffers
                     .river_buffer(self.river_mode)
                     .filter(|(_, count)| *count > 0)
                     .map(|(buffer, count)| SurfaceLineDraw {
@@ -367,6 +353,39 @@ impl AppState {
             (None, None)
         };
 
+        // Wind particles: update and render when in Climate/Wind mode on Globe view
+        let wind_particle_buffer = if self.view_mode == ViewMode::Globe
+            && self.render_mode == RenderMode::Climate
+            && self.climate_layer == ClimateLayer::Wind
+        {
+            if let (Some(particles), Some(atmosphere)) =
+                (&mut self.wind_particles, &self.world_data.atmosphere)
+            {
+                // Update particles each frame
+                particles.update(&self.world_data.tessellation, &atmosphere.wind, &mut self.rng);
+
+                // Generate line vertices
+                let trails = particles.generate_trail_lines();
+                if !trails.is_empty() {
+                    Some(generate_wind_particle_buffer(&self.gpu.device, &trails))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // Create LineDraw reference from optional buffer
+        let wind_particles = wind_particle_buffer
+            .as_ref()
+            .map(|(buffer, count)| LineDraw {
+                vertex_buffer: buffer,
+                vertex_count: *count,
+            });
+
         self.renderer.render(
             &mut self.gpu,
             &uniforms,
@@ -378,6 +397,7 @@ impl AppState {
                 pole_markers,
                 rivers,
                 river_mesh,
+                wind_particles,
             },
         );
 

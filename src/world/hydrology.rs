@@ -579,10 +579,8 @@ fn priority_flood_with_basins(
                 }
 
                 // Build sorted elevations for hypsometric lookup
-                let mut sorted_elevations: Vec<f32> = basin_cells
-                    .iter()
-                    .map(|&c| elevation[c])
-                    .collect();
+                let mut sorted_elevations: Vec<f32> =
+                    basin_cells.iter().map(|&c| elevation[c]).collect();
                 sorted_elevations.sort_by(|a, b| a.partial_cmp(b).unwrap());
 
                 // Create the basin (catchment, overflow_target, water_level computed later)
@@ -829,9 +827,7 @@ fn compute_flow_accumulation(
     // Use topological sort: process cells with no remaining upstream dependencies
     let mut flow = vec![1.0f32; n]; // Each cell starts with 1 unit
     let mut remaining_upstream = upstream_count.clone();
-    let mut ready: Vec<usize> = (0..n)
-        .filter(|&c| upstream_count[c] == 0)
-        .collect();
+    let mut ready: Vec<usize> = (0..n).filter(|&c| upstream_count[c] == 0).collect();
 
     while let Some(cell) = ready.pop() {
         if let Some(downstream) = drainage_dir[cell] {

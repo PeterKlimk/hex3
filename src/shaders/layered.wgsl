@@ -1,17 +1,21 @@
 // Layered visualization shader for noise/feature modes.
-// Stores 5 layer values per vertex; uniform selects which to display.
+// Stores 6 layer values per vertex; uniform selects which to display.
 // Enables instant layer switching without buffer regeneration.
+
+// Constants for map projection
+const PI: f32 = 3.14159265359;
+const HALF_PI: f32 = 1.57079632679;
 
 struct Uniforms {
     view_proj: mat4x4<f32>,
     camera_pos: vec3<f32>,
     _padding1: f32,
     light_dir: vec3<f32>,
-    _padding2: f32,
+    map_mode: f32, // 0.0 = globe view, 1.0 = equirectangular map view
 }
 
 struct LayerUniforms {
-    // Which layer to display (0-4)
+    // Which layer to display (0-5)
     layer_index: u32,
     // Colormap mode: 0 = noise (green/magenta), 1 = feature (per-layer colors)
     colormap_mode: u32,
@@ -23,9 +27,11 @@ struct LayerUniforms {
 
 struct VertexInput {
     @location(0) position: vec3<f32>,
-    @location(1) normal: vec3<f32>,
-    @location(2) layers: vec4<f32>,  // First 4 layers
-    @location(3) layer4: f32,         // 5th layer (+ padding as f32)
+    @location(1) wrap_offset: f32,
+    @location(2) normal: vec3<f32>,
+    @location(3) layers: vec4<f32>,  // First 4 layers
+    @location(4) layer4: f32,         // 5th layer
+    @location(5) layer5: f32,         // 6th layer
 }
 
 struct VertexOutput {
@@ -34,10 +40,31 @@ struct VertexOutput {
     @location(1) layer_value: f32,
 }
 
+// Project sphere position to equirectangular map coordinates
+fn sphere_to_map(pos: vec3<f32>, wrap_offset: f32) -> vec3<f32> {
+    let lon = atan2(pos.z, pos.x); // -PI to PI
+    let lat = asin(clamp(pos.y, -1.0, 1.0)); // -PI/2 to PI/2
+
+    let x = lon / PI + wrap_offset; // -1 to 1, with wrap adjustment
+    let y = lat / HALF_PI;          // -1 to 1
+
+    return vec3<f32>(x, y, 0.0);
+}
+
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
-    out.clip_position = uniforms.view_proj * vec4<f32>(in.position, 1.0);
+
+    var final_pos: vec3<f32>;
+    if (uniforms.map_mode > 0.5) {
+        // Map view: project to 2D equirectangular
+        final_pos = sphere_to_map(in.position, in.wrap_offset);
+    } else {
+        // Globe view: use 3D position directly
+        final_pos = in.position;
+    }
+
+    out.clip_position = uniforms.view_proj * vec4<f32>(final_pos, 1.0);
     out.world_normal = in.normal;
 
     // Select the layer value based on layer_index
@@ -47,6 +74,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         case 2u: { out.layer_value = in.layers.z; }
         case 3u: { out.layer_value = in.layers.w; }
         case 4u: { out.layer_value = in.layer4; }
+        case 5u: { out.layer_value = in.layer5; }
         default: { out.layer_value = in.layers.x; }
     }
 
@@ -112,6 +140,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             case 2u: { scale = 12.0; }  // Hills
             case 3u: { scale = 10.0; }  // Ridges
             case 4u: { scale = 50.0; }  // Micro (very small values)
+            case 5u: { scale = 1.0; }   // Island chain noise (already ~[-1, 1])
             default: { scale = 10.0; }
         }
         color = noise_color(in.layer_value, scale);

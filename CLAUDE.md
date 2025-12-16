@@ -15,6 +15,42 @@ cargo clippy             # Lint
 cargo fmt                # Format
 ```
 
+## CLI Options
+
+```bash
+cargo run --release                              # Interactive mode, stage 1
+cargo run --release -- --seed 12345              # Specific seed
+cargo run --release -- --stage 2                 # Start at stage 2
+cargo run --release -- --headless --export out.json.gz  # Headless + export
+```
+
+- `--headless` - Generate without window, quit when done (defaults to max stage)
+- `--stage N` - Target stage (1=Lithosphere, 2=Hydrosphere)
+- `--seed N` - Random seed for reproducible generation
+- `--export FILE` - Export world data to JSON (supports .json.gz)
+- `D` key - Export current world in interactive mode
+
+## Data Analysis
+
+Export world data and analyze with Python:
+
+```bash
+# Generate and export
+cargo run --release -- --headless --seed 12345 --export world.json.gz
+
+# Analyze (requires numpy, matplotlib)
+uv venv scripts/.venv
+uv pip install -r scripts/requirements.txt --python scripts/.venv/bin/python
+scripts/.venv/bin/python scripts/analyze_terrain.py world.json.gz --show
+```
+
+The analysis script generates:
+- Elevation histogram (land vs ocean distribution)
+- Hypsometric curve (cumulative area vs elevation)
+- Elevation by latitude heatmap
+- Tectonic feature distributions
+- Plate size chart
+
 ## Project Overview
 
 Hex3 is a spherical Voronoi-based planet generator with tectonic plate simulation, rendered using wgpu. It generates procedural worlds with realistic terrain based on plate tectonics.
@@ -23,74 +59,100 @@ Hex3 is a spherical Voronoi-based planet generator with tectonic plate simulatio
 
 ### Module Structure
 
-- **`src/lib.rs`** - Library crate entry (re-exports `geometry` and `render`)
+- **`src/lib.rs`** - Library crate entry (re-exports `geometry`, `render`, `world`)
 - **`src/geometry/`** - Computational geometry for spherical surfaces
   - `voronoi.rs` - Spherical Voronoi diagram via convex hull duality
   - `convex_hull.rs` - 3D convex hull using qhull
   - `lloyd.rs` - Lloyd relaxation for point distribution
-  - `plates.rs` - Tectonic plate assignment via flood fill
   - `sphere.rs` - Uniform random points on a unit sphere
-  - `tectonics.rs` - Euler pole rotation, stress propagation, elevation generation
   - `mesh.rs` - Voronoi to triangle mesh conversion, map projection
+
+- **`src/world/`** - World generation and simulation
+  - `tessellation.rs` - Spherical tessellation with Voronoi cells and adjacency
+  - `plates.rs` - Tectonic plate assignment via flood fill
+  - `dynamics.rs` - Plate dynamics (Euler poles, velocities)
+  - `boundary.rs` - Plate boundary classification and analysis
+  - `features.rs` - Tectonic feature fields (trenches, arcs, ridges, collisions)
+  - `elevation.rs` - Elevation generation from features + noise
+  - `hydrology.rs` - River networks, drainage basins, lakes
+  - `constants.rs` - Tunable simulation parameters
+  - `gen.rs` - World generation orchestration
+
+- **`src/app/`** - Application layer
+  - `state.rs` - Application state and rendering
+  - `view.rs` - Render modes and view modes
+  - `coloring.rs` - Per-cell color functions for visualization
+  - `world.rs` - World buffer generation for GPU
+  - `visualization.rs` - Debug visualization helpers
 
 - **`src/render/`** - wgpu rendering infrastructure
   - `context.rs` - GPU device/surface setup
   - `pipeline.rs` - Render pipeline builder
+  - `renderer.rs` - Main renderer with multiple pipelines
   - `camera.rs` - Orbit camera with controller
   - `buffer.rs`, `uniform.rs`, `vertex.rs` - GPU buffer utilities
 
-- **`src/shaders/`** - WGSL shaders (sphere.wgsl, edge.wgsl, colored_line.wgsl)
+- **`src/shaders/`** - WGSL shaders
 
 ### Key Data Flow
 
 1. Random points on unit sphere → Lloyd relaxation → evenly distributed points
 2. Convex hull of points → dual graph → SphericalVoronoi (cells, vertices)
-3. Spaced seeds + varied target sizes → weighted flood fill → TectonicPlates (cell assignments, Euler poles)
-4. Euler pole velocities → boundary stress → propagated stress fields
-5. Stress + plate type → elevation via sqrt response curves + fBm noise
-6. Elevation → hypsometric coloring → VoronoiMesh → GPU buffers
-7. Relief view: vertices displaced radially by averaged elevation
+3. Spaced seeds + varied target sizes → weighted flood fill → Plates (cell assignments)
+4. Euler pole velocities → plate dynamics → boundary classification
+5. Boundary analysis → feature fields (trench, arc, ridge, collision, activity)
+6. Features + plate type → elevation via decay functions + multi-layer fBm noise
+7. Elevation → hydrological simulation → rivers, lakes, drainage basins
+8. Elevation + hydrology → hypsometric coloring → VoronoiMesh → GPU buffers
+9. Relief view: vertices displaced radially by averaged elevation
 
 ### Core Types
 
 - `SphericalVoronoi` - Voronoi diagram with generators, vertices, and cells
-- `TectonicPlates` - Plate assignments, types, Euler poles, stress/elevation per cell
+- `Tessellation` - Voronoi + adjacency graph + cell area computation
+- `Plates` - Cell-to-plate assignments
+- `Dynamics` - Plate types (Continental/Oceanic), Euler poles, velocities
+- `FeatureFields` - Per-cell tectonic feature magnitudes (trench, arc, ridge, collision, activity)
+- `Hydrology` - River network, drainage basins, lake levels
+- `World` - Complete world state (tessellation, plates, dynamics, features, elevation, hydrology)
 - `VoronoiMesh` - Triangle mesh with per-vertex colors for rendering
 - `GpuContext` - wgpu device, queue, surface configuration
 
 ### Tectonic Simulation
 
-Plates rotate around Euler poles. At boundaries, relative velocity determines stress:
-- **Convergent** (positive stress): mountains, volcanic arcs
-- **Divergent** (negative stress): rifts (continental), mid-ocean ridges (oceanic)
+Plates rotate around Euler poles. At boundaries, relative velocity determines feature type:
+- **Convergent**: subduction (trenches + volcanic arcs) or collision (mountain ranges)
+- **Divergent**: mid-ocean ridges (oceanic) or rifts (continental)
+- **Transform**: lateral motion (no elevation features)
 
-Eight plate interaction multipliers (4 convergent + 4 divergent) in `tectonics::constants`:
+Eight plate interaction multipliers (4 convergent + 4 divergent) in `world/constants.rs`:
 - Convergent: `CONV_CONT_CONT`, `CONV_CONT_OCEAN`, `CONV_OCEAN_CONT`, `CONV_OCEAN_OCEAN`
 - Divergent: `DIV_CONT_CONT`, `DIV_CONT_OCEAN`, `DIV_OCEAN_CONT`, `DIV_OCEAN_OCEAN`
 
-Stress is weighted by edge arc length for density-independent results (`STRESS_SCALE` controls magnitude). Elevation response differs by plate type:
+Boundary forcing is weighted by edge arc length and normalized by cell area for resolution-independent results. Elevation response differs by plate type:
 - **Continental**: asymmetric (compression → mountains, tension → rifts capped above ocean floor)
-- **Oceanic**: both cause uplift, but compression can create islands while tension is capped underwater
+- **Oceanic**: thermal subsidence from ridge distance + feature-driven uplift
 
 ## Controls (Runtime)
 
 - Drag: rotate globe
 - Scroll: zoom
 - Tab: toggle globe/map view
-- 1-8: Render modes:
+- 1-7: Render modes:
   - 1: Relief (default) - 3D terrain + lakes
   - 2: Terrain - flat terrain + lakes
   - 3: Elevation - raw elevation only
   - 4: Plates - plate boundaries and velocities
-  - 5: Stress - tectonic stress field
-  - 6: Noise - fBm noise contribution (press again to cycle layers)
-  - 7: Hydrology - flow accumulation coloring
-  - 8: Features - tectonic feature fields (press again to cycle: Trench/Arc/Ridge/Collision/Activity)
+  - 5: Noise - fBm noise contribution (press again to cycle layers)
+  - 6: Hydrology - flow accumulation coloring
+  - 7: Features - tectonic feature fields (press again to cycle: Trench/Arc/Ridge/Collision/Activity)
 - E: toggle edge visibility
-- V: toggle river visibility (after Stage 2)
+- V: cycle river visibility (Off/Major/All) - after Stage 2
+- H: toggle hemisphere lighting
 - R: regenerate world with new seed
 - Space: advance to next stage (Stage 2 = Hydrology)
 - Up/Down: adjust climate ratio (wetter/drier) - controls lake levels (Stage 2)
+- D: export world data to JSON file
 - Esc: quit
 
 Notes:
@@ -100,5 +162,7 @@ Notes:
 ## Common Edit Points
 
 - World resolution: `src/main.rs` (`NUM_CELLS`, `LLOYD_ITERATIONS`, `NUM_PLATES`)
-- Tectonics + terrain tuning: `src/geometry/tectonics.rs::constants`
-- Plate generation heuristics: `src/geometry/plates.rs` (seed spacing, target sizes, noise)
+- Tectonic feature tuning: `src/world/constants.rs`
+- Elevation & noise tuning: `src/world/constants.rs` (noise layers, feature sensitivities)
+- Plate generation heuristics: `src/world/plates.rs` (seed spacing, target sizes, noise)
+- Coloring functions: `src/app/coloring.rs`

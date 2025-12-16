@@ -56,8 +56,10 @@ impl SphericalVoronoi {
             }
         }
 
-        // Step 3: Build cells by ordering vertices CCW around each generator
+        // Step 3: Build cells by ordering vertices CCW around each generator (parallel)
+        use rayon::prelude::*;
         let cells: Vec<VoronoiCell> = (0..points.len())
+            .into_par_iter()
             .map(|point_idx| {
                 let facet_indices = point_to_facets.get(&point_idx).cloned().unwrap_or_default();
                 let cell_vertices: Vec<usize> = facet_indices;

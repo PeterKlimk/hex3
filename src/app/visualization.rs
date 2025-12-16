@@ -6,8 +6,9 @@
 use std::collections::{HashMap, HashSet};
 
 use glam::Vec3;
+use rand::Rng;
 
-use hex3::world::World;
+use hex3::world::{Tessellation, World};
 
 use super::coloring::hsl_to_rgb;
 
@@ -200,4 +201,120 @@ pub fn generate_pole_markers(world: &World) -> Vec<(Vec3, Vec3, Vec3)> {
     }
 
     markers
+}
+
+/// Wind particle for flow visualization.
+#[derive(Clone, Copy)]
+struct WindParticle {
+    /// Current position on unit sphere.
+    pos: Vec3,
+    /// Previous position (for drawing trail).
+    prev_pos: Vec3,
+    /// Current cell index (for wind lookup).
+    cell_idx: usize,
+    /// Age in frames (respawn when too old).
+    age: u32,
+}
+
+/// Wind particle system for visualizing atmospheric flow.
+pub struct WindParticles {
+    particles: Vec<WindParticle>,
+    /// Maximum particle age before respawn.
+    max_age: u32,
+    /// Time step for advection.
+    dt: f32,
+}
+
+impl WindParticles {
+    /// Number of particles to simulate.
+    const NUM_PARTICLES: usize = 10000;
+
+    /// Create a new wind particle system.
+    pub fn new<R: Rng>(tessellation: &Tessellation, rng: &mut R) -> Self {
+        let particles = (0..Self::NUM_PARTICLES)
+            .map(|_| Self::spawn_particle(tessellation, rng))
+            .collect();
+
+        Self {
+            particles,
+            max_age: 120, // ~10 seconds at 60fps
+            dt: 0.01,    // very slow movement for gentle flow visualization
+        }
+    }
+
+    /// Spawn a particle at a random cell.
+    fn spawn_particle<R: Rng>(tessellation: &Tessellation, rng: &mut R) -> WindParticle {
+        let cell_idx = rng.gen_range(0..tessellation.num_cells());
+        let pos = tessellation.cell_center(cell_idx);
+        WindParticle {
+            pos,
+            prev_pos: pos,
+            cell_idx,
+            age: rng.gen_range(0..60), // stagger initial ages
+        }
+    }
+
+    /// Update all particles by advecting with wind field.
+    pub fn update<R: Rng>(&mut self, tessellation: &Tessellation, wind: &[Vec3], rng: &mut R) {
+        for particle in &mut self.particles {
+            // Store previous position for trail
+            particle.prev_pos = particle.pos;
+
+            // Get wind at current cell
+            let cell_wind = wind[particle.cell_idx];
+
+            // Advect: move along wind direction, project back to sphere
+            let new_pos = (particle.pos + cell_wind * self.dt).normalize();
+            particle.pos = new_pos;
+
+            // Update cell tracking - check if we're closer to a neighbor
+            particle.cell_idx = find_nearest_cell_local(tessellation, particle.pos, particle.cell_idx);
+
+            // Age and respawn
+            particle.age += 1;
+            if particle.age >= self.max_age {
+                *particle = Self::spawn_particle(tessellation, rng);
+            }
+        }
+    }
+
+    /// Generate line vertices for rendering particle trails.
+    /// Returns (start, end, color) for each trail segment.
+    pub fn generate_trail_lines(&self) -> Vec<(Vec3, Vec3, Vec3)> {
+        self.particles
+            .iter()
+            .filter(|p| p.age > 0) // Skip just-spawned particles
+            .filter(|p| (p.pos - p.prev_pos).length_squared() > 1e-8) // Skip stationary
+            .map(|p| {
+                // Fade based on age (young = bright, old = dim)
+                let age_factor = 1.0 - (p.age as f32 / self.max_age as f32);
+                let alpha = age_factor.powf(0.5); // sqrt for slower fade
+
+                // Cyan/white color for wind
+                let color = Vec3::new(0.3 + 0.7 * alpha, 0.8 + 0.2 * alpha, 1.0) * alpha;
+
+                // Lift slightly above surface to prevent z-fighting
+                let lift = 1.002;
+                (p.prev_pos * lift, p.pos * lift, color)
+            })
+            .collect()
+    }
+}
+
+/// Find the nearest cell using local search from a starting cell.
+/// More efficient than brute force when particles move smoothly.
+fn find_nearest_cell_local(tessellation: &Tessellation, pos: Vec3, start_cell: usize) -> usize {
+    let mut best_cell = start_cell;
+    let mut best_dist = (pos - tessellation.cell_center(start_cell)).length_squared();
+
+    // Check neighbors of current cell
+    for &neighbor in tessellation.neighbors(start_cell) {
+        let dist = (pos - tessellation.cell_center(neighbor)).length_squared();
+        if dist < best_dist {
+            best_dist = dist;
+            best_cell = neighbor;
+        }
+    }
+
+    best_cell
 }

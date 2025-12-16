@@ -7,34 +7,38 @@
 //! - Tessellation - Spherical Voronoi cells + adjacency graph
 //! - Plates - Tectonic plate assignment via flood fill
 //! - Dynamics - Plate motion (Euler poles) and types (continental/oceanic)
-//! - Stress - Boundary stress calculation and propagation
+//! - Features - Boundary-driven terrain features (trenches, arcs, ridges, collision zones)
 //! - Elevation - Terrain height from features + noise
 //!
-//! **Stage 2: Hydrosphere**
+//! **Stage 2: Atmosphere (Climate)**
+//! - Climate - Temperature from latitude + elevation lapse rate
+//! - (Future: precipitation, wind patterns)
+//!
+//! **Stage 3: Hydrosphere**
 //! - Hydrology - Depression filling, drainage, rivers
 //!
-//! Future stages: Climate, Biomes
+//! Future stages: Erosion, Biomes
 
-mod constants;
+mod atmosphere;
 mod boundary;
+mod constants;
 mod dynamics;
 mod elevation;
 mod features;
 mod hydrology;
 mod plates;
-mod stress;
 mod tessellation;
 
 pub mod gen;
 
-pub use constants::*;
+pub use atmosphere::Atmosphere;
 pub use boundary::{collect_plate_boundaries, BoundaryKind, PlateBoundaryEdge, SubductionPolarity};
+pub use constants::*;
 pub use dynamics::{Dynamics, EulerPole, PlateType};
 pub use elevation::{Elevation, NoiseLayerData};
 pub use features::FeatureFields;
 pub use hydrology::{Basin, CellWaterState, Hydrology, WaterBody, DEFAULT_CLIMATE_RATIO};
 pub use plates::Plates;
-pub use stress::StressField;
 pub use tessellation::Tessellation;
 
 use rand::SeedableRng;
@@ -58,16 +62,17 @@ pub struct World {
     /// Plate dynamics (motion and types).
     pub dynamics: Option<Dynamics>,
 
-    /// Stress field from plate interactions (for visualization).
-    pub stress: Option<StressField>,
-
     /// Tectonic feature fields (trench, arc, ridge, collision, activity).
     pub features: Option<FeatureFields>,
 
     /// Terrain elevation.
     pub elevation: Option<Elevation>,
 
-    // --- Stage 2: Hydrosphere ---
+    // --- Stage 2: Atmosphere ---
+    /// Atmosphere data (temperature, pressure, wind, uplift).
+    pub atmosphere: Option<Atmosphere>,
+
+    // --- Stage 3: Hydrosphere ---
     /// Hydrology (drainage, rivers).
     pub hydrology: Option<Hydrology>,
 }
@@ -86,9 +91,9 @@ impl World {
             tessellation,
             plates: None,
             dynamics: None,
-            stress: None,
             features: None,
             elevation: None,
+            atmosphere: None,
             hydrology: None,
         }
     }
@@ -105,7 +110,6 @@ impl World {
 
         self.generate_plates(num_plates);
         self.generate_dynamics();
-        self.generate_stress();
         self.generate_features();
         self.generate_elevation();
     }
@@ -113,51 +117,49 @@ impl World {
     /// Generate tectonic plates via flood fill.
     pub fn generate_plates(&mut self, num_plates: usize) {
         let mut rng = ChaCha8Rng::seed_from_u64(self.seed.wrapping_add(1));
-        self.plates = Some(Plates::generate(
-            &self.tessellation,
-            num_plates,
-            &mut rng,
-        ));
+        self.plates = Some(Plates::generate(&self.tessellation, num_plates, &mut rng));
     }
 
     /// Generate plate dynamics (Euler poles and types).
     /// Requires plates to be generated first.
     pub fn generate_dynamics(&mut self) {
-        let plates = self.plates.as_ref().expect("Plates must be generated first");
+        let plates = self
+            .plates
+            .as_ref()
+            .expect("Plates must be generated first");
         let mut rng = ChaCha8Rng::seed_from_u64(self.seed.wrapping_add(2));
         self.dynamics = Some(Dynamics::generate(plates, &mut rng));
-    }
-
-    /// Generate stress field from plate interactions.
-    /// Requires plates and dynamics to be generated first.
-    pub fn generate_stress(&mut self) {
-        let plates = self.plates.as_ref().expect("Plates must be generated first");
-        let dynamics = self.dynamics.as_ref().expect("Dynamics must be generated first");
-        self.stress = Some(StressField::calculate(
-            &self.tessellation,
-            plates,
-            dynamics,
-        ));
     }
 
     /// Generate tectonic feature fields (trench, arc, ridge, collision, activity).
     /// Requires plates and dynamics to be generated first.
     pub fn generate_features(&mut self) {
-        let plates = self.plates.as_ref().expect("Plates must be generated first");
-        let dynamics = self.dynamics.as_ref().expect("Dynamics must be generated first");
-        self.features = Some(FeatureFields::compute(
-            &self.tessellation,
-            plates,
-            dynamics,
-        ));
+        let plates = self
+            .plates
+            .as_ref()
+            .expect("Plates must be generated first");
+        let dynamics = self
+            .dynamics
+            .as_ref()
+            .expect("Dynamics must be generated first");
+        self.features = Some(FeatureFields::compute(&self.tessellation, plates, dynamics));
     }
 
     /// Generate elevation from tectonic features.
     /// Requires features and dynamics to be generated first.
     pub fn generate_elevation(&mut self) {
-        let plates = self.plates.as_ref().expect("Plates must be generated first");
-        let dynamics = self.dynamics.as_ref().expect("Dynamics must be generated first");
-        let features = self.features.as_ref().expect("Features must be generated first");
+        let plates = self
+            .plates
+            .as_ref()
+            .expect("Plates must be generated first");
+        let dynamics = self
+            .dynamics
+            .as_ref()
+            .expect("Dynamics must be generated first");
+        let features = self
+            .features
+            .as_ref()
+            .expect("Features must be generated first");
         let mut rng = ChaCha8Rng::seed_from_u64(self.seed.wrapping_add(3));
         self.elevation = Some(Elevation::generate(
             &self.tessellation,
@@ -168,10 +170,23 @@ impl World {
         ));
     }
 
+    /// Generate atmosphere (temperature, pressure, wind, uplift).
+    /// Requires elevation to be generated first.
+    pub fn generate_atmosphere(&mut self) {
+        let elevation = self
+            .elevation
+            .as_ref()
+            .expect("Elevation must be generated first");
+        self.atmosphere = Some(Atmosphere::generate(&self.tessellation, elevation));
+    }
+
     /// Generate hydrology (drainage, rivers).
     /// Requires plates, dynamics, and elevation to be generated first.
     pub fn generate_hydrology(&mut self) {
-        let plates = self.plates.as_ref().expect("Plates must be generated first");
+        let plates = self
+            .plates
+            .as_ref()
+            .expect("Plates must be generated first");
         let dynamics = self
             .dynamics
             .as_ref()
@@ -194,8 +209,13 @@ impl World {
     }
 
     /// Get the current generation stage.
+    /// - Stage 1: Lithosphere (tectonics, elevation)
+    /// - Stage 2: Atmosphere (temperature, wind)
+    /// - Stage 3: Hydrosphere (rivers, lakes)
     pub fn current_stage(&self) -> u32 {
         if self.hydrology.is_some() {
+            3
+        } else if self.atmosphere.is_some() {
             2
         } else if self.elevation.is_some() {
             1

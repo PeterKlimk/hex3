@@ -23,8 +23,12 @@ impl ConvexHull {
             .map(|p| [p.x as f64, p.y as f64, p.z as f64])
             .collect();
 
+        // Optimize for sphere points: all points are on the hull (no interior),
+        // uniformly distributed (not narrow)
         let qh = Qh::builder()
             .compute(true)
+            .no_near_inside(true) // Q8: no interior points to handle
+            .no_narrow(true)      // Q10: not a narrow distribution
             .build_from_iter(pts)
             .expect("Failed to compute convex hull");
 

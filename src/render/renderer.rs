@@ -4,7 +4,10 @@ use wgpu::{
     RenderPipeline, ShaderStages,
 };
 
-use super::{create_depth_texture, create_uniform_buffer, GpuContext, PipelineBuilder, Uniforms, LayerUniforms};
+use super::{
+    create_depth_texture, create_uniform_buffer, GpuContext, LayerUniforms, PipelineBuilder,
+    Uniforms,
+};
 use crate::geometry::{LayeredVertex, MeshVertex, SurfaceVertex, UnifiedVertex};
 
 /// Draw command for surface features (rivers, roads) using SurfaceVertex format.
@@ -59,6 +62,8 @@ pub struct RenderScene<'a> {
     pub rivers: Option<SurfaceLineDraw<'a>>,
     /// Triangle-based rivers (UnifiedVertex) - uses unified pipeline
     pub river_mesh: Option<IndexedDraw<'a>>,
+    /// Wind particle trails (MeshVertex lines)
+    pub wind_particles: Option<LineDraw<'a>>,
 }
 
 pub struct Renderer {
@@ -100,11 +105,8 @@ impl Renderer {
             .create_shader_module(include_wgsl!("../shaders/surface_line.wgsl"));
 
         let uniform_buffer = create_uniform_buffer(&gpu.device, initial_uniforms, "uniforms");
-        let layer_uniform_buffer = create_uniform_buffer(
-            &gpu.device,
-            &LayerUniforms::noise(0),
-            "layer_uniforms",
-        );
+        let layer_uniform_buffer =
+            create_uniform_buffer(&gpu.device, &LayerUniforms::noise(0), "layer_uniforms");
 
         let bind_group_layout = gpu
             .device
@@ -123,33 +125,33 @@ impl Renderer {
             });
 
         // Layered bind group layout: main uniforms + layer uniforms
-        let layered_bind_group_layout = gpu
-            .device
-            .create_bind_group_layout(&BindGroupLayoutDescriptor {
-                label: Some("layered_bind_group_layout"),
-                entries: &[
-                    BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: ShaderStages::VERTEX | ShaderStages::FRAGMENT,
-                        ty: BindingType::Buffer {
-                            ty: BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
+        let layered_bind_group_layout =
+            gpu.device
+                .create_bind_group_layout(&BindGroupLayoutDescriptor {
+                    label: Some("layered_bind_group_layout"),
+                    entries: &[
+                        BindGroupLayoutEntry {
+                            binding: 0,
+                            visibility: ShaderStages::VERTEX | ShaderStages::FRAGMENT,
+                            ty: BindingType::Buffer {
+                                ty: BufferBindingType::Uniform,
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
                         },
-                        count: None,
-                    },
-                    BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: ShaderStages::VERTEX | ShaderStages::FRAGMENT,
-                        ty: BindingType::Buffer {
-                            ty: BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
+                        BindGroupLayoutEntry {
+                            binding: 1,
+                            visibility: ShaderStages::VERTEX | ShaderStages::FRAGMENT,
+                            ty: BindingType::Buffer {
+                                ty: BufferBindingType::Uniform,
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
                         },
-                        count: None,
-                    },
-                ],
-            });
+                    ],
+                });
 
         let bind_group = gpu.device.create_bind_group(&BindGroupDescriptor {
             label: Some("uniform_bind_group"),
@@ -355,8 +357,12 @@ impl Renderer {
                 FillPipelineKind::Map => (&self.map_fill_pipeline, &self.bind_group),
                 FillPipelineKind::UnifiedGlobe => (&self.unified_fill_pipeline, &self.bind_group),
                 FillPipelineKind::UnifiedMap => (&self.map_unified_fill_pipeline, &self.bind_group),
-                FillPipelineKind::LayeredGlobe => (&self.layered_fill_pipeline, &self.layered_bind_group),
-                FillPipelineKind::LayeredMap => (&self.map_layered_fill_pipeline, &self.layered_bind_group),
+                FillPipelineKind::LayeredGlobe => {
+                    (&self.layered_fill_pipeline, &self.layered_bind_group)
+                }
+                FillPipelineKind::LayeredMap => {
+                    (&self.map_layered_fill_pipeline, &self.layered_bind_group)
+                }
             };
 
             // Track if we're using layered pipeline (needs bind group reset for other draws)
@@ -425,11 +431,16 @@ impl Renderer {
             if let Some(river_mesh) = scene.river_mesh {
                 render_pass.set_pipeline(&self.unified_fill_pipeline);
                 render_pass.set_vertex_buffer(0, river_mesh.vertex_buffer.slice(..));
-                render_pass.set_index_buffer(
-                    river_mesh.index_buffer.slice(..),
-                    wgpu::IndexFormat::Uint32,
-                );
+                render_pass
+                    .set_index_buffer(river_mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 render_pass.draw_indexed(0..river_mesh.index_count, 0, 0..1);
+            }
+
+            // Wind particle trails
+            if let Some(wind_particles) = scene.wind_particles {
+                render_pass.set_pipeline(&self.colored_line_pipeline);
+                render_pass.set_vertex_buffer(0, wind_particles.vertex_buffer.slice(..));
+                render_pass.draw(0..wind_particles.vertex_count, 0..1);
             }
         }
 

@@ -249,8 +249,7 @@ fn flood_fill_weighted<R: Rng>(
     let mut cell_plate = vec![u32::MAX; num_cells];
 
     // Create fBm noise generator
-    let fbm: Fbm<Perlin> = Fbm::new(rng.gen())
-        .set_octaves(NOISE_OCTAVES);
+    let fbm: Fbm<Perlin> = Fbm::new(rng.gen()).set_octaves(NOISE_OCTAVES);
 
     // Initialize plate states
     let plates: Vec<PlateState> = seeds
@@ -325,6 +324,19 @@ fn flood_fill_weighted<R: Rng>(
                 queue.push(Reverse((OrderedFloat(priority), neighbor, plate_id)));
             }
         }
+    }
+
+    // Check for orphan cells - these indicate a bug in tessellation or flood fill
+    let orphan_cells: Vec<usize> = (0..num_cells)
+        .filter(|&cell_idx| cell_plate[cell_idx] == u32::MAX)
+        .collect();
+
+    if !orphan_cells.is_empty() {
+        panic!(
+            "Flood fill left {} orphan cells unassigned: {:?}",
+            orphan_cells.len(),
+            &orphan_cells[..orphan_cells.len().min(10)]
+        );
     }
 
     cell_plate

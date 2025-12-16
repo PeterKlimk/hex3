@@ -33,10 +33,15 @@ struct Uniforms {
     light_dir: vec3<f32>,
     relief_scale: f32, // 0.0 = flat, >0 = 3D terrain displacement
     hemisphere_lighting: f32, // 1.0 = hemisphere, 0.0 = simple diffuse
-    _padding2: vec3<f32>,
+    map_mode: f32, // 0.0 = globe view, 1.0 = equirectangular map view
+    _padding2: vec2<f32>,
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
+
+// Constants for map projection
+const PI: f32 = 3.14159265359;
+const HALF_PI: f32 = 1.57079632679;
 
 struct VertexInput {
     @location(0) position: vec3<f32>,
@@ -44,6 +49,7 @@ struct VertexInput {
     @location(2) color: vec3<f32>,
     @location(3) elevation: f32,
     @location(4) material: u32,
+    @location(5) wrap_offset: f32,
 }
 
 struct VertexOutput {
@@ -95,6 +101,17 @@ fn micro_noise(pos: vec3<f32>) -> f32 {
     return (noise3(p) - 0.5) * 2.0 * MICRO_AMPLITUDE;
 }
 
+// Project sphere position to equirectangular map coordinates
+fn sphere_to_map(pos: vec3<f32>, wrap_offset: f32) -> vec3<f32> {
+    let lon = atan2(pos.z, pos.x); // -PI to PI
+    let lat = asin(clamp(pos.y, -1.0, 1.0)); // -PI/2 to PI/2
+
+    let x = lon / PI + wrap_offset; // -1 to 1, with wrap adjustment
+    let y = lat / HALF_PI;          // -1 to 1
+
+    return vec3<f32>(x, y, 0.0);
+}
+
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
@@ -116,10 +133,17 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         displacement += RIVER_Z_OFFSET;
     }
 
-    let displaced_pos = in.position * displacement;
+    var final_pos: vec3<f32>;
+    if (uniforms.map_mode > 0.5) {
+        // Map view: project to 2D equirectangular
+        final_pos = sphere_to_map(in.position, in.wrap_offset);
+    } else {
+        // Globe view: apply 3D displacement
+        final_pos = in.position * displacement;
+    }
 
-    out.clip_position = uniforms.view_proj * vec4<f32>(displaced_pos, 1.0);
-    out.world_pos = displaced_pos;
+    out.clip_position = uniforms.view_proj * vec4<f32>(final_pos, 1.0);
+    out.world_pos = final_pos;
     out.world_normal = in.normal;  // Normal is still the original sphere normal
     out.color = in.color;
     out.material = in.material;
