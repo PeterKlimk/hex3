@@ -77,11 +77,16 @@ struct FeatureData {
     divergent: Vec<f32>,
     transform: Vec<f32>,
     ridge_distance: Vec<f32>,
+    collision_distance: Vec<f32>,
 }
 
 #[derive(Serialize)]
 struct NoiseData {
     combined: Vec<f32>,
+    macro_layer: Vec<f32>,
+    hills_layer: Vec<f32>,
+    ridge_layer: Vec<f32>,
+    micro_layer: Vec<f32>,
 }
 
 #[derive(Serialize)]
@@ -148,11 +153,16 @@ impl WorldExport {
             divergent: features.divergent.clone(),
             transform: features.transform.clone(),
             ridge_distance: features.ridge_distance.clone(),
+            collision_distance: features.collision_distance.clone(),
         };
 
         // Noise (combined contribution)
         let noise = NoiseData {
             combined: elevation.noise_contribution.clone(),
+            macro_layer: elevation.noise_layers.macro_layer.clone(),
+            hills_layer: elevation.noise_layers.hills_layer.clone(),
+            ridge_layer: elevation.noise_layers.ridge_layer.clone(),
+            micro_layer: elevation.noise_layers.micro_layer.clone(),
         };
 
         // Hydrology (if available)

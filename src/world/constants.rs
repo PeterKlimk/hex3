@@ -194,27 +194,23 @@ pub const HILLS_OCEANIC_MULT: f32 = 0.2;
 /// Helps suggest rift basins/grabens in bedrock before erosion/sedimentation.
 pub const HILLS_EXT_BIAS: f32 = 0.25;
 
-// --- Ridge layer (mountain grain) ---
-/// Base amplitude for ridge layer.
-pub const RIDGE_AMPLITUDE: f32 = 0.14;
-/// Frequency for ridge layer - HIGHER than hills for fine mountain grain.
-pub const RIDGE_FREQUENCY: f64 = 6.0;
-/// Octaves for ridge layer - keep LOW to avoid pocketing (2-3).
+// --- Ridge layer (ridged multifractal mountains) ---
+// Uses ridged multifractal noise, domain-warped, modulated by convergence + low-freq noise.
+
+/// Base amplitude for ridge layer
+pub const RIDGE_AMPLITUDE: f32 = 0.2;
+/// Octaves for ridged multifractal (2-4 typical).
 pub const RIDGE_OCTAVES: usize = 3;
-/// Minimum ridge contribution (even in low-stress areas).
-pub const RIDGE_MIN_FACTOR: f32 = 0.1;
+/// Base frequency for ridged multifractal noise.
+pub const RIDGE_FREQUENCY: f64 = 5.0;
 /// Amplitude multiplier for oceanic plates (weaker offshore).
 pub const RIDGE_OCEANIC_MULT: f32 = 0.15;
-// Ridges amplified by stress: amp *= (RIDGE_MIN_FACTOR + (1-RIDGE_MIN_FACTOR) * stress_factor)
-/// Anisotropy strength for ridge sampling (0 = isotropic, 1 = fully anisotropic blend).
-///
-/// This elongates ridge noise along the local boundary-parallel direction inferred from the
-/// gradient of the convergent influence field.
-pub const RIDGE_ANISO_STRENGTH: f32 = 0.65;
-/// Offset (in noise-space units) used for anisotropic ridge sampling.
-///
-/// Higher values increase elongation along the inferred "along-belt" direction.
-pub const RIDGE_ANISO_OFFSET: f32 = 0.55;
+
+/// Along-strike variation: how much position affects the ridge pattern.
+/// Breaks up perfect parallelism. Higher = more variation along the range.
+pub const RIDGE_ALONG_VARIATION: f32 = 0.3;
+/// Envelope falloff power for convergence modulation (< 1 = broader falloff).
+pub const RIDGE_ENVELOPE_POWER: f32 = 0.7;
 
 // --- Micro layer (surface texture) ---
 /// Base amplitude for micro layer - cosmetic only.

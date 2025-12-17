@@ -17,7 +17,7 @@ use super::visualization::{
     build_boundary_edge_colors, generate_pole_markers, generate_velocity_arrows,
 };
 
-pub const NUM_CELLS: usize = 80000;
+pub const NUM_CELLS: usize = 100000;
 pub const LLOYD_ITERATIONS: usize = 5;
 pub const NUM_PLATES: usize = 14;
 

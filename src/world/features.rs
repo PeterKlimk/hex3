@@ -62,6 +62,15 @@ pub struct FeatureFields {
     /// Infinity for cells with no ridge on their plate.
     pub ridge_distance: Vec<f32>,
 
+    /// Raw distance from nearest continental collision boundary (radians).
+    /// Infinity for cells with no collision boundary on their plate.
+    pub collision_distance: Vec<f32>,
+
+    /// Raw distance from nearest volcanic arc boundary (radians).
+    /// Combines both continental and oceanic arcs.
+    /// Infinity for cells with no arc boundary on their plate.
+    pub arc_distance: Vec<f32>,
+
     /// Per-cell arc shape noise used for oceanic arc coastline variation.
     /// Stored for visualization; applied additively to arc uplift.
     pub arc_shape_noise: Vec<f32>,
@@ -291,6 +300,12 @@ impl FeatureFields {
             &arc_seed_dist0_ocean,
             true,
         );
+        // Combined arc distance (min of continental and oceanic)
+        let arc_dist: Vec<f32> = arc_dist_cont
+            .iter()
+            .zip(arc_dist_ocean.iter())
+            .map(|(&c, &o)| c.min(o))
+            .collect();
         let ridge_dist = distance_field_from_edge_seed_cells(
             tessellation,
             plates,
@@ -536,6 +551,8 @@ impl FeatureFields {
             divergent,
             transform,
             ridge_distance: ridge_dist,
+            collision_distance: collision_dist,
+            arc_distance: arc_dist,
             arc_shape_noise,
         }
     }
@@ -939,8 +956,27 @@ fn compute_influence_field(
         mean_neighbor_dist,
     );
 
-    // Reference magnitude: max relative speed (~2*MAX_ANGULAR_VELOCITY) times a typical edge length.
-    let reference = (2.0 * MAX_ANGULAR_VELOCITY * mean_neighbor_dist).max(1e-6);
+    // Reference magnitude:
+    //
+    // `boundary_forcing` is built from kinematic rates (e.g., convergence, shear) multiplied by a
+    // boundary edge length, so a natural physical scale is (speed * typical edge length).
+    //
+    // However, the screened-diffusion solve attenuates localized sources roughly by a factor of
+    // (1 + λ * degree), where λ = (influence_length / mean_neighbor_dist)^2 and `degree` is the
+    // cell's neighbor count. Without accounting for this, normalized fields are systematically
+    // too small (especially at larger influence lengths).
+    let k = influence_length.max(0.0) / mean_neighbor_dist.max(1e-6);
+    let lambda = k * k;
+
+    let num_cells = tessellation.num_cells().max(1);
+    let total_degree: usize = (0..num_cells)
+        .map(|i| tessellation.neighbors(i).len())
+        .sum();
+    let mean_degree = (total_degree as f32 / num_cells as f32).max(1.0);
+
+    let attenuation = 1.0 + lambda * mean_degree;
+    let reference =
+        (2.0 * MAX_ANGULAR_VELOCITY * mean_neighbor_dist / attenuation).max(1e-6);
     raw.iter()
         .map(|&x| (x / reference).clamp(0.0, 1.0))
         .collect()
