@@ -58,7 +58,12 @@ fn main() {
     }
 }
 
-fn run_headless(seed: Option<u64>, target_stage: u32, export_path: Option<PathBuf>, gpu_voronoi: bool) {
+fn run_headless(
+    seed: Option<u64>,
+    target_stage: u32,
+    export_path: Option<PathBuf>,
+    gpu_voronoi: bool,
+) {
     let seed = seed.unwrap_or_else(rand::random);
     println!(
         "Headless mode: seed={}, target_stage={}, gpu_voronoi={}",
@@ -97,7 +102,12 @@ fn run_headless(seed: Option<u64>, target_stage: u32, export_path: Option<PathBu
     }
 }
 
-fn run_interactive(seed: Option<u64>, target_stage: u32, export_path: Option<PathBuf>, gpu_voronoi: bool) {
+fn run_interactive(
+    seed: Option<u64>,
+    target_stage: u32,
+    export_path: Option<PathBuf>,
+    gpu_voronoi: bool,
+) {
     let event_loop = EventLoop::new().expect("Failed to create event loop");
     event_loop.set_control_flow(ControlFlow::Wait);
 

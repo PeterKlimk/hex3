@@ -368,12 +368,14 @@ fn apply_terrain_effects(tessellation: &Tessellation, elevation: &Elevation, win
 /// This is the length of the great circle arc forming their shared boundary.
 fn compute_edge_length(tessellation: &Tessellation, cell_a: usize, cell_b: usize) -> f32 {
     let voronoi = &tessellation.voronoi;
-    let verts_a: std::collections::HashSet<usize> = voronoi.cell(cell_a)
+    let verts_a: std::collections::HashSet<usize> = voronoi
+        .cell(cell_a)
         .vertex_indices
         .iter()
         .copied()
         .collect();
-    let verts_b: std::collections::HashSet<usize> = voronoi.cell(cell_b)
+    let verts_b: std::collections::HashSet<usize> = voronoi
+        .cell(cell_b)
         .vertex_indices
         .iter()
         .copied()
@@ -474,7 +476,10 @@ fn precompute_permeability(tessellation: &Tessellation, elevation: &Elevation) -
         );
         println!(
             "[DEBUG gradient] perm at p50={:.4}, p90={:.4}, p99={:.4}, max={:.4}",
-            perm(p50), perm(p90), perm(p99), perm(max_slope)
+            perm(p50),
+            perm(p90),
+            perm(p99),
+            perm(max_slope)
         );
     }
 
@@ -536,28 +541,29 @@ fn project_wind_field(
 
     // Precompute geometric data
     let edge_lengths = precompute_edge_lengths(tessellation);
-    let permeability = if let Some(elev) = elevation {
-        let perm = precompute_permeability(tessellation, elev);
-        // Debug: print permeability statistics
-        let all_perms: Vec<f32> = perm.iter().flat_map(|v| v.iter().copied()).collect();
-        let min_perm = all_perms.iter().copied().fold(f32::INFINITY, f32::min);
-        let max_perm = all_perms.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-        let mean_perm = all_perms.iter().sum::<f32>() / all_perms.len() as f32;
-        let low_count = all_perms.iter().filter(|&&p| p < 0.5).count();
-        let very_low_count = all_perms.iter().filter(|&&p| p < 0.1).count();
-        println!(
+    let permeability =
+        if let Some(elev) = elevation {
+            let perm = precompute_permeability(tessellation, elev);
+            // Debug: print permeability statistics
+            let all_perms: Vec<f32> = perm.iter().flat_map(|v| v.iter().copied()).collect();
+            let min_perm = all_perms.iter().copied().fold(f32::INFINITY, f32::min);
+            let max_perm = all_perms.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+            let mean_perm = all_perms.iter().sum::<f32>() / all_perms.len() as f32;
+            let low_count = all_perms.iter().filter(|&&p| p < 0.5).count();
+            let very_low_count = all_perms.iter().filter(|&&p| p < 0.1).count();
+            println!(
             "[DEBUG permeability] min={:.4}, max={:.4}, mean={:.4}, <0.5: {}/{} ({:.1}%), <0.1: {}",
             min_perm, max_perm, mean_perm,
             low_count, all_perms.len(), 100.0 * low_count as f32 / all_perms.len() as f32,
             very_low_count
         );
-        perm
-    } else {
-        // Uniform permeability (1.0) for upper wind - no terrain effects
-        (0..num_cells)
-            .map(|i| vec![1.0_f32; tessellation.neighbors(i).len()])
-            .collect()
-    };
+            perm
+        } else {
+            // Uniform permeability (1.0) for upper wind - no terrain effects
+            (0..num_cells)
+                .map(|i| vec![1.0_f32; tessellation.neighbors(i).len()])
+                .collect()
+        };
     let reverse = reverse_neighbor_indices(tessellation);
 
     // --- STEP 1: Compute edge-normal velocities and per-cell divergence (net flux) ---
@@ -769,7 +775,11 @@ fn compute_flux_divergence(tessellation: &Tessellation, wind: &[Vec3]) -> Vec<f3
 }
 
 fn normalize_positive_field(mut values: Vec<f32>, percentile: f32) -> Vec<f32> {
-    let mut samples: Vec<f32> = values.iter().copied().filter(|&v| v.is_finite() && v > 0.0).collect();
+    let mut samples: Vec<f32> = values
+        .iter()
+        .copied()
+        .filter(|&v| v.is_finite() && v > 0.0)
+        .collect();
     if samples.is_empty() {
         values.fill(0.0);
         return values;
@@ -805,7 +815,11 @@ fn compute_uplift(
     let areas = tessellation.cell_areas();
     let mut convergence = vec![0.0_f32; num_cells];
     for i in 0..num_cells {
-        let area = areas.get(i).copied().unwrap_or(tessellation.mean_cell_area()).max(1e-6);
+        let area = areas
+            .get(i)
+            .copied()
+            .unwrap_or(tessellation.mean_cell_area())
+            .max(1e-6);
         let div = flux_div[i] / area;
         convergence[i] = (-div).max(0.0);
     }
@@ -827,7 +841,8 @@ fn compute_uplift(
 
     let mut uplift = vec![0.0_f32; num_cells];
     for i in 0..num_cells {
-        uplift[i] = UPLIFT_CONVERGENCE_WEIGHT * convergence[i] + UPLIFT_OROGRAPHIC_WEIGHT * orographic[i];
+        uplift[i] =
+            UPLIFT_CONVERGENCE_WEIGHT * convergence[i] + UPLIFT_OROGRAPHIC_WEIGHT * orographic[i];
     }
 
     normalize_positive_field(uplift, UPLIFT_NORM_PERCENTILE)

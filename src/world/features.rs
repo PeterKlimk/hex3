@@ -163,10 +163,21 @@ impl FeatureFields {
                     }
 
                     // Compute per-side forcing
-                    let mult_a = convergent_multiplier(b.type_a, b.type_b);
-                    let mult_b = convergent_multiplier(b.type_b, b.type_a);
-                    let force_a = closing * mult_a * b.edge_length * FEATURE_FORCE_SCALE;
-                    let force_b = closing * mult_b * b.edge_length * FEATURE_FORCE_SCALE;
+                    //
+                    // Note: uplift-style features (arcs/collisions) and trench depth are scaled
+                    // separately so that trench depth isn't accidentally suppressed on the
+                    // subducting oceanic side.
+                    let uplift_mult_a = uplift_multiplier(b.type_a, b.type_b);
+                    let uplift_mult_b = uplift_multiplier(b.type_b, b.type_a);
+                    let uplift_force_a =
+                        closing * uplift_mult_a * b.edge_length * FEATURE_FORCE_SCALE;
+                    let uplift_force_b =
+                        closing * uplift_mult_b * b.edge_length * FEATURE_FORCE_SCALE;
+
+                    let subd_mult_a = subduction_multiplier(b.type_a, b.type_b);
+                    let subd_mult_b = subduction_multiplier(b.type_b, b.type_a);
+                    let subd_force_a = closing * subd_mult_a * b.edge_length * FEATURE_FORCE_SCALE;
+                    let subd_force_b = closing * subd_mult_b * b.edge_length * FEATURE_FORCE_SCALE;
 
                     // Handle subduction (trench + arc) vs collision
                     if let Some(polarity) = b.subduction {
@@ -175,20 +186,20 @@ impl FeatureFields {
                                 // A subducts: trench on A if oceanic; arc on B (overriding)
                                 if b.type_a == PlateType::Oceanic {
                                     trench_seed_strength[b.cell_a] +=
-                                        force_a * area_scale(b.cell_a);
+                                        subd_force_a * area_scale(b.cell_a);
                                     trench_seed_dist0[b.cell_a] =
                                         trench_seed_dist0[b.cell_a].min(dist0_a);
                                 }
                                 match b.type_b {
                                     PlateType::Continental => {
                                         arc_seed_strength_cont[b.cell_b] +=
-                                            force_b * area_scale(b.cell_b);
+                                            uplift_force_b * area_scale(b.cell_b);
                                         arc_seed_dist0_cont[b.cell_b] =
                                             arc_seed_dist0_cont[b.cell_b].min(dist0_b);
                                     }
                                     PlateType::Oceanic => {
                                         arc_seed_strength_ocean[b.cell_b] +=
-                                            force_b * area_scale(b.cell_b);
+                                            uplift_force_b * area_scale(b.cell_b);
                                         arc_seed_dist0_ocean[b.cell_b] =
                                             arc_seed_dist0_ocean[b.cell_b].min(dist0_b);
                                     }
@@ -197,20 +208,20 @@ impl FeatureFields {
                             SubductionPolarity::BSubducts => {
                                 if b.type_b == PlateType::Oceanic {
                                     trench_seed_strength[b.cell_b] +=
-                                        force_b * area_scale(b.cell_b);
+                                        subd_force_b * area_scale(b.cell_b);
                                     trench_seed_dist0[b.cell_b] =
                                         trench_seed_dist0[b.cell_b].min(dist0_b);
                                 }
                                 match b.type_a {
                                     PlateType::Continental => {
                                         arc_seed_strength_cont[b.cell_a] +=
-                                            force_a * area_scale(b.cell_a);
+                                            uplift_force_a * area_scale(b.cell_a);
                                         arc_seed_dist0_cont[b.cell_a] =
                                             arc_seed_dist0_cont[b.cell_a].min(dist0_a);
                                     }
                                     PlateType::Oceanic => {
                                         arc_seed_strength_ocean[b.cell_a] +=
-                                            force_a * area_scale(b.cell_a);
+                                            uplift_force_a * area_scale(b.cell_a);
                                         arc_seed_dist0_ocean[b.cell_a] =
                                             arc_seed_dist0_ocean[b.cell_a].min(dist0_a);
                                     }
@@ -221,10 +232,12 @@ impl FeatureFields {
                         // No subduction polarity = continent-continent collision
                         if b.type_a == PlateType::Continental && b.type_b == PlateType::Continental
                         {
-                            collision_seed_strength[b.cell_a] += force_a * area_scale(b.cell_a);
+                            collision_seed_strength[b.cell_a] +=
+                                uplift_force_a * area_scale(b.cell_a);
                             collision_seed_dist0[b.cell_a] =
                                 collision_seed_dist0[b.cell_a].min(dist0_a);
-                            collision_seed_strength[b.cell_b] += force_b * area_scale(b.cell_b);
+                            collision_seed_strength[b.cell_b] +=
+                                uplift_force_b * area_scale(b.cell_b);
                             collision_seed_dist0[b.cell_b] =
                                 collision_seed_dist0[b.cell_b].min(dist0_b);
                         }
@@ -256,36 +269,36 @@ impl FeatureFields {
             }
         }
 
-        // Compute edge-anchored distance + strength fields from seeds.
-        let (trench_dist, trench_strength) = distance_strength_field_from_edge_seed_cells(
+        // Compute edge-anchored distance fields from seeds.
+        let trench_dist = distance_field_from_edge_seed_cells(
             tessellation,
             plates,
             &trench_seed_strength,
             &trench_seed_dist0,
             true,
         );
-        let (arc_dist_cont, arc_strength_cont) = distance_strength_field_from_edge_seed_cells(
+        let arc_dist_cont = distance_field_from_edge_seed_cells(
             tessellation,
             plates,
             &arc_seed_strength_cont,
             &arc_seed_dist0_cont,
             true,
         );
-        let (arc_dist_ocean, arc_strength_ocean) = distance_strength_field_from_edge_seed_cells(
+        let arc_dist_ocean = distance_field_from_edge_seed_cells(
             tessellation,
             plates,
             &arc_seed_strength_ocean,
             &arc_seed_dist0_ocean,
             true,
         );
-        let (ridge_dist, ridge_strength_ocean) = distance_strength_field_from_edge_seed_cells(
+        let ridge_dist = distance_field_from_edge_seed_cells(
             tessellation,
             plates,
             &ridge_seed_strength_ocean,
             &ridge_seed_dist0_ocean,
             true,
         );
-        let (collision_dist, collision_strength) = distance_strength_field_from_edge_seed_cells(
+        let collision_dist = distance_field_from_edge_seed_cells(
             tessellation,
             plates,
             &collision_seed_strength,
@@ -293,72 +306,82 @@ impl FeatureFields {
             true,
         );
 
-        // Compute activity and regime influence via diffusion (not distance-based, uses screened diffusion)
-        let activity = compute_diffused_field(tessellation, plates, &activity_seed);
-        let convergent = compute_diffused_field(tessellation, plates, &convergent_seed);
-        let divergent = compute_diffused_field(tessellation, plates, &divergent_seed);
-        let transform = compute_diffused_field(tessellation, plates, &transform_seed);
+        // Compute smoothed boundary forcing fields (amplitudes).
+        //
+        // These are "normalized diffusions": we diffuse both the boundary forcing and a unit
+        // weight field, and take their ratio. This smooths the forcing along/between nearby
+        // boundary segments without introducing an additional inland decay (the distance kernels
+        // below remain the primary inland projection).
+        let trench_support_dist = 4.0 * TRENCH_DECAY;
+        let arc_cont_support_dist = ARC_CONT_PEAK_DIST + 3.0 * ARC_CONT_WIDTH;
+        let arc_ocean_support_dist = ARC_OCEAN_PEAK_DIST + 3.0 * ARC_OCEAN_WIDTH;
+        let ridge_support_dist = 4.0 * RIDGE_DECAY;
+        let collision_support_dist = COLLISION_PEAK_DIST + 3.0 * COLLISION_WIDTH;
 
-        // Lightly smooth strengths within the near-boundary band to avoid patchy amplitudes
-        // from nearest-source partitioning. Iterations are adaptive to resolution.
-        let mut trench_strength = trench_strength;
-        let mut arc_strength_cont = arc_strength_cont;
-        let mut arc_strength_ocean = arc_strength_ocean;
-        let mut ridge_strength_ocean = ridge_strength_ocean;
-        let mut collision_strength = collision_strength;
+        let trench_forcing = compute_smoothed_boundary_forcing(
+            tessellation,
+            plates,
+            &trench_seed_strength,
+            trench_support_dist,
+            mean_neighbor_dist,
+        );
+        let arc_forcing_cont = compute_smoothed_boundary_forcing(
+            tessellation,
+            plates,
+            &arc_seed_strength_cont,
+            arc_cont_support_dist,
+            mean_neighbor_dist,
+        );
+        let arc_forcing_ocean = compute_smoothed_boundary_forcing(
+            tessellation,
+            plates,
+            &arc_seed_strength_ocean,
+            arc_ocean_support_dist,
+            mean_neighbor_dist,
+        );
+        let ridge_forcing_ocean = compute_smoothed_boundary_forcing(
+            tessellation,
+            plates,
+            &ridge_seed_strength_ocean,
+            ridge_support_dist,
+            mean_neighbor_dist,
+        );
+        let collision_forcing = compute_smoothed_boundary_forcing(
+            tessellation,
+            plates,
+            &collision_seed_strength,
+            collision_support_dist,
+            mean_neighbor_dist,
+        );
 
-        // Adaptive smoothing: more iterations at higher resolution to cover same physical distance.
-        // Each iteration spreads ~1 neighbor hop = mean_neighbor_dist.
-        let smooth_iters = |max_dist: f32| -> usize {
-            let iters = (max_dist / mean_neighbor_dist).ceil() as usize;
-            iters.clamp(1, 10)
-        };
-
-        let trench_smooth_dist = 4.0 * TRENCH_DECAY;
-        let arc_cont_smooth_dist = ARC_CONT_PEAK_DIST + 3.0 * ARC_CONT_WIDTH;
-        let arc_ocean_smooth_dist = ARC_OCEAN_PEAK_DIST + 3.0 * ARC_OCEAN_WIDTH;
-        let ridge_smooth_dist = 4.0 * RIDGE_DECAY;
-        let collision_smooth_dist = COLLISION_PEAK_DIST + 3.0 * COLLISION_WIDTH;
-
-        smooth_strength_in_band(
+        // Compute activity and regime influence via diffusion (plate-constrained).
+        let activity = compute_influence_field(
             tessellation,
             plates,
-            &trench_dist,
-            &mut trench_strength,
-            trench_smooth_dist,
-            smooth_iters(trench_smooth_dist),
+            &activity_seed,
+            ACTIVITY_INFLUENCE_LENGTH,
+            mean_neighbor_dist,
         );
-        smooth_strength_in_band(
+        let convergent = compute_influence_field(
             tessellation,
             plates,
-            &arc_dist_cont,
-            &mut arc_strength_cont,
-            arc_cont_smooth_dist,
-            smooth_iters(arc_cont_smooth_dist),
+            &convergent_seed,
+            CONVERGENT_INFLUENCE_LENGTH,
+            mean_neighbor_dist,
         );
-        smooth_strength_in_band(
+        let divergent = compute_influence_field(
             tessellation,
             plates,
-            &arc_dist_ocean,
-            &mut arc_strength_ocean,
-            arc_ocean_smooth_dist,
-            smooth_iters(arc_ocean_smooth_dist),
+            &divergent_seed,
+            DIVERGENT_INFLUENCE_LENGTH,
+            mean_neighbor_dist,
         );
-        smooth_strength_in_band(
+        let transform = compute_influence_field(
             tessellation,
             plates,
-            &ridge_dist,
-            &mut ridge_strength_ocean,
-            ridge_smooth_dist,
-            smooth_iters(ridge_smooth_dist),
-        );
-        smooth_strength_in_band(
-            tessellation,
-            plates,
-            &collision_dist,
-            &mut collision_strength,
-            collision_smooth_dist,
-            smooth_iters(collision_smooth_dist),
+            &transform_seed,
+            TRANSFORM_INFLUENCE_LENGTH,
+            mean_neighbor_dist,
         );
 
         // Convert distance fields to feature magnitudes
@@ -379,17 +402,26 @@ impl FeatureFields {
             if plate_type == PlateType::Oceanic {
                 let d = trench_dist[i];
                 if d.is_finite() {
-                    let depth =
-                        sqrt_response(trench_strength[i], TRENCH_SENSITIVITY, TRENCH_MAX_DEPTH);
+                    // Slab age modulation: older oceanic lithosphere tends to produce stronger
+                    // trench/slab-pull signals than very young crust near ridges.
+                    let age = oceanic_age_factor_from_ridge_distance(ridge_dist[i]);
+                    let age_mult =
+                        TRENCH_AGE_YOUNG_MULT + (TRENCH_AGE_OLD_MULT - TRENCH_AGE_YOUNG_MULT) * age;
+
+                    let depth = sqrt_response(
+                        trench_forcing[i] * age_mult,
+                        TRENCH_SENSITIVITY,
+                        TRENCH_MAX_DEPTH,
+                    );
                     trench[i] = depth * exp_decay(d, TRENCH_DECAY);
                 }
             }
 
             // Arc uplift: continental or oceanic depending on plate type
-            let (arc_dist_val, strength) = if is_continental {
-                (arc_dist_cont[i], arc_strength_cont[i])
+            let (arc_dist_val, forcing) = if is_continental {
+                (arc_dist_cont[i], arc_forcing_cont[i])
             } else {
-                (arc_dist_ocean[i], arc_strength_ocean[i])
+                (arc_dist_ocean[i], arc_forcing_ocean[i])
             };
             if arc_dist_val.is_finite() {
                 let (sens, max_uplift, peak, width) = if is_continental {
@@ -407,7 +439,7 @@ impl FeatureFields {
                         ARC_OCEAN_WIDTH,
                     )
                 };
-                let uplift = sqrt_response(strength, sens, max_uplift);
+                let uplift = sqrt_response(forcing, sens, max_uplift);
                 let mut val = uplift * gaussian_band(arc_dist_val, peak, width);
 
                 // Oceanic arcs: multiplicative noise to create island clustering.
@@ -438,7 +470,7 @@ impl FeatureFields {
                 let d = ridge_dist[i];
                 if d.is_finite() {
                     let uplift =
-                        sqrt_response(ridge_strength_ocean[i], RIDGE_SENSITIVITY, RIDGE_MAX_UPLIFT);
+                        sqrt_response(ridge_forcing_ocean[i], RIDGE_SENSITIVITY, RIDGE_MAX_UPLIFT);
                     ridge[i] = uplift * exp_decay(d, RIDGE_DECAY);
                 }
             }
@@ -448,7 +480,7 @@ impl FeatureFields {
                 let d = collision_dist[i];
                 if d.is_finite() {
                     let uplift = sqrt_response(
-                        collision_strength[i],
+                        collision_forcing[i],
                         COLLISION_SENSITIVITY,
                         COLLISION_MAX_UPLIFT,
                     );
@@ -485,12 +517,12 @@ impl FeatureFields {
                 ridge_sum, ridge_max, collision_sum, collision_max
             );
             println!(
-                "  Activity: sum={:.2}, max={:.3} | Smooth iters: trench={}, arc_cont={}, ridge={}",
+                "  Activity: sum={:.2}, max={:.3} | Convergent max={:.3} | Divergent max={:.3} | Transform max={:.3}",
                 activity_sum,
                 activity_max,
-                smooth_iters(trench_smooth_dist),
-                smooth_iters(arc_cont_smooth_dist),
-                smooth_iters(ridge_smooth_dist)
+                convergent.iter().cloned().fold(0.0f32, f32::max),
+                divergent.iter().cloned().fold(0.0f32, f32::max),
+                transform.iter().cloned().fold(0.0f32, f32::max),
             );
         }
 
@@ -505,45 +537,6 @@ impl FeatureFields {
             transform,
             ridge_distance: ridge_dist,
             arc_shape_noise,
-        }
-    }
-}
-
-fn smooth_strength_in_band(
-    tessellation: &Tessellation,
-    plates: &Plates,
-    dist: &[f32],
-    strength: &mut [f32],
-    max_dist: f32,
-    iters: usize,
-) {
-    if iters == 0 || max_dist <= 0.0 {
-        return;
-    }
-
-    let n = tessellation.num_cells();
-    let max_dist = max_dist.max(0.0);
-
-    for _ in 0..iters {
-        let prev = strength.to_vec();
-        for i in 0..n {
-            if !dist[i].is_finite() || dist[i] > max_dist {
-                continue;
-            }
-            let plate = plates.cell_plate[i];
-            let mut sum = prev[i];
-            let mut count = 1.0f32;
-            for &nb in tessellation.neighbors(i) {
-                if plates.cell_plate[nb] != plate {
-                    continue;
-                }
-                if !dist[nb].is_finite() || dist[nb] > max_dist {
-                    continue;
-                }
-                sum += prev[nb];
-                count += 1.0;
-            }
-            strength[i] = sum / count;
         }
     }
 }
@@ -618,18 +611,17 @@ fn cell_pair_edge_midpoint(
     })
 }
 
-fn distance_strength_field_from_edge_seed_cells(
+fn distance_field_from_edge_seed_cells(
     tessellation: &Tessellation,
     plates: &Plates,
     seed_strength: &[f32],
     seed_dist0: &[f32],
     restrict_to_plate: bool,
-) -> (Vec<f32>, Vec<f32>) {
+) -> Vec<f32> {
     #[derive(Clone, Copy, PartialEq)]
     struct State {
         dist: f32,
         cell: usize,
-        strength: f32,
         plate: u32,
     }
 
@@ -652,20 +644,16 @@ fn distance_strength_field_from_edge_seed_cells(
 
     let n = tessellation.num_cells();
     let mut dist = vec![f32::INFINITY; n];
-    let mut strength = vec![0.0f32; n];
     let mut heap = BinaryHeap::new();
 
     for i in 0..n {
-        let s = seed_strength[i];
         let d0 = seed_dist0[i];
-        if s > 0.0 && d0.is_finite() {
+        if seed_strength[i] > 0.0 && d0.is_finite() {
             let plate = plates.cell_plate[i];
             dist[i] = dist[i].min(d0);
-            strength[i] = strength[i].max(s);
             heap.push(State {
                 dist: d0,
                 cell: i,
-                strength: s,
                 plate,
             });
         }
@@ -676,7 +664,6 @@ fn distance_strength_field_from_edge_seed_cells(
     while let Some(State {
         dist: d,
         cell,
-        strength: s,
         plate,
     }) = heap.pop()
     {
@@ -695,31 +682,36 @@ fn distance_strength_field_from_edge_seed_cells(
             let step = angular_distance(pos, neighbor_pos);
             let nd = d + step;
 
-            if nd + TIE_EPS < dist[neighbor]
-                || ((nd - dist[neighbor]).abs() <= TIE_EPS && s > strength[neighbor])
-            {
+            if nd + TIE_EPS < dist[neighbor] {
                 dist[neighbor] = nd;
-                strength[neighbor] = s;
                 heap.push(State {
                     dist: nd,
                     cell: neighbor,
-                    strength: s,
                     plate,
                 });
             }
         }
     }
 
-    (dist, strength)
+    dist
 }
 
-/// Get convergent boundary multiplier for a given plate type configuration.
-fn convergent_multiplier(my_type: PlateType, other_type: PlateType) -> f32 {
+/// Get convergent boundary multiplier for uplift-style features.
+fn uplift_multiplier(my_type: PlateType, other_type: PlateType) -> f32 {
     match (my_type, other_type) {
         (PlateType::Continental, PlateType::Continental) => CONV_CONT_CONT,
         (PlateType::Oceanic, PlateType::Oceanic) => CONV_OCEAN_OCEAN,
         (PlateType::Continental, PlateType::Oceanic) => CONV_CONT_OCEAN,
         (PlateType::Oceanic, PlateType::Continental) => CONV_OCEAN_CONT,
+    }
+}
+
+/// Get subduction multiplier for trench forcing (subducting side).
+fn subduction_multiplier(subducting_type: PlateType, overriding_type: PlateType) -> f32 {
+    match (subducting_type, overriding_type) {
+        (PlateType::Oceanic, PlateType::Continental) => SUBD_OCEAN_CONT,
+        (PlateType::Oceanic, PlateType::Oceanic) => SUBD_OCEAN_OCEAN,
+        _ => 0.0,
     }
 }
 
@@ -801,23 +793,18 @@ pub fn distance_field_from_seeds(
     (dist, src)
 }
 
-/// Compute a plate-constrained boundary influence scalar via screened diffusion.
-///
-/// The input is a per-cell seed strength (typically sourced from boundary edges).
-/// The output is normalized to 0-1 range and diffused only within each plate.
-fn compute_diffused_field(
+fn solve_plate_screened_diffusion(
     tessellation: &Tessellation,
     plates: &Plates,
-    boundary_activity: &[f32],
+    rhs: &[f32],
+    decay_length: f32,
+    mean_neighbor_dist: f32,
 ) -> Vec<f32> {
     let num_cells = tessellation.num_cells();
     let num_plates = plates.num_plates;
 
-    // Compute mean neighbor distance to calibrate decay
-    let mean_neighbor_dist = compute_mean_neighbor_distance(tessellation);
-
     // Convert decay length to λ for screened diffusion
-    let k = ACTIVITY_DECAY_LENGTH / mean_neighbor_dist;
+    let k = decay_length.max(0.0) / mean_neighbor_dist.max(1e-6);
     let lambda = k * k;
 
     // Adaptive max iterations: higher resolution needs more iterations to converge.
@@ -832,7 +819,7 @@ fn compute_diffused_field(
         plate_cells[plate as usize].push(cell_idx);
     }
 
-    let mut activity = vec![0.0f32; num_cells];
+    let mut solution = vec![0.0f32; num_cells];
 
     // Solve independently per plate using Gauss-Seidel iteration
     for cells in &plate_cells {
@@ -863,9 +850,9 @@ fn compute_diffused_field(
             local_neighbors.push(neighbors);
         }
 
-        // Initialize with boundary activity
-        let mut s: Vec<f32> = cells.iter().map(|&i| boundary_activity[i]).collect();
-        let b: Vec<f32> = cells.iter().map(|&i| boundary_activity[i]).collect();
+        // Initialize with RHS
+        let mut s: Vec<f32> = cells.iter().map(|&i| rhs[i]).collect();
+        let b: Vec<f32> = s.clone();
 
         // Gauss-Seidel iteration
         let omega = DIFFUSION_DAMPING;
@@ -889,19 +876,83 @@ fn compute_diffused_field(
 
         // Copy results back
         for (local_idx, &global_idx) in cells.iter().enumerate() {
-            activity[global_idx] = s[local_idx];
+            solution[global_idx] = s[local_idx];
         }
     }
 
-    // Normalize to 0-1 range
-    let max_val = activity.iter().cloned().fold(0.0f32, f32::max);
-    if max_val > 0.0 {
-        for a in &mut activity {
-            *a = (*a / max_val).min(1.0);
-        }
-    }
+    solution
+}
 
-    activity
+/// Smooth boundary forcing without introducing an extra inland decay.
+///
+/// This performs a normalized diffusion: diffuse both the forcing and a unit "seed weight" field,
+/// then divide. The ratio behaves like a local average of boundary forcing over the diffusion scale.
+fn compute_smoothed_boundary_forcing(
+    tessellation: &Tessellation,
+    plates: &Plates,
+    boundary_forcing: &[f32],
+    support_dist: f32,
+    mean_neighbor_dist: f32,
+) -> Vec<f32> {
+    let weight: Vec<f32> = boundary_forcing
+        .iter()
+        .map(|&s| if s > 0.0 { 1.0 } else { 0.0 })
+        .collect();
+
+    let num = solve_plate_screened_diffusion(
+        tessellation,
+        plates,
+        boundary_forcing,
+        support_dist,
+        mean_neighbor_dist,
+    );
+    let den = solve_plate_screened_diffusion(
+        tessellation,
+        plates,
+        &weight,
+        support_dist,
+        mean_neighbor_dist,
+    );
+
+    num.iter()
+        .zip(den.iter())
+        .map(|(&n, &d)| if d > 1e-6 { (n / d).max(0.0) } else { 0.0 })
+        .collect()
+}
+
+/// Compute a plate-constrained boundary influence scalar via screened diffusion.
+///
+/// Unlike the previous max-normalized approach, this uses a fixed physical scale derived from
+/// `MAX_ANGULAR_VELOCITY` and the mean cell spacing so values are comparable across worlds.
+fn compute_influence_field(
+    tessellation: &Tessellation,
+    plates: &Plates,
+    boundary_forcing: &[f32],
+    influence_length: f32,
+    mean_neighbor_dist: f32,
+) -> Vec<f32> {
+    let raw = solve_plate_screened_diffusion(
+        tessellation,
+        plates,
+        boundary_forcing,
+        influence_length,
+        mean_neighbor_dist,
+    );
+
+    // Reference magnitude: max relative speed (~2*MAX_ANGULAR_VELOCITY) times a typical edge length.
+    let reference = (2.0 * MAX_ANGULAR_VELOCITY * mean_neighbor_dist).max(1e-6);
+    raw.iter()
+        .map(|&x| (x / reference).clamp(0.0, 1.0))
+        .collect()
+}
+
+fn oceanic_age_factor_from_ridge_distance(ridge_distance: f32) -> f32 {
+    if !ridge_distance.is_finite() {
+        return 1.0;
+    }
+    (ridge_distance / THERMAL_SUBSIDENCE_WIDTH)
+        .sqrt()
+        .clamp(0.0, 1.0)
 }
 
 /// Compute mean angular distance between neighboring cells.

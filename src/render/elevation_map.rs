@@ -220,11 +220,8 @@ impl ElevationMap {
         {
             // Update view-projection matrix for this face
             let view_proj = proj * *view_matrix;
-            ctx.queue.write_buffer(
-                &self.uniform_buffer,
-                0,
-                bytemuck::cast_slice(&[view_proj]),
-            );
+            ctx.queue
+                .write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[view_proj]));
 
             let mut encoder = ctx
                 .device

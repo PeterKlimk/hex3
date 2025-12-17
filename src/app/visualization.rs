@@ -44,12 +44,14 @@ pub fn build_boundary_edge_colors(world: &World) -> HashMap<(usize, usize), Vec3
             }
             processed_cell_pairs.insert(cell_pair);
 
-            let cell_verts: HashSet<usize> = voronoi.cell(cell_idx)
+            let cell_verts: HashSet<usize> = voronoi
+                .cell(cell_idx)
                 .vertex_indices
                 .iter()
                 .copied()
                 .collect();
-            let neighbor_verts: HashSet<usize> = voronoi.cell(neighbor_idx)
+            let neighbor_verts: HashSet<usize> = voronoi
+                .cell(neighbor_idx)
                 .vertex_indices
                 .iter()
                 .copied()

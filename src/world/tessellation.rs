@@ -72,7 +72,11 @@ impl Tessellation {
     ///
     /// Same point distribution as `generate`, but uses the half-space clipping
     /// algorithm instead of convex hull duality for Voronoi computation.
-    pub fn generate_gpu_style<R: Rng>(num_cells: usize, _lloyd_iterations: usize, rng: &mut R) -> Self {
+    pub fn generate_gpu_style<R: Rng>(
+        num_cells: usize,
+        _lloyd_iterations: usize,
+        rng: &mut R,
+    ) -> Self {
         use crate::util::Timed;
 
         let mean_spacing = (4.0 * std::f32::consts::PI / num_cells as f32).sqrt();
@@ -130,7 +134,10 @@ impl Tessellation {
         // Diagnostic: count orphan cells (no neighbors)
         let orphan_count = adjacency.iter().filter(|a| a.is_empty()).count();
         if orphan_count > 0 {
-            log::warn!("GPU Voronoi: {} cells have no neighbors (orphans)", orphan_count);
+            log::warn!(
+                "GPU Voronoi: {} cells have no neighbors (orphans)",
+                orphan_count
+            );
         }
 
         Self { voronoi, adjacency }

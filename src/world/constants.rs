@@ -80,6 +80,12 @@ pub const OCEAN_COMPRESSION_MAX: f32 = 0.25;
 pub const OCEAN_TENSION_MAX: f32 = 0.12;
 
 // Plate interaction multipliers (convergent)
+//
+// These scale *uplift forcing* used for uplift-style convergent features
+// (continental collision, overriding-side cordilleras / arcs).
+//
+// Trench forcing uses separate subduction multipliers so that trench depth is
+// not accidentally suppressed on the subducting oceanic side.
 
 /// Cont+Cont: Himalayas-scale, highest mountains.
 pub const CONV_CONT_CONT: f32 = 1.5;
@@ -93,6 +99,13 @@ pub const CONV_CONT_OCEAN: f32 = 1.2;
 
 /// Ocean side of Cont+Ocean: minimal - subducting plate goes down.
 pub const CONV_OCEAN_CONT: f32 = 0.1;
+
+// Subduction / trench forcing multipliers (convergent)
+//
+// These scale the *subducting-side* forcing that drives trench depth.
+// Trench depth is further modulated by slab age (see `TRENCH_AGE_*`).
+pub const SUBD_OCEAN_CONT: f32 = 1.0;
+pub const SUBD_OCEAN_OCEAN: f32 = 1.0;
 
 // Plate interaction multipliers (divergent)
 
@@ -193,6 +206,15 @@ pub const RIDGE_MIN_FACTOR: f32 = 0.1;
 /// Amplitude multiplier for oceanic plates (weaker offshore).
 pub const RIDGE_OCEANIC_MULT: f32 = 0.15;
 // Ridges amplified by stress: amp *= (RIDGE_MIN_FACTOR + (1-RIDGE_MIN_FACTOR) * stress_factor)
+/// Anisotropy strength for ridge sampling (0 = isotropic, 1 = fully anisotropic blend).
+///
+/// This elongates ridge noise along the local boundary-parallel direction inferred from the
+/// gradient of the convergent influence field.
+pub const RIDGE_ANISO_STRENGTH: f32 = 0.65;
+/// Offset (in noise-space units) used for anisotropic ridge sampling.
+///
+/// Higher values increase elongation along the inferred "along-belt" direction.
+pub const RIDGE_ANISO_OFFSET: f32 = 0.55;
 
 // --- Micro layer (surface texture) ---
 /// Base amplitude for micro layer - cosmetic only.
@@ -214,6 +236,10 @@ pub const MICRO_UNDERWATER_MULT: f32 = 0.8;
 pub const TRENCH_SENSITIVITY: f32 = 0.06;
 /// Maximum trench depth (positive magnitude; applied as negative elevation).
 pub const TRENCH_MAX_DEPTH: f32 = 0.18;
+/// Multiplier applied to trench forcing for very young oceanic lithosphere (near ridges).
+pub const TRENCH_AGE_YOUNG_MULT: f32 = 0.7;
+/// Multiplier applied to trench forcing for old oceanic lithosphere (far from ridges).
+pub const TRENCH_AGE_OLD_MULT: f32 = 1.3;
 /// Trench decay length from the boundary (radians).
 /// 0.020 rad ≈ 127 km on Earth.
 pub const TRENCH_DECAY: f32 = 0.020;
@@ -287,7 +313,10 @@ pub const COLLISION_PEAK_DIST: f32 = 0.015;
 
 /// Decay length for tectonic activity field (radians).
 /// Controls how far "tectonically active" influence spreads from boundaries.
-pub const ACTIVITY_DECAY_LENGTH: f32 = 0.05;
+pub const ACTIVITY_INFLUENCE_LENGTH: f32 = 0.05;
+pub const CONVERGENT_INFLUENCE_LENGTH: f32 = 0.06;
+pub const DIVERGENT_INFLUENCE_LENGTH: f32 = 0.06;
+pub const TRANSFORM_INFLUENCE_LENGTH: f32 = 0.05;
 
 // Boundary classification thresholds
 

@@ -238,9 +238,15 @@ impl CellBuilder {
         // Fast sort for exactly 3 elements
         #[inline]
         fn sort3(mut a: [usize; 3]) -> [usize; 3] {
-            if a[0] > a[1] { a.swap(0, 1); }
-            if a[1] > a[2] { a.swap(1, 2); }
-            if a[0] > a[1] { a.swap(0, 1); }
+            if a[0] > a[1] {
+                a.swap(0, 1);
+            }
+            if a[1] > a[2] {
+                a.swap(1, 2);
+            }
+            if a[0] > a[1] {
+                a.swap(0, 1);
+            }
             a
         }
 
@@ -316,7 +322,11 @@ fn order_vertices_ccw_indices(generator: Vec3, vertices: &[Vec3]) -> Vec<usize> 
         return (0..vertices.len()).collect();
     }
 
-    let up = if generator.y.abs() < 0.9 { Vec3::Y } else { Vec3::X };
+    let up = if generator.y.abs() < 0.9 {
+        Vec3::Y
+    } else {
+        Vec3::X
+    };
     let tangent_x = generator.cross(up).normalize();
     let tangent_y = generator.cross(tangent_x).normalize();
 
@@ -437,7 +447,9 @@ fn build_cells_data(
                     let neighbors_processed = count + 1;
                     if termination.should_check(neighbors_processed) {
                         let neighbor_cos = points[i].dot(neighbor).clamp(-1.0, 1.0);
-                        if let Some((keyed, _hits)) = builder.termination_vertices_with_stats(neighbor_cos) {
+                        if let Some((keyed, _hits)) =
+                            builder.termination_vertices_with_stats(neighbor_cos)
+                        {
                             terminated_keyed = Some(keyed);
                             break;
                         }
@@ -475,7 +487,9 @@ fn build_cells_data(
 
                 if termination.should_check(neighbors_processed) {
                     let neighbor_cos = points[i].dot(neighbor).clamp(-1.0, 1.0);
-                    if let Some((keyed, hits)) = builder.termination_vertices_with_stats(neighbor_cos) {
+                    if let Some((keyed, hits)) =
+                        builder.termination_vertices_with_stats(neighbor_cos)
+                    {
                         terminated = true;
                         terminated_keyed = Some(keyed);
                         terminated_secondary_hits = hits;
@@ -515,7 +529,10 @@ fn build_cells_data(
     (cells_data, Some(stats))
 }
 
-fn order_cells_ccw(points: &[Vec3], cells_data: Vec<Vec<([usize; 3], Vec3)>>) -> Vec<Vec<([usize; 3], Vec3)>> {
+fn order_cells_ccw(
+    points: &[Vec3],
+    cells_data: Vec<Vec<([usize; 3], Vec3)>>,
+) -> Vec<Vec<([usize; 3], Vec3)>> {
     use rayon::prelude::*;
 
     cells_data
@@ -524,7 +541,10 @@ fn order_cells_ccw(points: &[Vec3], cells_data: Vec<Vec<([usize; 3], Vec3)>>) ->
         .map(|(i, keyed_verts)| {
             let verts: Vec<Vec3> = keyed_verts.iter().map(|(_, v)| *v).collect();
             let ordered_indices = order_vertices_ccw_indices(points[i], &verts);
-            ordered_indices.into_iter().map(|idx| keyed_verts[idx]).collect()
+            ordered_indices
+                .into_iter()
+                .map(|idx| keyed_verts[idx])
+                .collect()
         })
         .collect()
 }
@@ -553,7 +573,11 @@ fn dedup_vertices_hash(
     for generator_index in 0..num_points {
         let vertex_start = cell_starts[generator_index];
         let vertex_count = cell_starts[generator_index + 1] - vertex_start;
-        cells.push(super::VoronoiCell::new(generator_index, vertex_start, vertex_count));
+        cells.push(super::VoronoiCell::new(
+            generator_index,
+            vertex_start,
+            vertex_count,
+        ));
     }
 
     let mut cell_indices: Vec<usize> = vec![0usize; total_indices];
@@ -579,7 +603,12 @@ struct CoreResult {
     timings_ms: PhaseTimingsMs,
 }
 
-fn compute_voronoi_gpu_style_core(points: &[Vec3], k: usize, termination: TerminationConfig, collect_stats: bool) -> CoreResult {
+fn compute_voronoi_gpu_style_core(
+    points: &[Vec3],
+    k: usize,
+    termination: TerminationConfig,
+    collect_stats: bool,
+) -> CoreResult {
     use rayon::prelude::*;
     use std::time::Instant;
 
@@ -601,7 +630,8 @@ fn compute_voronoi_gpu_style_core(points: &[Vec3], k: usize, termination: Termin
     let (all_vertices, cells, cell_indices) = dedup_vertices_hash(points.len(), ordered_cells);
     let t4 = Instant::now();
 
-    let voronoi = super::SphericalVoronoi::from_raw_parts(points.to_vec(), all_vertices, cells, cell_indices);
+    let voronoi =
+        super::SphericalVoronoi::from_raw_parts(points.to_vec(), all_vertices, cells, cell_indices);
     let t5 = Instant::now();
 
     let total = (t5 - t0).as_secs_f64() * 1000.0;
@@ -675,7 +705,11 @@ pub fn compute_voronoi_gpu_style_with_stats_and_termination_params(
 }
 
 /// Compute spherical Voronoi with optional timing output.
-pub fn compute_voronoi_gpu_style_timed(points: &[Vec3], k: usize, print_timing: bool) -> super::SphericalVoronoi {
+pub fn compute_voronoi_gpu_style_timed(
+    points: &[Vec3],
+    k: usize,
+    print_timing: bool,
+) -> super::SphericalVoronoi {
     compute_voronoi_gpu_style_timed_with_termination(points, k, print_timing, true)
 }
 
@@ -686,7 +720,14 @@ pub fn compute_voronoi_gpu_style_timed_with_termination(
     print_timing: bool,
     enable_termination: bool,
 ) -> super::SphericalVoronoi {
-    compute_voronoi_gpu_style_timed_with_termination_params(points, k, print_timing, enable_termination, 8, 2)
+    compute_voronoi_gpu_style_timed_with_termination_params(
+        points,
+        k,
+        print_timing,
+        enable_termination,
+        8,
+        2,
+    )
 }
 
 /// Compute spherical Voronoi with optional timing output, with configurable termination schedule.
@@ -712,10 +753,26 @@ pub fn compute_voronoi_gpu_style_timed_with_termination_params(
         let t = result.timings_ms;
         let total = t.total.max(1e-9);
         println!("GPU-style Voronoi breakdown (n={}, k={}):", points.len(), k);
-        println!("  k-d tree build:    {:6.1} ms ({:4.1}%)", t.kdtree, t.kdtree / total * 100.0);
-        println!("  k-NN queries:      {:6.1} ms ({:4.1}%)", t.knn, t.knn / total * 100.0);
-        println!("  Cell construction: {:6.1} ms ({:4.1}%)", t.cell_construction, t.cell_construction / total * 100.0);
-        println!("  CCW ordering:      {:6.1} ms ({:4.1}%) [parallel]", t.ccw_order, t.ccw_order / total * 100.0);
+        println!(
+            "  k-d tree build:    {:6.1} ms ({:4.1}%)",
+            t.kdtree,
+            t.kdtree / total * 100.0
+        );
+        println!(
+            "  k-NN queries:      {:6.1} ms ({:4.1}%)",
+            t.knn,
+            t.knn / total * 100.0
+        );
+        println!(
+            "  Cell construction: {:6.1} ms ({:4.1}%)",
+            t.cell_construction,
+            t.cell_construction / total * 100.0
+        );
+        println!(
+            "  CCW ordering:      {:6.1} ms ({:4.1}%) [parallel]",
+            t.ccw_order,
+            t.ccw_order / total * 100.0
+        );
         println!(
             "  Dedup (hash):      {:6.1} ms ({:4.1}%) [FxHashMap]",
             t.dedup,
@@ -744,7 +801,11 @@ pub struct BenchmarkResult {
 }
 
 /// Run a benchmark comparing the two Voronoi methods.
-pub fn benchmark_voronoi(num_points: usize, k: usize, iterations: usize) -> (BenchmarkResult, BenchmarkResult) {
+pub fn benchmark_voronoi(
+    num_points: usize,
+    k: usize,
+    iterations: usize,
+) -> (BenchmarkResult, BenchmarkResult) {
     use crate::geometry::{random_sphere_points, SphericalVoronoi};
     use std::time::Instant;
 
@@ -825,12 +886,18 @@ mod tests {
         assert_eq!(voronoi.num_cells(), 50);
         assert_eq!(voronoi.generators.len(), 50);
 
-        let cells_with_verts = voronoi.iter_cells()
-            .filter(|c| !c.is_empty())
-            .count();
+        let cells_with_verts = voronoi.iter_cells().filter(|c| !c.is_empty()).count();
 
-        println!("Cells with vertices: {}/{}", cells_with_verts, voronoi.num_cells());
-        assert!(cells_with_verts > 40, "Too few cells with vertices: {}", cells_with_verts);
+        println!(
+            "Cells with vertices: {}/{}",
+            cells_with_verts,
+            voronoi.num_cells()
+        );
+        assert!(
+            cells_with_verts > 40,
+            "Too few cells with vertices: {}",
+            cells_with_verts
+        );
     }
 
     #[test]
@@ -914,10 +981,14 @@ mod tests {
             for i in 0..n {
                 let hull_cell = hull.cell(i);
                 let gpu_cell = gpu.cell(i);
-                let hull_verts: Vec<Vec3> = hull_cell.vertex_indices.iter()
+                let hull_verts: Vec<Vec3> = hull_cell
+                    .vertex_indices
+                    .iter()
                     .map(|&vi| hull.vertices[vi])
                     .collect();
-                let gpu_verts: Vec<Vec3> = gpu_cell.vertex_indices.iter()
+                let gpu_verts: Vec<Vec3> = gpu_cell
+                    .vertex_indices
+                    .iter()
                     .map(|&vi| gpu.vertices[vi])
                     .collect();
 
@@ -956,14 +1027,28 @@ mod tests {
                 }
             }
 
-            println!("  Exact vertex match: {}/{} cells ({:.1}%)",
-                exact_match, n, exact_match as f64 / n as f64 * 100.0);
-            println!("  Vertex count match: {}/{} cells ({:.1}%)",
-                vertex_count_match, n, vertex_count_match as f64 / n as f64 * 100.0);
-            println!("  Total vertices: hull={}, gpu={} (diff={})",
-                total_hull_verts, total_gpu_verts,
-                total_gpu_verts as i32 - total_hull_verts as i32);
-            println!("  Missing vertices (in hull, not gpu): {}", missing_vertices);
+            println!(
+                "  Exact vertex match: {}/{} cells ({:.1}%)",
+                exact_match,
+                n,
+                exact_match as f64 / n as f64 * 100.0
+            );
+            println!(
+                "  Vertex count match: {}/{} cells ({:.1}%)",
+                vertex_count_match,
+                n,
+                vertex_count_match as f64 / n as f64 * 100.0
+            );
+            println!(
+                "  Total vertices: hull={}, gpu={} (diff={})",
+                total_hull_verts,
+                total_gpu_verts,
+                total_gpu_verts as i32 - total_hull_verts as i32
+            );
+            println!(
+                "  Missing vertices (in hull, not gpu): {}",
+                missing_vertices
+            );
             println!("  Extra vertices (in gpu, not hull): {}", extra_vertices);
 
             if !worst_cells.is_empty() {
@@ -971,8 +1056,10 @@ mod tests {
                 worst_cells.sort_by_key(|x| -x.1.abs());
                 for (cell, diff, hull_n, gpu_n) in worst_cells.iter().take(10) {
                     let generator = points[*cell];
-                    println!("    Cell {}: hull={} gpu={} (diff={:+}) @ ({:.2},{:.2},{:.2})",
-                        cell, hull_n, gpu_n, diff, generator.x, generator.y, generator.z);
+                    println!(
+                        "    Cell {}: hull={} gpu={} (diff={:+}) @ ({:.2},{:.2},{:.2})",
+                        cell, hull_n, gpu_n, diff, generator.x, generator.y, generator.z
+                    );
                 }
             }
             println!();
@@ -1023,7 +1110,9 @@ mod tests {
     #[test]
     #[ignore] // Run with: cargo test accuracy_lloyd -- --ignored --nocapture
     fn accuracy_lloyd() {
-        use crate::geometry::{fibonacci_sphere_points_with_rng, lloyd_relax_kmeans, SphericalVoronoi};
+        use crate::geometry::{
+            fibonacci_sphere_points_with_rng, lloyd_relax_kmeans, SphericalVoronoi,
+        };
         use rand::SeedableRng;
         use rand_chacha::ChaCha8Rng;
 
@@ -1037,9 +1126,9 @@ mod tests {
             let hull_random = SphericalVoronoi::compute(&random_points);
             let gpu_random = compute_voronoi_gpu_style(&random_points, DEFAULT_K);
 
-            let random_exact = (0..n).filter(|&i| {
-                hull_random.cell(i).len() == gpu_random.cell(i).len()
-            }).count();
+            let random_exact = (0..n)
+                .filter(|&i| hull_random.cell(i).len() == gpu_random.cell(i).len())
+                .count();
 
             // Lloyd-relaxed points (like actual world generation)
             let mean_spacing = (4.0 * std::f32::consts::PI / n as f32).sqrt();
@@ -1050,27 +1139,47 @@ mod tests {
             let hull_lloyd = SphericalVoronoi::compute(&lloyd_points);
             let gpu_lloyd = compute_voronoi_gpu_style(&lloyd_points, DEFAULT_K);
 
-            let lloyd_exact = (0..n).filter(|&i| {
-                hull_lloyd.cell(i).len() == gpu_lloyd.cell(i).len()
-            }).count();
+            let lloyd_exact = (0..n)
+                .filter(|&i| hull_lloyd.cell(i).len() == gpu_lloyd.cell(i).len())
+                .count();
 
             println!("n = {}:", n);
-            println!("  Random points:  {}/{} exact ({:.1}%)", random_exact, n, random_exact as f64 / n as f64 * 100.0);
-            println!("  Lloyd-relaxed:  {}/{} exact ({:.1}%)", lloyd_exact, n, lloyd_exact as f64 / n as f64 * 100.0);
+            println!(
+                "  Random points:  {}/{} exact ({:.1}%)",
+                random_exact,
+                n,
+                random_exact as f64 / n as f64 * 100.0
+            );
+            println!(
+                "  Lloyd-relaxed:  {}/{} exact ({:.1}%)",
+                lloyd_exact,
+                n,
+                lloyd_exact as f64 / n as f64 * 100.0
+            );
 
             // For Lloyd, also check total vertex difference
             let hull_total: usize = hull_lloyd.iter_cells().map(|c| c.len()).sum();
             let gpu_total: usize = gpu_lloyd.iter_cells().map(|c| c.len()).sum();
-            println!("  Lloyd total verts: hull={}, gpu={} (diff={})", hull_total, gpu_total, gpu_total as i32 - hull_total as i32);
+            println!(
+                "  Lloyd total verts: hull={}, gpu={} (diff={})",
+                hull_total,
+                gpu_total,
+                gpu_total as i32 - hull_total as i32
+            );
 
             // Check with higher k
             let gpu_k64 = compute_voronoi_gpu_style(&lloyd_points, 64);
-            let k64_exact = (0..n).filter(|&i| {
-                hull_lloyd.cell(i).len() == gpu_k64.cell(i).len()
-            }).count();
+            let k64_exact = (0..n)
+                .filter(|&i| hull_lloyd.cell(i).len() == gpu_k64.cell(i).len())
+                .count();
             let gpu_k64_total: usize = gpu_k64.iter_cells().map(|c| c.len()).sum();
-            println!("  Lloyd k=64:     {}/{} exact ({:.1}%), total verts={}",
-                k64_exact, n, k64_exact as f64 / n as f64 * 100.0, gpu_k64_total);
+            println!(
+                "  Lloyd k=64:     {}/{} exact ({:.1}%), total verts={}",
+                k64_exact,
+                n,
+                k64_exact as f64 / n as f64 * 100.0,
+                gpu_k64_total
+            );
             println!();
         }
     }
@@ -1085,10 +1194,14 @@ mod tests {
             let (hull, gpu) = benchmark_voronoi(n, DEFAULT_K, iterations);
 
             println!("n = {}:", n);
-            println!("  {:20} {:8.2} ms  (avg {:.1} verts/cell, {} cells ok)",
-                hull.method, hull.time_ms, hull.avg_vertices_per_cell, hull.cells_with_vertices);
-            println!("  {:20} {:8.2} ms  (avg {:.1} verts/cell, {} cells ok)",
-                gpu.method, gpu.time_ms, gpu.avg_vertices_per_cell, gpu.cells_with_vertices);
+            println!(
+                "  {:20} {:8.2} ms  (avg {:.1} verts/cell, {} cells ok)",
+                hull.method, hull.time_ms, hull.avg_vertices_per_cell, hull.cells_with_vertices
+            );
+            println!(
+                "  {:20} {:8.2} ms  (avg {:.1} verts/cell, {} cells ok)",
+                gpu.method, gpu.time_ms, gpu.avg_vertices_per_cell, gpu.cells_with_vertices
+            );
             println!("  Speedup: {:.2}x", hull.time_ms / gpu.time_ms);
             println!();
         }
@@ -1106,10 +1219,14 @@ mod tests {
             let (hull, gpu) = benchmark_voronoi(n, DEFAULT_K, iterations);
 
             println!("n = {}:", n);
-            println!("  {:20} {:8.2} ms  (avg {:.1} verts/cell)",
-                hull.method, hull.time_ms, hull.avg_vertices_per_cell);
-            println!("  {:20} {:8.2} ms  (avg {:.1} verts/cell)",
-                gpu.method, gpu.time_ms, gpu.avg_vertices_per_cell);
+            println!(
+                "  {:20} {:8.2} ms  (avg {:.1} verts/cell)",
+                hull.method, hull.time_ms, hull.avg_vertices_per_cell
+            );
+            println!(
+                "  {:20} {:8.2} ms  (avg {:.1} verts/cell)",
+                gpu.method, gpu.time_ms, gpu.avg_vertices_per_cell
+            );
             println!("  Speedup: {:.2}x", hull.time_ms / gpu.time_ms);
             println!();
         }
@@ -1118,8 +1235,14 @@ mod tests {
         println!("--- Effect of k (n=10000) ---");
         for &k in &[16, 24, 32, 48, 64] {
             let (hull, gpu) = benchmark_voronoi(10000, k, 3);
-            println!("k = {:2}: GPU-style {:6.2} ms (avg {:.1} verts), hull {:6.2} ms, speedup {:.2}x",
-                k, gpu.time_ms, gpu.avg_vertices_per_cell, hull.time_ms, hull.time_ms / gpu.time_ms);
+            println!(
+                "k = {:2}: GPU-style {:6.2} ms (avg {:.1} verts), hull {:6.2} ms, speedup {:.2}x",
+                k,
+                gpu.time_ms,
+                gpu.avg_vertices_per_cell,
+                hull.time_ms,
+                hull.time_ms / gpu.time_ms
+            );
         }
     }
 
@@ -1147,7 +1270,9 @@ mod tests {
     #[test]
     #[ignore] // Run with: cargo test benchmark_lloyd_80k -- --ignored --nocapture
     fn benchmark_lloyd_80k() {
-        use crate::geometry::{fibonacci_sphere_points_with_rng, lloyd_relax_kmeans, SphericalVoronoi};
+        use crate::geometry::{
+            fibonacci_sphere_points_with_rng, lloyd_relax_kmeans, SphericalVoronoi,
+        };
         use rand::SeedableRng;
         use rand_chacha::ChaCha8Rng;
         use std::time::Instant;
@@ -1179,9 +1304,9 @@ mod tests {
             let gpu_time = start.elapsed().as_secs_f64() * 1000.0;
 
             // Check accuracy (cells with correct vertex count)
-            let correct = (0..n).filter(|&i| {
-                hull_voronoi.cell(i).len() == gpu_voronoi.cell(i).len()
-            }).count();
+            let correct = (0..n)
+                .filter(|&i| hull_voronoi.cell(i).len() == gpu_voronoi.cell(i).len())
+                .count();
 
             // Check for problem cells
             let bad_cells = gpu_voronoi.iter_cells().filter(|c| c.len() < 3).count();
@@ -1189,7 +1314,9 @@ mod tests {
             let speedup = hull_time / gpu_time;
             println!(
                 "  k={:2}: {:6.1} ms ({:.2}x) | accuracy: {:.1}% | bad cells: {}",
-                k, gpu_time, speedup,
+                k,
+                gpu_time,
+                speedup,
                 correct as f64 / n as f64 * 100.0,
                 bad_cells
             );

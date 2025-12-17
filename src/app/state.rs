@@ -155,8 +155,12 @@ impl AppState {
     fn update_elevation_map(&self) {
         let (elev_vertex_buf, elev_index_buf, elev_num_indices) =
             generate_elevation_mesh_buffers(&self.gpu.device, &self.world_data);
-        self.elevation_map
-            .render(&self.gpu, &elev_vertex_buf, &elev_index_buf, elev_num_indices);
+        self.elevation_map.render(
+            &self.gpu,
+            &elev_vertex_buf,
+            &elev_index_buf,
+            elev_num_indices,
+        );
     }
 
     /// Regenerate the colored mesh for the current mode/layer settings.
@@ -274,7 +278,10 @@ impl AppState {
 
         // Wind layers use relief terrain so particles match the 3D surface
         let is_wind_layer = self.render_mode == RenderMode::Climate
-            && matches!(self.climate_layer, ClimateLayer::Wind | ClimateLayer::UpperWind);
+            && matches!(
+                self.climate_layer,
+                ClimateLayer::Wind | ClimateLayer::UpperWind
+            );
 
         // Enable relief displacement for relief mode and wind layers
         let relief_enabled = self.render_mode.is_relief() || is_wind_layer;
@@ -397,8 +404,10 @@ impl AppState {
         // GPU wind particles: update and render when in Climate/Wind mode on Globe view
         let gpu_particles = if self.view_mode == ViewMode::Globe
             && self.render_mode == RenderMode::Climate
-            && matches!(self.climate_layer, ClimateLayer::Wind | ClimateLayer::UpperWind)
-        {
+            && matches!(
+                self.climate_layer,
+                ClimateLayer::Wind | ClimateLayer::UpperWind
+            ) {
             if let Some(particles) = &mut self.gpu_particles {
                 // Simple per-frame update: movement is time-normalized, trail length is fixed
                 particles.update(

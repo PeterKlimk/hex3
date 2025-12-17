@@ -88,25 +88,37 @@ fn classify_kind(convergence: f32, shear: f32) -> BoundaryKind {
 }
 
 fn shared_edge_length(tessellation: &Tessellation, cell_a: usize, cell_b: usize) -> f32 {
-    let verts_a: HashSet<usize> = tessellation.voronoi.cell(cell_a)
+    let verts_a: HashSet<usize> = tessellation
+        .voronoi
+        .cell(cell_a)
         .vertex_indices
         .iter()
         .copied()
         .collect();
-    let verts_b: HashSet<usize> = tessellation.voronoi.cell(cell_b)
+    let verts_b: HashSet<usize> = tessellation
+        .voronoi
+        .cell(cell_b)
         .vertex_indices
         .iter()
         .copied()
         .collect();
     let shared: Vec<usize> = verts_a.intersection(&verts_b).copied().collect();
 
-    if shared.len() == 2 {
+    let shared_len = shared.len();
+    if shared_len == 2 {
         let v0 = tessellation.voronoi.vertices[shared[0]];
         let v1 = tessellation.voronoi.vertices[shared[1]];
         v0.dot(v1).clamp(-1.0, 1.0).acos()
     } else {
-        // Fallback: adjacency without a clean shared edge (should be rare).
-        0.1
+        debug_assert_eq!(
+            shared_len, 2,
+            "adjacent cells {cell_a} and {cell_b} share {shared_len} vertices"
+        );
+        // Fallback: approximate the boundary edge length from the cell-center separation.
+        // This should be unreachable for valid Voronoi topology.
+        let pos_a = tessellation.cell_center(cell_a);
+        let pos_b = tessellation.cell_center(cell_b);
+        0.5 * pos_a.dot(pos_b).clamp(-1.0, 1.0).acos()
     }
 }
 

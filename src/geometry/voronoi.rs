@@ -147,7 +147,11 @@ pub struct SphericalVoronoiBuilder {
 impl SphericalVoronoiBuilder {
     /// Add a cell with its vertex indices directly to the flat buffer.
     #[inline]
-    pub fn add_cell<I: IntoIterator<Item = usize>>(&mut self, generator_index: usize, vertex_indices: I) {
+    pub fn add_cell<I: IntoIterator<Item = usize>>(
+        &mut self,
+        generator_index: usize,
+        vertex_indices: I,
+    ) {
         let vertex_start = self.cell_indices.len();
         self.cell_indices.extend(vertex_indices);
         let vertex_count = self.cell_indices.len() - vertex_start;
@@ -180,7 +184,8 @@ impl SphericalVoronoi {
         let cell = &self.cells[idx];
         CellView {
             generator_index: cell.generator_index,
-            vertex_indices: &self.cell_indices[cell.vertex_start..cell.vertex_start + cell.vertex_count],
+            vertex_indices: &self.cell_indices
+                [cell.vertex_start..cell.vertex_start + cell.vertex_count],
         }
     }
 
@@ -189,7 +194,8 @@ impl SphericalVoronoi {
     pub fn iter_cells(&self) -> impl Iterator<Item = CellView<'_>> {
         self.cells.iter().map(move |cell| CellView {
             generator_index: cell.generator_index,
-            vertex_indices: &self.cell_indices[cell.vertex_start..cell.vertex_start + cell.vertex_count],
+            vertex_indices: &self.cell_indices
+                [cell.vertex_start..cell.vertex_start + cell.vertex_count],
         })
     }
 

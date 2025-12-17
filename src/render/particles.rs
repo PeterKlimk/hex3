@@ -195,25 +195,29 @@ impl WindParticleSystem {
         }
 
         // Create buffers
-        let particle_buffer = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("particle_buffer"),
-            contents: bytemuck::cast_slice(&particles),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::VERTEX,
-        });
+        let particle_buffer = ctx
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("particle_buffer"),
+                contents: bytemuck::cast_slice(&particles),
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::VERTEX,
+            });
 
-        let cell_center_buffer =
-            ctx.device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("cell_center_buffer"),
-                    contents: bytemuck::cast_slice(&cell_centers),
-                    usage: wgpu::BufferUsages::STORAGE,
-                });
+        let cell_center_buffer = ctx
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("cell_center_buffer"),
+                contents: bytemuck::cast_slice(&cell_centers),
+                usage: wgpu::BufferUsages::STORAGE,
+            });
 
-        let wind_buffer = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("wind_buffer"),
-            contents: bytemuck::cast_slice(&wind_vectors),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        });
+        let wind_buffer = ctx
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("wind_buffer"),
+                contents: bytemuck::cast_slice(&wind_vectors),
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            });
 
         let adjacency_offset_buffer =
             ctx.device
