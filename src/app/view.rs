@@ -99,9 +99,11 @@ pub enum ClimateLayer {
     /// Temperature (latitude + elevation)
     #[default]
     Temperature,
-    /// Wind speed
+    /// Surface wind (terrain-influenced)
     Wind,
-    /// Uplift (from projection solver)
+    /// Upper wind (terrain-unaware, free-flowing)
+    UpperWind,
+    /// Uplift (convergence + orographic proxy)
     Uplift,
 }
 
@@ -133,7 +135,8 @@ impl ClimateLayer {
     pub fn cycle(self) -> Self {
         match self {
             Self::Temperature => Self::Wind,
-            Self::Wind => Self::Uplift,
+            Self::Wind => Self::UpperWind,
+            Self::UpperWind => Self::Uplift,
             Self::Uplift => Self::Temperature,
         }
     }
@@ -141,7 +144,8 @@ impl ClimateLayer {
     pub fn name(self) -> &'static str {
         match self {
             Self::Temperature => "Temperature",
-            Self::Wind => "Wind",
+            Self::Wind => "Wind (Surface)",
+            Self::UpperWind => "Wind (Upper)",
             Self::Uplift => "Uplift",
         }
     }

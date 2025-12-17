@@ -1,10 +1,10 @@
 //! Atmosphere simulation (Stage 2).
 //!
 //! This module computes atmospheric properties for each cell:
-//! - Temperature: based on latitude and elevation lapse rate
-//! - Pressure: from temperature (hot = low pressure)
-//! - Wind: from pressure gradients, zonal flow, Coriolis, terrain effects
-//! - Uplift: from projection solver (for future precipitation)
+//! - Surface temperature: based on latitude and elevation lapse rate
+//! - Pressure forcing: from upper-layer temperature (latitudinal only; no lapse rate)
+//! - Wind: from pressure gradients, zonal flow, Coriolis-like geostrophic balance, terrain effects
+//! - Uplift: proxy from convergence (pre-projection) + orographic upslope flow
 
 use glam::Vec3;
 
@@ -25,16 +25,22 @@ pub const POLAR_TEMP: f32 = 0.0;
 /// Atmosphere data for the world.
 #[derive(Debug, Clone)]
 pub struct Atmosphere {
-    /// Temperature per cell (normalized 0-1, can go negative at high elevation).
+    /// Surface temperature per cell (normalized 0-1, can go negative at high elevation).
     pub temperature: Vec<f32>,
 
-    /// Atmospheric pressure per cell (1 - temperature: hot = low pressure).
+    /// Upper-layer temperature used to derive pressure forcing (latitude-only).
+    pub upper_temperature: Vec<f32>,
+
+    /// Pressure forcing per cell (1 - upper_temperature: hot = low pressure).
     pub pressure: Vec<f32>,
 
-    /// Wind direction per cell (tangent to sphere surface).
+    /// Upper wind per cell (terrain-unaware, free-flowing atmospheric wind).
+    pub upper_wind: Vec<Vec3>,
+
+    /// Surface wind per cell (terrain-influenced, tangent to sphere surface).
     pub wind: Vec<Vec3>,
 
-    /// Uplift per cell (from correction potential φ, for precipitation).
+    /// Uplift per cell (proxy from convergence + orographic upslope flow).
     pub uplift: Vec<f32>,
 
     /// Correction potential from projection (for debugging/visualization).
@@ -44,29 +50,38 @@ pub struct Atmosphere {
 impl Atmosphere {
     /// Generate atmosphere data from tessellation and elevation.
     pub fn generate(tessellation: &Tessellation, elevation: &Elevation) -> Self {
-        let _num_cells = tessellation.num_cells();
+        // Step 1: Surface temperature from latitude + elevation lapse (display/climate field)
+        let temperature = generate_surface_temperature(tessellation, &elevation.values);
 
-        // Step 1: Temperature from latitude + elevation lapse
-        let temperature = generate_temperature(tessellation, &elevation.values);
+        // Step 2: Upper-layer temperature (latitude-only; avoids "mountain high pressure" artifacts)
+        let upper_temperature = generate_upper_temperature(tessellation);
 
-        // Step 2: Pressure from temperature (hot = low pressure)
-        let pressure: Vec<f32> = temperature.iter().map(|&t| 1.0 - t).collect();
+        // Step 3: Pressure forcing from upper temperature (hot = low pressure)
+        let pressure: Vec<f32> = upper_temperature.iter().map(|&t| 1.0 - t).collect();
 
-        // Steps 2-4: Initial wind (pressure gradient + zonal + Coriolis)
-        let mut wind = generate_initial_wind(tessellation, &pressure);
+        // Step 4: Initial wind (pressure gradient + zonal + geostrophic-like balance)
+        let initial_wind = generate_initial_wind(tessellation, &pressure);
 
-        // Step 5: Terrain effects (uphill blocking + katabatic acceleration)
+        // Step 5: Upper wind - project without terrain effects (uniform weights)
+        let mut upper_wind = initial_wind.clone();
+        project_wind_field(tessellation, None, &mut upper_wind);
+
+        // Step 6: Surface wind - start from upper wind, apply terrain effects
+        let mut wind = upper_wind.clone();
         apply_terrain_effects(tessellation, elevation, &mut wind);
+        let wind_pre_projection = wind.clone();
 
-        // Step 6: Terrain-aware projection (SOR solver)
-        let phi = project_wind_field(tessellation, elevation, &mut wind);
+        // Step 7: Terrain-aware projection for surface wind (SOR solver)
+        let phi = project_wind_field(tessellation, Some(elevation), &mut wind);
 
-        // Step 7: Extract uplift from correction potential
-        let uplift = extract_uplift(&phi);
+        // Step 8: Uplift proxy from convergence + orographic upslope flow
+        let uplift = compute_uplift(tessellation, elevation, &wind_pre_projection, &wind);
 
         Self {
             temperature,
+            upper_temperature,
             pressure,
+            upper_wind,
             wind,
             uplift,
             phi,
@@ -93,6 +108,11 @@ impl Atmosphere {
         let sum: f32 = self.temperature.iter().sum();
         let mean_temp = sum / self.temperature.len() as f32;
 
+        let max_upper_wind = self
+            .upper_wind
+            .iter()
+            .map(|w| w.length())
+            .fold(0.0_f32, f32::max);
         let max_wind = self.wind.iter().map(|w| w.length()).fold(0.0_f32, f32::max);
         let max_uplift = self.uplift.iter().copied().fold(0.0_f32, f32::max);
 
@@ -100,6 +120,7 @@ impl Atmosphere {
             min_temp,
             max_temp,
             mean_temp,
+            max_upper_wind,
             max_wind,
             max_uplift,
         }
@@ -112,12 +133,13 @@ pub struct AtmosphereStats {
     pub min_temp: f32,
     pub max_temp: f32,
     pub mean_temp: f32,
+    pub max_upper_wind: f32,
     pub max_wind: f32,
     pub max_uplift: f32,
 }
 
 /// Generate temperature field from latitude and elevation.
-fn generate_temperature(tessellation: &Tessellation, elevation: &[f32]) -> Vec<f32> {
+fn generate_surface_temperature(tessellation: &Tessellation, elevation: &[f32]) -> Vec<f32> {
     let num_cells = tessellation.num_cells();
     let mut temperature = vec![0.0; num_cells];
 
@@ -136,6 +158,25 @@ fn generate_temperature(tessellation: &Tessellation, elevation: &[f32]) -> Vec<f
         let lapse = elev * LAPSE_RATE;
 
         temperature[i] = base_temp - lapse;
+    }
+
+    temperature
+}
+
+/// Generate an upper-layer temperature field from latitude only.
+fn generate_upper_temperature(tessellation: &Tessellation) -> Vec<f32> {
+    let num_cells = tessellation.num_cells();
+    let mut temperature = vec![0.0; num_cells];
+
+    for i in 0..num_cells {
+        let pos = tessellation.cell_center(i);
+
+        // Latitude: y-coordinate on unit sphere gives sin(latitude)
+        let sin_lat = pos.y;
+        let lat_factor = sin_lat.abs(); // 0 at equator, 1 at poles
+
+        // Base temperature from latitude (cos²-like distribution)
+        temperature[i] = EQUATOR_TEMP - (EQUATOR_TEMP - POLAR_TEMP) * lat_factor * lat_factor;
     }
 
     temperature
@@ -233,13 +274,6 @@ fn zonal_wind(pos: Vec3) -> Vec3 {
     east * direction * strength * ZONAL_STRENGTH
 }
 
-/// Rotate a tangent vector around the surface normal by an angle (for Coriolis).
-fn rotate_tangent(vec: Vec3, normal: Vec3, angle: f32) -> Vec3 {
-    // Rodrigues' rotation formula
-    let (sin_a, cos_a) = angle.sin_cos();
-    vec * cos_a + normal.cross(vec) * sin_a + normal * normal.dot(vec) * (1.0 - cos_a)
-}
-
 /// Generate initial wind field from pressure gradient, zonal flow, and Coriolis.
 fn generate_initial_wind(tessellation: &Tessellation, pressure: &[f32]) -> Vec<Vec3> {
     let num_cells = tessellation.num_cells();
@@ -248,25 +282,24 @@ fn generate_initial_wind(tessellation: &Tessellation, pressure: &[f32]) -> Vec<V
     for i in 0..num_cells {
         let pos = tessellation.cell_center(i);
 
-        // Step 2: Wind from pressure gradient
-        // Gradient points toward HIGH pressure; wind flows toward LOW
+        // Pressure gradient points toward HIGH pressure; pressure forcing points toward LOW.
         let pressure_grad = compute_pressure_gradient(tessellation, pressure, i);
-        let pressure_wind = -pressure_grad * PRESSURE_WIND_SCALE;
+        let to_low = -pressure_grad;
 
-        // Step 3: Zonal base flow
+        // Geostrophic-like component: flow parallel to isobars.
+        // We blend between down-gradient flow (equator) and geostrophic balance (poles),
+        // since the geostrophic approximation breaks down as f -> 0 near the equator.
+        let abs_lat = pos.y.abs().clamp(0.0, 1.0);
+        let geostrophic_dir = -pos.cross(pressure_grad);
+        let geostrophic_mix = (abs_lat * GEOSTROPHIC_BALANCE).clamp(0.0, 1.0);
+        let pressure_wind = (1.0 - geostrophic_mix) * to_low + geostrophic_mix * geostrophic_dir;
+        let pressure_wind = pressure_wind * PRESSURE_WIND_SCALE;
+
+        // Zonal base flow (already "balanced" background circulation)
         let zonal = zonal_wind(pos);
 
         // Blend pressure and zonal winds
-        let mut cell_wind = ZONAL_WEIGHT * zonal + PRESSURE_WEIGHT * pressure_wind;
-
-        // Step 4: Coriolis deflection (partial, ~45° for surface wind)
-        // Northern hemisphere: deflect right (clockwise from above)
-        // Southern hemisphere: deflect left (counterclockwise)
-        let latitude = pos.y;
-        if cell_wind.length_squared() > 1e-10 {
-            let coriolis_angle = SURFACE_CORIOLIS_ANGLE * latitude;
-            cell_wind = rotate_tangent(cell_wind, pos, coriolis_angle);
-        }
+        let cell_wind = ZONAL_WEIGHT * zonal + PRESSURE_WEIGHT * pressure_wind;
 
         wind[i] = cell_wind;
     }
@@ -277,7 +310,12 @@ fn generate_initial_wind(tessellation: &Tessellation, pressure: &[f32]) -> Vec<V
 /// Apply terrain effects to wind (uphill blocking + katabatic acceleration).
 fn apply_terrain_effects(tessellation: &Tessellation, elevation: &Elevation, wind: &mut [Vec3]) {
     let num_cells = tessellation.num_cells();
-    let mean_spacing = tessellation.mean_cell_area().sqrt();
+
+    // Debug: track modifications
+    let mut cells_modified = 0;
+    let mut total_blocking = 0.0_f32;
+    let mut total_katabatic = 0.0_f32;
+    let mut max_slope_seen = 0.0_f32;
 
     for i in 0..num_cells {
         let elev = elevation.values[i];
@@ -294,32 +332,36 @@ fn apply_terrain_effects(tessellation: &Tessellation, elevation: &Elevation, win
 
         let gradient_norm = gradient / gradient_mag;
 
-        // `gradient_mag` is roughly Δelev / Δangle (radians). For terrain effects we want a
-        // dimensionless "typical height difference" scale that doesn't blow up as resolution
-        // increases, so we scale by mean cell spacing and clamp.
-        let slope = (gradient_mag * mean_spacing).min(1.0);
-        if slope < 1e-6 {
-            continue;
-        }
+        // gradient_mag is the true terrain gradient dz/ds = tan(θ) for slope angle θ.
+        let gradient = gradient_mag;
+        max_slope_seen = max_slope_seen.max(gradient);
 
         // Uphill blocking: remove portion of uphill component
+        // Use gradient directly - blocking saturates via the min(1.0) clamp
         let uphill_component = wind[i].dot(gradient_norm);
         if uphill_component > 0.0 {
-            let block_factor = (slope * UPHILL_BLOCKING).min(1.0);
-            wind[i] -= gradient_norm * uphill_component * block_factor;
+            let block_factor = (gradient * UPHILL_BLOCKING).min(1.0);
+            let blocked = gradient_norm * uphill_component * block_factor;
+            wind[i] -= blocked;
+            total_blocking += blocked.length();
+            cells_modified += 1;
         }
 
-        // Katabatic acceleration: add downhill component
-        let katabatic = -gradient_norm * slope * KATABATIC_STRENGTH;
+        // Katabatic acceleration: gravity component parallel to slope is g*sin(θ)
+        // sin(atan(gradient)) = gradient / sqrt(1 + gradient²), bounded to [0, 1]
+        let sin_slope = gradient / (1.0 + gradient * gradient).sqrt();
+        let katabatic = -gradient_norm * sin_slope * KATABATIC_STRENGTH;
         wind[i] += katabatic;
+        total_katabatic += katabatic.length();
     }
-}
 
-/// Compute edge weight for projection solver (terrain-aware).
-/// High terrain = low weight (hard to flow through).
-fn edge_weight(elevation: &Elevation, i: usize, j: usize) -> f32 {
-    let max_elev = elevation.values[i].max(elevation.values[j]).max(0.0);
-    (-max_elev * TERRAIN_RESISTANCE).exp()
+    println!(
+        "[DEBUG terrain_effects] cells_modified={}, avg_blocking={:.4}, avg_katabatic={:.4}, max_slope={:.2}",
+        cells_modified,
+        if cells_modified > 0 { total_blocking / cells_modified as f32 } else { 0.0 },
+        total_katabatic / num_cells as f32,
+        max_slope_seen
+    );
 }
 
 /// Compute edge length between two adjacent Voronoi cells.
@@ -370,18 +412,70 @@ fn precompute_edge_lengths(tessellation: &Tessellation) -> Vec<Vec<f32>> {
 }
 
 /// Precompute permeability weights for all edges.
-/// High terrain = low permeability (hard to flow through).
+/// Steep terrain transitions = low permeability (hard to flow through).
+/// Uses cosine power law: perm = cos^p(atan(gradient)) = 1/(1+g²)^(p/2)
 fn precompute_permeability(tessellation: &Tessellation, elevation: &Elevation) -> Vec<Vec<f32>> {
     let num_cells = tessellation.num_cells();
     let mut permeability = Vec::with_capacity(num_cells);
 
+    // Debug: track edge slope statistics
+    let mut all_slopes = Vec::new();
+    let mut all_deltas = Vec::new();
+
+    let half_power = PERMEABILITY_POWER / 2.0;
+
     for i in 0..num_cells {
+        let pos_i = tessellation.cell_center(i);
         let neighbors = tessellation.neighbors(i);
+        let elev_i = elevation.values[i].max(0.0);
+
         let weights: Vec<f32> = neighbors
             .iter()
-            .map(|&n| edge_weight(elevation, i, n))
+            .map(|&j| {
+                let elev_j = elevation.values[j].max(0.0);
+                let delta = (elev_i - elev_j).abs();
+
+                let pos_j = tessellation.cell_center(j);
+                let dist = pos_i.dot(pos_j).clamp(-1.0, 1.0).acos().max(1e-6);
+
+                // True gradient: elevation change per unit arc length (dz/ds) = tan(θ)
+                let gradient = delta / dist;
+
+                // Debug: collect slope statistics
+                if delta > 0.0 {
+                    all_slopes.push(gradient);
+                    all_deltas.push(delta);
+                }
+
+                // Cosine power law: perm = cos^p(atan(g)) = 1/(1+g²)^(p/2)
+                // For p=2: perm = 1/(1+g²), giving 0.5 at 45° slope
+                1.0 / (1.0 + gradient * gradient).powf(half_power)
+            })
             .collect();
         permeability.push(weights);
+    }
+
+    // Debug: print slope statistics
+    if !all_slopes.is_empty() {
+        all_slopes.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        all_deltas.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let p50 = all_slopes[all_slopes.len() / 2];
+        let p90 = all_slopes[all_slopes.len() * 9 / 10];
+        let p99 = all_slopes[all_slopes.len() * 99 / 100];
+        let max_slope = all_slopes.last().copied().unwrap_or(0.0);
+        let max_delta = all_deltas.last().copied().unwrap_or(0.0);
+
+        // Cosine power permeability: 1/(1+g²)^(p/2)
+        let perm = |g: f32| 1.0 / (1.0 + g * g).powf(half_power);
+
+        println!(
+            "[DEBUG gradient] p50={:.4}, p90={:.4}, p99={:.4}, max={:.4}, max_delta={:.4}",
+            p50, p90, p99, max_slope, max_delta
+        );
+        println!(
+            "[DEBUG gradient] perm at p50={:.4}, p90={:.4}, p99={:.4}, max={:.4}",
+            perm(p50), perm(p90), perm(p99), perm(max_slope)
+        );
     }
 
     permeability
@@ -428,12 +522,13 @@ fn reverse_neighbor_indices(tessellation: &Tessellation) -> Vec<Vec<usize>> {
 ///    Σ (k_ij * L_ij / d_ij) (phi_j - phi_i) = divergence_i
 /// 3. Apply the induced edge-normal correction on edges, then reconstruct a cell-centered field.
 ///
-/// `k_ij` comes from terrain permeability (mountains impede correction/flow routing).
+/// When `elevation` is provided, `k_ij` comes from terrain permeability (mountains impede
+/// correction/flow routing). When `None`, uniform permeability is used (for upper wind).
 ///
 /// Returns the correction potential `phi` (useful as an uplift proxy).
 fn project_wind_field(
     tessellation: &Tessellation,
-    elevation: &Elevation,
+    elevation: Option<&Elevation>,
     wind: &mut [Vec3],
 ) -> Vec<f32> {
     let num_cells = tessellation.num_cells();
@@ -441,7 +536,28 @@ fn project_wind_field(
 
     // Precompute geometric data
     let edge_lengths = precompute_edge_lengths(tessellation);
-    let permeability = precompute_permeability(tessellation, elevation);
+    let permeability = if let Some(elev) = elevation {
+        let perm = precompute_permeability(tessellation, elev);
+        // Debug: print permeability statistics
+        let all_perms: Vec<f32> = perm.iter().flat_map(|v| v.iter().copied()).collect();
+        let min_perm = all_perms.iter().copied().fold(f32::INFINITY, f32::min);
+        let max_perm = all_perms.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        let mean_perm = all_perms.iter().sum::<f32>() / all_perms.len() as f32;
+        let low_count = all_perms.iter().filter(|&&p| p < 0.5).count();
+        let very_low_count = all_perms.iter().filter(|&&p| p < 0.1).count();
+        println!(
+            "[DEBUG permeability] min={:.4}, max={:.4}, mean={:.4}, <0.5: {}/{} ({:.1}%), <0.1: {}",
+            min_perm, max_perm, mean_perm,
+            low_count, all_perms.len(), 100.0 * low_count as f32 / all_perms.len() as f32,
+            very_low_count
+        );
+        perm
+    } else {
+        // Uniform permeability (1.0) for upper wind - no terrain effects
+        (0..num_cells)
+            .map(|i| vec![1.0_f32; tessellation.neighbors(i).len()])
+            .collect()
+    };
     let reverse = reverse_neighbor_indices(tessellation);
 
     // --- STEP 1: Compute edge-normal velocities and per-cell divergence (net flux) ---
@@ -613,16 +729,108 @@ fn project_wind_field(
     phi
 }
 
-/// Extract uplift from correction potential phi.
-/// High phi = air backing up = uplift.
-fn extract_uplift(phi: &[f32]) -> Vec<f32> {
-    let phi_max = phi.iter().copied().fold(0.0_f32, f32::max);
-    let phi_min = phi.iter().copied().fold(0.0_f32, f32::min);
-    let phi_range = (phi_max - phi_min).max(0.001);
+fn compute_flux_divergence(tessellation: &Tessellation, wind: &[Vec3]) -> Vec<f32> {
+    let num_cells = tessellation.num_cells();
+    const EPSILON: f32 = 1e-6;
 
-    phi.iter()
-        .map(|&p| ((p - phi_min) / phi_range).max(0.0))
-        .collect()
+    let edge_lengths = precompute_edge_lengths(tessellation);
+    let reverse = reverse_neighbor_indices(tessellation);
+
+    let mut divergence = vec![0.0_f32; num_cells];
+    for i in 0..num_cells {
+        let pos_i = tessellation.cell_center(i);
+        let neighbors = tessellation.neighbors(i);
+
+        for (n_idx, &j) in neighbors.iter().enumerate() {
+            if i >= j {
+                continue;
+            }
+
+            let pos_j = tessellation.cell_center(j);
+            let rev_idx = reverse[i][n_idx];
+            let edge_len = 0.5 * (edge_lengths[i][n_idx] + edge_lengths[j][rev_idx]);
+
+            let n_ij = tangent_toward(pos_i, pos_j);
+            let n_ji = tangent_toward(pos_j, pos_i);
+            if n_ij.length_squared() < EPSILON || n_ji.length_squared() < EPSILON {
+                continue;
+            }
+
+            let u_edge_n = 0.5 * (wind[i].dot(n_ij) - wind[j].dot(n_ji));
+            let flux = u_edge_n * edge_len;
+
+            // Outward flux is positive divergence.
+            divergence[i] += flux;
+            divergence[j] -= flux;
+        }
+    }
+
+    divergence
+}
+
+fn normalize_positive_field(mut values: Vec<f32>, percentile: f32) -> Vec<f32> {
+    let mut samples: Vec<f32> = values.iter().copied().filter(|&v| v.is_finite() && v > 0.0).collect();
+    if samples.is_empty() {
+        values.fill(0.0);
+        return values;
+    }
+
+    samples.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let p = percentile.clamp(0.5, 0.999);
+    let idx = ((samples.len() - 1) as f32 * p).round() as usize;
+    let scale = samples[idx].max(1e-6);
+
+    for v in &mut values {
+        if !v.is_finite() || *v <= 0.0 {
+            *v = 0.0;
+        } else {
+            *v = (*v / scale).clamp(0.0, 1.0);
+        }
+    }
+
+    values
+}
+
+fn compute_uplift(
+    tessellation: &Tessellation,
+    elevation: &Elevation,
+    wind_pre_projection: &[Vec3],
+    wind_final: &[Vec3],
+) -> Vec<f32> {
+    let num_cells = tessellation.num_cells();
+    let mean_spacing = tessellation.mean_cell_area().sqrt();
+
+    // Convergence proxy from the pre-projection surface wind (projection removes divergence).
+    let flux_div = compute_flux_divergence(tessellation, wind_pre_projection);
+    let areas = tessellation.cell_areas();
+    let mut convergence = vec![0.0_f32; num_cells];
+    for i in 0..num_cells {
+        let area = areas.get(i).copied().unwrap_or(tessellation.mean_cell_area()).max(1e-6);
+        let div = flux_div[i] / area;
+        convergence[i] = (-div).max(0.0);
+    }
+
+    // Orographic uplift proxy from upslope flow (terrain-following kinematics).
+    let mut orographic = vec![0.0_f32; num_cells];
+    for i in 0..num_cells {
+        if elevation.values[i] <= 0.0 {
+            continue;
+        }
+        let grad = elevation.gradient(tessellation, i);
+        if grad.length_squared() < 1e-10 {
+            continue;
+        }
+        // `grad` is roughly Δelev / Δangle; multiply by a typical angular scale for stability.
+        let w = wind_final[i].dot(grad) * mean_spacing;
+        orographic[i] = w.max(0.0);
+    }
+
+    let mut uplift = vec![0.0_f32; num_cells];
+    for i in 0..num_cells {
+        uplift[i] = UPLIFT_CONVERGENCE_WEIGHT * convergence[i] + UPLIFT_OROGRAPHIC_WEIGHT * orographic[i];
+    }
+
+    normalize_positive_field(uplift, UPLIFT_NORM_PERCENTILE)
 }
 
 #[cfg(test)]
@@ -711,7 +919,7 @@ mod tests {
 
         let before = divergence_rms(&tess, &wind);
 
-        let _phi = project_wind_field(&tess, &elevation, &mut wind);
+        let _phi = project_wind_field(&tess, Some(&elevation), &mut wind);
 
         let after = divergence_rms(&tess, &wind);
 

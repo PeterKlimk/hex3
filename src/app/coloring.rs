@@ -531,6 +531,44 @@ fn wind_speed_to_color(speed: f32) -> Vec3 {
     }
 }
 
+/// Convert wind vector to a color that encodes direction (hue) and speed (brightness/saturation).
+///
+/// This makes it possible to visually distinguish surface vs upper wind even when particles
+/// are disabled/broken.
+fn wind_vector_to_color(pos: Vec3, wind: Vec3) -> Vec3 {
+    let speed = wind.length();
+    if speed < 1e-6 {
+        return wind_speed_to_color(0.0);
+    }
+
+    // Build a local tangent basis (east, north) at `pos`.
+    // Use a fallback axis near the poles to avoid degeneracy.
+    let mut east = Vec3::Y.cross(pos);
+    if east.length_squared() < 1e-8 {
+        east = Vec3::X.cross(pos);
+    }
+    east = east.normalize();
+    let north = pos.cross(east).normalize();
+
+    let u_e = wind.dot(east);
+    let u_n = wind.dot(north);
+
+    // Direction hue: atan2(north, east) mapped to [0, 360).
+    let angle = u_n.atan2(u_e);
+    let mut hue = angle / std::f32::consts::TAU * 360.0;
+    if hue < 0.0 {
+        hue += 360.0;
+    }
+
+    // Speed → saturation/lightness.
+    // Typical speeds are ~0-0.5, but keep this robust to occasional spikes.
+    let t = (speed / 0.5).clamp(0.0, 1.0);
+    let s = 0.35 + 0.55 * t;
+    let l = 0.18 + 0.55 * t;
+
+    hsl_to_rgb(hue, s, l)
+}
+
 /// Convert uplift to color (green = low, yellow/red = high).
 fn uplift_to_color(uplift: f32) -> Vec3 {
     // Uplift is normalized 0-1
@@ -565,10 +603,8 @@ pub fn cell_color_climate(world: &World, cell_idx: usize, layer: ClimateLayer) -
     if let Some(atmosphere) = &world.atmosphere {
         match layer {
             ClimateLayer::Temperature => temperature_to_color(atmosphere.temperature[cell_idx]),
-            ClimateLayer::Wind => {
-                // Use terrain colors for Wind layer - particles show direction
-                cell_color_terrain(world, cell_idx)
-            }
+            // Wind layers: show terrain colors, particles visualize the wind
+            ClimateLayer::Wind | ClimateLayer::UpperWind => cell_color_terrain(world, cell_idx),
             ClimateLayer::Uplift => uplift_to_color(atmosphere.uplift[cell_idx]),
         }
     } else {

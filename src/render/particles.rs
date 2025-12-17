@@ -16,6 +16,8 @@
 //! movement is time-normalized for consistent behavior across frame rates.
 
 use bytemuck::{Pod, Zeroable};
+use encase::{ShaderType, UniformBuffer};
+use glam::{UVec2, Vec3};
 use rand::Rng;
 use wgpu::util::DeviceExt;
 
@@ -65,18 +67,18 @@ struct GpuAdjacencyOffset {
 }
 
 /// Simulation uniforms (compute shader).
-#[repr(C)]
-#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+/// Uses encase for automatic WGSL struct alignment.
+#[derive(ShaderType)]
 struct ComputeUniforms {
-    dt: f32,           // Frame time (seconds)
-    speed_scale: f32,  // How much wind moves particles per second
-    trail_scale: f32,  // Trail length per unit wind speed
-    time: f32,         // Total elapsed time
+    dt: f32,
+    speed_scale: f32,
+    trail_scale: f32,
+    time: f32,
     num_particles: u32,
     num_cells: u32,
-    _pad0: [u32; 2],
+    _pad0: UVec2,
     max_age: f32,
-    _pad1: [f32; 3],
+    _pad1: Vec3,
 }
 
 /// Render uniforms for particle shader.
@@ -84,8 +86,9 @@ struct ComputeUniforms {
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 struct ParticleRenderUniforms {
     max_age: f32,
-    lift: f32,
-    _padding: [f32; 2],
+    relief_scale: f32,
+    upper_wind_height: f32,
+    is_surface_wind: u32, // 1 = surface (use elevation), 0 = upper (fixed height)
 }
 
 /// GPU wind particle system.
@@ -98,16 +101,19 @@ pub struct WindParticleSystem {
     render_pipeline: wgpu::RenderPipeline,
     render_bind_group: wgpu::BindGroup,
     render_uniform_buffer: wgpu::Buffer,
+    render_bind_group_layout: wgpu::BindGroupLayout,
 
     // Shared buffers
     particle_buffer: wgpu::Buffer,
     compute_uniform_buffer: wgpu::Buffer,
+    wind_buffer: wgpu::Buffer,
 
     // State
     num_particles: u32,
     num_cells: u32,
     time: f32,
     max_age: f32,
+    is_surface_wind: bool,
 }
 
 impl WindParticleSystem {
@@ -119,6 +125,7 @@ impl WindParticleSystem {
     /// * `atmosphere` - Atmosphere data (for wind vectors)
     /// * `num_particles` - Number of particles to simulate
     /// * `main_bind_group_layout` - The main uniform bind group layout (for camera/view uniforms)
+    /// * `elevation_map` - Elevation map texture for terrain height sampling
     /// * `rng` - Random number generator for initial positions
     pub fn new<R: Rng>(
         ctx: &GpuContext,
@@ -126,6 +133,7 @@ impl WindParticleSystem {
         atmosphere: &Atmosphere,
         num_particles: u32,
         main_bind_group_layout: &wgpu::BindGroupLayout,
+        elevation_map: &super::ElevationMap,
         rng: &mut R,
     ) -> Self {
         let num_cells = tessellation.num_cells() as u32;
@@ -204,7 +212,7 @@ impl WindParticleSystem {
         let wind_buffer = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("wind_buffer"),
             contents: bytemuck::cast_slice(&wind_vectors),
-            usage: wgpu::BufferUsages::STORAGE,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
 
         let adjacency_offset_buffer =
@@ -230,16 +238,19 @@ impl WindParticleSystem {
             time: 0.0,
             num_particles,
             num_cells,
-            _pad0: [0; 2],
+            _pad0: UVec2::ZERO,
             max_age,
-            _pad1: [0.0; 3],
+            _pad1: Vec3::ZERO,
         };
+
+        let mut uniform_buffer = UniformBuffer::new(Vec::new());
+        uniform_buffer.write(&compute_uniforms).unwrap();
 
         let compute_uniform_buffer =
             ctx.device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some("particle_compute_uniform_buffer"),
-                    contents: bytemuck::cast_slice(&[compute_uniforms]),
+                    contents: uniform_buffer.as_ref(),
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
 
@@ -378,16 +389,19 @@ impl WindParticleSystem {
                 });
 
         // Create render pipeline
+        let render_shader_source = format!(
+            "{}\n{}",
+            include_str!("../shaders/cubemap.wgsl"),
+            include_str!("../shaders/particle_render.wgsl"),
+        );
         let render_shader = ctx
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("particle_render_shader"),
-                source: wgpu::ShaderSource::Wgsl(
-                    include_str!("../shaders/particle_render.wgsl").into(),
-                ),
+                source: wgpu::ShaderSource::Wgsl(render_shader_source.into()),
             });
 
-        // Render bind group layout (particles + render uniforms)
+        // Render bind group layout (particles + render uniforms + elevation texture)
         let render_bind_group_layout =
             ctx.device
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -415,13 +429,36 @@ impl WindParticleSystem {
                             },
                             count: None,
                         },
+                        // Elevation cubemap
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 2,
+                            visibility: wgpu::ShaderStages::VERTEX,
+                            ty: wgpu::BindingType::Texture {
+                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                                view_dimension: wgpu::TextureViewDimension::D2Array,
+                                multisampled: false,
+                            },
+                            count: None,
+                        },
+                        // Elevation sampler
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 3,
+                            visibility: wgpu::ShaderStages::VERTEX,
+                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                            count: None,
+                        },
                     ],
                 });
 
+        // RELIEF_SCALE from constants - particles need same displacement as terrain
+        const RELIEF_SCALE: f32 = 0.2;
+        const UPPER_WIND_HEIGHT: f32 = 1.06; // Slightly above sea level
+
         let render_uniforms = ParticleRenderUniforms {
             max_age,
-            lift: 1.002, // Slightly above surface
-            _padding: [0.0; 2],
+            relief_scale: RELIEF_SCALE,
+            upper_wind_height: UPPER_WIND_HEIGHT,
+            is_surface_wind: 1, // Default to surface wind
         };
 
         let render_uniform_buffer =
@@ -443,6 +480,14 @@ impl WindParticleSystem {
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: render_uniform_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(elevation_map.array_view()),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(elevation_map.sampler()),
                 },
             ],
         });
@@ -514,12 +559,51 @@ impl WindParticleSystem {
             render_pipeline,
             render_bind_group,
             render_uniform_buffer,
+            render_bind_group_layout,
             particle_buffer,
             compute_uniform_buffer,
+            wind_buffer,
             num_particles,
             num_cells,
             time: 0.0,
             max_age,
+            is_surface_wind: true,
+        }
+    }
+
+    /// Update the wind buffer with new wind data and set wind layer type.
+    ///
+    /// Used to switch between surface wind and upper wind visualization.
+    pub fn set_wind(&mut self, ctx: &GpuContext, wind: &[glam::Vec3], is_surface: bool) {
+        let wind_vectors: Vec<GpuWindVector> = wind
+            .iter()
+            .map(|v| GpuWindVector {
+                velocity: [v.x, v.y, v.z],
+                _padding: 0.0,
+            })
+            .collect();
+        ctx.queue
+            .write_buffer(&self.wind_buffer, 0, bytemuck::cast_slice(&wind_vectors));
+
+        // Update surface/upper wind flag
+        if self.is_surface_wind != is_surface {
+            self.is_surface_wind = is_surface;
+
+            // RELIEF_SCALE from constants
+            const RELIEF_SCALE: f32 = 0.2;
+            const UPPER_WIND_HEIGHT: f32 = 1.06;
+
+            let render_uniforms = ParticleRenderUniforms {
+                max_age: self.max_age,
+                relief_scale: RELIEF_SCALE,
+                upper_wind_height: UPPER_WIND_HEIGHT,
+                is_surface_wind: if is_surface { 1 } else { 0 },
+            };
+            ctx.queue.write_buffer(
+                &self.render_uniform_buffer,
+                0,
+                bytemuck::cast_slice(&[render_uniforms]),
+            );
         }
     }
 
@@ -541,15 +625,14 @@ impl WindParticleSystem {
             time: self.time,
             num_particles: self.num_particles,
             num_cells: self.num_cells,
-            _pad0: [0; 2],
+            _pad0: UVec2::ZERO,
             max_age: self.max_age,
-            _pad1: [0.0; 3],
+            _pad1: Vec3::ZERO,
         };
-        ctx.queue.write_buffer(
-            &self.compute_uniform_buffer,
-            0,
-            bytemuck::cast_slice(&[uniforms]),
-        );
+        let mut uniform_buffer = UniformBuffer::new(Vec::new());
+        uniform_buffer.write(&uniforms).unwrap();
+        ctx.queue
+            .write_buffer(&self.compute_uniform_buffer, 0, uniform_buffer.as_ref());
 
         // Dispatch compute shader
         let mut encoder = ctx

@@ -326,6 +326,12 @@ pub const PLATE_PAIR_MIN_ACTIVE_LENGTH: f32 = 0.03;
 /// Scale factor for pressure gradient → wind velocity.
 pub const PRESSURE_WIND_SCALE: f32 = 0.3;
 
+/// How strongly Coriolis turns pressure-driven flow toward geostrophic balance.
+///
+/// 0.0 = purely down-gradient (toward low pressure).
+/// 1.0 = purely geostrophic (parallel to isobars).
+pub const GEOSTROPHIC_BALANCE: f32 = 0.85;
+
 /// Weight of zonal (trade winds, westerlies) component in wind blend.
 pub const ZONAL_WEIGHT: f32 = 0.6;
 
@@ -339,22 +345,36 @@ pub const ZONAL_STRENGTH: f32 = 0.3;
 /// Surface wind deflects ~45° from geostrophic flow (not full 90°).
 pub const SURFACE_CORIOLIS_ANGLE: f32 = 0.785; // 45 degrees
 
+// --- Uplift proxy ---
+
+/// Weight for convergence-based uplift (mass continuity proxy).
+pub const UPLIFT_CONVERGENCE_WEIGHT: f32 = 0.8;
+
+/// Weight for orographic uplift (upslope flow).
+pub const UPLIFT_OROGRAPHIC_WEIGHT: f32 = 1.2;
+
+/// Percentile used to normalize uplift into 0..1 for visualization.
+pub const UPLIFT_NORM_PERCENTILE: f32 = 0.95;
+
 // --- Terrain effects (before projection) ---
 
 /// How much terrain slope blocks uphill wind.
-/// Higher values = steeper slopes block more wind.
-pub const UPHILL_BLOCKING: f32 = 3.0;
+/// block_factor = min(gradient * UPHILL_BLOCKING, 1.0)
+/// At 1.0: full blocking at 45° slopes (gradient=1.0), partial at gentler slopes.
+pub const UPHILL_BLOCKING: f32 = 1.0;
 
 /// Katabatic (downhill) wind acceleration strength.
-/// Cold air drainage down slopes.
-pub const KATABATIC_STRENGTH: f32 = 0.2;
+/// Cold air drainage down slopes. katabatic_wind = gradient * KATABATIC_STRENGTH
+/// At 0.05: steep slopes (gradient=1.0) add ~0.05 to wind magnitude,
+/// comparable to but not overwhelming background winds (~0.1-0.3).
+pub const KATABATIC_STRENGTH: f32 = 0.1;
 
 // --- Projection solver ---
 
-/// Terrain resistance for edge weights in projection.
-/// Higher = mountains more impermeable to airflow routing.
-/// weight = exp(-max_elev * TERRAIN_RESISTANCE)
-pub const TERRAIN_RESISTANCE: f32 = 4.0;
+/// Power for cosine permeability law: perm = cos^p(atan(gradient)) = 1/(1+g²)^(p/2)
+/// At p=2: gradient=0.5 → perm=0.80, gradient=1.0 (45°) → perm=0.50,
+/// gradient=2.0 → perm=0.20, gradient=4.0 → perm=0.06.
+pub const PERMEABILITY_POWER: f32 = 2.0;
 
 /// Number of SOR iterations for projection solver.
 pub const PROJECTION_ITERATIONS: usize = 50;

@@ -6,7 +6,11 @@
       "Bash(git grep:*)",
       "Bash(cargo build:*)",
       "Bash(cargo run:*)",
-      "Bash(timeout 10 cargo run:*)"
+      "Bash(timeout 10 cargo run:*)",
+      "Bash(ls:*)",
+      "Bash(cargo clippy:*)",
+      "Bash(find:*)",
+      "Bash(cargo test:*)"
     ]
   }
 }

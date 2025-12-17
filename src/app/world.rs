@@ -1,9 +1,10 @@
 use glam::Vec3;
+use wgpu::util::DeviceExt;
 
 use hex3::geometry::{
     Material, MeshVertex, SurfaceVertex, UnifiedMesh, UnifiedVertex, VoronoiMesh,
 };
-use hex3::render::{create_index_buffer, create_vertex_buffer};
+use hex3::render::{create_index_buffer, create_vertex_buffer, ElevationVertex};
 use hex3::util::Timed;
 use hex3::world::{PlateType, World};
 
@@ -154,12 +155,32 @@ pub fn advance_to_stage_2(world: &mut World) {
     // Print atmosphere stats
     if let Some(atmosphere) = &world.atmosphere {
         let stats = atmosphere.stats();
+        let (mean_wind_delta, max_wind_delta, mean_upper, mean_surface) = {
+            let n = atmosphere.wind.len().max(1) as f32;
+            let mut sum_delta = 0.0_f32;
+            let mut max_delta = 0.0_f32;
+            let mut sum_upper = 0.0_f32;
+            let mut sum_surface = 0.0_f32;
+            for (u, s) in atmosphere.upper_wind.iter().zip(atmosphere.wind.iter()) {
+                sum_upper += u.length();
+                sum_surface += s.length();
+                let d = (*u - *s).length();
+                sum_delta += d;
+                max_delta = max_delta.max(d);
+            }
+            (sum_delta / n, max_delta, sum_upper / n, sum_surface / n)
+        };
         log::info!(
-            "Atmosphere: temp=[{:.2}, {:.2}], mean={:.2}, max_wind={:.2}, max_uplift={:.2}",
+            "Atmosphere: temp=[{:.2}, {:.2}], mean={:.2}, mean_wind=[{:.2},{:.2}], max_wind=[{:.2},{:.2}], wind_delta=[{:.3},{:.3}], max_uplift={:.2}",
             stats.min_temp,
             stats.max_temp,
             stats.mean_temp,
+            mean_upper,
+            mean_surface,
+            stats.max_upper_wind,
             stats.max_wind,
+            mean_wind_delta,
+            max_wind_delta,
             stats.max_uplift
         );
     }
@@ -473,6 +494,157 @@ pub fn generate_world_buffers(device: &wgpu::Device, world: &World) -> WorldBuff
         num_arrow_vertices: arrow_vertices.len() as u32,
         num_pole_marker_indices: pole_marker_indices.len() as u32,
     }
+}
+
+/// Generate elevation mesh for rendering to elevation map texture.
+/// Returns (vertex_buffer, index_buffer, num_indices).
+///
+/// Uses the same coastal handling as the unified mesh:
+/// - Water cells are flat at their water level
+/// - Land cells at water boundary use water level (smooth coast transition)
+/// - Interior land uses averaged elevation from adjacent cells
+pub fn generate_elevation_mesh_buffers(
+    device: &wgpu::Device,
+    world: &World,
+) -> (wgpu::Buffer, wgpu::Buffer, u32) {
+    let voronoi = &world.tessellation.voronoi;
+    let elevation = world.elevation.as_ref().unwrap();
+
+    // Step 1: Compute per-cell elevation and water status
+    let cell_elevations: Vec<f32> = (0..voronoi.num_cells())
+        .map(|cell_idx| {
+            if let Some(hydrology) = &world.hydrology {
+                if hydrology.is_ocean(cell_idx) {
+                    0.0
+                } else if hydrology.is_lake_water(cell_idx) {
+                    hydrology
+                        .basin(cell_idx)
+                        .map(|b| b.water_level)
+                        .unwrap_or(0.0)
+                } else {
+                    elevation.values[cell_idx].max(0.0)
+                }
+            } else {
+                elevation.values[cell_idx].max(0.0)
+            }
+        })
+        .collect();
+
+    let cell_is_water: Vec<bool> = (0..voronoi.num_cells())
+        .map(|cell_idx| {
+            if let Some(hydrology) = &world.hydrology {
+                hydrology.is_ocean(cell_idx) || hydrology.is_lake_water(cell_idx)
+            } else {
+                elevation.values[cell_idx] <= 0.0
+            }
+        })
+        .collect();
+
+    // Step 2: For each vertex, track water level and land elevation statistics
+    let mut vertex_land_sum = vec![0.0f32; voronoi.vertices.len()];
+    let mut vertex_land_count = vec![0u32; voronoi.vertices.len()];
+    let mut vertex_water_level = vec![None::<f32>; voronoi.vertices.len()];
+
+    for cell_idx in 0..voronoi.num_cells() {
+        let cell = voronoi.cell(cell_idx);
+        let elev = cell_elevations[cell_idx];
+        let is_water = cell_is_water[cell_idx];
+
+        for &vertex_idx in cell.vertex_indices {
+            if is_water {
+                // Track water level (use max in case of adjacent lakes at different levels)
+                vertex_water_level[vertex_idx] = Some(
+                    vertex_water_level[vertex_idx]
+                        .map(|wl| wl.max(elev))
+                        .unwrap_or(elev),
+                );
+            } else {
+                // Accumulate land elevation for averaging
+                vertex_land_sum[vertex_idx] += elev;
+                vertex_land_count[vertex_idx] += 1;
+            }
+        }
+    }
+
+    // Step 3: Compute final per-vertex elevations with water boundary handling
+    let vertex_elevations: Vec<f32> = (0..voronoi.vertices.len())
+        .map(|v| {
+            let water_level = vertex_water_level[v];
+            let land_count = vertex_land_count[v];
+
+            match (water_level, land_count) {
+                // All water: use water level
+                (Some(wl), 0) => wl,
+                // All land: average land elevations
+                (None, n) if n > 0 => vertex_land_sum[v] / n as f32,
+                // Mixed (land touching water): use max of land average and water level
+                (Some(wl), n) if n > 0 => {
+                    let land_avg = vertex_land_sum[v] / n as f32;
+                    land_avg.max(wl)
+                }
+                _ => 0.0,
+            }
+        })
+        .collect();
+
+    // Step 4: Build mesh with proper coastal elevation handling
+    let mut vertices = Vec::new();
+    let mut indices = Vec::new();
+
+    for cell_idx in 0..voronoi.num_cells() {
+        let cell = voronoi.cell(cell_idx);
+        if cell.len() < 3 {
+            continue;
+        }
+
+        let is_water = cell_is_water[cell_idx];
+        let cell_water_level = cell_elevations[cell_idx];
+
+        let base_idx = vertices.len() as u32;
+
+        // Add vertices with proper elevation handling
+        for &vertex_idx in cell.vertex_indices {
+            let pos = voronoi.vertices[vertex_idx];
+
+            let elev = if is_water {
+                // Water cells are flat at their water level
+                cell_water_level
+            } else if vertex_water_level[vertex_idx].is_some() {
+                // Land vertex touching water: use water level for seamless coast
+                vertex_water_level[vertex_idx].unwrap()
+            } else {
+                // Interior land vertex: use averaged elevation
+                vertex_elevations[vertex_idx]
+            };
+
+            vertices.push(ElevationVertex {
+                position: [pos.x, pos.y, pos.z],
+                elevation: elev,
+            });
+        }
+
+        // Fan triangulation
+        let n = cell.vertex_indices.len();
+        for i in 1..n - 1 {
+            indices.push(base_idx);
+            indices.push(base_idx + i as u32);
+            indices.push(base_idx + (i + 1) as u32);
+        }
+    }
+
+    let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("elevation_mesh_vertex_buffer"),
+        contents: bytemuck::cast_slice(&vertices),
+        usage: wgpu::BufferUsages::VERTEX,
+    });
+
+    let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("elevation_mesh_index_buffer"),
+        contents: bytemuck::cast_slice(&indices),
+        usage: wgpu::BufferUsages::INDEX,
+    });
+
+    (vertex_buffer, index_buffer, indices.len() as u32)
 }
 
 /// Generate river vertices for "all rivers" mode.

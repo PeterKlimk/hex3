@@ -18,7 +18,7 @@ use winit::{
 };
 
 pub use state::AppState;
-pub use view::{RenderMode, ViewMode};
+pub use view::{ClimateLayer, RenderMode, ViewMode};
 
 /// Configuration for the app from CLI arguments.
 pub struct AppConfig {
@@ -147,6 +147,18 @@ impl ApplicationHandler for App {
                                 // Already in climate mode - cycle through layers
                                 state.climate_layer = state.climate_layer.cycle();
                                 println!("Climate layer: {}", state.climate_layer.name());
+
+                                // Switch wind buffer when entering Wind or UpperWind mode
+                                if let (Some(particles), Some(atmosphere)) =
+                                    (&mut state.gpu_particles, &state.world_data.atmosphere)
+                                {
+                                    let (wind_data, is_surface) = match state.climate_layer {
+                                        ClimateLayer::Wind => (&atmosphere.wind, true),
+                                        ClimateLayer::UpperWind => (&atmosphere.upper_wind, false),
+                                        _ => (&atmosphere.wind, true),
+                                    };
+                                    particles.set_wind(&state.gpu, wind_data, is_surface);
+                                }
                             } else {
                                 state.render_mode = RenderMode::Climate;
                             }
@@ -165,6 +177,43 @@ impl ApplicationHandler for App {
                         PhysicalKey::Code(KeyCode::KeyV) => {
                             state.river_mode = state.river_mode.cycle();
                             println!("Rivers: {}", state.river_mode.name());
+                            state.window.request_redraw();
+                        }
+                        PhysicalKey::Code(KeyCode::KeyW) => {
+                            // Toggle between surface and upper wind
+                            let is_wind_layer = matches!(
+                                state.climate_layer,
+                                ClimateLayer::Wind | ClimateLayer::UpperWind
+                            );
+
+                            if state.render_mode == RenderMode::Climate && is_wind_layer {
+                                // Toggle between the two wind layers
+                                state.climate_layer = match state.climate_layer {
+                                    ClimateLayer::Wind => ClimateLayer::UpperWind,
+                                    ClimateLayer::UpperWind => ClimateLayer::Wind,
+                                    _ => ClimateLayer::Wind,
+                                };
+                            } else {
+                                // Enter climate mode with surface wind
+                                state.render_mode = RenderMode::Climate;
+                                state.climate_layer = ClimateLayer::Wind;
+                            }
+
+                            println!("Climate layer: {}", state.climate_layer.name());
+
+                            // Update particle wind buffer
+                            if let (Some(particles), Some(atmosphere)) =
+                                (&mut state.gpu_particles, &state.world_data.atmosphere)
+                            {
+                                let (wind_data, is_surface) = match state.climate_layer {
+                                    ClimateLayer::Wind => (&atmosphere.wind, true),
+                                    ClimateLayer::UpperWind => (&atmosphere.upper_wind, false),
+                                    _ => (&atmosphere.wind, true),
+                                };
+                                particles.set_wind(&state.gpu, wind_data, is_surface);
+                            }
+
+                            state.regenerate_colors();
                             state.window.request_redraw();
                         }
                         PhysicalKey::Code(KeyCode::Space) => {

@@ -2,6 +2,13 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Development Environment
+
+Development is done in WSL2, but the application must be run on Windows. Compute shaders (used for the particle system) do not work properly under WSL2's GPU passthrough.
+
+- Use `cargo build` in WSL2 to verify code compiles
+- Build and run on Windows for actual execution (`cargo run --release` from Windows terminal)
+
 ## Build & Run Commands
 
 ```bash
@@ -25,9 +32,10 @@ cargo run --release -- --headless --export out.json.gz  # Headless + export
 ```
 
 - `--headless` - Generate without window, quit when done (defaults to max stage)
-- `--stage N` - Target stage (1=Lithosphere, 2=Hydrosphere)
+- `--stage N` - Target stage (1=Lithosphere, 2=Atmosphere, 3=Hydrosphere)
 - `--seed N` - Random seed for reproducible generation
 - `--export FILE` - Export world data to JSON (supports .json.gz)
+- `--gpu-voronoi` - Use experimental GPU-style Voronoi algorithm instead of convex hull
 - `D` key - Export current world in interactive mode
 
 ## Data Analysis
@@ -66,6 +74,7 @@ Hex3 is a spherical Voronoi-based planet generator with tectonic plate simulatio
   - `lloyd.rs` - Lloyd relaxation for point distribution
   - `sphere.rs` - Uniform random points on a unit sphere
   - `mesh.rs` - Voronoi to triangle mesh conversion, map projection
+  - `gpu_voronoi.rs` - GPU-style Voronoi via half-space clipping (experimental)
 
 - **`src/world/`** - World generation and simulation
   - `tessellation.rs` - Spherical tessellation with Voronoi cells and adjacency
@@ -74,6 +83,7 @@ Hex3 is a spherical Voronoi-based planet generator with tectonic plate simulatio
   - `boundary.rs` - Plate boundary classification and analysis
   - `features.rs` - Tectonic feature fields (trenches, arcs, ridges, collisions)
   - `elevation.rs` - Elevation generation from features + noise
+  - `atmosphere.rs` - Atmosphere simulation (temperature, pressure, wind fields)
   - `hydrology.rs` - River networks, drainage basins, lakes
   - `constants.rs` - Tunable simulation parameters
   - `gen.rs` - World generation orchestration
@@ -84,6 +94,7 @@ Hex3 is a spherical Voronoi-based planet generator with tectonic plate simulatio
   - `coloring.rs` - Per-cell color functions for visualization
   - `world.rs` - World buffer generation for GPU
   - `visualization.rs` - Debug visualization helpers
+  - `export.rs` - World data export to JSON
 
 - **`src/render/`** - wgpu rendering infrastructure
   - `context.rs` - GPU device/surface setup
@@ -91,8 +102,12 @@ Hex3 is a spherical Voronoi-based planet generator with tectonic plate simulatio
   - `renderer.rs` - Main renderer with multiple pipelines
   - `camera.rs` - Orbit camera with controller
   - `buffer.rs`, `uniform.rs`, `vertex.rs` - GPU buffer utilities
+  - `particles.rs` - GPU wind particle system (compute shader-based)
 
 - **`src/shaders/`** - WGSL shaders
+  - `unified.wgsl` - Main terrain rendering
+  - `wind_particles.wgsl` - Compute shader for particle physics
+  - `particle_render.wgsl` - Particle trail rendering
 
 ### Key Data Flow
 
@@ -102,9 +117,11 @@ Hex3 is a spherical Voronoi-based planet generator with tectonic plate simulatio
 4. Euler pole velocities → plate dynamics → boundary classification
 5. Boundary analysis → feature fields (trench, arc, ridge, collision, activity)
 6. Features + plate type → elevation via decay functions + multi-layer fBm noise
-7. Elevation → hydrological simulation → rivers, lakes, drainage basins
-8. Elevation + hydrology → hypsometric coloring → VoronoiMesh → GPU buffers
-9. Relief view: vertices displaced radially by averaged elevation
+7. Elevation + latitude → atmosphere simulation → temperature, pressure, wind fields
+8. Elevation + atmosphere → hydrological simulation → rivers, lakes, drainage basins
+9. World state → hypsometric coloring → VoronoiMesh → GPU buffers
+10. Wind field → GPU particle system → animated wind visualization
+11. Relief view: vertices displaced radially by averaged elevation
 
 ### Core Types
 
@@ -113,10 +130,12 @@ Hex3 is a spherical Voronoi-based planet generator with tectonic plate simulatio
 - `Plates` - Cell-to-plate assignments
 - `Dynamics` - Plate types (Continental/Oceanic), Euler poles, velocities
 - `FeatureFields` - Per-cell tectonic feature magnitudes (trench, arc, ridge, collision, activity)
+- `Atmosphere` - Temperature, pressure, wind vectors, uplift per cell
 - `Hydrology` - River network, drainage basins, lake levels
-- `World` - Complete world state (tessellation, plates, dynamics, features, elevation, hydrology)
+- `World` - Complete world state (tessellation, plates, dynamics, features, elevation, atmosphere, hydrology)
 - `VoronoiMesh` - Triangle mesh with per-vertex colors for rendering
 - `GpuContext` - wgpu device, queue, surface configuration
+- `WindParticleSystem` - GPU compute-based particle system for wind visualization
 
 ### Tectonic Simulation
 
@@ -138,20 +157,22 @@ Boundary forcing is weighted by edge arc length and normalized by cell area for 
 - Drag: rotate globe
 - Scroll: zoom
 - Tab: toggle globe/map view
-- 1-7: Render modes:
-  - 1: Relief (default) - 3D terrain + lakes
+- 1-8: Render modes:
+  - 1: Relief (default) - 3D terrain + lakes + wind particles
   - 2: Terrain - flat terrain + lakes
   - 3: Elevation - raw elevation only
   - 4: Plates - plate boundaries and velocities
   - 5: Noise - fBm noise contribution (press again to cycle layers)
   - 6: Hydrology - flow accumulation coloring
   - 7: Features - tectonic feature fields (press again to cycle: Trench/Arc/Ridge/Collision/Activity)
+  - 8: Climate - atmosphere visualization (press again to cycle: Temperature/Wind (Surface)/Wind (Upper)/Uplift) - Stage 2+
+- W: toggle between surface and upper wind (enters Climate mode if not already) - Stage 2+
 - E: toggle edge visibility
-- V: cycle river visibility (Off/Major/All) - after Stage 2
+- V: cycle river visibility (Off/Major/All) - Stage 3+
 - H: toggle hemisphere lighting
 - R: regenerate world with new seed
-- Space: advance to next stage (Stage 2 = Hydrology)
-- Up/Down: adjust climate ratio (wetter/drier) - controls lake levels (Stage 2)
+- Space: advance to next stage (1=Lithosphere → 2=Atmosphere → 3=Hydrosphere)
+- Up/Down: adjust climate ratio (wetter/drier) - controls lake levels (Stage 3)
 - D: export world data to JSON file
 - Esc: quit
 

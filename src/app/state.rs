@@ -8,15 +8,16 @@ use winit::dpi::PhysicalSize;
 use winit::window::Window;
 
 use hex3::render::{
-    CameraController, FillPipelineKind, GpuContext, IndexedDraw, LineDraw, OrbitCamera,
-    RenderScene, Renderer, SurfaceLineDraw, Uniforms, WindParticleSystem, DEFAULT_NUM_PARTICLES,
+    CameraController, ElevationMap, FillPipelineKind, GpuContext, IndexedDraw, LineDraw,
+    OrbitCamera, RenderScene, Renderer, SurfaceLineDraw, Uniforms, WindParticleSystem,
+    DEFAULT_NUM_PARTICLES,
 };
 use hex3::world::World;
 
 use super::view::{ClimateLayer, FeatureLayer, NoiseLayer, RenderMode, RiverMode, ViewMode};
 use super::world::{
     advance_to_stage_2, advance_to_stage_3, create_world_with_options, generate_colored_mesh,
-    generate_world_buffers, WorldBuffers,
+    generate_elevation_mesh_buffers, generate_world_buffers, WorldBuffers,
 };
 
 pub struct AppState {
@@ -45,6 +46,8 @@ pub struct AppState {
 
     /// GPU wind particle system (for Climate/Wind visualization).
     pub gpu_particles: Option<WindParticleSystem>,
+    /// Elevation map texture for terrain height sampling in shaders.
+    pub elevation_map: ElevationMap,
     /// RNG for particle initialization.
     pub rng: ChaCha8Rng,
 
@@ -80,6 +83,12 @@ impl AppState {
         );
         let renderer = Renderer::new(&gpu, &initial_uniforms);
 
+        // Create elevation map and render initial elevation texture
+        let elevation_map = ElevationMap::new(&gpu.device);
+        let (elev_vertex_buf, elev_index_buf, elev_num_indices) =
+            generate_elevation_mesh_buffers(&gpu.device, &world_data);
+        elevation_map.render(&gpu, &elev_vertex_buf, &elev_index_buf, elev_num_indices);
+
         println!(
             "Total init: {:.1}ms (seed: {})",
             total_start.elapsed().as_secs_f64() * 1000.0,
@@ -112,6 +121,7 @@ impl AppState {
             climate_layer: ClimateLayer::default(),
             hemisphere_lighting: true,
             gpu_particles: None,
+            elevation_map,
             rng: ChaCha8Rng::seed_from_u64(seed),
             frame_count: 0,
             fps_update_time: Instant::now(),
@@ -135,6 +145,18 @@ impl AppState {
         self.seed = seed;
         self.rng = ChaCha8Rng::seed_from_u64(seed);
         self.gpu_particles = None; // Will be recreated on stage advance
+
+        // Re-render elevation map for the new terrain
+        self.update_elevation_map();
+    }
+
+    /// Re-render the elevation map texture with current terrain data.
+    /// Call this whenever elevation data changes (new world, stage advance, etc.)
+    fn update_elevation_map(&self) {
+        let (elev_vertex_buf, elev_index_buf, elev_num_indices) =
+            generate_elevation_mesh_buffers(&self.gpu.device, &self.world_data);
+        self.elevation_map
+            .render(&self.gpu, &elev_vertex_buf, &elev_index_buf, elev_num_indices);
     }
 
     /// Regenerate the colored mesh for the current mode/layer settings.
@@ -169,6 +191,7 @@ impl AppState {
                         atmosphere,
                         DEFAULT_NUM_PARTICLES,
                         self.renderer.bind_group_layout(),
+                        &self.elevation_map,
                         &mut self.rng,
                     ));
                 }
@@ -249,8 +272,12 @@ impl AppState {
             ViewMode::Map => Vec3::new(0.0, 0.0, 1.0),
         };
 
-        // Enable relief displacement for relief mode
-        let relief_enabled = self.render_mode.is_relief();
+        // Wind layers use relief terrain so particles match the 3D surface
+        let is_wind_layer = self.render_mode == RenderMode::Climate
+            && matches!(self.climate_layer, ClimateLayer::Wind | ClimateLayer::UpperWind);
+
+        // Enable relief displacement for relief mode and wind layers
+        let relief_enabled = self.render_mode.is_relief() || is_wind_layer;
 
         // Enable map mode for shader-based projection
         let map_mode_enabled = self.view_mode == ViewMode::Map;
@@ -261,7 +288,8 @@ impl AppState {
             .with_map_mode(map_mode_enabled);
 
         // Select pipeline and buffers based on render mode
-        let use_unified = self.render_mode == RenderMode::Relief;
+        // Wind layers use unified (relief) mesh so particles align with terrain
+        let use_unified = self.render_mode == RenderMode::Relief || is_wind_layer;
 
         let fill_pipeline = match (self.view_mode, use_unified) {
             (ViewMode::Globe, true) => FillPipelineKind::UnifiedGlobe,
@@ -369,7 +397,7 @@ impl AppState {
         // GPU wind particles: update and render when in Climate/Wind mode on Globe view
         let gpu_particles = if self.view_mode == ViewMode::Globe
             && self.render_mode == RenderMode::Climate
-            && self.climate_layer == ClimateLayer::Wind
+            && matches!(self.climate_layer, ClimateLayer::Wind | ClimateLayer::UpperWind)
         {
             if let Some(particles) = &mut self.gpu_particles {
                 // Simple per-frame update: movement is time-normalized, trail length is fixed

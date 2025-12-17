@@ -2,6 +2,13 @@
 
 This file provides context for LLM coding assistants (ChatGPT Codex, Copilot, etc.) working with this repository.
 
+## Development Environment
+
+Development is done in WSL2, but the application must be run on Windows. Compute shaders (used for the particle system) do not work properly under WSL2's GPU passthrough.
+
+- Use `cargo build` in WSL2 to verify code compiles
+- Build and run on Windows for actual execution (`cargo run --release` from Windows terminal)
+
 ## Build & Run
 
 ```bash
@@ -29,7 +36,8 @@ src/
 │   ├── convex_hull.rs  # 3D convex hull (qhull)
 │   ├── lloyd.rs        # Lloyd relaxation for even point distribution
 │   ├── sphere.rs       # Random points on unit sphere
-│   └── mesh.rs         # Voronoi → triangle mesh, map projection
+│   ├── mesh.rs         # Voronoi → triangle mesh, map projection
+│   └── gpu_voronoi.rs  # GPU-style Voronoi via half-space clipping
 ├── world/              # World generation and simulation
 │   ├── tessellation.rs # Voronoi cells + adjacency + cell areas
 │   ├── plates.rs       # Plate assignment via flood fill
@@ -37,6 +45,7 @@ src/
 │   ├── boundary.rs     # Plate boundary classification
 │   ├── features.rs     # Tectonic features (trench, arc, ridge, collision)
 │   ├── elevation.rs    # Elevation from features + noise
+│   ├── atmosphere.rs   # Atmosphere (temperature, pressure, wind)
 │   ├── hydrology.rs    # Rivers, drainage basins, lakes
 │   ├── constants.rs    # Tunable parameters
 │   └── gen.rs          # World generation orchestration
@@ -45,14 +54,19 @@ src/
 │   ├── view.rs         # Render modes, view modes
 │   ├── coloring.rs     # Cell coloring functions
 │   ├── world.rs        # GPU buffer generation
-│   └── visualization.rs# Debug visualization
+│   ├── visualization.rs# Debug visualization
+│   └── export.rs       # World data export to JSON
 ├── render/             # wgpu rendering
 │   ├── context.rs      # GPU device/surface setup
 │   ├── pipeline.rs     # Render pipeline builder
 │   ├── renderer.rs     # Main renderer
 │   ├── camera.rs       # Orbit camera with controller
-│   └── buffer.rs, uniform.rs, vertex.rs
+│   ├── buffer.rs, uniform.rs, vertex.rs
+│   └── particles.rs    # GPU wind particle system (compute shader)
 ├── shaders/            # WGSL shaders
+│   ├── unified.wgsl        # Main terrain rendering
+│   ├── wind_particles.wgsl # Compute shader for particle physics
+│   └── particle_render.wgsl# Particle trail rendering
 ├── util.rs             # Utility types (timing, etc.)
 └── main.rs             # Application entry, event loop
 ```
@@ -65,9 +79,11 @@ src/
 4. Euler pole velocities → `Dynamics` → boundary classification
 5. Boundary analysis → `FeatureFields` (trench, arc, ridge, collision, activity)
 6. Features + plate type → elevation (decay functions + multi-layer fBm noise)
-7. Elevation → hydrological simulation → rivers, lakes, drainage basins
-8. Elevation + hydrology → hypsometric coloring → `VoronoiMesh` → GPU buffers
-9. Relief view: vertices displaced radially by averaged elevation
+7. Elevation + latitude → `Atmosphere` (temperature, pressure, wind fields)
+8. Elevation + atmosphere → hydrological simulation → rivers, lakes, drainage basins
+9. World state → hypsometric coloring → `VoronoiMesh` → GPU buffers
+10. Wind field → `WindParticleSystem` → animated wind visualization
+11. Relief view: vertices displaced radially by averaged elevation
 
 ### Core Types
 
@@ -76,10 +92,12 @@ src/
 - `Plates` - Cell-to-plate assignments
 - `Dynamics` - Plate types (Continental/Oceanic), Euler poles, velocities
 - `FeatureFields` - Per-cell tectonic feature magnitudes
+- `Atmosphere` - Temperature, pressure, wind vectors, uplift per cell
 - `Hydrology` - River network, drainage basins, lake simulation
-- `World` - Complete world state
+- `World` - Complete world state (tessellation, plates, dynamics, features, elevation, atmosphere, hydrology)
 - `VoronoiMesh` - Triangle mesh with per-vertex position/normal/color
 - `GpuContext` - wgpu device, queue, surface
+- `WindParticleSystem` - GPU compute-based particle system for wind visualization
 
 ## Tectonic Simulation
 
@@ -127,20 +145,21 @@ Boundary forcing is normalized by cell area for consistent results across resolu
 - **Drag**: rotate globe
 - **Scroll**: zoom
 - **Tab**: toggle globe/map view
-- **1-7**: Render modes:
-  - 1: Relief (3D terrain + lakes)
+- **1-8**: Render modes:
+  - 1: Relief (3D terrain + lakes + wind particles)
   - 2: Terrain (flat terrain + lakes)
   - 3: Elevation (raw elevation)
   - 4: Plates (boundaries + velocities)
   - 5: Noise (fBm layers, press again to cycle)
   - 6: Hydrology (flow accumulation)
   - 7: Features (tectonic fields, press again to cycle)
+  - 8: Climate (atmosphere, press again to cycle: Temperature/Wind/Uplift) - Stage 2+
 - **E**: toggle edge visibility
-- **V**: cycle river visibility (Off/Major/All) - Stage 2
+- **V**: cycle river visibility (Off/Major/All) - Stage 3+
 - **H**: toggle hemisphere lighting
 - **R**: regenerate world (new seed)
-- **Space**: advance stage (Stage 2 = Hydrology)
-- **Up/Down**: adjust climate ratio (Stage 2)
+- **Space**: advance stage (1=Lithosphere → 2=Atmosphere → 3=Hydrosphere)
+- **Up/Down**: adjust climate ratio (wetter/drier) - Stage 3
 - **Esc**: quit
 
 Notes:
@@ -196,10 +215,11 @@ Modify `NUM_CELLS` and `NUM_PLATES` in `src/main.rs` (and `LLOYD_ITERATIONS` if 
 4. Add keyboard shortcut in `src/app/mod.rs`
 
 ### Existing render modes
-- **Relief** (1): 3D displaced terrain with hypsometric colors + lakes
+- **Relief** (1): 3D displaced terrain with hypsometric colors + lakes + wind particles
 - **Terrain** (2): Flat terrain with hypsometric colors + lakes
 - **Elevation** (3): Raw elevation (ocean blue → land green/brown → mountain white)
 - **Plates** (4): Plate colors + boundary convergence + velocity arrows + Euler poles
 - **Noise** (5): Noise layer visualization (cycle through Macro/Hills/Ridge/Micro/Combined)
 - **Hydrology** (6): Flow accumulation coloring
 - **Features** (7): Tectonic feature fields (cycle through Trench/Arc/Ridge/Collision/Activity)
+- **Climate** (8): Atmosphere visualization (cycle through Temperature/Wind/Uplift) - Stage 2+

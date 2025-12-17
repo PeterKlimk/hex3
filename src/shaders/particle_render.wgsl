@@ -3,6 +3,9 @@
 // Renders particles as line segments from trail_end to position.
 // Trail length is based on wind magnitude, not movement distance.
 // Uses instancing: each instance is one particle, 2 vertices per instance.
+//
+// Surface wind particles are displaced by sampled elevation.
+// Upper wind particles float at a fixed height above the terrain.
 
 struct Uniforms {
     view_proj: mat4x4<f32>,
@@ -25,17 +28,33 @@ struct Particle {
 
 struct ParticleUniforms {
     max_age: f32,
-    lift: f32,              // How much to lift particles above surface
-    _padding: vec2<f32>,
+    relief_scale: f32,      // Elevation displacement scale (matches terrain)
+    upper_wind_height: f32, // Fixed height for upper wind particles
+    is_surface_wind: u32,   // 1 = surface wind (sample elevation), 0 = upper wind
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 @group(1) @binding(0) var<storage, read> particles: array<Particle>;
 @group(1) @binding(1) var<uniform> particle_uniforms: ParticleUniforms;
+@group(1) @binding(2) var elevation_map: texture_2d_array<f32>;
+@group(1) @binding(3) var elevation_sampler: sampler;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) color: vec3<f32>,
+}
+
+// Sample elevation at a sphere position using explicit face/UV mapping.
+fn sample_elevation(pos: vec3<f32>) -> f32 {
+    let cube = cubemap_dir_to_face_uv01(pos);
+    return textureSampleLevel(elevation_map, elevation_sampler, cube.yz, i32(cube.x), 0.0).r;
+}
+
+// Displace a sphere position outward based on elevation.
+fn displace_by_elevation(pos: vec3<f32>, elevation: f32) -> vec3<f32> {
+    // Only displace if above sea level
+    let disp = max(elevation, 0.0) * particle_uniforms.relief_scale;
+    return pos * (1.0 + disp);
 }
 
 @vertex
@@ -46,15 +65,25 @@ fn vs_main(
     let p = particles[instance_idx];
 
     // vertex_idx 0 = trail_end (tail), vertex_idx 1 = position (head)
-    var world_pos: vec3<f32>;
+    var sphere_pos: vec3<f32>;
     if (vertex_idx == 0u) {
-        world_pos = p.trail_end;
+        sphere_pos = p.trail_end;
     } else {
-        world_pos = p.position;
+        sphere_pos = p.position;
     }
 
-    // Lift above surface to prevent z-fighting
-    world_pos = world_pos * particle_uniforms.lift;
+    // Compute displaced position based on wind layer type
+    var world_pos: vec3<f32>;
+    if (particle_uniforms.is_surface_wind == 1u) {
+        // Surface wind: sample elevation and displace
+        let elevation = sample_elevation(sphere_pos);
+        world_pos = displace_by_elevation(sphere_pos, elevation);
+        // Lift above terrain to prevent clipping
+        world_pos = world_pos + sphere_pos * 0.001;
+    } else {
+        // Upper wind: float at fixed height above sea level
+        world_pos = sphere_pos * particle_uniforms.upper_wind_height;
+    }
 
     // Age-based fade (young = bright, old = dim)
     let age_factor = 1.0 - (p.age / particle_uniforms.max_age);

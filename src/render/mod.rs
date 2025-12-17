@@ -1,6 +1,8 @@
 mod buffer;
 mod camera;
 mod context;
+mod cubemap;
+mod elevation_map;
 mod particles;
 mod pipeline;
 mod renderer;
@@ -10,6 +12,8 @@ mod vertex;
 pub use buffer::*;
 pub use camera::*;
 pub use context::*;
+pub use cubemap::*;
+pub use elevation_map::*;
 pub use particles::*;
 pub use pipeline::*;
 pub use renderer::*;
