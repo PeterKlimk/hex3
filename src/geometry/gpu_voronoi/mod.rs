@@ -13,6 +13,10 @@ mod tests;
 use glam::Vec3;
 use kiddo::ImmutableKdTree;
 
+/// Per-cell vertex data. Using Vec since SmallVec's inline storage (36 bytes × N)
+/// causes cache pressure at scale. The heap allocation overhead is acceptable.
+pub type CellVerts = Vec<([usize; 3], Vec3)>;
+
 // Re-exports
 pub use cell_builder::{
     GreatCircle, IncrementalCellBuilder, DEFAULT_K, MAX_PLANES, MAX_VERTICES,
@@ -20,6 +24,7 @@ pub use cell_builder::{
 };
 pub use dedup::dedup_vertices_hash;
 pub use dedup::dedup_vertices_hash_with_degeneracy_edges;
+pub use dedup::dedup_vertices_parallel;
 pub use knn::{CubeMapGridKnn, KnnProvider};
 
 /// Build a k-d tree from sphere points for efficient k-NN queries.
@@ -96,7 +101,7 @@ fn build_cells_data<K: KnnProvider>(
     termination: TerminationConfig,
     collect_stats: bool,
 ) -> (
-    Vec<Vec<([usize; 3], Vec3)>>,
+    Vec<CellVerts>,
     Option<CellBuildStats>,
     Vec<([usize; 3], [usize; 3])>,
 ) {
@@ -109,9 +114,8 @@ fn build_cells_data<K: KnnProvider>(
     // Stats collection path - uses same IncrementalCellBuilder but tracks stats
     use rayon::prelude::*;
 
-    #[derive(Debug)]
     struct CellResult {
-        verts: Vec<([usize; 3], Vec3)>,
+        verts: CellVerts,
         degenerate: Vec<([usize; 3], [usize; 3])>,
         neighbors_processed: usize,
         terminated: bool,
@@ -158,7 +162,7 @@ fn build_cells_data<K: KnnProvider>(
         .collect();
 
     let mut stats = CellBuildStats::default();
-    let mut cells_data: Vec<Vec<([usize; 3], Vec3)>> = Vec::with_capacity(results.len());
+    let mut cells_data: Vec<CellVerts> = Vec::with_capacity(results.len());
     let mut all_degenerate: Vec<([usize; 3], [usize; 3])> = Vec::new();
     for r in results {
         stats.total_neighbors_processed += r.neighbors_processed;
@@ -179,7 +183,7 @@ pub fn build_cells_data_incremental(
     k: usize,
     termination: TerminationConfig,
 ) -> (
-    Vec<Vec<([usize; 3], Vec3)>>,
+    Vec<CellVerts>,
     Vec<([usize; 3], [usize; 3])>,
 ) {
     use rayon::prelude::*;

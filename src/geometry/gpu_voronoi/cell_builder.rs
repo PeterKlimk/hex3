@@ -324,7 +324,7 @@ impl IncrementalCellBuilder {
     }
 
     /// Get the final vertices with their canonical triplet keys.
-    pub fn get_vertices_with_keys(&self) -> Vec<([usize; 3], Vec3)> {
+    pub fn get_vertices_with_keys(&self) -> super::CellVerts {
         #[inline]
         fn sort3(mut a: [usize; 3]) -> [usize; 3] {
             if a[0] > a[1] { a.swap(0, 1); }
@@ -348,6 +348,32 @@ impl IncrementalCellBuilder {
     #[inline]
     pub fn vertex_count(&self) -> usize {
         self.vertices.len()
+    }
+
+    /// Write vertices with keys to a provided buffer, returning the slice written.
+    /// This avoids per-cell allocation by reusing a thread-local buffer.
+    pub fn write_vertices_to_buffer<'a>(
+        &self,
+        buffer: &'a mut Vec<([usize; 3], Vec3)>,
+    ) -> &'a [([usize; 3], Vec3)] {
+        #[inline]
+        fn sort3(mut a: [usize; 3]) -> [usize; 3] {
+            if a[0] > a[1] { a.swap(0, 1); }
+            if a[1] > a[2] { a.swap(1, 2); }
+            if a[0] > a[1] { a.swap(0, 1); }
+            a
+        }
+
+        let start = buffer.len();
+        for v in &self.vertices {
+            let triplet = sort3([
+                self.generator_idx,
+                self.neighbor_indices[v.plane_a],
+                self.neighbor_indices[v.plane_b],
+            ]);
+            buffer.push((triplet, v.pos));
+        }
+        &buffer[start..]
     }
 }
 

@@ -27,6 +27,7 @@ ordered-float = "4.2"
 log = "0.4"
 env_logger = "0.11"
 rayon = "1.10"
+smallvec = "1.13"
 
 # Convex hull
 qhull-enhanced = "0.1"
