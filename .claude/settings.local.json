@@ -10,7 +10,15 @@
       "Bash(ls:*)",
       "Bash(cargo clippy:*)",
       "Bash(find:*)",
-      "Bash(cargo test:*)"
+      "Bash(cargo test:*)",
+      "Bash(timeout 120 cargo run:*)",
+      "Bash(for seed in 12345 99999 42 1337)",
+      "Bash(do:*)",
+      "Bash(echo:*)",
+      "Bash(done)",
+      "Bash(for i in 1 2 3)",
+      "Bash(cargo clean:*)",
+      "Bash(for size in 500k 750k 1m 1.25m 1.5m 1.75m 2m)"
     ]
   }
 }

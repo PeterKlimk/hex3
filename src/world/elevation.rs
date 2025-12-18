@@ -12,7 +12,7 @@
 //! - Micro: fine surface texture
 
 use glam::Vec3;
-use noise::{Fbm, MultiFractal, NoiseFn, Perlin, RidgedMulti};
+use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
 use rand::Rng;
 
 use super::constants::*;
@@ -49,7 +49,7 @@ pub struct NoiseLayerData {
 struct TerrainNoise {
     macro_fbm: Fbm<Perlin>,
     hills_fbm: Fbm<Perlin>,
-    ridge_rmf: RidgedMulti<Perlin>,
+    ridge_fbm: Fbm<Perlin>,
     micro_fbm: Fbm<Perlin>,
 }
 
@@ -58,22 +58,18 @@ impl TerrainNoise {
         Self {
             macro_fbm: Fbm::new(rng.gen()).set_octaves(MACRO_OCTAVES),
             hills_fbm: Fbm::new(rng.gen()).set_octaves(HILLS_OCTAVES),
-            ridge_rmf: RidgedMulti::new(rng.gen())
-                .set_octaves(RIDGE_OCTAVES)
-                .set_frequency(RIDGE_FREQUENCY),
+            ridge_fbm: Fbm::new(rng.gen()).set_octaves(RIDGE_OCTAVES),
             micro_fbm: Fbm::new(rng.gen()).set_octaves(MICRO_OCTAVES),
         }
     }
 
     /// Sample all four layers at a position, with modulation.
-    /// `convergent_dist` is the distance to the nearest convergent boundary (for ridge alignment).
     /// Returns (combined, macro, hills, ridge, micro) contributions.
     fn sample(
         &self,
         pos: Vec3,
         convergent: f32,
         divergent: f32,
-        convergent_dist: f32,
         is_continental: bool,
         is_underwater: bool,
     ) -> (f32, f32, f32, f32, f32) {
@@ -114,41 +110,28 @@ impl TerrainNoise {
         let hills_amp = HILLS_AMPLITUDE * hills_plate_mult * hills_orogen_suppress;
         let hills_contrib = hills_sample * hills_amp;
 
-        // Ridge layer: 1D ridged noise along strike (parallel to boundary)
-        // Uses convergent_dist as the across-strike coordinate
+        // Ridge layer: simple 3D noise, biased upward, modulated by convergence
         let ridge_contrib = {
-            if !convergent_dist.is_finite() || comp_driver < 1e-6 {
-                // No valid distance or no convergence - no ridges
-                0.0
+            let ridge_pos = pos * RIDGE_FREQUENCY as f32;
+            let ridge_raw = self.ridge_fbm.get([
+                ridge_pos.x as f64,
+                ridge_pos.y as f64,
+                ridge_pos.z as f64,
+            ]) as f32;
+
+            // Remap from observed range [-0.5, 0.5] to [0, 1]
+            let ridge_biased = (ridge_raw + 0.5).clamp(0.0, 1.0);
+
+            // Modulate by convergence so it only affects mountains
+            let mountain_factor = comp_driver;
+
+            let plate_mult = if is_continental {
+                1.0
             } else {
-                // Primary coordinate: distance from boundary (across-strike)
-                // This creates ridge bands parallel to the mountain range
-                let coord = convergent_dist * RIDGE_FREQUENCY as f32;
+                RIDGE_OCEANIC_MULT
+            };
 
-                // Add small position-based variation to break up perfect parallelism
-                let along_variation = (pos.x + pos.y * 0.7 + pos.z * 0.3) * RIDGE_ALONG_VARIATION;
-
-                // Sample 1D ridged noise (other coords just add slight variation)
-                let ridge_raw = self.ridge_rmf.get([
-                    (coord + along_variation) as f64,
-                    (along_variation * 0.5) as f64,
-                    0.0,
-                ]) as f32;
-
-                // Bias to mostly add elevation
-                let ridge_biased = ridge_raw * 0.5 + 0.4;
-
-                // Convergence envelope
-                let envelope = comp_driver.powf(RIDGE_ENVELOPE_POWER);
-
-                let plate_mult = if is_continental {
-                    1.0
-                } else {
-                    RIDGE_OCEANIC_MULT
-                };
-
-                ridge_biased * envelope * RIDGE_AMPLITUDE * plate_mult
-            }
+            ridge_biased * mountain_factor * RIDGE_AMPLITUDE * plate_mult
         };
 
         // Micro layer: surface texture (cosmetic)
@@ -429,14 +412,10 @@ fn generate_heightmap_with_noise(
         let is_underwater = structural_elevation < 0.0;
         let pos = tessellation.cell_center(i);
 
-        // Use nearest convergent boundary distance (min of collision and arc)
-        let convergent_dist = features.collision_distance[i].min(features.arc_distance[i]);
-
         let (_visual_combined, macro_c, hills_c, ridge_c, micro_c) = noise.sample(
             pos,
             convergent,
             divergent,
-            convergent_dist,
             is_continental,
             is_underwater,
         );

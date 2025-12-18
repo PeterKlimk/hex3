@@ -3,6 +3,7 @@ pub mod gpu_voronoi;
 mod lloyd;
 mod mesh;
 mod sphere;
+pub mod validation;
 mod voronoi;
 
 pub use convex_hull::*;

@@ -72,18 +72,10 @@ fn vs_main(
         sphere_pos = p.position;
     }
 
-    // Compute displaced position based on wind layer type
-    var world_pos: vec3<f32>;
-    if (particle_uniforms.is_surface_wind == 1u) {
-        // Surface wind: sample elevation and displace
-        let elevation = sample_elevation(sphere_pos);
-        world_pos = displace_by_elevation(sphere_pos, elevation);
-        // Lift above terrain to prevent clipping
-        world_pos = world_pos + sphere_pos * 0.001;
-    } else {
-        // Upper wind: float at fixed height above sea level
-        world_pos = sphere_pos * particle_uniforms.upper_wind_height;
-    }
+    // Displace by terrain elevation, lift slightly to prevent clipping
+    let elevation = sample_elevation(sphere_pos);
+    var world_pos = displace_by_elevation(sphere_pos, elevation);
+    world_pos = world_pos + sphere_pos * 0.001;
 
     // Age-based fade (young = bright, old = dim)
     let age_factor = 1.0 - (p.age / particle_uniforms.max_age);

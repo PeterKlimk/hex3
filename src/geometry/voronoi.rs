@@ -48,6 +48,18 @@ impl VoronoiCell {
             vertex_count,
         }
     }
+
+    /// Start index into the flat cell_indices buffer.
+    #[inline]
+    pub fn vertex_start(&self) -> usize {
+        self.vertex_start
+    }
+
+    /// Number of vertices for this cell.
+    #[inline]
+    pub fn vertex_count(&self) -> usize {
+        self.vertex_count
+    }
 }
 
 /// A spherical Voronoi diagram.

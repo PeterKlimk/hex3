@@ -194,23 +194,17 @@ pub const HILLS_OCEANIC_MULT: f32 = 0.2;
 /// Helps suggest rift basins/grabens in bedrock before erosion/sedimentation.
 pub const HILLS_EXT_BIAS: f32 = 0.25;
 
-// --- Ridge layer (ridged multifractal mountains) ---
-// Uses ridged multifractal noise, domain-warped, modulated by convergence + low-freq noise.
+// --- Ridge layer (mountain detail noise) ---
+// Simple 3D noise, biased upward, modulated by convergence.
 
-/// Base amplitude for ridge layer
+/// Base amplitude for ridge layer.
 pub const RIDGE_AMPLITUDE: f32 = 0.2;
-/// Octaves for ridged multifractal (2-4 typical).
-pub const RIDGE_OCTAVES: usize = 3;
-/// Base frequency for ridged multifractal noise.
-pub const RIDGE_FREQUENCY: f64 = 5.0;
+/// Octaves for ridge noise.
+pub const RIDGE_OCTAVES: usize = 2;
+/// Base frequency for ridge noise.
+pub const RIDGE_FREQUENCY: f64 = 6.0;
 /// Amplitude multiplier for oceanic plates (weaker offshore).
 pub const RIDGE_OCEANIC_MULT: f32 = 0.15;
-
-/// Along-strike variation: how much position affects the ridge pattern.
-/// Breaks up perfect parallelism. Higher = more variation along the range.
-pub const RIDGE_ALONG_VARIATION: f32 = 0.3;
-/// Envelope falloff power for convergence modulation (< 1 = broader falloff).
-pub const RIDGE_ENVELOPE_POWER: f32 = 0.7;
 
 // --- Micro layer (surface texture) ---
 /// Base amplitude for micro layer - cosmetic only.
