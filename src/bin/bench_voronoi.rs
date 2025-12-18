@@ -44,6 +44,10 @@ struct Args {
     /// Deep analysis of vertex validity for disagreements
     #[arg(long)]
     deep: bool,
+
+    /// Print detailed dedup timing breakdown
+    #[arg(long)]
+    dedup_timing: bool,
 }
 
 fn parse_count(s: &str) -> Result<usize, String> {
@@ -72,7 +76,7 @@ fn generate_points(n: usize, seed: u64) -> Vec<Vec3> {
 /// Detailed timing breakdown for each phase.
 #[derive(Debug, Clone, Copy)]
 struct PhaseTimings {
-    kdtree_ms: f64,
+    grid_ms: f64,
     knn_ms: f64,
     cell_construction_ms: f64,
     ccw_order_ms: f64,
@@ -82,127 +86,63 @@ struct PhaseTimings {
 }
 
 /// Run the voronoi computation with detailed phase timing.
+/// Uses the optimized code path with union-find degeneracy unification.
 fn benchmark_voronoi_phases(points: &[Vec3], k: usize) -> (PhaseTimings, usize, usize) {
-    use hex3::geometry::gpu_voronoi::{build_kdtree, find_k_nearest, IncrementalCellBuilder};
-    use rayon::prelude::*;
-    use rustc_hash::FxHashMap;
+    benchmark_voronoi_phases_inner(points, k, false)
+}
+
+fn benchmark_voronoi_phases_inner(points: &[Vec3], k: usize, print_dedup_timing: bool) -> (PhaseTimings, usize, usize) {
+    use hex3::geometry::gpu_voronoi::{
+        CubeMapGridKnn, TerminationConfig,
+        build_cells_data_incremental, dedup::dedup_vertices_hash_with_degeneracy_edges_timed,
+    };
 
     let n = points.len();
 
-    // Phase 1: K-D Tree construction
+    // Phase 1: CubeMapGridKnn construction
     let t0 = Instant::now();
-    let (tree, entries) = build_kdtree(points);
+    let knn = CubeMapGridKnn::new(points);
     let t1 = Instant::now();
 
-    // Phase 2: K-NN queries (parallel)
-    let knn: Vec<Vec<usize>> = (0..n)
-        .into_par_iter()
-        .map(|i| find_k_nearest(&tree, &entries, points[i], i, k))
-        .collect();
+    // Phase 2+3: Cell construction with k-NN (interleaved, parallel)
+    // This now collects degenerate triplets for targeted merge
+    let termination = TerminationConfig {
+        enabled: true,
+        check_start: 10,
+        check_step: 6,
+    };
+    let (cells_data, degenerate_edges) =
+        build_cells_data_incremental(points, &knn, k, termination);
     let t2 = Instant::now();
 
-    // Phase 3: Cell construction (parallel) - using O(k²) incremental builder
-    let cells_data: Vec<Vec<([usize; 3], Vec3)>> = (0..n)
-        .into_par_iter()
-        .map(|i| {
-            let mut builder = IncrementalCellBuilder::new(i, points[i]);
-            for &neighbor_idx in &knn[i] {
-                builder.clip(neighbor_idx, points[neighbor_idx]);
-            }
-            builder.get_vertices_with_keys()
-        })
-        .collect();
-    let t3 = Instant::now();
+    // Phase 4: CCW ordering is now a no-op (IncrementalCellBuilder maintains CCW order)
+    let t3 = t2;
 
-    // Phase 4: CCW ordering (parallel)
-    let ordered_cells: Vec<Vec<([usize; 3], Vec3)>> = cells_data
-        .into_par_iter()
-        .enumerate()
-        .map(|(i, keyed_verts)| {
-            let verts: Vec<Vec3> = keyed_verts.iter().map(|(_, v)| *v).collect();
-            let ordered_indices = order_vertices_ccw_indices(points[i], &verts);
-            ordered_indices
-                .into_iter()
-                .map(|idx| keyed_verts[idx])
-                .collect()
-        })
-        .collect();
+    // Phase 5: Vertex deduplication with union-find degeneracy unification
+    let (all_vertices, _cells, cell_indices) = dedup_vertices_hash_with_degeneracy_edges_timed(
+        n,
+        cells_data,
+        &degenerate_edges,
+        print_dedup_timing,
+    );
     let t4 = Instant::now();
 
-    // Phase 5: Vertex deduplication
-    let bits = bits_for_indices(n.saturating_sub(1));
-    let expected_vertices = n * 2;
-    let mut all_vertices: Vec<Vec3> = Vec::with_capacity(expected_vertices);
-    let mut triplet_to_index: FxHashMap<u128, usize> =
-        FxHashMap::with_capacity_and_hasher(expected_vertices, Default::default());
-
-    for ordered_keyed_verts in &ordered_cells {
-        for &(triplet, pos) in ordered_keyed_verts {
-            let key = pack_triplet_u128(triplet, bits);
-            triplet_to_index.entry(key).or_insert_with(|| {
-                let idx = all_vertices.len();
-                all_vertices.push(pos);
-                idx
-            });
-        }
-    }
+    // Phase 6: Final assembly (just counting)
+    let num_unique_vertices = all_vertices.len();
+    let total_vertex_refs = cell_indices.len();
     let t5 = Instant::now();
 
-    // Phase 6: Final assembly (count cells etc.)
-    let total_vertex_refs: usize = ordered_cells.iter().map(|c| c.len()).sum();
-    let num_unique_vertices = all_vertices.len();
-    let t6 = Instant::now();
-
     let timings = PhaseTimings {
-        kdtree_ms: (t1 - t0).as_secs_f64() * 1000.0,
-        knn_ms: (t2 - t1).as_secs_f64() * 1000.0,
-        cell_construction_ms: (t3 - t2).as_secs_f64() * 1000.0,
-        ccw_order_ms: (t4 - t3).as_secs_f64() * 1000.0,
-        dedup_ms: (t5 - t4).as_secs_f64() * 1000.0,
-        assemble_ms: (t6 - t5).as_secs_f64() * 1000.0,
-        total_ms: (t6 - t0).as_secs_f64() * 1000.0,
+        grid_ms: (t1 - t0).as_secs_f64() * 1000.0,
+        knn_ms: 0.0, // Now interleaved with cell construction
+        cell_construction_ms: (t2 - t1).as_secs_f64() * 1000.0,
+        ccw_order_ms: 0.0, // No longer needed
+        dedup_ms: (t4 - t3).as_secs_f64() * 1000.0,
+        assemble_ms: (t5 - t4).as_secs_f64() * 1000.0,
+        total_ms: (t5 - t0).as_secs_f64() * 1000.0,
     };
 
     (timings, num_unique_vertices, total_vertex_refs)
-}
-
-fn order_vertices_ccw_indices(generator: Vec3, vertices: &[Vec3]) -> Vec<usize> {
-    if vertices.len() <= 2 {
-        return (0..vertices.len()).collect();
-    }
-
-    let up = if generator.y.abs() < 0.9 {
-        Vec3::Y
-    } else {
-        Vec3::X
-    };
-    let tangent_x = generator.cross(up).normalize();
-    let tangent_y = generator.cross(tangent_x).normalize();
-
-    let mut indexed: Vec<(usize, f32)> = vertices
-        .iter()
-        .enumerate()
-        .map(|(i, &v)| {
-            let to_point = v - generator * generator.dot(v);
-            let x = to_point.dot(tangent_x);
-            let y = to_point.dot(tangent_y);
-            (i, y.atan2(x))
-        })
-        .collect();
-
-    indexed.sort_by(|a, b| a.1.total_cmp(&b.1));
-    indexed.into_iter().map(|(i, _)| i).collect()
-}
-
-#[inline]
-fn bits_for_indices(max_index: usize) -> u32 {
-    let bits = usize::BITS - max_index.leading_zeros();
-    bits.max(1)
-}
-
-#[inline]
-fn pack_triplet_u128(triplet: [usize; 3], bits: u32) -> u128 {
-    (triplet[0] as u128) | ((triplet[1] as u128) << bits) | ((triplet[2] as u128) << (2 * bits))
 }
 
 fn format_rate(count: usize, ms: f64) -> String {
@@ -230,10 +170,10 @@ fn print_results(n: usize, k: usize, timings: PhaseTimings, unique_verts: usize,
 
     println!("Phase Breakdown:");
     println!(
-        "  K-D Tree build:      {:>9.1} ms  ({:>5.1}%)  {}",
-        timings.kdtree_ms,
-        timings.kdtree_ms / total * 100.0,
-        format_rate(n, timings.kdtree_ms)
+        "  Grid build:          {:>9.1} ms  ({:>5.1}%)  {}",
+        timings.grid_ms,
+        timings.grid_ms / total * 100.0,
+        format_rate(n, timings.grid_ms)
     );
     println!(
         "  K-NN queries:        {:>9.1} ms  ({:>5.1}%)  {}",
@@ -856,7 +796,7 @@ fn main() {
         println!("  Point generation: {:.1} ms", gen_time);
 
         println!("Running benchmark...");
-        let (timings, unique_verts, total_refs) = benchmark_voronoi_phases(&points, k);
+        let (timings, unique_verts, total_refs) = benchmark_voronoi_phases_inner(&points, k, args.dedup_timing);
         print_results(n, k, timings, unique_verts, total_refs);
 
         summary.push(SummaryRow { n, timings });
@@ -872,7 +812,7 @@ fn main() {
         println!("{}", "=".repeat(90));
         println!();
         println!("{:>8} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10} | {:>12}",
-            "n", "Total", "KDTree", "KNN", "Cells", "Dedup", "Throughput");
+            "n", "Total", "Grid", "KNN", "Cells", "Dedup", "Throughput");
         println!("{:-<8}-+-{:-<10}-+-{:-<10}-+-{:-<10}-+-{:-<10}-+-{:-<10}-+-{:-<12}",
             "", "", "", "", "", "", "");
 
@@ -881,7 +821,7 @@ fn main() {
             println!("{:>8} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10} | {:>12}",
                 format_num(row.n),
                 format_ms(t.total_ms),
-                format_ms_pct(t.kdtree_ms, t.total_ms),
+                format_ms_pct(t.grid_ms, t.total_ms),
                 format_ms_pct(t.knn_ms, t.total_ms),
                 format_ms_pct(t.cell_construction_ms, t.total_ms),
                 format_ms_pct(t.dedup_ms, t.total_ms),
@@ -894,7 +834,7 @@ fn main() {
             let t = &row.timings;
             let total = t.total_ms.max(0.001);
             let phases = [
-                ("KDTree", t.kdtree_ms),
+                ("Grid", t.grid_ms),
                 ("KNN", t.knn_ms),
                 ("Cells", t.cell_construction_ms),
                 ("CCW", t.ccw_order_ms),

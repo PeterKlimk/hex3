@@ -742,122 +742,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Run with: cargo test test_incremental_builder -- --ignored --nocapture
-    fn test_incremental_builder() {
-        use crate::geometry::gpu_voronoi::{
-            build_kdtree, find_k_nearest, IncrementalCellBuilder, CellBuilder,
-        };
-
-        println!("\n=== Incremental Builder Correctness Test ===\n");
-
-        let n = 1000;
-        let k = 24;
-        let points = generate_test_points(n, 12345);
-        let (tree, entries) = build_kdtree(&points);
-
-        let mut matches = 0;
-        let mut mismatches = 0;
-
-        for i in 0..n {
-            let knn = find_k_nearest(&tree, &entries, points[i], i, k);
-
-            // Build with original builder
-            let mut orig = CellBuilder::new(i, points[i]);
-            for &neighbor_idx in &knn {
-                orig.clip(neighbor_idx, points[neighbor_idx]);
-            }
-            let orig_verts = orig.get_vertices_with_keys();
-
-            // Build with incremental builder
-            let mut incr = IncrementalCellBuilder::new(i, points[i]);
-            for &neighbor_idx in &knn {
-                incr.clip(neighbor_idx, points[neighbor_idx]);
-            }
-            let incr_verts = incr.get_vertices_with_keys();
-
-            // Compare vertex counts
-            if orig_verts.len() == incr_verts.len() {
-                matches += 1;
-            } else {
-                mismatches += 1;
-                if mismatches <= 3 {
-                    println!("Cell {}: orig={} verts, incr={} verts",
-                        i, orig_verts.len(), incr_verts.len());
-                    // Show which triplets differ
-                    let orig_set: std::collections::HashSet<_> = orig_verts.iter().map(|(t, _)| t).collect();
-                    let incr_set: std::collections::HashSet<_> = incr_verts.iter().map(|(t, _)| t).collect();
-                    let missing: Vec<_> = orig_set.difference(&incr_set).collect();
-                    let extra: Vec<_> = incr_set.difference(&orig_set).collect();
-                    if !missing.is_empty() {
-                        println!("  Missing triplets: {:?}", missing);
-                    }
-                    if !extra.is_empty() {
-                        println!("  Extra triplets: {:?}", extra);
-                    }
-                }
-            }
-        }
-
-        println!("Results: {} matches, {} mismatches out of {} cells",
-            matches, mismatches, n);
-        println!("Match rate: {:.1}%", 100.0 * matches as f64 / n as f64);
-    }
-
-    #[test]
-    #[ignore] // Run with: cargo test bench_incremental_builder -- --ignored --nocapture
-    fn bench_incremental_builder() {
-        use crate::geometry::gpu_voronoi::{
-            build_kdtree, find_k_nearest, IncrementalCellBuilder, CellBuilder,
-        };
-        use std::time::Instant;
-
-        println!("\n=== Incremental vs Original Builder Benchmark ===\n");
-
-        let n = 100_000;
-        let k = 24;
-        let points = generate_test_points(n, 12345);
-        let (tree, entries) = build_kdtree(&points);
-
-        // Pre-compute KNN for fair comparison
-        let knn: Vec<Vec<usize>> = (0..n)
-            .map(|i| find_k_nearest(&tree, &entries, points[i], i, k))
-            .collect();
-
-        println!("n={}, k={}\n", n, k);
-
-        // Benchmark original
-        let t0 = Instant::now();
-        for i in 0..n {
-            let mut builder = CellBuilder::new(i, points[i]);
-            for &neighbor_idx in &knn[i] {
-                builder.clip(neighbor_idx, points[neighbor_idx]);
-            }
-            let _ = builder.get_vertices_with_keys();
-        }
-        let orig_time = t0.elapsed().as_secs_f64() * 1000.0;
-
-        // Benchmark incremental
-        let t0 = Instant::now();
-        for i in 0..n {
-            let mut builder = IncrementalCellBuilder::new(i, points[i]);
-            for &neighbor_idx in &knn[i] {
-                builder.clip(neighbor_idx, points[neighbor_idx]);
-            }
-            let _ = builder.get_vertices_with_keys();
-        }
-        let incr_time = t0.elapsed().as_secs_f64() * 1000.0;
-
-        println!("Original builder:    {:.0}ms", orig_time);
-        println!("Incremental builder: {:.0}ms", incr_time);
-        println!("Speedup: {:.2}x", orig_time / incr_time);
-    }
-
-    #[test]
     #[ignore] // Run with: cargo test test_incremental_voronoi_validation -- --ignored --nocapture
     fn test_incremental_voronoi_validation() {
         use crate::geometry::gpu_voronoi::{
-            build_kdtree, find_k_nearest, build_cells_data_incremental, TerminationConfig,
-            dedup_vertices_hash, order_cells_ccw,
+            build_cells_data_incremental, CubeMapGridKnn, TerminationConfig,
+            dedup_vertices_hash,
         };
 
         println!("\n=== Incremental Voronoi Full Validation ===\n");
@@ -865,11 +754,7 @@ mod tests {
         let n = 10_000;
         let k = 24;
         let points = generate_test_points(n, 12345);
-        let (tree, entries) = build_kdtree(&points);
-
-        let knn: Vec<Vec<usize>> = (0..n)
-            .map(|i| find_k_nearest(&tree, &entries, points[i], i, k))
-            .collect();
+        let knn = CubeMapGridKnn::new(&points);
 
         let termination = TerminationConfig {
             enabled: true,
@@ -877,14 +762,11 @@ mod tests {
             check_step: 6,
         };
 
-        // Build with incremental
-        let cells_data = build_cells_data_incremental(&points, &knn, termination);
-
-        // Order CCW
-        let ordered = order_cells_ccw(&points, cells_data);
+        // Build with incremental (already produces CCW-ordered vertices)
+        let (cells_data, _degenerate_triplets) = build_cells_data_incremental(&points, &knn, k, termination);
 
         // Dedup vertices
-        let (vertices, cells, cell_indices) = dedup_vertices_hash(n, ordered);
+        let (vertices, cells, cell_indices) = dedup_vertices_hash(n, cells_data);
 
         // Build SphericalVoronoi
         let voronoi = crate::geometry::SphericalVoronoi::from_raw_parts(

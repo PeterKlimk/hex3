@@ -1,4 +1,5 @@
 mod convex_hull;
+pub mod cube_grid;
 pub mod gpu_voronoi;
 mod lloyd;
 mod mesh;
