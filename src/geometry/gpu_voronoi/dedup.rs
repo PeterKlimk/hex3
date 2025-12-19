@@ -4,6 +4,7 @@ use glam::Vec3;
 use rustc_hash::FxHashMap;
 
 use crate::geometry::VoronoiCell;
+use super::FlatCellsData;
 
 // 27-cell neighborhood offsets for grid-based proximity merge.
 const NEIGHBOR_OFFSETS_27: [(i32, i32, i32); 27] = [
@@ -43,115 +44,112 @@ pub fn bits_for_indices(max_index: usize) -> u32 {
 }
 
 #[inline]
-fn pack_triplet_u64(triplet: [usize; 3], bits: u32) -> u64 {
-    (triplet[0] as u64) | ((triplet[1] as u64) << bits) | ((triplet[2] as u64) << (2 * bits))
-}
-
-#[inline]
 pub fn pack_triplet_u128(triplet: [usize; 3], bits: u32) -> u128 {
     (triplet[0] as u128) | ((triplet[1] as u128) << bits) | ((triplet[2] as u128) << (2 * bits))
 }
 
-/// Hash-based vertex deduplication.
-/// Takes ordered cells with keyed vertices and produces deduplicated vertex list.
-pub fn dedup_vertices_hash(
-    num_points: usize,
-    ordered_cells: Vec<Vec<([usize; 3], Vec3)>>,
-) -> (Vec<Vec3>, Vec<VoronoiCell>, Vec<usize>) {
-    dedup_vertices_hash_with_degeneracy_edges(num_points, ordered_cells, &[])
-}
-
-/// Hash-based vertex deduplication with degeneracy unification.
-/// Uses triplet identity for the normal case, and union-find to unify triplets that
-/// correspond to the same geometric vertex under 4+ equidistant generator degeneracy.
-pub fn dedup_vertices_hash_with_degeneracy_edges(
-    num_points: usize,
-    ordered_cells: Vec<Vec<([usize; 3], Vec3)>>,
-    degenerate_edges: &[([usize; 3], [usize; 3])],
-) -> (Vec<Vec3>, Vec<VoronoiCell>, Vec<usize>) {
-    dedup_vertices_hash_with_degeneracy_edges_timed(num_points, ordered_cells, degenerate_edges, false)
-}
-
-/// Same as above but with optional timing output for profiling.
-pub fn dedup_vertices_hash_with_degeneracy_edges_timed(
-    num_points: usize,
-    ordered_cells: Vec<Vec<([usize; 3], Vec3)>>,
-    degenerate_edges: &[([usize; 3], [usize; 3])],
+/// Hash-based vertex deduplication for flat chunk data.
+/// Iterates through chunks without flattening, avoiding extra copies.
+pub fn dedup_vertices_hash_flat(
+    flat_data: FlatCellsData,
     print_timing: bool,
 ) -> (Vec<Vec3>, Vec<VoronoiCell>, Vec<usize>) {
     use std::time::Instant;
     let t0 = Instant::now();
 
-    let mut cell_starts: Vec<usize> = Vec::with_capacity(num_points + 1);
-    cell_starts.push(0);
-    let mut total_indices = 0usize;
-    for c in &ordered_cells {
-        total_indices += c.len();
-        cell_starts.push(total_indices);
-    }
+    let num_points = flat_data.num_cells();
+    let total_indices: usize = flat_data.chunks.iter()
+        .map(|c| c.counts.iter().map(|&count| count as usize).sum::<usize>())
+        .sum();
+    debug_assert_eq!(
+        total_indices,
+        flat_data.chunks.iter().map(|c| c.vertices.len()).sum::<usize>(),
+        "flat counts do not match vertex storage"
+    );
 
     let expected_vertices = num_points * 2;
     let mut all_vertices: Vec<Vec3> = Vec::with_capacity(expected_vertices);
 
-    // Per-cell triplet storage: cell_triplets[a] holds (packed_bc, vertex_idx)
-    // for all triplets [a, b, c] where a < b < c
-    // Each cell has ~3 entries on average, max ~21
-    // Start empty - small vecs don't benefit much from pre-allocation
-    let mut cell_triplets: Vec<Vec<(u64, usize)>> = vec![Vec::new(); num_points];
+    // Node pool for triplet lookup (replaces Vec<Vec<(u64, usize)>>)
+    const NIL: u32 = u32::MAX;
 
-    let mut cells: Vec<VoronoiCell> = Vec::with_capacity(num_points);
-    for generator_index in 0..num_points {
-        let vertex_start = cell_starts[generator_index];
-        let vertex_count = cell_starts[generator_index + 1] - vertex_start;
-        cells.push(VoronoiCell::new(generator_index, vertex_start, vertex_count));
+    #[repr(C)]
+    struct TripletNode {
+        bc: u64,
+        idx: u32,
+        next: u32,
     }
+
+    let mut heads: Vec<u32> = vec![NIL; num_points];
+    let mut nodes: Vec<TripletNode> = Vec::with_capacity(expected_vertices);
 
     let t1 = Instant::now();
 
-    // Pack b and c into u64: b in low 32 bits, c in high 32 bits
     #[inline(always)]
-    fn pack_bc(b: usize, c: usize) -> u64 {
+    fn pack_bc(b: u32, c: u32) -> u64 {
         (b as u64) | ((c as u64) << 32)
     }
 
     let mut cell_indices: Vec<usize> = vec![0usize; total_indices];
-    for (cell_idx, ordered_keyed_verts) in ordered_cells.into_iter().enumerate() {
-        let base = cell_starts[cell_idx];
-        for (local_i, (triplet, pos)) in ordered_keyed_verts.into_iter().enumerate() {
-            let a = triplet[0];
-            let bc = pack_bc(triplet[1], triplet[2]);
+    let mut cells: Vec<VoronoiCell> = Vec::with_capacity(num_points);
+    let mut cell_idx = 0usize;
+    let mut write_idx = 0usize;
 
-            // Linear scan of cell a's triplets (~3 entries avg, max ~21)
-            let list = &mut cell_triplets[a];
-            let mut found_idx = None;
-            for &(existing_bc, idx) in list.iter() {
-                if existing_bc == bc {
-                    found_idx = Some(idx);
-                    break;
+    // Iterate through chunks in order
+    for chunk in &flat_data.chunks {
+        let mut chunk_vert_idx = 0usize;
+        for &count in &chunk.counts {
+            let count = count as usize;
+            let base = write_idx;
+
+            for local_i in 0..count {
+                let (triplet, pos) = chunk.vertices[chunk_vert_idx + local_i];
+                let a = triplet[0] as usize;
+                let bc = pack_bc(triplet[1], triplet[2]);
+
+                // Linear scan through linked list for cell `a`
+                let mut node_id = heads[a];
+                let mut found_idx: Option<u32> = None;
+                while node_id != NIL {
+                    let node = &nodes[node_id as usize];
+                    if node.bc == bc {
+                        found_idx = Some(node.idx);
+                        break;
+                    }
+                    node_id = node.next;
                 }
+
+                let idx = match found_idx {
+                    Some(idx) => idx as usize,
+                    None => {
+                        let idx = all_vertices.len();
+                        all_vertices.push(pos);
+                        let new_id = nodes.len() as u32;
+                        nodes.push(TripletNode { bc, idx: idx as u32, next: heads[a] });
+                        heads[a] = new_id;
+                        idx
+                    }
+                };
+                cell_indices[base + local_i] = idx;
             }
 
-            let idx = match found_idx {
-                Some(idx) => idx,
-                None => {
-                    let idx = all_vertices.len();
-                    all_vertices.push(pos);
-                    list.push((bc, idx));
-                    idx
-                }
-            };
-            cell_indices[base + local_i] = idx;
+            chunk_vert_idx += count;
+            cells.push(VoronoiCell::new(cell_idx, base, count));
+            cell_idx += 1;
+            write_idx += count;
         }
     }
+    debug_assert_eq!(cell_idx, num_points);
+    debug_assert_eq!(write_idx, total_indices);
 
     let t2 = Instant::now();
 
+    let degenerate_edges = &flat_data.degenerate_edges;
     if degenerate_edges.is_empty() {
-        // No degeneracies - skip unification pass entirely
         let (deduped_cells, deduped_indices) = deduplicate_cell_indices(&cells, &cell_indices);
         let t3 = Instant::now();
         if print_timing {
-            eprintln!("  [dedup] setup: {:.1}ms, lookup: {:.1}ms, dedup_cells: {:.1}ms",
+            eprintln!("  [dedup-flat] setup: {:.1}ms, lookup: {:.1}ms, dedup_cells: {:.1}ms",
                 (t1 - t0).as_secs_f64() * 1000.0,
                 (t2 - t1).as_secs_f64() * 1000.0,
                 (t3 - t2).as_secs_f64() * 1000.0);
@@ -159,6 +157,7 @@ pub fn dedup_vertices_hash_with_degeneracy_edges_timed(
         return (all_vertices, deduped_cells, deduped_indices);
     }
 
+    // Handle degeneracy unification (same logic as original)
     #[derive(Clone)]
     struct DisjointSet {
         parent: Vec<usize>,
@@ -197,19 +196,20 @@ pub fn dedup_vertices_hash_with_degeneracy_edges_timed(
         }
     }
 
-    // Helper to lookup vertex index from triplet using cell_triplets
-    let lookup_triplet = |triplet: &[usize; 3]| -> Option<usize> {
-        let a = triplet[0];
+    let lookup_triplet = |triplet: &[u32; 3]| -> Option<usize> {
+        let a = triplet[0] as usize;
         let bc = pack_bc(triplet[1], triplet[2]);
-        for &(existing_bc, idx) in &cell_triplets[a] {
-            if existing_bc == bc {
-                return Some(idx);
+        let mut node_id = heads[a];
+        while node_id != NIL {
+            let node = &nodes[node_id as usize];
+            if node.bc == bc {
+                return Some(node.idx as usize);
             }
+            node_id = node.next;
         }
         None
     };
 
-    // Turn degeneracy edges into index unions (guarded by a distance check to tolerate false positives).
     let tol = 1e-5;
     let tol_sq = tol * tol;
     let mut pairs: Vec<(usize, usize)> = Vec::with_capacity(degenerate_edges.len());
@@ -232,7 +232,7 @@ pub fn dedup_vertices_hash_with_degeneracy_edges_timed(
         let (deduped_cells, deduped_indices) = deduplicate_cell_indices(&cells, &cell_indices);
         let t3 = Instant::now();
         if print_timing {
-            eprintln!("  [dedup] setup: {:.1}ms, lookup: {:.1}ms, dsu_prep: 0ms, dedup_cells: {:.1}ms (no unions)",
+            eprintln!("  [dedup-flat] setup: {:.1}ms, lookup: {:.1}ms, dedup_cells: {:.1}ms (no unions)",
                 (t1 - t0).as_secs_f64() * 1000.0,
                 (t2 - t1).as_secs_f64() * 1000.0,
                 (t3 - t2).as_secs_f64() * 1000.0);
@@ -254,7 +254,6 @@ pub fn dedup_vertices_hash_with_degeneracy_edges_timed(
     let t4 = Instant::now();
 
     if unions > 0 {
-        // Remap cell indices to DSU roots (no compaction - leaves unused vertices in buffer)
         for idx in cell_indices.iter_mut() {
             *idx = dsu.find(*idx);
         }
@@ -262,13 +261,12 @@ pub fn dedup_vertices_hash_with_degeneracy_edges_timed(
 
     let t5 = Instant::now();
 
-    // Deduplicate within each cell
     let (deduped_cells, deduped_indices) = deduplicate_cell_indices(&cells, &cell_indices);
 
     let t6 = Instant::now();
 
     if print_timing {
-        eprintln!("  [dedup] setup: {:.1}ms, lookup: {:.1}ms, dsu_prep: {:.1}ms, dsu_union: {:.1}ms, remap: {:.1}ms, dedup_cells: {:.1}ms ({} unions)",
+        eprintln!("  [dedup-flat] setup: {:.1}ms, lookup: {:.1}ms, dsu_prep: {:.1}ms, dsu_union: {:.1}ms, remap: {:.1}ms, dedup_cells: {:.1}ms ({} unions)",
             (t1 - t0).as_secs_f64() * 1000.0,
             (t2 - t1).as_secs_f64() * 1000.0,
             (t3 - t2).as_secs_f64() * 1000.0,

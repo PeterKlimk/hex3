@@ -6,11 +6,34 @@
 //! Queries use a best-first expansion over neighboring cells with a conservative
 //! distance lower bound per cell. Typical uniform inputs terminate after
 //! visiting a handful of cells; worst-case can fall back to brute force.
+//!
+//! Supports resumable queries: start with small k, expand to larger k without
+//! re-doing work. Uses a fixed-size candidate buffer (MAX_K) for cache efficiency.
 
 use glam::Vec3;
 use ordered_float::NotNan;
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
+
+/// Status of a k-NN query.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KnnStatus {
+    /// More neighbors may be available; query can be resumed with a larger k.
+    CanResume,
+    /// Search exhausted; no more neighbors available beyond what was returned.
+    Exhausted,
+}
+
+impl KnnStatus {
+    /// Returns true if the search is exhausted.
+    #[inline]
+    pub fn is_exhausted(self) -> bool {
+        self == KnnStatus::Exhausted
+    }
+}
+
+/// Maximum neighbors we'll ever track. Brute-force fallback fills this entire buffer.
+pub const MAX_K: usize = 48;
 
 /// Cube-map spatial grid for points on unit sphere.
 pub struct CubeMapGrid {
@@ -102,13 +125,28 @@ fn cell_to_face_ij(cell: usize, res: usize) -> (usize, usize, usize) {
 
 /// Reusable per-query scratch buffers.
 ///
+/// Uses a fixed-size sorted array for candidates (instead of a heap) for:
+/// - O(1) access to k-th distance for pruning
+/// - Cache-friendly linear scans for small k
+/// - Zero-cost resume (just slice the existing buffer)
+///
 /// For performance (especially parallel queries), prefer `CubeMapGrid::make_scratch()` and
 /// `CubeMapGrid::find_k_nearest_with_scratch()`.
 pub struct CubeMapGridScratch {
     visited_stamp: Vec<u32>,
     stamp: u32,
     cell_heap: BinaryHeap<Reverse<(NotNan<f32>, u32)>>,
-    knn_heap: BinaryHeap<(NotNan<f32>, u32)>,
+    /// Fixed-size candidate buffer, sorted by distance (ascending).
+    /// (dist_sq, point_idx)
+    candidates: [(f32, u32); MAX_K],
+    /// Number of valid candidates in the buffer.
+    candidate_count: usize,
+    /// If true, we've done a brute-force scan and have all MAX_K neighbors.
+    /// Future queries just slice the buffer - no more grid expansion needed.
+    exhausted: bool,
+    /// Track limit for resumable queries (set by find_k_nearest_resumable_into).
+    /// Used by resume_k_nearest_into to enforce consistent tracking.
+    track_limit: usize,
 }
 
 impl CubeMapGridScratch {
@@ -117,14 +155,23 @@ impl CubeMapGridScratch {
             visited_stamp: vec![0; num_cells],
             stamp: 0,
             cell_heap: BinaryHeap::new(),
-            knn_heap: BinaryHeap::new(),
+            candidates: [(f32::INFINITY, u32::MAX); MAX_K],
+            candidate_count: 0,
+            exhausted: false,
+            track_limit: MAX_K,
         }
     }
 
     #[inline]
     fn begin_query(&mut self) {
         self.cell_heap.clear();
-        self.knn_heap.clear();
+        self.candidate_count = 0;
+        self.exhausted = false;
+        self.track_limit = MAX_K;
+        // Reset candidates to infinity
+        for c in &mut self.candidates {
+            *c = (f32::INFINITY, u32::MAX);
+        }
 
         // Stamp 0 means "unvisited". Avoid ever using stamp 0 for a query.
         self.stamp = self.stamp.wrapping_add(1).max(1);
@@ -153,44 +200,74 @@ impl CubeMapGridScratch {
     }
 
     #[inline]
+    fn peek_cell(&self) -> Option<(f32, u32)> {
+        self.cell_heap.peek().map(|Reverse((bound, cell))| (bound.into_inner(), *cell))
+    }
+
+    #[inline]
     fn pop_cell(&mut self) -> Option<(f32, u32)> {
         self.cell_heap.pop().map(|Reverse((bound, cell))| (bound.into_inner(), cell))
     }
 
+    /// Get the distance to the k-th candidate (for pruning).
+    /// Returns infinity if we have fewer than k candidates.
     #[inline]
-    fn current_max_dist_sq(&self) -> Option<f32> {
-        self.knn_heap.peek().map(|(d, _)| d.into_inner())
+    fn kth_dist_sq(&self, k: usize) -> f32 {
+        if k == 0 || k > MAX_K {
+            return f32::INFINITY;
+        }
+        self.candidates[k - 1].0
     }
 
+    /// Try to add a neighbor, tracking up to `limit` candidates.
+    /// Maintains sorted order (ascending by distance).
     #[inline]
-    fn try_add_neighbor(&mut self, idx: usize, dist_sq: f32, k: usize) {
-        if dist_sq.is_nan() {
+    fn try_add_neighbor_limit(&mut self, idx: usize, dist_sq: f32, limit: usize) {
+        let limit = limit.min(MAX_K);
+        if dist_sq.is_nan() || (self.candidate_count >= limit && dist_sq >= self.candidates[limit - 1].0) {
             return;
         }
-        let Ok(d) = NotNan::new(dist_sq) else {
-            return;
-        };
+
         let idx_u32 = idx as u32;
-        if self.knn_heap.len() < k {
-            self.knn_heap.push((d, idx_u32));
+
+        // Find insertion point (binary search for sorted insert)
+        let search_end = self.candidate_count.min(limit);
+        let insert_pos = self.candidates[..search_end]
+            .partition_point(|&(d, _)| d < dist_sq);
+
+        // Check for duplicate
+        if insert_pos < self.candidate_count && self.candidates[insert_pos].1 == idx_u32 {
             return;
         }
-        if let Some((worst, _)) = self.knn_heap.peek() {
-            if d < *worst {
-                self.knn_heap.pop();
-                self.knn_heap.push((d, idx_u32));
+
+        // Shift elements right and insert
+        if insert_pos < limit {
+            let shift_end = self.candidate_count.min(limit - 1);
+            // Shift right (drop last if at limit)
+            for i in (insert_pos..shift_end).rev() {
+                self.candidates[i + 1] = self.candidates[i];
+            }
+            self.candidates[insert_pos] = (dist_sq, idx_u32);
+            if self.candidate_count < limit {
+                self.candidate_count += 1;
             }
         }
     }
 
-    fn drain_sorted_indices_into(&mut self, out: &mut Vec<usize>) {
+    /// Try to add a neighbor, tracking up to MAX_K candidates (for brute-force fill).
+    #[inline]
+    fn try_add_neighbor(&mut self, idx: usize, dist_sq: f32) {
+        self.try_add_neighbor_limit(idx, dist_sq, MAX_K);
+    }
+
+    /// Copy the first k candidate indices into output vec (sorted by distance).
+    fn copy_k_indices_into(&self, k: usize, out: &mut Vec<usize>) {
         out.clear();
-        out.reserve(self.knn_heap.len());
-        while let Some((_d, idx)) = self.knn_heap.pop() {
-            out.push(idx as usize);
+        let count = k.min(self.candidate_count);
+        out.reserve(count);
+        for i in 0..count {
+            out.push(self.candidates[i].1 as usize);
         }
-        // `knn_heap` is a max-heap by distance, so popped order is farthest → nearest.
-        out.reverse();
     }
 }
 
@@ -386,7 +463,7 @@ impl CubeMapGrid {
         if k == 0 || n <= 1 {
             return;
         }
-        let k = k.min(n - 1);
+        let k = k.min(n - 1).min(MAX_K);
 
         let num_cells = 6 * self.res * self.res;
         scratch.begin_query();
@@ -401,17 +478,16 @@ impl CubeMapGrid {
         let mut visited_cells = 0usize;
 
         while let Some((bound_dist_sq, cell_u32)) = scratch.pop_cell() {
-            if scratch.knn_heap.len() == k {
-                if let Some(worst_dist_sq) = scratch.current_max_dist_sq() {
-                    if bound_dist_sq >= worst_dist_sq {
-                        break;
-                    }
-                }
+            // Prune: if next cell's bound >= k-th best distance, we're done
+            let kth_dist = scratch.kth_dist_sq(k);
+            if scratch.candidate_count >= k && bound_dist_sq >= kth_dist {
+                break;
             }
 
             visited_cells += 1;
             if visited_cells > max_cells_before_bruteforce {
-                self.find_k_nearest_bruteforce_into(points, query, query_idx, k, scratch, out_indices);
+                self.bruteforce_fill_max_k(points, query, query_idx, scratch);
+                scratch.copy_k_indices_into(k, out_indices);
                 return;
             }
 
@@ -426,7 +502,7 @@ impl CubeMapGrid {
                     continue;
                 }
                 let dist_sq = (points[pidx] - query).length_squared();
-                scratch.try_add_neighbor(pidx, dist_sq, k);
+                scratch.try_add_neighbor_limit(pidx, dist_sq, k);
             }
 
             // Neighbor expansion: use the precomputed 3×3 neighborhood as an 8-neighbor graph.
@@ -443,12 +519,11 @@ impl CubeMapGrid {
             }
         }
 
-        if scratch.knn_heap.len() < k {
-            self.find_k_nearest_bruteforce_into(points, query, query_idx, k, scratch, out_indices);
-            return;
+        if scratch.candidate_count < k {
+            self.bruteforce_fill_max_k(points, query, query_idx, scratch);
         }
 
-        scratch.drain_sorted_indices_into(out_indices);
+        scratch.copy_k_indices_into(k, out_indices);
     }
 
     /// Scratch-based k-NN query (best-first over neighboring cells).
@@ -468,24 +543,190 @@ impl CubeMapGrid {
         out
     }
 
-    fn find_k_nearest_bruteforce_into(
+    /// Start a resumable k-NN query.
+    ///
+    /// Unlike `find_k_nearest_with_scratch_into`, this preserves scratch state so the query
+    /// can be resumed with `resume_k_nearest_into` to fetch additional neighbors.
+    ///
+    /// `track_limit` controls how many candidates we track internally. This bounds
+    /// how far we can resume: if track_limit=24, we can resume up to k=24 without
+    /// losing any neighbors. For k > track_limit, a fresh query would be needed.
+    ///
+    /// The track_limit is stored in the scratch for use by `resume_k_nearest_into`.
+    pub fn find_k_nearest_resumable_into(
         &self,
         points: &[Vec3],
         query: Vec3,
         query_idx: usize,
         k: usize,
+        track_limit: usize,
         scratch: &mut CubeMapGridScratch,
         out_indices: &mut Vec<usize>,
+    ) -> KnnStatus {
+        let n = points.len();
+        out_indices.clear();
+
+        if k == 0 || n <= 1 {
+            return KnnStatus::Exhausted;
+        }
+        let k = k.min(n - 1).min(MAX_K);
+        let track_limit = track_limit.max(k).min(MAX_K);
+
+        let num_cells = 6 * self.res * self.res;
+        scratch.begin_query();
+        scratch.track_limit = track_limit;
+
+        let start_cell = self.point_to_cell(query) as u32;
+        scratch.mark_visited(start_cell);
+        scratch.push_cell(start_cell, 0.0);
+
+        let exhausted = self.knn_search_loop_resumable(points, query, query_idx, k, track_limit, num_cells, scratch);
+
+        scratch.copy_k_indices_into(k, out_indices);
+        if exhausted { KnnStatus::Exhausted } else { KnnStatus::CanResume }
+    }
+
+    /// Resume a k-NN query to fetch additional neighbors.
+    ///
+    /// Call this after `find_k_nearest_resumable_into` when you need more neighbors.
+    /// `new_k` should be larger than the previous k value but within the original
+    /// `track_limit` (stored in scratch). If new_k > track_limit, results may be incomplete.
+    pub fn resume_k_nearest_into(
+        &self,
+        points: &[Vec3],
+        query: Vec3,
+        query_idx: usize,
+        new_k: usize,
+        scratch: &mut CubeMapGridScratch,
+        out_indices: &mut Vec<usize>,
+    ) -> KnnStatus {
+        let n = points.len();
+        out_indices.clear();
+
+        if new_k == 0 || n <= 1 {
+            return KnnStatus::Exhausted;
+        }
+        let new_k = new_k.min(n - 1).min(MAX_K);
+        let track_limit = scratch.track_limit.max(new_k).min(MAX_K);
+
+        // If already exhausted (brute force done), just slice the buffer
+        if scratch.exhausted {
+            scratch.copy_k_indices_into(new_k, out_indices);
+            return KnnStatus::Exhausted;
+        }
+
+        // If we already have enough candidates, just return them
+        if scratch.candidate_count >= new_k {
+            let kth_dist = scratch.kth_dist_sq(new_k);
+            // Check if the next cell (if any) could have closer points
+            if let Some((bound, _)) = scratch.peek_cell() {
+                if bound >= kth_dist {
+                    scratch.copy_k_indices_into(new_k, out_indices);
+                    return KnnStatus::CanResume; // Not exhausted, but have enough
+                }
+            } else {
+                // No more cells to expand
+                scratch.copy_k_indices_into(new_k, out_indices);
+                return KnnStatus::Exhausted;
+            }
+        }
+
+        let num_cells = 6 * self.res * self.res;
+        let exhausted = self.knn_search_loop_resumable(points, query, query_idx, new_k, track_limit, num_cells, scratch);
+
+        scratch.copy_k_indices_into(new_k, out_indices);
+        if exhausted { KnnStatus::Exhausted } else { KnnStatus::CanResume }
+    }
+
+    /// Core search loop for resumable queries.
+    /// Uses peek-before-pop so we can pause without losing cells.
+    ///
+    /// `track_limit` controls how many candidates we track. This bounds how far
+    /// we can resume: if track_limit=24, we can resume up to k=24 but not beyond.
+    ///
+    /// Returns `true` if exhausted (no more cells to expand or brute force done).
+    fn knn_search_loop_resumable(
+        &self,
+        points: &[Vec3],
+        query: Vec3,
+        query_idx: usize,
+        k: usize,
+        track_limit: usize,
+        num_cells: usize,
+        scratch: &mut CubeMapGridScratch,
+    ) -> bool {
+        let max_cells_before_bruteforce = (num_cells / 2).max(64);
+        let mut visited_cells = 0usize;
+
+        loop {
+            // Peek first to check if we should stop (without losing the cell)
+            let Some((bound_dist_sq, cell_u32)) = scratch.peek_cell() else {
+                return true; // No more cells - exhausted
+            };
+
+            // Prune: if next cell's bound >= k-th best distance, we can stop
+            let kth_dist = scratch.kth_dist_sq(k);
+            if scratch.candidate_count >= k && bound_dist_sq >= kth_dist {
+                return false; // Not exhausted, can resume with larger k
+            }
+
+            // Now actually pop the cell
+            scratch.pop_cell();
+
+            visited_cells += 1;
+            if visited_cells > max_cells_before_bruteforce {
+                // Fall back to brute force - fills MAX_K and marks exhausted
+                self.bruteforce_fill_max_k(points, query, query_idx, scratch);
+                return true;
+            }
+
+            let cell = cell_u32 as usize;
+            debug_assert!(cell < num_cells);
+
+            let start = self.cell_offsets[cell] as usize;
+            let end = self.cell_offsets[cell + 1] as usize;
+            for &pidx_u32 in &self.point_indices[start..end] {
+                let pidx = pidx_u32 as usize;
+                if pidx == query_idx {
+                    continue;
+                }
+                let dist_sq = (points[pidx] - query).length_squared();
+                // Track up to track_limit so we can resume within that bound
+                scratch.try_add_neighbor_limit(pidx, dist_sq, track_limit);
+            }
+
+            // Neighbor expansion
+            let base = cell * 9;
+            for &ncell in &self.neighbors[base..base + 9] {
+                if ncell == u32::MAX || ncell == cell_u32 {
+                    continue;
+                }
+                if !scratch.mark_visited(ncell) {
+                    continue;
+                }
+                let nb = self.cell_min_dist_sq(query, ncell as usize);
+                scratch.push_cell(ncell, nb);
+            }
+        }
+    }
+
+    /// Brute-force scan that fills the entire MAX_K buffer and marks exhausted.
+    /// After this, any resume just slices the existing buffer.
+    fn bruteforce_fill_max_k(
+        &self,
+        points: &[Vec3],
+        query: Vec3,
+        query_idx: usize,
+        scratch: &mut CubeMapGridScratch,
     ) {
-        scratch.knn_heap.clear();
         for (idx, p) in points.iter().enumerate() {
             if idx == query_idx {
                 continue;
             }
             let dist_sq = (*p - query).length_squared();
-            scratch.try_add_neighbor(idx, dist_sq, k);
+            scratch.try_add_neighbor(idx, dist_sq);
         }
-        scratch.drain_sorted_indices_into(out_indices);
+        scratch.exhausted = true;
     }
 
     fn compute_cell_bounds(res: usize) -> (Vec<Vec3>, Vec<f32>, Vec<f32>) {

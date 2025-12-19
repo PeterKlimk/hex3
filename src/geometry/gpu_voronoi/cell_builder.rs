@@ -2,6 +2,11 @@
 
 use glam::Vec3;
 
+/// Vertex data: (triplet key, position). Uses u32 indices to save space.
+pub type VertexData = ([u32; 3], Vec3);
+/// Vertex list for a single cell.
+pub type VertexList = Vec<VertexData>;
+
 // Epsilon values for numerical stability
 pub(crate) const EPS_PLANE_CONTAINS: f32 = 1e-10;
 pub(crate) const EPS_PLANE_CLIP: f32 = 1e-9;
@@ -72,7 +77,7 @@ pub struct IncrementalCellBuilder {
     has_degeneracy: bool,
     /// Triplet equivalence edges implied by degeneracies (for union-find unification).
     /// Each edge indicates two distinct triplets that should refer to the same vertex.
-    degenerate_edges: Vec<([usize; 3], [usize; 3])>,
+    degenerate_edges: Vec<([u32; 3], [u32; 3])>,
 }
 
 impl IncrementalCellBuilder {
@@ -112,14 +117,18 @@ impl IncrementalCellBuilder {
 
     /// Returns the triplet equivalence edges implied by degeneracies.
     #[inline]
-    pub fn degenerate_edges(&self) -> &[([usize; 3], [usize; 3])] {
+    pub fn degenerate_edges(&self) -> &[([u32; 3], [u32; 3])] {
         &self.degenerate_edges
     }
 
     /// Create a sorted triplet key from three generator indices.
     #[inline]
-    fn make_triplet(&self, a: usize, b: usize) -> [usize; 3] {
-        let mut t = [self.generator_idx, self.neighbor_indices[a], self.neighbor_indices[b]];
+    fn make_triplet(&self, a: usize, b: usize) -> [u32; 3] {
+        let mut t = [
+            self.generator_idx as u32,
+            self.neighbor_indices[a] as u32,
+            self.neighbor_indices[b] as u32,
+        ];
         if t[0] > t[1] { t.swap(0, 1); }
         if t[1] > t[2] { t.swap(1, 2); }
         if t[0] > t[1] { t.swap(0, 1); }
@@ -324,25 +333,35 @@ impl IncrementalCellBuilder {
     }
 
     /// Get the final vertices with their canonical triplet keys.
-    pub fn get_vertices_with_keys(&self) -> Vec<([usize; 3], Vec3)> {
+    pub fn get_vertices_with_keys(&self) -> VertexList {
+        let mut out = Vec::with_capacity(self.vertices.len());
+        self.get_vertices_into(&mut out);
+        out
+    }
+
+    /// Write vertices with canonical triplet keys into the provided buffer.
+    /// Returns the number of vertices written.
+    #[inline]
+    pub fn get_vertices_into(&self, out: &mut Vec<VertexData>) -> usize {
         #[inline]
-        fn sort3(mut a: [usize; 3]) -> [usize; 3] {
+        fn sort3(mut a: [u32; 3]) -> [u32; 3] {
             if a[0] > a[1] { a.swap(0, 1); }
             if a[1] > a[2] { a.swap(1, 2); }
             if a[0] > a[1] { a.swap(0, 1); }
             a
         }
 
-        let mut out = Vec::with_capacity(self.vertices.len());
+        out.reserve(self.vertices.len());
+        let count = self.vertices.len();
         for v in &self.vertices {
             let triplet = sort3([
-                self.generator_idx,
-                self.neighbor_indices[v.plane_a],
-                self.neighbor_indices[v.plane_b],
+                self.generator_idx as u32,
+                self.neighbor_indices[v.plane_a] as u32,
+                self.neighbor_indices[v.plane_b] as u32,
             ]);
             out.push((triplet, v.pos));
         }
-        out
+        count
     }
 
     #[inline]

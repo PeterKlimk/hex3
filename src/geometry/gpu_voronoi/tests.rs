@@ -17,13 +17,13 @@ fn test_incremental_builder_maintains_ccw_order() {
         check_step: 6,
     };
 
-    let (cells_data, _degenerate_triplets) = build_cells_data_incremental(&points, &knn, DEFAULT_K, termination);
+    let flat_data = build_cells_data_flat(&points, &knn, DEFAULT_K, termination);
 
     let mut already_ordered = 0;
     let mut rotated_ccw = 0;  // CCW but starting from different vertex
     let mut reversed = 0;     // CW order (needs reversal)
 
-    for (i, keyed_verts) in cells_data.iter().enumerate() {
+    for (i, keyed_verts) in flat_data.iter_cells().enumerate() {
         let n = keyed_verts.len();
         if n < 3 {
             continue;
@@ -310,375 +310,18 @@ fn accuracy_audit() {
     }
 }
 
+/// Test that degeneracy detection finds cases where 4+ generators are equidistant.
 #[test]
-#[ignore] // Run with: cargo test accuracy_lloyd -- --ignored --nocapture
-fn accuracy_lloyd() {
-    use crate::geometry::{
-        fibonacci_sphere_points_with_rng, lloyd_relax_kmeans, SphericalVoronoi,
-    };
-    use rand::SeedableRng;
-    use rand_chacha::ChaCha8Rng;
-
-    println!("\n=== Accuracy: Lloyd-relaxed vs Random points ===\n");
-
-    for &n in &[1000, 5000, 10000] {
-        let mut rng = ChaCha8Rng::seed_from_u64(12345);
-
-        // Random points
-        let random_points = random_sphere_points(n);
-        let hull_random = SphericalVoronoi::compute(&random_points);
-        let gpu_random = compute_voronoi_gpu_style(&random_points, DEFAULT_K);
-
-        let random_exact = (0..n)
-            .filter(|&i| hull_random.cell(i).len() == gpu_random.cell(i).len())
-            .count();
-
-        // Lloyd-relaxed points (like actual world generation)
-        let mean_spacing = (4.0 * std::f32::consts::PI / n as f32).sqrt();
-        let jitter = mean_spacing * 0.25;
-        let mut lloyd_points = fibonacci_sphere_points_with_rng(n, jitter, &mut rng);
-        lloyd_relax_kmeans(&mut lloyd_points, 2, 20, &mut rng);
-
-        let hull_lloyd = SphericalVoronoi::compute(&lloyd_points);
-        let gpu_lloyd = compute_voronoi_gpu_style(&lloyd_points, DEFAULT_K);
-
-        let lloyd_exact = (0..n)
-            .filter(|&i| hull_lloyd.cell(i).len() == gpu_lloyd.cell(i).len())
-            .count();
-
-        println!("n = {}:", n);
-        println!(
-            "  Random points:  {}/{} exact ({:.1}%)",
-            random_exact,
-            n,
-            random_exact as f64 / n as f64 * 100.0
-        );
-        println!(
-            "  Lloyd-relaxed:  {}/{} exact ({:.1}%)",
-            lloyd_exact,
-            n,
-            lloyd_exact as f64 / n as f64 * 100.0
-        );
-
-        // For Lloyd, also check total vertex difference
-        let hull_total: usize = hull_lloyd.iter_cells().map(|c| c.len()).sum();
-        let gpu_total: usize = gpu_lloyd.iter_cells().map(|c| c.len()).sum();
-        println!(
-            "  Lloyd total verts: hull={}, gpu={} (diff={})",
-            hull_total,
-            gpu_total,
-            gpu_total as i32 - hull_total as i32
-        );
-
-        // Check with higher k
-        let gpu_k64 = compute_voronoi_gpu_style(&lloyd_points, 64);
-        let k64_exact = (0..n)
-            .filter(|&i| hull_lloyd.cell(i).len() == gpu_k64.cell(i).len())
-            .count();
-        let gpu_k64_total: usize = gpu_k64.iter_cells().map(|c| c.len()).sum();
-        println!(
-            "  Lloyd k=64:     {}/{} exact ({:.1}%), total verts={}",
-            k64_exact,
-            n,
-            k64_exact as f64 / n as f64 * 100.0,
-            gpu_k64_total
-        );
-        println!();
-    }
-}
-
-#[test]
-#[ignore] // Run with: cargo test benchmark_methods -- --ignored --nocapture
-fn benchmark_methods() {
-    println!("\n=== Voronoi Method Benchmark ===\n");
-
-    for &n in &[100, 500, 1000, 5000, 10000] {
-        let iterations = if n <= 1000 { 10 } else { 3 };
-        let (hull, gpu) = benchmark_voronoi(n, DEFAULT_K, iterations);
-
-        println!("n = {}:", n);
-        println!(
-            "  {:20} {:8.2} ms  (avg {:.1} verts/cell, {} cells ok)",
-            hull.method, hull.time_ms, hull.avg_vertices_per_cell, hull.cells_with_vertices
-        );
-        println!(
-            "  {:20} {:8.2} ms  (avg {:.1} verts/cell, {} cells ok)",
-            gpu.method, gpu.time_ms, gpu.avg_vertices_per_cell, gpu.cells_with_vertices
-        );
-        println!("  Speedup: {:.2}x", hull.time_ms / gpu.time_ms);
-        println!();
-    }
-}
-
-#[test]
-#[ignore] // Run with: cargo test benchmark_extended -- --ignored --nocapture
-fn benchmark_extended() {
-    println!("\n=== Extended Voronoi Benchmark ===\n");
-
-    // Test larger scales
-    println!("--- Large Scale ---");
-    for &n in &[20000, 50000, 100000] {
-        let iterations = 1;
-        let (hull, gpu) = benchmark_voronoi(n, DEFAULT_K, iterations);
-
-        println!("n = {}:", n);
-        println!(
-            "  {:20} {:8.2} ms  (avg {:.1} verts/cell)",
-            hull.method, hull.time_ms, hull.avg_vertices_per_cell
-        );
-        println!(
-            "  {:20} {:8.2} ms  (avg {:.1} verts/cell)",
-            gpu.method, gpu.time_ms, gpu.avg_vertices_per_cell
-        );
-        println!("  Speedup: {:.2}x", hull.time_ms / gpu.time_ms);
-        println!();
-    }
-
-    // Test effect of k parameter
-    println!("--- Effect of k (n=10000) ---");
-    for &k in &[16, 24, 32, 48, 64] {
-        let (hull, gpu) = benchmark_voronoi(10000, k, 3);
-        println!(
-            "k = {:2}: GPU-style {:6.2} ms (avg {:.1} verts), hull {:6.2} ms, speedup {:.2}x",
-            k,
-            gpu.time_ms,
-            gpu.avg_vertices_per_cell,
-            hull.time_ms,
-            hull.time_ms / gpu.time_ms
-        );
-    }
-}
-
-#[test]
-#[ignore] // Run with: cargo test profile_80k -- --ignored --nocapture
-fn profile_80k() {
-    use crate::geometry::{fibonacci_sphere_points_with_rng, lloyd_relax_kmeans};
-    use rand::SeedableRng;
-    use rand_chacha::ChaCha8Rng;
-
-    println!("\n=== GPU-style Voronoi Profiling (80k Lloyd-relaxed) ===\n");
-
-    let n = 80000;
-    let mut rng = ChaCha8Rng::seed_from_u64(12345);
-
-    let mean_spacing = (4.0 * std::f32::consts::PI / n as f32).sqrt();
-    let jitter = mean_spacing * 0.25;
-    let mut points = fibonacci_sphere_points_with_rng(n, jitter, &mut rng);
-    lloyd_relax_kmeans(&mut points, 2, 20, &mut rng);
-
-    // Run with timing
-    let _ = compute_voronoi_gpu_style_timed(&points, DEFAULT_K, true);
-}
-
-#[test]
-#[ignore] // Run with: cargo test benchmark_lloyd_80k -- --ignored --nocapture
-fn benchmark_lloyd_80k() {
-    use crate::geometry::{
-        fibonacci_sphere_points_with_rng, lloyd_relax_kmeans, SphericalVoronoi,
-    };
-    use rand::SeedableRng;
-    use rand_chacha::ChaCha8Rng;
-    use std::time::Instant;
-
-    println!("\n=== Lloyd-Relaxed 80k Benchmark (Production Use Case) ===\n");
-
-    let n = 80000;
-    let mut rng = ChaCha8Rng::seed_from_u64(12345);
-
-    // Generate Lloyd-relaxed points (same as world generation)
-    let mean_spacing = (4.0 * std::f32::consts::PI / n as f32).sqrt();
-    let jitter = mean_spacing * 0.25;
-    let mut points = fibonacci_sphere_points_with_rng(n, jitter, &mut rng);
-    lloyd_relax_kmeans(&mut points, 2, 20, &mut rng);
-
-    println!("Generated {} Lloyd-relaxed points\n", n);
-
-    // Benchmark convex hull method
-    let start = Instant::now();
-    let hull_voronoi = SphericalVoronoi::compute(&points);
-    let hull_time = start.elapsed().as_secs_f64() * 1000.0;
-    println!("Convex Hull: {:.1} ms", hull_time);
-
-    // Benchmark GPU-style with varying k
-    println!("\nGPU-style with varying k:");
-    for &k in &[16, 20, 24, 28, 32, 40, 48] {
-        let start = Instant::now();
-        let gpu_voronoi = compute_voronoi_gpu_style(&points, k);
-        let gpu_time = start.elapsed().as_secs_f64() * 1000.0;
-
-        // Check accuracy (cells with correct vertex count)
-        let correct = (0..n)
-            .filter(|&i| hull_voronoi.cell(i).len() == gpu_voronoi.cell(i).len())
-            .count();
-
-        // Check for problem cells
-        let bad_cells = gpu_voronoi.iter_cells().filter(|c| c.len() < 3).count();
-
-        let speedup = hull_time / gpu_time;
-        println!(
-            "  k={:2}: {:6.1} ms ({:.2}x) | accuracy: {:.1}% | bad cells: {}",
-            k,
-            gpu_time,
-            speedup,
-            correct as f64 / n as f64 * 100.0,
-            bad_cells
-        );
-    }
-}
-
-#[test]
-#[ignore] // Run with: cargo test benchmark_merge_cost -- --ignored --nocapture
-fn benchmark_merge_cost() {
-    use std::time::Instant;
-
-    println!("\n=== merge_coincident_vertices Cost Analysis ===\n");
-
-    for &n in &[10_000, 50_000, 100_000, 500_000, 1_000_000] {
-        let points = random_sphere_points(n);
-        let knn = CubeMapGridKnn::new(&points);
-        let termination = TerminationConfig {
-            enabled: true,
-            check_start: 10,
-            check_step: 6,
-        };
-
-        // Build cells
-        let (cells_data, _degenerate_edges) =
-            build_cells_data_incremental(&points, &knn, DEFAULT_K, termination);
-
-        // Collect all vertices with triplet keys (simulating first part of dedup)
-        let bits = super::dedup::bits_for_indices(n.saturating_sub(1));
-        let mut all_vertices: Vec<Vec3> = Vec::new();
-        let mut triplet_to_index: rustc_hash::FxHashMap<u128, usize> =
-            rustc_hash::FxHashMap::default();
-
-        for keyed_verts in &cells_data {
-            for (triplet, pos) in keyed_verts {
-                let key = super::dedup::pack_triplet_u128(*triplet, bits);
-                triplet_to_index.entry(key).or_insert_with(|| {
-                    let idx = all_vertices.len();
-                    all_vertices.push(*pos);
-                    idx
-                });
-            }
-        }
-
-        let num_unique_verts = all_vertices.len();
-
-        // Time the merge pass
-        let t0 = Instant::now();
-        let (merged, remap) = super::dedup::merge_coincident_vertices(&all_vertices, 1e-5);
-        let merge_time_ms = t0.elapsed().as_secs_f64() * 1000.0;
-
-        let merged_count = num_unique_verts - merged.len();
-        let merge_rate = merged_count as f64 / num_unique_verts as f64 * 100.0;
-
-        println!(
-            "n={:>7}: {:>7} unique verts -> {:>7} merged ({:>5} removed, {:.3}%) in {:6.1}ms",
-            n, num_unique_verts, merged.len(), merged_count, merge_rate, merge_time_ms
-        );
-
-        // Also check how many remaps are non-identity
-        let non_identity = remap.iter().enumerate().filter(|(i, &v)| *i != v).count();
-        if non_identity > 0 {
-            println!("         {} indices remapped", non_identity);
-        }
-    }
-}
-
-#[test]
-#[ignore] // Run with: cargo test test_degeneracy_heuristic -- --ignored --nocapture
-fn test_degeneracy_heuristic() {
-    // Test that the degeneracy heuristic correctly identifies when merge pass is needed.
-    // Random points should rarely have 4+ equidistant generators.
-    use rand::{SeedableRng, rngs::StdRng};
+fn test_degeneracy_detection() {
+    use rand::{rngs::StdRng, SeedableRng};
     use crate::geometry::random_sphere_points_with_rng;
 
-    println!("\nDegeneracy heuristic test:");
-    println!("Tests whether random points trigger degeneracy detection.\n");
+    // Run with a few seeds and sizes - degeneracy is rare in random points
+    let test_cases = [(1000, 12345u64), (5000, 99999)];
 
-    let sizes = [500, 1_000, 5_000, 10_000, 50_000];
-    let seeds = [12345u64, 99999, 42, 1337, 7654321];
-
-    let mut total_detected = 0;
-    let mut total_missed = 0;
-    let mut total_false_positives = 0;
-    let mut total_no_op = 0;
-
-    for &n in &sizes {
-        println!("n={}:", n);
-        for &seed in &seeds {
-            let mut rng = StdRng::seed_from_u64(seed);
-            let points = random_sphere_points_with_rng(n, &mut rng);
-            let knn = CubeMapGridKnn::new(&points);
-            let termination = TerminationConfig {
-                enabled: true,
-                check_start: 10,
-                check_step: 6,
-            };
-
-            let (cells_data, degenerate_edges) =
-                build_cells_data_incremental(&points, &knn, DEFAULT_K, termination);
-            let has_degeneracy = !degenerate_edges.is_empty();
-
-            // Check how many vertices would actually be merged
-            let bits = super::dedup::bits_for_indices(n.saturating_sub(1));
-            let mut all_vertices: Vec<Vec3> = Vec::new();
-            let mut triplet_to_index: rustc_hash::FxHashMap<u128, usize> =
-                rustc_hash::FxHashMap::default();
-
-            for keyed_verts in &cells_data {
-                for (triplet, pos) in keyed_verts {
-                    let key = super::dedup::pack_triplet_u128(*triplet, bits);
-                    triplet_to_index.entry(key).or_insert_with(|| {
-                        let idx = all_vertices.len();
-                        all_vertices.push(*pos);
-                        idx
-                    });
-                }
-            }
-
-            let (merged, _remap) = super::dedup::merge_coincident_vertices(&all_vertices, 1e-5);
-            let merged_count = all_vertices.len() - merged.len();
-
-            let status = if has_degeneracy && merged_count > 0 {
-                total_detected += 1;
-                "✓ detected"
-            } else if !has_degeneracy && merged_count == 0 {
-                total_no_op += 1;
-                "✓ no-op"
-            } else if !has_degeneracy && merged_count > 0 {
-                total_missed += 1;
-                "✗ MISSED"
-            } else {
-                total_false_positives += 1;
-                "~ false positive"
-            };
-
-            println!(
-                "  seed={:>7}: degeneracy={:>5} ({:>4} triplets), merges={:>3} -> {}",
-                seed, has_degeneracy, degenerate_edges.len(), merged_count, status
-            );
-        }
-    }
-
-    println!("\nSummary: {} detected, {} no-op, {} missed, {} false positives",
-        total_detected, total_no_op, total_missed, total_false_positives);
-}
-
-#[test]
-#[ignore] // Run with: cargo test benchmark_targeted_merge -- --ignored --nocapture
-fn benchmark_targeted_merge() {
-    // Compare full merge vs targeted merge performance
-    use std::time::Instant;
-
-    println!("\nTargeted merge benchmark:");
-    println!("Comparing full merge (all vertices) vs targeted merge (degenerate only)\n");
-
-    let sizes = [10_000, 50_000, 100_000, 500_000, 1_000_000];
-
-    for &n in &sizes {
-        let points = random_sphere_points(n);
+    for (n, seed) in test_cases {
+        let mut rng = StdRng::seed_from_u64(seed);
+        let points = random_sphere_points_with_rng(n, &mut rng);
         let knn = CubeMapGridKnn::new(&points);
         let termination = TerminationConfig {
             enabled: true,
@@ -686,58 +329,14 @@ fn benchmark_targeted_merge() {
             check_step: 6,
         };
 
-        let (cells_data, degenerate_edges) =
-            build_cells_data_incremental(&points, &knn, DEFAULT_K, termination);
+        let flat_data = build_cells_data_flat(&points, &knn, DEFAULT_K, termination);
 
-        // Collect all vertices with triplet keys
-        let bits = super::dedup::bits_for_indices(n.saturating_sub(1));
-        let mut all_vertices: Vec<Vec3> = Vec::new();
-        let mut triplet_to_index: rustc_hash::FxHashMap<u128, usize> =
-            rustc_hash::FxHashMap::default();
-
-        for keyed_verts in &cells_data {
-            for (triplet, pos) in keyed_verts {
-                let key = super::dedup::pack_triplet_u128(*triplet, bits);
-                triplet_to_index.entry(key).or_insert_with(|| {
-                    let idx = all_vertices.len();
-                    all_vertices.push(*pos);
-                    idx
-                });
-            }
-        }
-
-        let num_verts = all_vertices.len();
-        let num_edges = degenerate_edges.len();
-        let num_degenerate = num_edges;
-
-        // Time full merge
-        let t0 = Instant::now();
-        let (full_merged, _) = super::dedup::merge_coincident_vertices(&all_vertices, 1e-5);
-        let full_time_ms = t0.elapsed().as_secs_f64() * 1000.0;
-        let full_merge_count = num_verts - full_merged.len();
-
-        // Time targeted merge (simulated - using full merge on degenerate subset)
-        // For a true comparison, we need to implement a test version
-        let t1 = Instant::now();
-        // Only merge a sampled subset (edges imply degeneracy sites).
-        // This is not comparable to DSU unification but gives a rough upper bound on subset merge cost.
-        let mut sampled: Vec<Vec3> = Vec::with_capacity(num_edges.min(10_000));
-        for (t1, _t2) in degenerate_edges.iter().take(10_000) {
-            let key = super::dedup::pack_triplet_u128(*t1, bits);
-            if let Some(&idx) = triplet_to_index.get(&key) {
-                sampled.push(all_vertices[idx]);
-            }
-        }
-        let (_, _) = super::dedup::merge_coincident_vertices(&sampled, 1e-5);
-        let targeted_time_ms = t1.elapsed().as_secs_f64() * 1000.0;
-
-        let speedup = full_time_ms / targeted_time_ms.max(0.001);
-
-        println!(
-            "n={:>7}: {:>7} verts, {:>5} degenerate ({:.2}%), full={:6.1}ms, targeted={:6.1}ms, speedup={:.1}x, merges={}",
-            n, num_verts, num_degenerate,
-            num_degenerate as f64 / num_verts as f64 * 100.0,
-            full_time_ms, targeted_time_ms, speedup, full_merge_count
+        // Degeneracy count should be small for random points
+        // This mostly tests that the code runs without panicking
+        assert!(
+            flat_data.degenerate_edges.len() < n / 10,
+            "Too many degenerate edges for random points: {}",
+            flat_data.degenerate_edges.len()
         );
     }
 }

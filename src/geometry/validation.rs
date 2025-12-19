@@ -346,7 +346,6 @@ pub fn analyze_knn_coverage(
     k: usize,
 ) -> KnnCoverageAnalysis {
     use super::gpu_voronoi::{build_kdtree, find_k_nearest, compute_voronoi_gpu_style};
-    use glam::Vec3;
 
     let voronoi = compute_voronoi_gpu_style(points, k);
     let result = validate_voronoi(&voronoi, 1e-6);
@@ -745,8 +744,8 @@ mod tests {
     #[ignore] // Run with: cargo test test_incremental_voronoi_validation -- --ignored --nocapture
     fn test_incremental_voronoi_validation() {
         use crate::geometry::gpu_voronoi::{
-            build_cells_data_incremental, CubeMapGridKnn, TerminationConfig,
-            dedup_vertices_hash,
+            build_cells_data_flat, CubeMapGridKnn, TerminationConfig,
+            dedup::dedup_vertices_hash_flat,
         };
 
         println!("\n=== Incremental Voronoi Full Validation ===\n");
@@ -762,11 +761,11 @@ mod tests {
             check_step: 6,
         };
 
-        // Build with incremental (already produces CCW-ordered vertices)
-        let (cells_data, _degenerate_triplets) = build_cells_data_incremental(&points, &knn, k, termination);
+        // Build with flat buffers (already produces CCW-ordered vertices)
+        let flat_data = build_cells_data_flat(&points, &knn, k, termination);
 
         // Dedup vertices
-        let (vertices, cells, cell_indices) = dedup_vertices_hash(n, cells_data);
+        let (vertices, cells, cell_indices) = dedup_vertices_hash_flat(flat_data, false);
 
         // Build SphericalVoronoi
         let voronoi = crate::geometry::SphericalVoronoi::from_raw_parts(
