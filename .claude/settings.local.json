@@ -20,7 +20,11 @@
       "Bash(cargo clean:*)",
       "Bash(for size in 500k 750k 1m 1.25m 1.5m 1.75m 2m)",
       "Bash(cargo add:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(grep:*)",
+      "Bash(timeout 3:*)",
+      "Bash(target/release/bench_voronoi.exe:*)",
+      "Bash(timeout 60 target/release/bench_voronoi.exe:*)"
     ]
   }
 }

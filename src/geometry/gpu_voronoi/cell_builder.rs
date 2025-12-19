@@ -8,10 +8,10 @@ pub type VertexData = ([u32; 3], Vec3);
 pub type VertexList = Vec<VertexData>;
 
 // Epsilon values for numerical stability
-pub(crate) const EPS_PLANE_CONTAINS: f32 = 1e-10;
-pub(crate) const EPS_PLANE_CLIP: f32 = 1e-9;
-pub(crate) const EPS_PLANE_PARALLEL: f32 = 1e-10;
-pub(crate) const EPS_TERMINATION_MARGIN: f32 = 1e-6;
+pub(crate) const EPS_PLANE_CONTAINS: f32 = 1e-7;
+pub(crate) const EPS_PLANE_CLIP: f32 = 1e-7;
+pub(crate) const EPS_PLANE_PARALLEL: f32 = 1e-8;
+pub(crate) const EPS_TERMINATION_MARGIN: f32 = 1e-7;
 
 /// Maximum number of neighbors to consider per cell.
 pub const DEFAULT_K: usize = 24;
@@ -57,10 +57,6 @@ struct CellVertex {
     plane_b: usize,
 }
 
-/// Epsilon for detecting degenerate vertices (4+ equidistant generators).
-/// Set to match the merge tolerance in dedup.rs to avoid missing cases.
-const EPS_DEGENERACY: f32 = 1e-5;
-
 /// Incremental cell builder using ordered polygon clipping.
 /// O(n) per plane addition instead of O(n³) brute-force.
 #[derive(Debug, Clone)]
@@ -73,11 +69,14 @@ pub struct IncrementalCellBuilder {
     edge_planes: Vec<usize>,
     tmp_vertices: Vec<CellVertex>,
     tmp_edge_planes: Vec<usize>,
-    /// True if any vertex lies exactly on a clipping plane (4+ equidistant generators).
-    has_degeneracy: bool,
-    /// Triplet equivalence edges implied by degeneracies (for union-find unification).
-    /// Each edge indicates two distinct triplets that should refer to the same vertex.
-    degenerate_edges: Vec<([u32; 3], [u32; 3])>,
+    /// True once a seed polygon has been initialized.
+    seeded: bool,
+    /// True if clipping has already eliminated the cell (intersection empty).
+    dead: bool,
+    /// Debug: number of triplets tried before finding a valid seed (0 = never seeded)
+    pub triplets_tried: usize,
+    /// Debug: true if cell was seeded but then died during clipping
+    pub died_after_seeding: bool,
 }
 
 impl IncrementalCellBuilder {
@@ -91,8 +90,10 @@ impl IncrementalCellBuilder {
             edge_planes: Vec::with_capacity(MAX_VERTICES),
             tmp_vertices: Vec::with_capacity(MAX_VERTICES),
             tmp_edge_planes: Vec::with_capacity(MAX_VERTICES),
-            has_degeneracy: false,
-            degenerate_edges: Vec::new(),
+            seeded: false,
+            dead: false,
+            triplets_tried: 0,
+            died_after_seeding: false,
         }
     }
 
@@ -105,38 +106,25 @@ impl IncrementalCellBuilder {
         self.edge_planes.clear();
         self.tmp_vertices.clear();
         self.tmp_edge_planes.clear();
-        self.has_degeneracy = false;
-        self.degenerate_edges.clear();
+        self.seeded = false;
+        self.dead = false;
+        self.triplets_tried = 0;
+        self.died_after_seeding = false;
     }
 
-    /// Returns true if a degeneracy was detected (vertex exactly on a clipping plane).
+    /// Returns true if this neighbor has already been clipped into the cell.
     #[inline]
-    pub fn has_degeneracy(&self) -> bool {
-        self.has_degeneracy
-    }
-
-    /// Returns the triplet equivalence edges implied by degeneracies.
-    #[inline]
-    pub fn degenerate_edges(&self) -> &[([u32; 3], [u32; 3])] {
-        &self.degenerate_edges
-    }
-
-    /// Create a sorted triplet key from three generator indices.
-    #[inline]
-    fn make_triplet(&self, a: usize, b: usize) -> [u32; 3] {
-        let mut t = [
-            self.generator_idx as u32,
-            self.neighbor_indices[a] as u32,
-            self.neighbor_indices[b] as u32,
-        ];
-        if t[0] > t[1] { t.swap(0, 1); }
-        if t[1] > t[2] { t.swap(1, 2); }
-        if t[0] > t[1] { t.swap(0, 1); }
-        t
+    pub fn has_neighbor(&self, neighbor_idx: usize) -> bool {
+        self.neighbor_indices.contains(&neighbor_idx)
     }
 
     #[inline]
-    fn intersect_planes_valid(&self, plane_a: usize, plane_b: usize) -> Option<Vec3> {
+    fn intersect_planes_in_triplet(
+        &self,
+        plane_a: usize,
+        plane_b: usize,
+        plane_c: usize,
+    ) -> Option<Vec3> {
         let n_a = self.planes[plane_a].normal;
         let n_b = self.planes[plane_b].normal;
         let cross = n_a.cross(n_b);
@@ -154,10 +142,7 @@ impl IncrementalCellBuilder {
         };
 
         for v in [primary, secondary] {
-            let inside_all = self.planes.iter().enumerate().all(|(k, plane)| {
-                k == plane_a || k == plane_b || plane.signed_distance(v) >= -EPS_PLANE_CLIP
-            });
-            if inside_all {
+            if self.planes[plane_c].signed_distance(v) >= -EPS_PLANE_CLIP {
                 return Some(v);
             }
         }
@@ -173,55 +158,120 @@ impl IncrementalCellBuilder {
         p.normalize()
     }
 
-    /// Add a new plane (neighbor's bisector) and clip the cell. O(n).
-    pub fn clip(&mut self, neighbor_idx: usize, neighbor: Vec3) {
-        let new_plane = GreatCircle::bisector(self.generator, neighbor);
-        let new_plane_idx = self.planes.len();
-        self.planes.push(new_plane);
-        self.neighbor_indices.push(neighbor_idx);
+    fn seed_from_triplet(&mut self, a: usize, b: usize, c: usize) -> bool {
+        let v0 = match self.intersect_planes_in_triplet(a, b, c) {
+            Some(v) => v,
+            None => return false,
+        };
+        let v1 = match self.intersect_planes_in_triplet(b, c, a) {
+            Some(v) => v,
+            None => return false,
+        };
+        let v2 = match self.intersect_planes_in_triplet(c, a, b) {
+            Some(v) => v,
+            None => return false,
+        };
 
-        if self.planes.len() < 3 {
-            return;
-        }
-        if self.planes.len() == 3 {
-            let v0 = match self.intersect_planes_valid(0, 1) {
-                Some(v) => v,
-                None => return,
-            };
-            let v1 = match self.intersect_planes_valid(1, 2) {
-                Some(v) => v,
-                None => return,
-            };
-            let v2 = match self.intersect_planes_valid(2, 0) {
-                Some(v) => v,
-                None => return,
-            };
-
-            let edge1 = v1 - v0;
-            let edge2 = v2 - v0;
-            let normal = edge1.cross(edge2);
-
-            if normal.dot(self.generator) >= 0.0 {
-                self.vertices.clear();
-                self.vertices.push(CellVertex { pos: v0, plane_a: 0, plane_b: 1 });
-                self.vertices.push(CellVertex { pos: v1, plane_a: 1, plane_b: 2 });
-                self.vertices.push(CellVertex { pos: v2, plane_a: 2, plane_b: 0 });
-                self.edge_planes.clear();
-                self.edge_planes.push(1);
-                self.edge_planes.push(2);
-                self.edge_planes.push(0);
-            } else {
-                self.vertices.clear();
-                self.vertices.push(CellVertex { pos: v0, plane_a: 0, plane_b: 1 });
-                self.vertices.push(CellVertex { pos: v2, plane_a: 2, plane_b: 0 });
-                self.vertices.push(CellVertex { pos: v1, plane_a: 1, plane_b: 2 });
-                self.edge_planes.clear();
-                self.edge_planes.push(0);
-                self.edge_planes.push(2);
-                self.edge_planes.push(1);
+        // CRITICAL FIX: Check that all 3 vertices satisfy ALL accumulated half-spaces,
+        // not just the 3 in the triplet. Otherwise the seed triangle may be entirely
+        // outside some other plane, causing the cell to go dead immediately.
+        for plane_idx in 0..self.planes.len() {
+            if plane_idx == a || plane_idx == b || plane_idx == c {
+                continue;
             }
-            return;
+            let plane = &self.planes[plane_idx];
+            // If all 3 vertices are outside this plane, reject the triplet
+            let d0 = plane.signed_distance(v0);
+            let d1 = plane.signed_distance(v1);
+            let d2 = plane.signed_distance(v2);
+            if d0 < -EPS_PLANE_CLIP && d1 < -EPS_PLANE_CLIP && d2 < -EPS_PLANE_CLIP {
+                return false;
+            }
         }
+
+        // Compute triangle normal and check winding
+        let edge1 = v1 - v0;
+        let edge2 = v2 - v0;
+        let normal = edge1.cross(edge2);
+
+        // CRITICAL: Verify the generator is inside the spherical triangle.
+        // A valid seed triangle must contain the generator; otherwise later clipping
+        // can eliminate the entire polygon since it doesn't contain the fixed point.
+        // For a spherical triangle, the generator is inside if it's on the positive
+        // side of all 3 edge planes (great circles through each pair of vertices).
+        let edge_plane_01 = v0.cross(v1); // normal to great circle through v0, v1
+        let edge_plane_12 = v1.cross(v2);
+        let edge_plane_20 = v2.cross(v0);
+
+        // Check winding direction and generator containment together
+        let g = self.generator;
+        let inside_01 = edge_plane_01.dot(g);
+        let inside_12 = edge_plane_12.dot(g);
+        let inside_20 = edge_plane_20.dot(g);
+
+        // All should have the same sign for generator to be inside
+        let consistent_winding = (inside_01 > 0.0 && inside_12 > 0.0 && inside_20 > 0.0)
+            || (inside_01 < 0.0 && inside_12 < 0.0 && inside_20 < 0.0);
+
+        if !consistent_winding {
+            return false;
+        }
+
+        self.vertices.clear();
+        self.edge_planes.clear();
+
+        if normal.dot(self.generator) >= 0.0 {
+            self.vertices.push(CellVertex { pos: v0, plane_a: a, plane_b: b });
+            self.vertices.push(CellVertex { pos: v1, plane_a: b, plane_b: c });
+            self.vertices.push(CellVertex { pos: v2, plane_a: c, plane_b: a });
+            self.edge_planes.push(b);
+            self.edge_planes.push(c);
+            self.edge_planes.push(a);
+        } else {
+            self.vertices.push(CellVertex { pos: v0, plane_a: a, plane_b: b });
+            self.vertices.push(CellVertex { pos: v2, plane_a: c, plane_b: a });
+            self.vertices.push(CellVertex { pos: v1, plane_a: b, plane_b: c });
+            self.edge_planes.push(a);
+            self.edge_planes.push(c);
+            self.edge_planes.push(b);
+        }
+
+        true
+    }
+
+    fn try_seed_from_plane(&mut self, new_plane_idx: usize) -> Option<[usize; 3]> {
+        // First priority: try triplets including the newest plane (most likely to succeed)
+        for i in 0..new_plane_idx {
+            for j in (i + 1)..new_plane_idx {
+                self.triplets_tried += 1;
+                if self.seed_from_triplet(i, j, new_plane_idx) {
+                    return Some([i, j, new_plane_idx]);
+                }
+            }
+        }
+
+        // Second priority: try ALL triplets among accumulated planes.
+        // This is needed because earlier triplets may have failed only because
+        // their vertices were outside planes that hadn't been added yet.
+        // Now with more planes, the full half-space check in seed_from_triplet
+        // can properly reject bad triplets and find good ones.
+        for a in 0..new_plane_idx {
+            for b in (a + 1)..new_plane_idx {
+                for c in (b + 1)..new_plane_idx {
+                    self.triplets_tried += 1;
+                    if self.seed_from_triplet(a, b, c) {
+                        return Some([a, b, c]);
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    fn clip_with_plane(&mut self, plane_idx: usize) {
+        let new_plane = self.planes[plane_idx];
+        let new_plane_idx = plane_idx;
 
         let n = self.vertices.len();
         if n < 3 {
@@ -232,18 +282,6 @@ impl IncrementalCellBuilder {
         for (i, v) in self.vertices.iter().enumerate() {
             let dist = new_plane.signed_distance(v.pos);
             inside[i] = dist >= -EPS_PLANE_CLIP;
-            // Detect degeneracy: vertex lies exactly on the new plane (4+ equidistant generators)
-            if dist.abs() < EPS_DEGENERACY {
-                self.has_degeneracy = true;
-                // Record triplet equivalences implied by 4+ equidistant generators.
-                // The same geometric vertex can be represented by multiple plane pairs
-                // depending on which 3-of-4 generators define it.
-                let t_ab = self.make_triplet(v.plane_a, v.plane_b);
-                let t_a_new = self.make_triplet(v.plane_a, new_plane_idx);
-                let t_b_new = self.make_triplet(v.plane_b, new_plane_idx);
-                self.degenerate_edges.push((t_ab, t_a_new));
-                self.degenerate_edges.push((t_ab, t_b_new));
-            }
         }
 
         let inside_count = inside[..n].iter().filter(|&&x| x).count();
@@ -253,6 +291,8 @@ impl IncrementalCellBuilder {
         if inside_count == 0 {
             self.vertices.clear();
             self.edge_planes.clear();
+            self.dead = true;
+            self.died_after_seeding = true;
             return;
         }
 
@@ -314,6 +354,47 @@ impl IncrementalCellBuilder {
         std::mem::swap(&mut self.edge_planes, &mut self.tmp_edge_planes);
     }
 
+    /// Add a new plane (neighbor's bisector) and clip the cell. O(n).
+    /// Skips neighbors that are too close to the generator (degenerate bisector).
+    pub fn clip(&mut self, neighbor_idx: usize, neighbor: Vec3) {
+        // Skip neighbors that are too close - their bisector is numerically unstable
+        let diff = self.generator - neighbor;
+        if diff.length_squared() < super::MIN_BISECTOR_DISTANCE * super::MIN_BISECTOR_DISTANCE {
+            return;
+        }
+
+        let new_plane = GreatCircle::bisector(self.generator, neighbor);
+        let new_plane_idx = self.planes.len();
+        self.planes.push(new_plane);
+        self.neighbor_indices.push(neighbor_idx);
+
+        if self.dead {
+            return;
+        }
+        if !self.seeded {
+            if self.planes.len() < 3 {
+                return;
+            }
+            let seed = match self.try_seed_from_plane(new_plane_idx) {
+                Some(seed) => seed,
+                None => return,
+            };
+            self.seeded = true;
+            for plane_idx in 0..self.planes.len() {
+                if plane_idx == seed[0] || plane_idx == seed[1] || plane_idx == seed[2] {
+                    continue;
+                }
+                self.clip_with_plane(plane_idx);
+                if self.dead {
+                    break;
+                }
+            }
+            return;
+        }
+
+        self.clip_with_plane(new_plane_idx);
+    }
+
     /// Check if we can terminate early based on security radius.
     pub fn can_terminate(&self, next_neighbor_cos: f32) -> bool {
         if self.vertices.len() < 3 {
@@ -333,7 +414,6 @@ impl IncrementalCellBuilder {
     }
 
     /// Get the final vertices with their canonical triplet keys.
-<<<<<<< HEAD
     pub fn get_vertices_with_keys(&self) -> VertexList {
         let mut out = Vec::with_capacity(self.vertices.len());
         self.get_vertices_into(&mut out);
@@ -344,9 +424,6 @@ impl IncrementalCellBuilder {
     /// Returns the number of vertices written.
     #[inline]
     pub fn get_vertices_into(&self, out: &mut Vec<VertexData>) -> usize {
-=======
-    pub fn get_vertices_with_keys(&self) -> super::CellVerts {
->>>>>>> b59c62061cbe57e5edec56153566640a3970d715
         #[inline]
         fn sort3(mut a: [u32; 3]) -> [u32; 3] {
             if a[0] > a[1] { a.swap(0, 1); }

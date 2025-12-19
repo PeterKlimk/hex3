@@ -13,10 +13,6 @@ mod tests;
 use glam::Vec3;
 use kiddo::ImmutableKdTree;
 
-/// Per-cell vertex data. Using Vec since SmallVec's inline storage (36 bytes × N)
-/// causes cache pressure at scale. The heap allocation overhead is acceptable.
-pub type CellVerts = Vec<([usize; 3], Vec3)>;
-
 // Re-exports
 pub use cell_builder::{
     GreatCircle, IncrementalCellBuilder, DEFAULT_K, MAX_PLANES, MAX_VERTICES,
@@ -26,22 +22,30 @@ pub use cell_builder::{
 pub use dedup::dedup_vertices_hash_flat;
 pub use knn::{CubeMapGridKnn, KnnProvider};
 
+/// Minimum distance between generator and neighbor for a valid bisector.
+/// If closer than this, the bisector plane is numerically unstable and we skip the neighbor.
+/// This is an absolute threshold (not relative to mean spacing) because f32 precision
+/// is the limiting factor, not point density.
+pub(crate) const MIN_BISECTOR_DISTANCE: f32 = 1e-5;
+
 #[derive(Debug)]
 pub(crate) struct FlatChunk {
     pub(crate) vertices: Vec<VertexData>,
     pub(crate) counts: Vec<u8>,
-    pub(crate) degen: Vec<([u32; 3], [u32; 3])>,
     /// Total neighbors processed in this chunk (for stats).
     pub(crate) total_neighbors_processed: usize,
     /// Number of cells that terminated early in this chunk.
     pub(crate) terminated_cells: usize,
+    /// Number of cells that died after seeding (debug).
+    pub(crate) died_after_seeding: usize,
+    /// Total triplets tried across all cells in this chunk (debug).
+    pub(crate) total_triplets_tried: usize,
 }
 
 #[derive(Debug)]
 pub struct FlatCellsData {
     pub(crate) chunks: Vec<FlatChunk>,
     num_cells: usize,
-    pub degenerate_edges: Vec<([u32; 3], [u32; 3])>,
 }
 
 impl FlatCellsData {
@@ -59,10 +63,14 @@ impl FlatCellsData {
     pub fn stats(&self) -> VoronoiStats {
         let total_neighbors: usize = self.chunks.iter().map(|c| c.total_neighbors_processed).sum();
         let terminated: usize = self.chunks.iter().map(|c| c.terminated_cells).sum();
+        let died_after_seeding: usize = self.chunks.iter().map(|c| c.died_after_seeding).sum();
+        let total_triplets_tried: usize = self.chunks.iter().map(|c| c.total_triplets_tried).sum();
         let n = self.num_cells.max(1) as f64;
         VoronoiStats {
             avg_neighbors_processed: total_neighbors as f64 / n,
             termination_rate: terminated as f64 / n,
+            died_after_seeding,
+            total_triplets_tried,
         }
     }
 
@@ -113,6 +121,10 @@ pub struct VoronoiStats {
     pub avg_neighbors_processed: f64,
     /// Fraction of cells that terminated early (0.0 to 1.0).
     pub termination_rate: f64,
+    /// Number of cells that died after seeding (for debugging).
+    pub died_after_seeding: usize,
+    /// Total triplets tried across all cells (for debugging).
+    pub total_triplets_tried: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -241,7 +253,6 @@ pub fn build_cells_data_flat_adaptive(
         return FlatCellsData {
             chunks: Vec::new(),
             num_cells: 0,
-            degenerate_edges: Vec::new(),
         };
     }
 
@@ -269,9 +280,10 @@ pub fn build_cells_data_flat_adaptive(
             let estimated_vertices = (end - start) * 6;
             let mut vertices = Vec::with_capacity(estimated_vertices);
             let mut counts = Vec::with_capacity(end - start);
-            let mut degen = Vec::new();
             let mut total_neighbors_processed = 0usize;
             let mut terminated_cells = 0usize;
+            let mut died_after_seeding = 0usize;
+            let mut total_triplets_tried = 0usize;
 
             for i in start..end {
                 builder.reset(i, points[i]);
@@ -315,12 +327,35 @@ pub fn build_cells_data_flat_adaptive(
                             // Hit track_limit - check if we should fallback
                             if !terminated && adaptive.fallback_k > track_limit && !used_fallback {
                                 // Fallback: fresh query with higher k
+                                // IMPORTANT: The fresh query returns ALL k neighbors sorted by distance.
+                                // We must process from index 0, not cell_neighbors_processed, because
+                                // the new neighbors list is completely different from the resumable one.
+                                // However, we've already clipped some neighbors into the builder.
+                                // The builder tracks clipped neighbor indices, so we skip those.
                                 used_fallback = true;
                                 neighbors.clear();
                                 knn.knn_into(points[i], i, adaptive.fallback_k, &mut scratch, &mut neighbors);
-                                // Continue processing from where we left off
-                                // (neighbors 0..cell_neighbors_processed already clipped)
-                                continue;
+
+                                // Process ALL neighbors from the fresh query, skipping already-clipped ones
+                                for idx in 0..neighbors.len() {
+                                    let neighbor_idx = neighbors[idx];
+                                    // Skip if we already clipped this neighbor
+                                    if builder.has_neighbor(neighbor_idx) {
+                                        continue;
+                                    }
+                                    let neighbor = points[neighbor_idx];
+                                    builder.clip(neighbor_idx, neighbor);
+                                    cell_neighbors_processed += 1;
+
+                                    if termination.should_check(cell_neighbors_processed) && builder.vertex_count() >= 3 {
+                                        let neighbor_cos = points[i].dot(neighbor).clamp(-1.0, 1.0);
+                                        if builder.can_terminate(neighbor_cos) {
+                                            terminated = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                                break; // Fallback processed, we're done
                             }
                             break; // Can't fetch more
                         }
@@ -354,34 +389,28 @@ pub fn build_cells_data_flat_adaptive(
 
                 total_neighbors_processed += cell_neighbors_processed;
                 terminated_cells += terminated as usize;
+                died_after_seeding += builder.died_after_seeding as usize;
+                total_triplets_tried += builder.triplets_tried;
 
                 let count = builder.get_vertices_into(&mut vertices);
                 debug_assert!(count <= u8::MAX as usize, "vertex count exceeds u8");
                 counts.push(count as u8);
-                degen.extend_from_slice(builder.degenerate_edges());
             }
 
             FlatChunk {
                 vertices,
                 counts,
-                degen,
                 total_neighbors_processed,
                 terminated_cells,
+                died_after_seeding,
+                total_triplets_tried,
             }
         })
         .collect();
 
-    let total_degen: usize = chunks.iter().map(|c| c.degen.len()).sum();
-    let mut degenerate_edges = Vec::with_capacity(total_degen);
-    let mut chunks = chunks;
-    for chunk in chunks.iter_mut() {
-        degenerate_edges.append(&mut chunk.degen);
-    }
-
     FlatCellsData {
         chunks,
         num_cells: n,
-        degenerate_edges,
     }
 }
 

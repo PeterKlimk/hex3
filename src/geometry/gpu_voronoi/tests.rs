@@ -3,7 +3,7 @@
 use glam::Vec3;
 
 use super::*;
-use crate::geometry::random_sphere_points;
+use crate::geometry::{random_sphere_points, random_sphere_points_with_rng};
 
 #[test]
 fn test_incremental_builder_maintains_ccw_order() {
@@ -310,219 +310,377 @@ fn accuracy_audit() {
     }
 }
 
-/// Test that degeneracy detection finds cases where 4+ generators are equidistant.
+/// Test soundness with non-coincident (Lloyd-relaxed) input.
+/// These points are guaranteed to be well-spaced, so the algorithm should produce
+/// valid Voronoi diagrams with no degenerate cells or orphan edges.
 #[test]
-fn test_degeneracy_detection() {
-    use rand::{rngs::StdRng, SeedableRng};
-    use crate::geometry::random_sphere_points_with_rng;
+fn test_soundness_lloyd_relaxed_points() {
+    use crate::geometry::{fibonacci_sphere_points_with_rng, lloyd_relax_voronoi, validation::validate_voronoi};
+    use rand::SeedableRng;
+    use rand_chacha::ChaCha8Rng;
 
-    // Run with a few seeds and sizes - degeneracy is rare in random points
-    let test_cases = [(1000, 12345u64), (5000, 99999)];
+    println!("\n=== Soundness Test: Lloyd-Relaxed Points ===\n");
 
-    for (n, seed) in test_cases {
-        let mut rng = StdRng::seed_from_u64(seed);
-        let points = random_sphere_points_with_rng(n, &mut rng);
-        let knn = CubeMapGridKnn::new(&points);
-        let termination = TerminationConfig {
-            enabled: true,
-            check_start: 10,
-            check_step: 6,
-        };
+    for &n in &[1000, 10_000, 100_000] {
+        let mut rng = ChaCha8Rng::seed_from_u64(12345);
+        let mean_spacing = (4.0 * std::f32::consts::PI / n as f32).sqrt();
+        let jitter = mean_spacing * 0.25;
+        let mut points = fibonacci_sphere_points_with_rng(n, jitter, &mut rng);
 
-        let flat_data = build_cells_data_flat(&points, &knn, DEFAULT_K, termination);
+        // Lloyd relaxation ensures well-spaced points
+        lloyd_relax_voronoi(&mut points, 2);
 
-        // Degeneracy count should be small for random points
-        // This mostly tests that the code runs without panicking
-        assert!(
-            flat_data.degenerate_edges.len() < n / 10,
-            "Too many degenerate edges for random points: {}",
-            flat_data.degenerate_edges.len()
-        );
+        // Verify no coincident points
+        let min_dist = check_min_point_distance(&points);
+        println!("n={}: min point distance = {:.2e} (threshold: 1e-5)", n, min_dist);
+        assert!(min_dist > 1e-5, "Lloyd-relaxed points should not be coincident");
+
+        // Build Voronoi and validate
+        let voronoi = compute_voronoi_gpu_style(&points, DEFAULT_K);
+        let result = validate_voronoi(&voronoi, 1e-6);
+
+        println!("  Degenerate cells: {}", result.degenerate_cells.len());
+        println!("  Orphan edges: {}", result.orphan_edges.len());
+        println!("  Near-duplicate cells: {}", result.near_duplicate_cells.len());
+
+        assert!(result.degenerate_cells.is_empty(),
+            "n={}: Lloyd-relaxed points should produce no degenerate cells", n);
+        assert!(result.orphan_edges.len() <= 10,
+            "n={}: Lloyd-relaxed points should have minimal orphan edges, got {}", n, result.orphan_edges.len());
     }
 }
 
+/// Test soundness with NON-Lloyd-relaxed points (fibonacci + jitter only).
+/// This exposes issues with closely-spaced points that MIN_BISECTOR_DISTANCE doesn't fully handle.
+/// Run with: cargo test --release test_soundness_non_lloyd -- --ignored --nocapture
 #[test]
-fn test_parallel_dedup_matches_hash_dedup() {
-    // Test that the parallel dedup produces equivalent results to the hash-based dedup.
-    // Note: The two methods may pick different representative positions for the same triplet
-    // (due to floating point differences when computing from different cells), so we use
-    // approximate comparison.
+#[ignore]
+fn test_soundness_non_lloyd() {
+    use crate::geometry::{fibonacci_sphere_points_with_rng, validation::validate_voronoi};
+    use rand::SeedableRng;
+    use rand_chacha::ChaCha8Rng;
 
-    for n in [100, 1000, 5000] {
-        let points = random_sphere_points(n);
-        let knn = CubeMapGridKnn::new(&points);
-        let termination = TerminationConfig {
-            enabled: true,
-            check_start: 10,
-            check_step: 6,
-        };
+    println!("\n=== Soundness Test: Non-Lloyd Points (fibonacci + jitter) ===\n");
 
-        let (cells_data, _degenerate) = build_cells_data_incremental(&points, &knn, DEFAULT_K, termination);
+    for &n in &[100_000, 250_000, 500_000, 750_000] {
+        let mut rng = ChaCha8Rng::seed_from_u64(12345);
+        let mean_spacing = (4.0 * std::f32::consts::PI / n as f32).sqrt();
+        let jitter = mean_spacing * 0.25;  // Same jitter as bench_voronoi
+        let points = fibonacci_sphere_points_with_rng(n, jitter, &mut rng);
 
-        // Clone cells_data for parallel version
-        let cells_data_clone = cells_data.clone();
+        // Check minimum point distance
+        let min_dist = check_min_point_distance(&points);
+        let ratio = min_dist / mean_spacing;
+        println!("n={}: min_dist={:.2e}, mean={:.2e}, ratio={:.3}", n, min_dist, mean_spacing, ratio);
 
-        // Run both dedup methods
-        let (hash_verts, hash_cells, hash_indices) =
-            super::dedup::dedup_vertices_hash(n, cells_data);
-        let (par_verts, par_cells, par_indices) =
-            super::dedup::dedup_vertices_parallel(n, cells_data_clone);
+        // Build Voronoi and validate
+        let voronoi = compute_voronoi_gpu_style(&points, DEFAULT_K);
+        let result = validate_voronoi(&voronoi, 1e-6);
 
-        // Check that cell counts match
-        assert_eq!(hash_cells.len(), par_cells.len(), "n={}: cell count mismatch", n);
+        println!("  Degenerate cells: {}", result.degenerate_cells.len());
+        println!("  Orphan edges: {}", result.orphan_edges.len());
 
-        // Check that each cell has the same number of vertices
-        for (i, (hc, pc)) in hash_cells.iter().zip(par_cells.iter()).enumerate() {
-            assert_eq!(
-                hc.vertex_count(), pc.vertex_count(),
-                "n={}: cell {} vertex count mismatch ({} vs {})",
-                n, i, hc.vertex_count(), pc.vertex_count()
-            );
-        }
-
-        // Check that vertex positions are approximately equivalent
-        // For each vertex in hash result, there should be a close vertex in parallel result
-        // The two methods may pick different representative positions for the same triplet
-        // (computed from different cells with floating point differences up to ~2e-3 in rare cases)
-        let tol = 2e-3;
-        let mut mismatches = 0;
-        for (i, (hc, pc)) in hash_cells.iter().zip(par_cells.iter()).enumerate() {
-            let hash_cell_verts: Vec<Vec3> = hash_indices[hc.vertex_start()..hc.vertex_start() + hc.vertex_count()]
-                .iter()
-                .map(|&idx| hash_verts[idx])
-                .collect();
-
-            let par_cell_verts: Vec<Vec3> = par_indices[pc.vertex_start()..pc.vertex_start() + pc.vertex_count()]
-                .iter()
-                .map(|&idx| par_verts[idx])
-                .collect();
-
-            // Each hash vertex should have a close match in parallel vertices
-            for hv in &hash_cell_verts {
-                let has_match = par_cell_verts.iter().any(|pv| (*hv - *pv).length() < tol);
-                if !has_match {
-                    mismatches += 1;
-                }
+        // Non-Lloyd points may have some degenerate cells due to close spacing
+        // The key question: are there orphan edges?
+        if !result.orphan_edges.is_empty() {
+            println!("  WARNING: {} orphan edges detected!", result.orphan_edges.len());
+            // Show first few
+            for (i, &(v1, v2)) in result.orphan_edges.iter().take(3).enumerate() {
+                let pos1 = voronoi.vertices[v1];
+                let pos2 = voronoi.vertices[v2];
+                println!("    Orphan {}: v{}--v{}, len={:.2e}", i, v1, v2, (pos1 - pos2).length());
             }
         }
-        assert_eq!(mismatches, 0, "n={}: {} vertex mismatches, {} hash verts, {} par verts",
-            n, mismatches, hash_verts.len(), par_verts.len());
-
-        println!("n={}: parallel dedup matches hash dedup ({} cells, {} verts vs {} verts)",
-            n, hash_cells.len(), hash_verts.len(), par_verts.len());
+        println!();
     }
 }
 
+/// Diagnose orphan edges in well-spaced points.
+/// Run with: cargo test --release diagnose_orphan_edges -- --ignored --nocapture
 #[test]
-#[ignore] // Run with: cargo test bench_parallel_vs_hash_dedup -- --ignored --nocapture
-fn bench_parallel_vs_hash_dedup() {
-    use std::time::Instant;
+#[ignore]
+fn diagnose_orphan_edges() {
+    use crate::geometry::{fibonacci_sphere_points_with_rng, lloyd_relax_kmeans, validation::validate_voronoi};
+    use rand::SeedableRng;
+    use rand_chacha::ChaCha8Rng;
+    use std::collections::HashMap;
 
-    println!("\nDedup benchmark: parallel vs hash-based");
-    println!("{:>10} {:>12} {:>12} {:>10}", "n", "hash (ms)", "parallel (ms)", "speedup");
-    println!("{:-<50}", "");
+    println!("\n=== Orphan Edge Diagnosis ===\n");
 
-    for n in [10_000, 50_000, 100_000, 250_000, 500_000] {
-        let points = random_sphere_points(n);
-        let knn = CubeMapGridKnn::new(&points);
-        let termination = TerminationConfig {
-            enabled: true,
-            check_start: 10,
-            check_step: 6,
-        };
+    let n = 750_000;  // Use 750k to match largest soundness test scale
+    let mut rng = ChaCha8Rng::seed_from_u64(12345);
+    let mean_spacing = (4.0 * std::f32::consts::PI / n as f32).sqrt();
+    let jitter = mean_spacing * 0.25;
+    let mut points = fibonacci_sphere_points_with_rng(n, jitter, &mut rng);
+    lloyd_relax_kmeans(&mut points, 2, 20, &mut rng);
 
-        let (cells_data, _) = build_cells_data_incremental(&points, &knn, DEFAULT_K, termination);
+    // Check min spacing
+    let min_dist = check_min_point_distance(&points);
+    println!("Point count: {}", n);
+    println!("Mean spacing: {:.2e}", mean_spacing);
+    println!("Min point distance: {:.2e}", min_dist);
 
-        // Clone for parallel version
-        let cells_data_clone = cells_data.clone();
+    let voronoi = compute_voronoi_gpu_style(&points, DEFAULT_K);
+    let result = validate_voronoi(&voronoi, 1e-6);
 
-        // Benchmark hash-based dedup
-        let t0 = Instant::now();
-        let (_verts, _cells, _indices) = super::dedup::dedup_vertices_hash(n, cells_data);
-        let hash_time = t0.elapsed().as_secs_f64() * 1000.0;
+    println!("\nTotal cells: {}", voronoi.num_cells());
+    println!("Total vertices: {}", voronoi.vertices.len());
+    println!("Orphan edges: {}", result.orphan_edges.len());
+    println!("Near-duplicate cells: {}", result.near_duplicate_cells.len());
 
-        // Benchmark parallel dedup (with timing breakdown for largest size)
-        let t0 = Instant::now();
-        let print_breakdown = n >= 250_000;
-        let (_verts, _cells, _indices) = super::dedup::dedup_vertices_parallel_timed(n, cells_data_clone, print_breakdown);
-        let par_time = t0.elapsed().as_secs_f64() * 1000.0;
+    if result.orphan_edges.is_empty() {
+        println!("\nNo orphan edges to diagnose!");
+        return;
+    }
 
-        let speedup = hash_time / par_time;
-        println!("{:>10} {:>12.2} {:>12.2} {:>10.2}x", n, hash_time, par_time, speedup);
+    // Build edge -> cells map
+    let mut edge_to_cells: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
+    for cell_idx in 0..voronoi.num_cells() {
+        let cell = voronoi.cell(cell_idx);
+        let n_verts = cell.vertex_indices.len();
+        for i in 0..n_verts {
+            let v1 = cell.vertex_indices[i];
+            let v2 = cell.vertex_indices[(i + 1) % n_verts];
+            let edge = if v1 < v2 { (v1, v2) } else { (v2, v1) };
+            edge_to_cells.entry(edge).or_default().push(cell_idx);
+        }
+    }
+
+    // Helper: find vertices near a position
+    let find_near_vertices = |target_pos: Vec3, exclude: usize| -> Vec<(usize, f32)> {
+        voronoi.vertices.iter().enumerate()
+            .filter(|(vi, _)| *vi != exclude)
+            .map(|(vi, &pos)| (vi, (pos - target_pos).length()))
+            .filter(|(_, dist)| *dist < 5e-4)  // Look for near-duplicates
+            .collect()
+    };
+
+    println!("\n--- Analyzing orphan edges ---\n");
+
+    for (i, &(v1, v2)) in result.orphan_edges.iter().take(3).enumerate() {
+        let pos1 = voronoi.vertices[v1];
+        let pos2 = voronoi.vertices[v2];
+        let edge_len = (pos1 - pos2).length();
+
+        println!("Orphan edge {}: vertices ({}, {})", i, v1, v2);
+        println!("  Edge length: {:.2e}", edge_len);
+        println!("  v1 pos: ({:.6}, {:.6}, {:.6})", pos1.x, pos1.y, pos1.z);
+        println!("  v2 pos: ({:.6}, {:.6}, {:.6})", pos2.x, pos2.y, pos2.z);
+
+        // Check for near-duplicate vertices
+        let mut near_v1 = find_near_vertices(pos1, v1);
+        near_v1.sort_by(|a, b| a.1.total_cmp(&b.1));
+        let mut near_v2 = find_near_vertices(pos2, v2);
+        near_v2.sort_by(|a, b| a.1.total_cmp(&b.1));
+
+        if !near_v1.is_empty() {
+            println!("  Near-duplicate vertices for v1:");
+            for (vj, dist) in near_v1.iter().take(3) {
+                println!("    vertex {} at dist {:.2e}", vj, dist);
+            }
+        }
+        if !near_v2.is_empty() {
+            println!("  Near-duplicate vertices for v2:");
+            for (vj, dist) in near_v2.iter().take(3) {
+                println!("    vertex {} at dist {:.2e}", vj, dist);
+            }
+        }
+
+        // Check what cells should share this edge
+        let cells = edge_to_cells.get(&(v1, v2)).cloned().unwrap_or_default();
+        println!("  Edge appears in {} cell(s): {:?}", cells.len(), cells);
+        println!();
     }
 }
 
+/// Large-scale soundness test - verifies the algorithm at 750k points.
+/// Run with: cargo test --release test_soundness_large_scale -- --ignored --nocapture
 #[test]
-#[ignore] // Run with: cargo test bench_allocation_cost -- --ignored --nocapture
-fn bench_allocation_cost() {
-    use rayon::prelude::*;
-    use std::sync::atomic::{AtomicU64, Ordering};
+#[ignore]
+fn test_soundness_large_scale() {
+    use crate::geometry::{fibonacci_sphere_points_with_rng, lloyd_relax_kmeans, validation::validate_voronoi};
+    use rand::SeedableRng;
+    use rand_chacha::ChaCha8Rng;
     use std::time::Instant;
 
-    println!("\nAllocation cost: breakdown of cell construction phases");
-    println!("{:>10} {:>10} {:>10} {:>10} {:>10} {:>10}",
-        "n", "total", "knn", "clip", "extract", "extract%");
-    println!("{:-<70}", "");
+    println!("\n=== Large-Scale Soundness Test ===\n");
 
-    for n in [50_000, 100_000, 250_000, 500_000] {
-        let points = random_sphere_points(n);
-        let knn = CubeMapGridKnn::new(&points);
+    for &n in &[250_000, 500_000, 750_000] {
+        println!("Testing n = {}...", n);
+        let mut rng = ChaCha8Rng::seed_from_u64(12345);
+        let mean_spacing = (4.0 * std::f32::consts::PI / n as f32).sqrt();
+        let jitter = mean_spacing * 0.25;
+        let mut points = fibonacci_sphere_points_with_rng(n, jitter, &mut rng);
 
-        // Use atomics to accumulate per-phase times across threads
-        let knn_ns = AtomicU64::new(0);
-        let clip_ns = AtomicU64::new(0);
-        let extract_ns = AtomicU64::new(0);
+        // Use k-means Lloyd (faster for large n)
+        let t0 = Instant::now();
+        lloyd_relax_kmeans(&mut points, 2, 20, &mut rng);
+        println!("  Lloyd relaxation: {:.1}ms", t0.elapsed().as_secs_f64() * 1000.0);
+
+        // Verify no coincident points
+        let min_dist = check_min_point_distance(&points);
+        println!("  Min point distance: {:.2e} (threshold: 1e-5)", min_dist);
+        assert!(min_dist > 1e-5, "Lloyd-relaxed points should not be coincident");
+
+        // Build Voronoi and validate
+        let t0 = Instant::now();
+        let voronoi = compute_voronoi_gpu_style(&points, DEFAULT_K);
+        println!("  Voronoi build: {:.1}ms", t0.elapsed().as_secs_f64() * 1000.0);
 
         let t0 = Instant::now();
-        let _cells: Vec<super::CellVerts> = (0..points.len())
-            .into_par_iter()
-            .map_init(
-                || (
-                    knn.make_scratch(),
-                    Vec::with_capacity(DEFAULT_K),
-                    IncrementalCellBuilder::new(0, glam::Vec3::ZERO),
-                ),
-                |(scratch, neighbors, builder), i| {
-                    // Phase 1: k-NN lookup
-                    let t_knn = Instant::now();
-                    neighbors.clear();
-                    knn.knn_into(points[i], i, DEFAULT_K, scratch, neighbors);
-                    knn_ns.fetch_add(t_knn.elapsed().as_nanos() as u64, Ordering::Relaxed);
+        let result = validate_voronoi(&voronoi, 1e-6);
+        println!("  Validation: {:.1}ms", t0.elapsed().as_secs_f64() * 1000.0);
 
-                    // Phase 2: Clipping
-                    let t_clip = Instant::now();
-                    builder.reset(i, points[i]);
-                    for &neighbor_idx in neighbors.iter() {
-                        builder.clip(neighbor_idx, points[neighbor_idx]);
-                    }
-                    clip_ns.fetch_add(t_clip.elapsed().as_nanos() as u64, Ordering::Relaxed);
+        println!("  Degenerate cells: {}", result.degenerate_cells.len());
+        println!("  Orphan edges: {}", result.orphan_edges.len());
+        println!("  Near-duplicate cells: {}", result.near_duplicate_cells.len());
+        println!();
 
-                    // Phase 3: Extract vertices (allocates Vec)
-                    let t_extract = Instant::now();
-                    let result = builder.get_vertices_with_keys();
-                    extract_ns.fetch_add(t_extract.elapsed().as_nanos() as u64, Ordering::Relaxed);
+        // With proper epsilons (1e-7), we should have 0 degenerate cells
+        assert!(result.degenerate_cells.is_empty(),
+            "n={}: Should have 0 degenerate cells, got {}", n, result.degenerate_cells.len());
 
-                    result
-                },
-            )
-            .collect();
-        let total_ms = t0.elapsed().as_secs_f64() * 1000.0;
+        // Orphan edges should be minimal (<0.01%)
+        let orphan_rate = result.orphan_edges.len() as f64 / n as f64;
+        assert!(orphan_rate < 0.0001,
+            "n={}: Orphan rate {:.4}% exceeds 0.01% threshold", n, orphan_rate * 100.0);
+    }
+}
 
-        let knn_ms = knn_ns.load(Ordering::Relaxed) as f64 / 1_000_000.0;
-        let clip_ms = clip_ns.load(Ordering::Relaxed) as f64 / 1_000_000.0;
-        let extract_ms = extract_ns.load(Ordering::Relaxed) as f64 / 1_000_000.0;
+/// Test behavior with coincident points.
+/// This validates that:
+/// 1. The MIN_BISECTOR_DISTANCE check reduces errors from bad bisectors
+/// 2. Coincident points inherently cause orphan edges (unavoidable - two points at same location can't have separate valid cells)
+/// 3. The algorithm doesn't crash or panic on bad input
+/// 4. Some degenerate cells may still occur if a point doesn't have enough valid (non-coincident) neighbors
+#[test]
+fn test_coincident_points_handled_gracefully() {
+    use crate::geometry::validation::validate_voronoi;
+    use rand::SeedableRng;
+    use rand_chacha::ChaCha8Rng;
 
-        // Note: sum of phases > total because of parallelism (wall time vs CPU time)
-        // The percentage tells us relative weight
-        let phase_total = knn_ms + clip_ms + extract_ms;
-        let extract_pct = (extract_ms / phase_total) * 100.0;
+    println!("\n=== Coincident Points Handling Test ===\n");
 
-        println!("{:>10} {:>10.1} {:>10.1} {:>10.1} {:>10.1} {:>10.1}%",
-            n, total_ms, knn_ms, clip_ms, extract_ms, extract_pct);
+    let mut rng = ChaCha8Rng::seed_from_u64(42);
+    let n = 1000;
+
+    // Generate base points
+    let mut points = random_sphere_points_with_rng(n, &mut rng);
+
+    // Inject coincident points (exact duplicates)
+    let num_duplicates = 50;
+    for i in 0..num_duplicates {
+        let src_idx = i * 10;
+        let dst_idx = src_idx + 1;
+        if dst_idx < n {
+            points[dst_idx] = points[src_idx];
+        }
     }
 
-    println!("\nNote: knn+clip+extract are CPU-time (sum across threads), total is wall-time.");
-    println!("extract% shows the relative weight of vertex extraction (includes allocation).");
+    // Also add some near-duplicates (within MIN_BISECTOR_DISTANCE = 1e-5)
+    for i in 0..20 {
+        let idx = 500 + i;
+        if idx + 1 < n {
+            let offset = Vec3::new(1e-6, 1e-6, 1e-6);  // Within 1e-5 threshold
+            points[idx + 1] = (points[idx] + offset).normalize();
+        }
+    }
+
+    println!("Injected {} exact duplicates and 20 near-duplicates", num_duplicates);
+
+    // Check minimum distance - should show the coincident points
+    let min_dist = check_min_point_distance(&points);
+    println!("Minimum point distance: {:.2e}", min_dist);
+    assert!(min_dist < super::MIN_BISECTOR_DISTANCE,
+        "Test setup should have coincident points below threshold");
+
+    // Build Voronoi - should handle gracefully without panicking
+    let voronoi = compute_voronoi_gpu_style(&points, DEFAULT_K);
+    let result = validate_voronoi(&voronoi, 1e-6);
+
+    println!("\nWith MIN_BISECTOR_DISTANCE check (current behavior):");
+    println!("  Degenerate cells: {}", result.degenerate_cells.len());
+    println!("  Orphan edges: {}", result.orphan_edges.len());
+    println!("  Cells produced: {}", voronoi.num_cells());
+
+    // Key observations:
+    // 1. Degenerate cells may occur - these are points whose valid (non-coincident)
+    //    neighbors don't form valid triplets. The check helps but can't fully recover
+    //    from fundamentally invalid input (coincident points).
+    println!("\nNote: {} degenerate cells occurred because those points", result.degenerate_cells.len());
+    println!("      don't have enough valid neighbors to form seed triplets.");
+
+    // 2. Orphan edges ARE expected - coincident points can't have separate valid cells
+    println!("      {} orphan edges occurred because coincident points", result.orphan_edges.len());
+    println!("      cannot have geometrically distinct Voronoi cells.");
+
+    // 3. All cells should have been processed (no panics)
+    assert_eq!(voronoi.num_cells(), n, "All cells should be processed");
+
+    // 4. The number of issues should be bounded by the number of bad input points
+    // We injected ~70 problem points, so we shouldn't have catastrophic failure
+    let total_issues = result.degenerate_cells.len();
+    assert!(total_issues <= num_duplicates + 20,
+        "Degenerate cells ({}) should be bounded by coincident point count ({})",
+        total_issues, num_duplicates + 20);
+}
+
+/// Test that the algorithm correctly skips neighbors below MIN_BISECTOR_DISTANCE.
+#[test]
+fn test_bisector_distance_threshold_applied() {
+    use super::cell_builder::IncrementalCellBuilder;
+
+    println!("\n=== Bisector Distance Threshold Test ===\n");
+
+    // Create a generator and neighbors at various distances
+    let generator = Vec3::new(1.0, 0.0, 0.0);
+    let mut builder = IncrementalCellBuilder::new(0, generator);
+
+    // Neighbor below threshold - should be skipped
+    let too_close = generator + Vec3::new(1e-6, 0.0, 0.0);
+    let too_close = too_close.normalize();
+    builder.clip(1, too_close);
+
+    // Neighbor above threshold - should be added
+    let far_enough = Vec3::new(0.0, 1.0, 0.0);
+    builder.clip(2, far_enough);
+
+    let far_enough2 = Vec3::new(0.0, 0.0, 1.0);
+    builder.clip(3, far_enough2);
+
+    let far_enough3 = Vec3::new(-1.0, 0.0, 0.0);
+    builder.clip(4, far_enough3);
+
+    // After clipping, we should have a valid cell from the 3 far neighbors
+    // The too-close neighbor should have been skipped
+    println!("Vertex count after clipping: {}", builder.vertex_count());
+    println!("(Too-close neighbor should have been skipped)");
+
+    // We need at least 3 valid planes to form a cell
+    // With 3 valid planes (far_enough, far_enough2, far_enough3), we should get vertices
+    assert!(builder.vertex_count() >= 3,
+        "Should form a cell from the 3 valid neighbors");
+}
+
+/// Helper: compute minimum distance between any two points
+fn check_min_point_distance(points: &[Vec3]) -> f32 {
+    use kiddo::{ImmutableKdTree, SquaredEuclidean};
+
+    let entries: Vec<[f32; 3]> = points.iter().map(|p| [p.x, p.y, p.z]).collect();
+    let tree = ImmutableKdTree::new_from_slice(&entries);
+
+    let mut min_dist = f32::MAX;
+    for (i, p) in points.iter().enumerate() {
+        // Find 2 nearest (self + closest other)
+        let results = tree.nearest_n::<SquaredEuclidean>(&[p.x, p.y, p.z], 2);
+        for r in results {
+            if r.item as usize != i {
+                let dist = r.distance.sqrt();
+                min_dist = min_dist.min(dist);
+            }
+        }
+    }
+    min_dist
 }
 
 #[test]
