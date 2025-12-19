@@ -11,8 +11,7 @@
 //! re-doing work. Uses a fixed-size candidate buffer (MAX_K) for cache efficiency.
 
 use glam::Vec3;
-use ordered_float::NotNan;
-use std::cmp::Reverse;
+use std::cmp::{Ordering, Reverse};
 use std::collections::BinaryHeap;
 
 /// Status of a k-NN query.
@@ -34,6 +33,39 @@ impl KnnStatus {
 
 /// Maximum neighbors we'll ever track. Brute-force fallback fills this entire buffer.
 pub const MAX_K: usize = 48;
+
+/// A f32 wrapper that implements Ord using total_cmp.
+/// Unlike NotNan, this doesn't check for NaN - it just orders NaN consistently.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct OrdF32(f32);
+
+impl Eq for OrdF32 {}
+
+impl PartialOrd for OrdF32 {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for OrdF32 {
+    #[inline]
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0.total_cmp(&other.0)
+    }
+}
+
+impl OrdF32 {
+    #[inline]
+    fn new(v: f32) -> Self {
+        OrdF32(v)
+    }
+
+    #[inline]
+    fn get(self) -> f32 {
+        self.0
+    }
+}
 
 /// Cube-map spatial grid for points on unit sphere.
 pub struct CubeMapGrid {
@@ -135,7 +167,7 @@ fn cell_to_face_ij(cell: usize, res: usize) -> (usize, usize, usize) {
 pub struct CubeMapGridScratch {
     visited_stamp: Vec<u32>,
     stamp: u32,
-    cell_heap: BinaryHeap<Reverse<(NotNan<f32>, u32)>>,
+    cell_heap: BinaryHeap<Reverse<(OrdF32, u32)>>,
     /// Fixed-size candidate buffer, sorted by distance (ascending).
     /// (dist_sq, point_idx)
     candidates: [(f32, u32); MAX_K],
@@ -193,20 +225,17 @@ impl CubeMapGridScratch {
 
     #[inline]
     fn push_cell(&mut self, cell: u32, bound_dist_sq: f32) {
-        let Ok(bound) = NotNan::new(bound_dist_sq) else {
-            return;
-        };
-        self.cell_heap.push(Reverse((bound, cell)));
+        self.cell_heap.push(Reverse((OrdF32::new(bound_dist_sq), cell)));
     }
 
     #[inline]
     fn peek_cell(&self) -> Option<(f32, u32)> {
-        self.cell_heap.peek().map(|Reverse((bound, cell))| (bound.into_inner(), *cell))
+        self.cell_heap.peek().map(|Reverse((bound, cell))| (bound.get(), *cell))
     }
 
     #[inline]
     fn pop_cell(&mut self) -> Option<(f32, u32)> {
-        self.cell_heap.pop().map(|Reverse((bound, cell))| (bound.into_inner(), cell))
+        self.cell_heap.pop().map(|Reverse((bound, cell))| (bound.get(), cell))
     }
 
     /// Get the distance to the k-th candidate (for pruning).

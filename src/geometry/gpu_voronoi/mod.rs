@@ -13,6 +13,10 @@ mod tests;
 use glam::Vec3;
 use kiddo::ImmutableKdTree;
 
+/// Per-cell vertex data. Using Vec since SmallVec's inline storage (36 bytes × N)
+/// causes cache pressure at scale. The heap allocation overhead is acceptable.
+pub type CellVerts = Vec<([usize; 3], Vec3)>;
+
 // Re-exports
 pub use cell_builder::{
     GreatCircle, IncrementalCellBuilder, DEFAULT_K, MAX_PLANES, MAX_VERTICES,

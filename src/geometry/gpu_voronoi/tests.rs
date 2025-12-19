@@ -340,3 +340,254 @@ fn test_degeneracy_detection() {
         );
     }
 }
+
+#[test]
+fn test_parallel_dedup_matches_hash_dedup() {
+    // Test that the parallel dedup produces equivalent results to the hash-based dedup.
+    // Note: The two methods may pick different representative positions for the same triplet
+    // (due to floating point differences when computing from different cells), so we use
+    // approximate comparison.
+
+    for n in [100, 1000, 5000] {
+        let points = random_sphere_points(n);
+        let knn = CubeMapGridKnn::new(&points);
+        let termination = TerminationConfig {
+            enabled: true,
+            check_start: 10,
+            check_step: 6,
+        };
+
+        let (cells_data, _degenerate) = build_cells_data_incremental(&points, &knn, DEFAULT_K, termination);
+
+        // Clone cells_data for parallel version
+        let cells_data_clone = cells_data.clone();
+
+        // Run both dedup methods
+        let (hash_verts, hash_cells, hash_indices) =
+            super::dedup::dedup_vertices_hash(n, cells_data);
+        let (par_verts, par_cells, par_indices) =
+            super::dedup::dedup_vertices_parallel(n, cells_data_clone);
+
+        // Check that cell counts match
+        assert_eq!(hash_cells.len(), par_cells.len(), "n={}: cell count mismatch", n);
+
+        // Check that each cell has the same number of vertices
+        for (i, (hc, pc)) in hash_cells.iter().zip(par_cells.iter()).enumerate() {
+            assert_eq!(
+                hc.vertex_count(), pc.vertex_count(),
+                "n={}: cell {} vertex count mismatch ({} vs {})",
+                n, i, hc.vertex_count(), pc.vertex_count()
+            );
+        }
+
+        // Check that vertex positions are approximately equivalent
+        // For each vertex in hash result, there should be a close vertex in parallel result
+        // The two methods may pick different representative positions for the same triplet
+        // (computed from different cells with floating point differences up to ~2e-3 in rare cases)
+        let tol = 2e-3;
+        let mut mismatches = 0;
+        for (i, (hc, pc)) in hash_cells.iter().zip(par_cells.iter()).enumerate() {
+            let hash_cell_verts: Vec<Vec3> = hash_indices[hc.vertex_start()..hc.vertex_start() + hc.vertex_count()]
+                .iter()
+                .map(|&idx| hash_verts[idx])
+                .collect();
+
+            let par_cell_verts: Vec<Vec3> = par_indices[pc.vertex_start()..pc.vertex_start() + pc.vertex_count()]
+                .iter()
+                .map(|&idx| par_verts[idx])
+                .collect();
+
+            // Each hash vertex should have a close match in parallel vertices
+            for hv in &hash_cell_verts {
+                let has_match = par_cell_verts.iter().any(|pv| (*hv - *pv).length() < tol);
+                if !has_match {
+                    mismatches += 1;
+                }
+            }
+        }
+        assert_eq!(mismatches, 0, "n={}: {} vertex mismatches, {} hash verts, {} par verts",
+            n, mismatches, hash_verts.len(), par_verts.len());
+
+        println!("n={}: parallel dedup matches hash dedup ({} cells, {} verts vs {} verts)",
+            n, hash_cells.len(), hash_verts.len(), par_verts.len());
+    }
+}
+
+#[test]
+#[ignore] // Run with: cargo test bench_parallel_vs_hash_dedup -- --ignored --nocapture
+fn bench_parallel_vs_hash_dedup() {
+    use std::time::Instant;
+
+    println!("\nDedup benchmark: parallel vs hash-based");
+    println!("{:>10} {:>12} {:>12} {:>10}", "n", "hash (ms)", "parallel (ms)", "speedup");
+    println!("{:-<50}", "");
+
+    for n in [10_000, 50_000, 100_000, 250_000, 500_000] {
+        let points = random_sphere_points(n);
+        let knn = CubeMapGridKnn::new(&points);
+        let termination = TerminationConfig {
+            enabled: true,
+            check_start: 10,
+            check_step: 6,
+        };
+
+        let (cells_data, _) = build_cells_data_incremental(&points, &knn, DEFAULT_K, termination);
+
+        // Clone for parallel version
+        let cells_data_clone = cells_data.clone();
+
+        // Benchmark hash-based dedup
+        let t0 = Instant::now();
+        let (_verts, _cells, _indices) = super::dedup::dedup_vertices_hash(n, cells_data);
+        let hash_time = t0.elapsed().as_secs_f64() * 1000.0;
+
+        // Benchmark parallel dedup (with timing breakdown for largest size)
+        let t0 = Instant::now();
+        let print_breakdown = n >= 250_000;
+        let (_verts, _cells, _indices) = super::dedup::dedup_vertices_parallel_timed(n, cells_data_clone, print_breakdown);
+        let par_time = t0.elapsed().as_secs_f64() * 1000.0;
+
+        let speedup = hash_time / par_time;
+        println!("{:>10} {:>12.2} {:>12.2} {:>10.2}x", n, hash_time, par_time, speedup);
+    }
+}
+
+#[test]
+#[ignore] // Run with: cargo test bench_allocation_cost -- --ignored --nocapture
+fn bench_allocation_cost() {
+    use rayon::prelude::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::Instant;
+
+    println!("\nAllocation cost: breakdown of cell construction phases");
+    println!("{:>10} {:>10} {:>10} {:>10} {:>10} {:>10}",
+        "n", "total", "knn", "clip", "extract", "extract%");
+    println!("{:-<70}", "");
+
+    for n in [50_000, 100_000, 250_000, 500_000] {
+        let points = random_sphere_points(n);
+        let knn = CubeMapGridKnn::new(&points);
+
+        // Use atomics to accumulate per-phase times across threads
+        let knn_ns = AtomicU64::new(0);
+        let clip_ns = AtomicU64::new(0);
+        let extract_ns = AtomicU64::new(0);
+
+        let t0 = Instant::now();
+        let _cells: Vec<super::CellVerts> = (0..points.len())
+            .into_par_iter()
+            .map_init(
+                || (
+                    knn.make_scratch(),
+                    Vec::with_capacity(DEFAULT_K),
+                    IncrementalCellBuilder::new(0, glam::Vec3::ZERO),
+                ),
+                |(scratch, neighbors, builder), i| {
+                    // Phase 1: k-NN lookup
+                    let t_knn = Instant::now();
+                    neighbors.clear();
+                    knn.knn_into(points[i], i, DEFAULT_K, scratch, neighbors);
+                    knn_ns.fetch_add(t_knn.elapsed().as_nanos() as u64, Ordering::Relaxed);
+
+                    // Phase 2: Clipping
+                    let t_clip = Instant::now();
+                    builder.reset(i, points[i]);
+                    for &neighbor_idx in neighbors.iter() {
+                        builder.clip(neighbor_idx, points[neighbor_idx]);
+                    }
+                    clip_ns.fetch_add(t_clip.elapsed().as_nanos() as u64, Ordering::Relaxed);
+
+                    // Phase 3: Extract vertices (allocates Vec)
+                    let t_extract = Instant::now();
+                    let result = builder.get_vertices_with_keys();
+                    extract_ns.fetch_add(t_extract.elapsed().as_nanos() as u64, Ordering::Relaxed);
+
+                    result
+                },
+            )
+            .collect();
+        let total_ms = t0.elapsed().as_secs_f64() * 1000.0;
+
+        let knn_ms = knn_ns.load(Ordering::Relaxed) as f64 / 1_000_000.0;
+        let clip_ms = clip_ns.load(Ordering::Relaxed) as f64 / 1_000_000.0;
+        let extract_ms = extract_ns.load(Ordering::Relaxed) as f64 / 1_000_000.0;
+
+        // Note: sum of phases > total because of parallelism (wall time vs CPU time)
+        // The percentage tells us relative weight
+        let phase_total = knn_ms + clip_ms + extract_ms;
+        let extract_pct = (extract_ms / phase_total) * 100.0;
+
+        println!("{:>10} {:>10.1} {:>10.1} {:>10.1} {:>10.1} {:>10.1}%",
+            n, total_ms, knn_ms, clip_ms, extract_ms, extract_pct);
+    }
+
+    println!("\nNote: knn+clip+extract are CPU-time (sum across threads), total is wall-time.");
+    println!("extract% shows the relative weight of vertex extraction (includes allocation).");
+}
+
+#[test]
+#[ignore] // Run with: cargo test bench_knn_breakdown -- --ignored --nocapture
+fn bench_knn_breakdown() {
+    use std::time::Instant;
+    use crate::geometry::cube_grid::CubeMapGrid;
+
+    println!("\nk-NN micro-breakdown at 500k points");
+    println!("{:-<60}", "");
+
+    let n = 500_000;
+    let k = DEFAULT_K;
+    let points = random_sphere_points(n);
+
+    // Build grid directly to access stats
+    let res = ((n as f64 / 300.0).sqrt() as usize).max(4);
+    let grid = CubeMapGrid::new(&points, res);
+    let stats = grid.stats();
+    println!("Grid: res={} cells={} avg_pts/cell={:.1}", res, stats.num_cells, stats.avg_points_per_cell);
+
+    let knn = CubeMapGridKnn::new(&points);
+
+    // Sample queries to measure
+    let sample_size = 10_000;
+
+    // Warm up
+    let mut scratch = knn.make_scratch();
+    let mut neighbors = Vec::with_capacity(k);
+    for i in 0..1000 {
+        neighbors.clear();
+        knn.knn_into(points[i], i, k, &mut scratch, &mut neighbors);
+    }
+
+    // Measure total time for sample
+    let t0 = Instant::now();
+    for i in 0..sample_size {
+        neighbors.clear();
+        knn.knn_into(points[i], i, k, &mut scratch, &mut neighbors);
+    }
+    let total_us = t0.elapsed().as_micros();
+    let per_query_us = total_us as f64 / sample_size as f64;
+
+    println!("Total time for {} queries: {:.1}ms", sample_size, total_us as f64 / 1000.0);
+    println!("Per-query average: {:.2}µs", per_query_us);
+    println!("\nEstimated full 500k (serial): {:.1}ms", per_query_us * n as f64 / 1000.0);
+
+    // Compare with kiddo
+    let (tree, entries) = super::build_kdtree(&points);
+
+    let t0 = Instant::now();
+    for i in 0..sample_size {
+        let _ = super::find_k_nearest(&tree, &entries, points[i], i, k);
+    }
+    let kiddo_us = t0.elapsed().as_micros();
+    let kiddo_per_query = kiddo_us as f64 / sample_size as f64;
+
+    println!("\nKiddo per-query: {:.2}µs", kiddo_per_query);
+    println!("CubeMapGrid is {:.2}x slower than Kiddo (serial)", per_query_us / kiddo_per_query);
+
+    // At 50 pts/cell and k=24, we expect to visit ~1-2 cells typically
+    // Let's estimate: if we check ~50-100 points per query, that's 50-100 heap operations
+    println!("\n--- Estimated operation counts per query ---");
+    println!("Points per cell: ~{:.0}", stats.avg_points_per_cell);
+    println!("If visiting 1-2 cells: ~{:.0}-{:.0} distance computations",
+        stats.avg_points_per_cell, stats.avg_points_per_cell * 2.0);
+    println!("Heap operations for k={}: up to {} push + {} pop", k, k, k);
+}
