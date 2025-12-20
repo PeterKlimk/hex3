@@ -424,13 +424,12 @@ fn diagnose_orphan_edges() {
 }
 
 /// Strict correctness sweep on small counts.
-/// Run with: cargo test --release strict_small_counts -- --ignored --nocapture
+/// Run with: cargo test --release strict_small_counts
 #[test]
 /// Validation test with new strategy:
 /// - Hard errors (degenerate cells, orphan edges, etc.) fail the test
 /// - Support/degeneracy issues (support_lt3, dup_support, collapsed_edges) are informational
 /// - Geometric accuracy is checked with spacing-scaled bounds
-#[ignore]
 fn strict_small_counts() {
     use crate::geometry::{fibonacci_sphere_points_with_rng, validation::validate_voronoi_strict};
     use rand::SeedableRng;
@@ -569,6 +568,175 @@ fn strict_small_counts() {
                 );
             }
         }
+    }
+}
+
+/// Strict correctness sweep on large counts using efficient k-NN validation.
+/// Run with: cargo test --release strict_large_counts -- --ignored --nocapture
+#[test]
+#[ignore]
+fn strict_large_counts() {
+    use crate::geometry::{
+        fibonacci_sphere_points_with_rng,
+        lloyd_relax_kmeans,
+        validation::{validate_voronoi_large, LargeValidationConfig},
+    };
+    use rand::SeedableRng;
+    use rand_chacha::ChaCha8Rng;
+    use std::time::Instant;
+
+    println!("\n=== Strict Large Counts Validation ===\n");
+
+    // Test sizes from 25k to 500k
+    let sizes = [25_000usize, 50_000, 100_000, 250_000, 500_000];
+    let repeats = 3u64;
+
+    // Validation thresholds
+    const SUPPORT_LT3_SOFT_FRAC: f64 = 0.02;
+    const SUPPORT_LT3_HARD_FRAC: f64 = 0.05;
+
+    for &n in &sizes {
+        println!("--- n = {} ---", n);
+
+        for seed_offset in 0..repeats {
+            let seed = 12345 + seed_offset;
+            let mut rng = ChaCha8Rng::seed_from_u64(seed);
+            let mean_spacing = (4.0 * std::f32::consts::PI / n as f32).sqrt();
+            let jitter = mean_spacing * 0.25;
+
+            // Generate points with Lloyd relaxation for quality
+            let mut points = fibonacci_sphere_points_with_rng(n, jitter, &mut rng);
+
+            // Use k-means Lloyd for large n (faster)
+            let t0 = Instant::now();
+            if n >= 100_000 {
+                lloyd_relax_kmeans(&mut points, 2, 15, &mut rng);
+            } else {
+                lloyd_relax_kmeans(&mut points, 3, 20, &mut rng);
+            }
+            let lloyd_ms = t0.elapsed().as_secs_f64() * 1000.0;
+
+            // Verify min spacing
+            let min_dist = check_min_point_distance(&points);
+            let min_spacing = min_spacing_threshold();
+            if min_dist < min_spacing {
+                println!(
+                    "  seed={}: SKIP - min spacing {:.2e} below threshold {:.2e}",
+                    seed, min_dist, min_spacing
+                );
+                continue;
+            }
+
+            // Build Voronoi
+            let t0 = Instant::now();
+            let voronoi = super::compute_voronoi_gpu_style(&points, DEFAULT_K);
+            let build_ms = t0.elapsed().as_secs_f64() * 1000.0;
+
+            // Configure validation based on size
+            let config = if n >= 250_000 {
+                // Fast for very large: 5% sampling, k=48
+                LargeValidationConfig {
+                    knn_k: 48,
+                    vertex_sample_rate: 0.05,
+                    eps_factor: 0.01,
+                    seed,
+                }
+            } else if n >= 100_000 {
+                // Thorough for large: 10% sampling, k=48
+                LargeValidationConfig {
+                    knn_k: 48,
+                    vertex_sample_rate: 0.10,
+                    eps_factor: 0.01,
+                    seed,
+                }
+            } else {
+                // Full for medium: all vertices, k=48
+                LargeValidationConfig {
+                    knn_k: 48,
+                    vertex_sample_rate: 1.0,
+                    eps_factor: 0.01,
+                    seed,
+                }
+            };
+
+            // Validate
+            let t0 = Instant::now();
+            let result = validate_voronoi_large(&voronoi, &config);
+            let validate_ms = t0.elapsed().as_secs_f64() * 1000.0;
+
+            // Compute support_lt3 rate
+            let support_lt3_rate = if result.vertices_sampled > 0 {
+                result.support_lt3 as f64 / result.vertices_sampled as f64
+            } else {
+                0.0
+            };
+
+            // Print summary
+            print!(
+                "  seed={}: lloyd={:.0}ms build={:.0}ms validate={:.0}ms | ",
+                seed, lloyd_ms, build_ms, validate_ms
+            );
+            if result.topology_valid() {
+                print!("TOPO_OK");
+            } else {
+                print!("TOPO_FAIL(euler={} orphan={} degen={})",
+                    if result.euler_ok { "ok" } else { "FAIL" },
+                    result.orphan_edges,
+                    result.degenerate_cells
+                );
+            }
+            print!(
+                " | sampled={} support_lt3={:.2}% gen_mismatch={} max_delta={:.2e}",
+                result.vertices_sampled,
+                support_lt3_rate * 100.0,
+                result.generator_mismatch,
+                result.max_generator_delta
+            );
+            println!();
+
+            // Hard assertions: any degenerate cell or orphan edge is a failure
+            assert!(
+                result.degenerate_cells == 0,
+                "Found {} degenerate cells for n={}, seed={}",
+                result.degenerate_cells,
+                n,
+                seed
+            );
+            assert!(
+                result.orphan_edges == 0,
+                "Found {} orphan edges for n={}, seed={}",
+                result.orphan_edges,
+                n,
+                seed
+            );
+            assert!(
+                result.euler_ok,
+                "Euler check failed for n={}, seed={}: V-E+F = {}",
+                n,
+                seed,
+                result.euler_v as i64 - result.euler_e as i64 + result.euler_f as i64
+            );
+
+            // Soft warning for support_lt3
+            if support_lt3_rate > SUPPORT_LT3_SOFT_FRAC {
+                println!(
+                    "    WARNING: support_lt3 rate {:.2}% exceeds soft cap {:.2}%",
+                    support_lt3_rate * 100.0,
+                    SUPPORT_LT3_SOFT_FRAC * 100.0
+                );
+            }
+
+            // Hard cap for support_lt3
+            assert!(
+                support_lt3_rate <= SUPPORT_LT3_HARD_FRAC,
+                "support_lt3 rate {:.2}% exceeds hard cap {:.2}% for n={}, seed={}",
+                support_lt3_rate * 100.0,
+                SUPPORT_LT3_HARD_FRAC * 100.0,
+                n,
+                seed
+            );
+        }
+        println!();
     }
 }
 

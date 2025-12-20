@@ -1209,6 +1209,400 @@ pub struct OrphanEdgeExample {
     pub missing_from_b: Vec<usize>,
 }
 
+/// Configuration for large-count validation.
+#[derive(Debug, Clone)]
+pub struct LargeValidationConfig {
+    /// Number of neighbors to check for support set validation (default: 48).
+    /// Higher values catch more issues but are slower.
+    pub knn_k: usize,
+    /// Fraction of vertices to sample for detailed checks (0.0-1.0).
+    /// 1.0 = check all vertices, 0.01 = check 1% of vertices.
+    pub vertex_sample_rate: f64,
+    /// Epsilon for support set membership (relative to mean spacing).
+    pub eps_factor: f64,
+    /// Random seed for reproducible sampling.
+    pub seed: u64,
+}
+
+impl Default for LargeValidationConfig {
+    fn default() -> Self {
+        Self {
+            knn_k: 48,
+            vertex_sample_rate: 1.0, // Check all by default
+            eps_factor: 0.01,
+            seed: 12345,
+        }
+    }
+}
+
+impl LargeValidationConfig {
+    /// Create config for fast validation (1% sampling).
+    pub fn fast() -> Self {
+        Self {
+            knn_k: 32,
+            vertex_sample_rate: 0.01,
+            ..Default::default()
+        }
+    }
+
+    /// Create config for thorough validation (10% sampling).
+    pub fn thorough() -> Self {
+        Self {
+            knn_k: 48,
+            vertex_sample_rate: 0.10,
+            ..Default::default()
+        }
+    }
+
+    /// Create config for exhaustive validation (all vertices, high k).
+    pub fn exhaustive() -> Self {
+        Self {
+            knn_k: 64,
+            vertex_sample_rate: 1.0,
+            ..Default::default()
+        }
+    }
+}
+
+/// Result of large-count validation.
+#[derive(Debug, Clone, Default)]
+pub struct LargeValidationResult {
+    // Topology checks (fast, always complete)
+    pub num_cells: usize,
+    pub num_vertices: usize,
+    pub euler_v: usize,
+    pub euler_e: usize,
+    pub euler_f: usize,
+    pub euler_ok: bool,
+    pub degenerate_cells: usize,
+    pub orphan_edges: usize,
+    pub overcounted_edges: usize,
+    pub total_area: f64,
+    pub area_error_pct: f64,
+
+    // Sampled geometric checks
+    pub vertices_sampled: usize,
+    pub sample_rate: f64,
+
+    /// Vertices where support set has < 3 generators within k-NN.
+    pub support_lt3: usize,
+    /// Vertices where assigned cell's generator is not in support set.
+    pub generator_mismatch: usize,
+    /// Maximum delta (max_dot - cell_gen_dot) observed.
+    pub max_generator_delta: f64,
+    /// Vertices flagged as ambiguous (support set boundary cases).
+    pub ambiguous_vertices: usize,
+
+    // Timing
+    pub topology_time_ms: f64,
+    pub sampling_time_ms: f64,
+}
+
+impl LargeValidationResult {
+    /// Check if topological structure is valid.
+    pub fn topology_valid(&self) -> bool {
+        self.euler_ok && self.degenerate_cells == 0 && self.orphan_edges == 0 && self.overcounted_edges == 0
+    }
+
+    /// Check if geometric accuracy is acceptable.
+    /// Returns true if no generator mismatches and support_lt3 rate is low.
+    pub fn geometry_valid(&self, support_lt3_threshold: f64) -> bool {
+        if self.vertices_sampled == 0 {
+            return true;
+        }
+        let support_lt3_rate = self.support_lt3 as f64 / self.vertices_sampled as f64;
+        self.generator_mismatch == 0 && support_lt3_rate <= support_lt3_threshold
+    }
+
+    /// Overall validity check.
+    pub fn is_valid(&self) -> bool {
+        self.topology_valid() && self.geometry_valid(0.05)
+    }
+
+    pub fn print_summary(&self) {
+        println!("Large-Count Validation Results:");
+        println!("  Cells: {}, Vertices: {}", self.num_cells, self.num_vertices);
+        println!(
+            "  Euler: V={} E={} F={} (V-E+F={}, ok={})",
+            self.euler_v,
+            self.euler_e,
+            self.euler_f,
+            self.euler_v as i64 - self.euler_e as i64 + self.euler_f as i64,
+            self.euler_ok
+        );
+        println!(
+            "  Area: {:.4} (error {:.2}%)",
+            self.total_area, self.area_error_pct
+        );
+        println!(
+            "  Topology: degenerate={}, orphan={}, overcounted={}",
+            self.degenerate_cells, self.orphan_edges, self.overcounted_edges
+        );
+        println!(
+            "  Sampled: {} vertices ({:.1}%)",
+            self.vertices_sampled,
+            self.sample_rate * 100.0
+        );
+        if self.vertices_sampled > 0 {
+            let support_lt3_rate = self.support_lt3 as f64 / self.vertices_sampled as f64 * 100.0;
+            println!(
+                "  Geometry: support_lt3={} ({:.2}%), gen_mismatch={}, ambiguous={}, max_delta={:.2e}",
+                self.support_lt3, support_lt3_rate, self.generator_mismatch, self.ambiguous_vertices, self.max_generator_delta
+            );
+        }
+        println!(
+            "  Time: topology={:.1}ms, sampling={:.1}ms",
+            self.topology_time_ms, self.sampling_time_ms
+        );
+        println!(
+            "  Status: {}",
+            if self.is_valid() { "VALID" } else { "INVALID" }
+        );
+    }
+}
+
+/// Validate a Voronoi diagram for large point counts (100k+).
+///
+/// This function is optimized for large counts by:
+/// 1. Using fast O(V+E+F) topological checks (Euler, edge consistency)
+/// 2. Using k-NN to accelerate support set validation (O(V*k) instead of O(V*N))
+/// 3. Supporting vertex sampling to reduce validation time
+///
+/// For small counts (<10k), use `validate_voronoi_strict` instead.
+pub fn validate_voronoi_large(
+    voronoi: &SphericalVoronoi,
+    config: &LargeValidationConfig,
+) -> LargeValidationResult {
+    use crate::geometry::gpu_voronoi::{CubeMapGridKnn, KnnProvider};
+    use rand::seq::SliceRandom;
+    use rand::SeedableRng;
+    use rand_chacha::ChaCha8Rng;
+    use std::time::Instant;
+
+    let mut result = LargeValidationResult {
+        num_cells: voronoi.num_cells(),
+        num_vertices: voronoi.vertices.len(),
+        sample_rate: config.vertex_sample_rate,
+        ..Default::default()
+    };
+
+    // Phase 1: Fast topology checks
+    let t0 = Instant::now();
+
+    let mut edge_to_cells: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
+    let mut unique_vertices: HashSet<usize> = HashSet::new();
+
+    for cell_idx in 0..voronoi.num_cells() {
+        let cell = voronoi.cell(cell_idx);
+        let vertex_indices = cell.vertex_indices;
+
+        // Check for degenerate cells
+        if vertex_indices.len() < 3 {
+            result.degenerate_cells += 1;
+            continue;
+        }
+
+        // Track vertices and edges
+        for &vi in vertex_indices {
+            unique_vertices.insert(vi);
+        }
+
+        for i in 0..vertex_indices.len() {
+            let v1 = vertex_indices[i];
+            let v2 = vertex_indices[(i + 1) % vertex_indices.len()];
+            if v1 == v2 {
+                continue;
+            }
+            let edge = if v1 < v2 { (v1, v2) } else { (v2, v1) };
+            edge_to_cells.entry(edge).or_default().push(cell_idx);
+        }
+
+        // Compute cell area
+        let positions: Vec<Vec3> = vertex_indices
+            .iter()
+            .map(|&vi| voronoi.vertices[vi])
+            .collect();
+        result.total_area += spherical_polygon_area(&positions);
+    }
+
+    // Euler characteristic
+    result.euler_v = unique_vertices.len();
+    result.euler_e = edge_to_cells.len();
+    result.euler_f = voronoi.num_cells();
+    let euler_sum = result.euler_v as i64 - result.euler_e as i64 + result.euler_f as i64;
+    result.euler_ok = euler_sum == 2;
+
+    // Edge consistency
+    for (_edge, cells) in &edge_to_cells {
+        match cells.len() {
+            1 => result.orphan_edges += 1,
+            2 => {}
+            _ => result.overcounted_edges += 1,
+        }
+    }
+
+    // Area error
+    let expected_area = 4.0 * std::f64::consts::PI;
+    result.area_error_pct = (result.total_area - expected_area).abs() / expected_area * 100.0;
+
+    result.topology_time_ms = t0.elapsed().as_secs_f64() * 1000.0;
+
+    // Phase 2: Sampled geometric checks with k-NN acceleration
+    let t1 = Instant::now();
+
+    // Build vertex -> cells mapping
+    let mut vertex_to_cells: Vec<Vec<usize>> = vec![Vec::new(); voronoi.vertices.len()];
+    for cell_idx in 0..voronoi.num_cells() {
+        let cell = voronoi.cell(cell_idx);
+        for &vi in cell.vertex_indices {
+            if vi < vertex_to_cells.len() && !vertex_to_cells[vi].contains(&cell_idx) {
+                vertex_to_cells[vi].push(cell_idx);
+            }
+        }
+    }
+
+    // Collect referenced vertices
+    let referenced_vertices: Vec<usize> = unique_vertices.into_iter().collect();
+
+    // Sample vertices
+    let mut rng = ChaCha8Rng::seed_from_u64(config.seed);
+    let sample_size = ((referenced_vertices.len() as f64 * config.vertex_sample_rate).ceil() as usize)
+        .max(1)
+        .min(referenced_vertices.len());
+
+    let mut sampled_indices = referenced_vertices.clone();
+    if sample_size < referenced_vertices.len() {
+        sampled_indices.shuffle(&mut rng);
+        sampled_indices.truncate(sample_size);
+    }
+    result.vertices_sampled = sampled_indices.len();
+
+    // Build k-NN for generator lookup
+    let knn = CubeMapGridKnn::new(&voronoi.generators);
+    let mut scratch = knn.make_scratch();
+    let mut neighbors: Vec<usize> = Vec::with_capacity(config.knn_k);
+
+    // Compute epsilon based on mean spacing
+    let mean_spacing = (4.0 * std::f64::consts::PI / voronoi.generators.len() as f64).sqrt();
+    let eps = mean_spacing * config.eps_factor;
+
+    // Convert generators to f64 for precision
+    let generators_d: Vec<glam::DVec3> = voronoi
+        .generators
+        .iter()
+        .map(|g| glam::DVec3::new(g.x as f64, g.y as f64, g.z as f64).normalize())
+        .collect();
+
+    for &v_idx in &sampled_indices {
+        let v = voronoi.vertices[v_idx];
+        let v64 = glam::DVec3::new(v.x as f64, v.y as f64, v.z as f64).normalize();
+
+        // Get k-NN generators for this vertex position
+        // Use any nearby cell's generator as query point (vertex should be near its cells' generators)
+        let query_gen = if !vertex_to_cells[v_idx].is_empty() {
+            voronoi.generators[vertex_to_cells[v_idx][0]]
+        } else {
+            v // Fallback to vertex position
+        };
+
+        neighbors.clear();
+        knn.knn_into(query_gen, usize::MAX, config.knn_k, &mut scratch, &mut neighbors);
+
+        // Find max dot product among k-NN neighbors
+        let mut max_dot = f64::NEG_INFINITY;
+        for &ni in &neighbors {
+            let d = v64.dot(generators_d[ni]);
+            if d > max_dot {
+                max_dot = d;
+            }
+        }
+
+        // Also check actual cell generators (they should be in k-NN, but verify)
+        for &cell_idx in &vertex_to_cells[v_idx] {
+            let d = v64.dot(generators_d[cell_idx]);
+            if d > max_dot {
+                max_dot = d;
+            }
+        }
+
+        // Build support set from k-NN
+        let mut support_count = 0;
+        let mut cell_gen_in_support = true;
+        let mut has_ambiguous = false;
+
+        for &ni in &neighbors {
+            let delta = max_dot - v64.dot(generators_d[ni]);
+            if delta <= eps {
+                support_count += 1;
+            } else if delta <= eps * 2.0 {
+                has_ambiguous = true;
+            }
+        }
+
+        // Check if cell generators are in support set
+        for &cell_idx in &vertex_to_cells[v_idx] {
+            let delta = max_dot - v64.dot(generators_d[cell_idx]);
+            if delta > result.max_generator_delta {
+                result.max_generator_delta = delta;
+            }
+            if delta > eps {
+                cell_gen_in_support = false;
+            }
+        }
+
+        if support_count < 3 {
+            result.support_lt3 += 1;
+        }
+        if !cell_gen_in_support {
+            result.generator_mismatch += 1;
+        }
+        if has_ambiguous {
+            result.ambiguous_vertices += 1;
+        }
+    }
+
+    result.sampling_time_ms = t1.elapsed().as_secs_f64() * 1000.0;
+
+    result
+}
+
+/// Convenience function for quick validation of large diagrams.
+pub fn validate_voronoi_large_quick(voronoi: &SphericalVoronoi) -> (bool, String) {
+    let config = if voronoi.num_cells() > 100_000 {
+        LargeValidationConfig::fast()
+    } else {
+        LargeValidationConfig::thorough()
+    };
+    let result = validate_voronoi_large(voronoi, &config);
+
+    if result.is_valid() {
+        (true, format!("Valid (sampled {:.1}%)", result.sample_rate * 100.0))
+    } else {
+        let mut issues = Vec::new();
+        if !result.euler_ok {
+            issues.push("euler_fail".to_string());
+        }
+        if result.degenerate_cells > 0 {
+            issues.push(format!("{} degenerate", result.degenerate_cells));
+        }
+        if result.orphan_edges > 0 {
+            issues.push(format!("{} orphan_edges", result.orphan_edges));
+        }
+        if result.generator_mismatch > 0 {
+            issues.push(format!("{} gen_mismatch", result.generator_mismatch));
+        }
+        let support_lt3_rate = if result.vertices_sampled > 0 {
+            result.support_lt3 as f64 / result.vertices_sampled as f64
+        } else {
+            0.0
+        };
+        if support_lt3_rate > 0.05 {
+            issues.push(format!("support_lt3 {:.1}%", support_lt3_rate * 100.0));
+        }
+        (false, issues.join(", "))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

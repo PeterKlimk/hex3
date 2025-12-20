@@ -12,6 +12,7 @@ mod tests;
 
 use glam::Vec3;
 use kiddo::ImmutableKdTree;
+use rustc_hash::FxHashSet;
 
 // Re-exports
 pub use cell_builder::{
@@ -27,9 +28,9 @@ pub use knn::{CubeMapGridKnn, KnnProvider};
 /// 1. Numerically unstable bisector planes
 /// 2. Multiple close neighbors collectively killing cells
 /// 3. Orphan edges from inconsistent cell topologies
-pub const MIN_BISECTOR_DISTANCE: f32 = 1e-3;
+pub const MIN_BISECTOR_DISTANCE: f32 = 1e-4;
 /// Fraction of mean generator spacing used for vertex welding.
-pub const VERTEX_WELD_FRACTION: f32 = 0.03;
+pub const VERTEX_WELD_FRACTION: f32 = 0.01;
 
 /// Approximate mean chord length between uniformly-distributed generators.
 /// Used to scale tolerances; assumes roughly even generator spacing.
@@ -367,8 +368,15 @@ pub fn build_cells_data_flat_adaptive(
                                 {
                                     // Correctness fallback: clip against all generators.
                                     // This is rare and expensive but guarantees completeness.
+                                    if std::env::var("VORONOI_DEBUG_FALLBACK").is_ok() {
+                                        eprintln!("[FALLBACK] cell {} entering full-scan fallback ({} neighbors so far)",
+                                            i, builder.planes_count());
+                                    }
+                                    let fallback_start = std::time::Instant::now();
+                                    // Build a HashSet for O(1) neighbor lookup instead of O(n) linear search
+                                    let already_clipped: FxHashSet<usize> = builder.neighbor_indices_iter().collect();
                                     for (p_idx, &p) in points.iter().enumerate() {
-                                        if p_idx == i || builder.has_neighbor(p_idx) {
+                                        if p_idx == i || already_clipped.contains(&p_idx) {
                                             continue;
                                         }
                                         builder.clip(p_idx, p);
@@ -376,6 +384,10 @@ pub fn build_cells_data_flat_adaptive(
                                         if builder.is_dead() {
                                             break;
                                         }
+                                    }
+                                    if std::env::var("VORONOI_DEBUG_FALLBACK").is_ok() {
+                                        let elapsed = fallback_start.elapsed().as_secs_f64() * 1000.0;
+                                        eprintln!("[FALLBACK] cell {} full-scan took {:.1}ms", i, elapsed);
                                     }
                                     full_scan_done = true;
                                 }
@@ -421,12 +433,21 @@ pub fn build_cells_data_flat_adaptive(
                     let recovered = builder.try_reseed_best();
                     if !recovered {
                         if !full_scan_done {
+                            if std::env::var("VORONOI_DEBUG_FALLBACK").is_ok() {
+                                eprintln!("[RECOVERY] cell {} entering full-scan recovery (was dead after {} planes)",
+                                    i, builder.planes_count());
+                            }
+                            let recovery_start = std::time::Instant::now();
                             builder.reset(i, points[i]);
                             for (p_idx, &p) in points.iter().enumerate() {
                                 if p_idx == i {
                                     continue;
                                 }
                                 builder.clip(p_idx, p);
+                            }
+                            if std::env::var("VORONOI_DEBUG_FALLBACK").is_ok() {
+                                let elapsed = recovery_start.elapsed().as_secs_f64() * 1000.0;
+                                eprintln!("[RECOVERY] cell {} full-scan recovery took {:.1}ms", i, elapsed);
                             }
                         }
                         let recovered = if builder.is_dead() {

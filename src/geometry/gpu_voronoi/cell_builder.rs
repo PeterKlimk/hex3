@@ -110,6 +110,13 @@ impl IncrementalCellBuilder {
         self.neighbor_indices.contains(&neighbor_idx)
     }
 
+    /// Returns an iterator over the neighbor indices that have been clipped.
+    /// Useful for building a HashSet for O(1) lookup during full-scan fallback.
+    #[inline]
+    pub fn neighbor_indices_iter(&self) -> impl Iterator<Item = usize> + '_ {
+        self.neighbor_indices.iter().copied()
+    }
+
     #[inline]
     fn intersect_planes_in_triplet(
         &self,
