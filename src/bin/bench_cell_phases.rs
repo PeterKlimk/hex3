@@ -11,8 +11,11 @@
 //!   evil     - Highly degenerate: clustered + high jitter
 //!   all      - Run all distributions
 
+mod bench_common;
+
+use clap::{Parser, ValueEnum};
 use glam::Vec3;
-use hex3::geometry::{fibonacci_sphere_points_with_rng, lloyd_relax_kmeans, gpu_voronoi::*};
+use hex3::geometry::{lloyd_relax_kmeans, gpu_voronoi::*};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use std::time::Instant;
@@ -24,7 +27,7 @@ pub enum PointDistribution {
     Behaved,
     /// Fibonacci with 0.25 spacing jitter - mild irregularity
     Jittery,
-    /// Highly degenerate: clustered points + high jitter
+    /// Highly degenerate: clustered points + high jitter (violates min spacing)
     Evil,
 }
 
@@ -41,33 +44,85 @@ impl PointDistribution {
         match self {
             Self::Behaved => "Lloyd-relaxed (production-like)",
             Self::Jittery => "Fibonacci + 0.25 jitter",
-            Self::Evil => "Clustered + high jitter",
+            Self::Evil => "Clustered + high jitter (invalid spacing)",
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum DistributionArg {
+    Behaved,
+    Jittery,
+    Evil,
+    All,
+}
+
+impl DistributionArg {
+    fn to_distribution(self) -> Option<PointDistribution> {
+        match self {
+            Self::Behaved => Some(PointDistribution::Behaved),
+            Self::Jittery => Some(PointDistribution::Jittery),
+            Self::Evil => Some(PointDistribution::Evil),
+            Self::All => None,
+        }
+    }
+}
+
+#[derive(Parser)]
+#[command(name = "bench_cell_phases")]
+#[command(about = "Micro-benchmark for cell construction phase breakdown")]
+struct Args {
+    /// Point distribution tier
+    #[arg(value_enum)]
+    distribution: Option<DistributionArg>,
+
+    /// Sizes to benchmark (e.g., 100k, 1m, 10m)
+    #[arg(value_parser = bench_common::parse_count)]
+    sizes: Vec<usize>,
+
+    /// Run all distributions
+    #[arg(long)]
+    all: bool,
+
+    /// Only run 100k points
+    #[arg(long)]
+    quick: bool,
+
+    /// Show detailed histograms
+    #[arg(long)]
+    verbose: bool,
+
+    /// Run tier comparison benchmarks
+    #[arg(long)]
+    tiers: bool,
+
+    /// Run adaptive-k tuning benchmark for behaved points
+    #[arg(long)]
+    tuning: bool,
+
+    /// Run raw KNN query benchmark (for measuring scratch changes)
+    #[arg(long)]
+    knn: bool,
 }
 
 /// Generate points with the specified distribution
 fn generate_points(n: usize, distribution: PointDistribution, seed: u64) -> Vec<Vec3> {
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
-    let mean_spacing = (4.0 * std::f32::consts::PI / n as f32).sqrt();
 
     match distribution {
         PointDistribution::Behaved => {
             // Production-like: fibonacci + low jitter + Lloyd relaxation
-            let jitter = mean_spacing * 0.1;
-            let mut points = fibonacci_sphere_points_with_rng(n, jitter, &mut rng);
+            let mut points = bench_common::fibonacci_points_with_jitter(n, 0.1, &mut rng);
             lloyd_relax_kmeans(&mut points, 2, 20, &mut rng);
             points
         }
         PointDistribution::Jittery => {
             // Moderate irregularity: fibonacci + 0.25 spacing jitter
-            let jitter = mean_spacing * 0.25;
-            fibonacci_sphere_points_with_rng(n, jitter, &mut rng)
+            bench_common::fibonacci_points_with_jitter(n, 0.25, &mut rng)
         }
         PointDistribution::Evil => {
-            // Highly degenerate: clusters + high jitter + some very close points
-            let jitter = mean_spacing * 0.5;
-            let mut points = fibonacci_sphere_points_with_rng(n, jitter, &mut rng);
+            // Highly degenerate: clusters + high jitter + very close points (invalid spacing)
+            let mut points = bench_common::fibonacci_points_with_jitter(n, 0.5, &mut rng);
 
             // Create ~5% clustered regions by pulling points toward random attractors
             let num_attractors = (n / 100).max(5);
@@ -310,7 +365,7 @@ fn benchmark_termination_distribution(points: &[Vec3], knn: &impl KnnProvider, k
     }
 }
 
-/// Test that adaptive-k fixes the correctness issues
+/// Compare adaptive-k against a fixed high-k baseline
 fn test_adaptive_k_correctness(points: &[Vec3], knn: &impl KnnProvider) {
     use hex3::geometry::gpu_voronoi::AdaptiveKConfig;
 
@@ -766,7 +821,7 @@ fn benchmark_knn_raw(n: usize, seed: u64) {
             println!("    12→24 resume:  {:>7.1}ms ({:.2}µs/query)", elapsed, elapsed * 1000.0 / n as f64);
         }
 
-        // Test re-query: k=12 then fresh k=24 (old approach)
+        // Test re-query: k=12 then fresh k=24 (baseline)
         {
             let mut scratch = grid.make_scratch();
             let mut neighbors = Vec::with_capacity(24);
@@ -818,114 +873,46 @@ fn benchmark_knn_raw(n: usize, seed: u64) {
     }
 }
 
-fn parse_size(s: &str) -> Option<usize> {
-    let s = s.to_lowercase();
-    let (num_str, multiplier) = if s.ends_with('m') {
-        (&s[..s.len() - 1], 1_000_000)
-    } else if s.ends_with('k') {
-        (&s[..s.len() - 1], 1_000)
-    } else {
-        (s.as_str(), 1)
-    };
-    num_str.parse::<f64>().ok().map(|n| (n * multiplier as f64) as usize)
-}
-
-fn print_usage() {
-    eprintln!("Usage: bench_cell_phases [OPTIONS] [DISTRIBUTION] [SIZES...]");
-    eprintln!();
-    eprintln!("Distributions:");
-    eprintln!("  behaved   Lloyd-relaxed points (like production)");
-    eprintln!("  jittery   Fibonacci with jitter, no Lloyd (default)");
-    eprintln!("  evil      Highly degenerate: clustered + high jitter");
-    eprintln!("  all       Run all distributions");
-    eprintln!();
-    eprintln!("Sizes:");
-    eprintln!("  100k, 500k, 1m, 5m, 10m, etc. (supports k/m suffixes)");
-    eprintln!("  If none specified: 100k, 500k, 1m");
-    eprintln!();
-    eprintln!("Options:");
-    eprintln!("  --quick    Only run 100k points");
-    eprintln!("  --verbose  Show detailed histograms");
-    eprintln!("  --tiers    Run tier comparison benchmarks");
-    eprintln!("  --tuning   Run adaptive-k tuning benchmark for behaved points");
-    eprintln!("  --knn      Run raw KNN query benchmark (for measuring scratch changes)");
-    eprintln!();
-    eprintln!("Examples:");
-    eprintln!("  bench_cell_phases jittery 10m        # 10M jittery points");
-    eprintln!("  bench_cell_phases behaved 1m 5m     # 1M and 5M behaved points");
-}
-
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
+    let args = Args::parse();
 
-    let mut distribution: Option<PointDistribution> = None;
-    let mut run_all = false;
-    let mut quick = false;
-    let mut verbose = false;
-    let mut tiers_only = false;
-    let mut tuning_only = false;
-    let mut knn_only = false;
-    let mut custom_sizes: Vec<usize> = Vec::new();
-
-    for arg in args.iter().skip(1) {
-        match arg.as_str() {
-            "behaved" => distribution = Some(PointDistribution::Behaved),
-            "jittery" => distribution = Some(PointDistribution::Jittery),
-            "evil" => distribution = Some(PointDistribution::Evil),
-            "all" => run_all = true,
-            "--quick" => quick = true,
-            "--verbose" => verbose = true,
-            "--tiers" => tiers_only = true,
-            "--tuning" => tuning_only = true,
-            "--knn" => knn_only = true,
-            "--help" | "-h" => {
-                print_usage();
-                return;
-            }
-            _ => {
-                // Try to parse as a size (100k, 1m, 10000000, etc.)
-                if let Some(size) = parse_size(arg) {
-                    custom_sizes.push(size);
-                } else {
-                    eprintln!("Unknown argument: {}", arg);
-                    print_usage();
-                    return;
-                }
-            }
-        }
+    let mut run_all = args.all;
+    let distribution_arg = args.distribution.unwrap_or(DistributionArg::Jittery);
+    if matches!(distribution_arg, DistributionArg::All) {
+        run_all = true;
     }
-
-    // Default to jittery if no distribution specified
-    let distribution = distribution.unwrap_or(PointDistribution::Jittery);
+    let distribution = distribution_arg
+        .to_distribution()
+        .unwrap_or(PointDistribution::Jittery);
 
     let seed = 12345u64;
     let k = 24;
-    let sizes = if !custom_sizes.is_empty() {
-        custom_sizes
-    } else if quick {
+    let sizes = if !args.sizes.is_empty() {
+        args.sizes
+    } else if args.quick {
         vec![100_000]
     } else {
         vec![100_000, 500_000, 1_000_000]
     };
 
-    if knn_only {
+    if args.knn {
         // Run raw KNN benchmark
         let n = 100_000;
         benchmark_knn_raw(n, seed);
         return;
     }
 
-    if tuning_only {
+    if args.tuning {
         // Run adaptive-k tuning benchmark
         let n = 100_000;
         benchmark_adaptive_tuning_behaved(n, seed);
         return;
     }
 
-    if tiers_only || run_all {
+    if args.tiers || run_all {
         // Run tier comparison benchmarks
         let n = 100_000;
-        benchmark_all_distributions(n, seed, k, verbose);
+        benchmark_all_distributions(n, seed, k, args.verbose);
         test_adaptive_correctness_all_tiers(n, seed);
         benchmark_performance_all_tiers(n, seed);
         return;

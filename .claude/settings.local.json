@@ -24,7 +24,11 @@
       "Bash(grep:*)",
       "Bash(timeout 3:*)",
       "Bash(target/release/bench_voronoi.exe:*)",
-      "Bash(timeout 60 target/release/bench_voronoi.exe:*)"
+      "Bash(timeout 60 target/release/bench_voronoi.exe:*)",
+      "Bash(timeout:*)",
+      "Bash(VORONOI_DEBUG_FALLBACK=1 timeout 120 cargo run:*)",
+      "Bash(STRICT_VALIDATE_DEBUG=1 cargo test:*)",
+      "Bash(VORONOI_DEBUG_DEDUP=1 cargo test:*)"
     ]
   }
 }

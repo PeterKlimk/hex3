@@ -5,7 +5,33 @@
 
 use super::SphericalVoronoi;
 use glam::Vec3;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+
+/// Compute the signed area of a spherical polygon on a unit sphere.
+/// Returns positive for counterclockwise winding, negative for clockwise.
+fn spherical_polygon_area(vertices: &[Vec3]) -> f64 {
+    let n = vertices.len();
+    if n < 3 {
+        return 0.0;
+    }
+
+    // Use the signed solid angle formula
+    // Sum over triangles formed with first vertex (works for convex and simple polygons)
+    let mut total = 0.0f64;
+    let v0 = glam::DVec3::new(vertices[0].x as f64, vertices[0].y as f64, vertices[0].z as f64);
+    for i in 1..(n - 1) {
+        let v1 = glam::DVec3::new(vertices[i].x as f64, vertices[i].y as f64, vertices[i].z as f64);
+        let v2 = glam::DVec3::new(vertices[i + 1].x as f64, vertices[i + 1].y as f64, vertices[i + 1].z as f64);
+        // Signed area of spherical triangle using the formula:
+        // tan(E/2) = v0·(v1×v2) / (1 + v0·v1 + v1·v2 + v2·v0)
+        // where E is the spherical excess (= area for unit sphere)
+        let triple = v0.dot(v1.cross(v2));
+        let denom = 1.0 + v0.dot(v1) + v1.dot(v2) + v2.dot(v0);
+        let half_excess = triple.atan2(denom);
+        total += 2.0 * half_excess;
+    }
+    total
+}
 
 /// Results of validating a spherical Voronoi diagram.
 #[derive(Debug, Clone, Default)]
@@ -24,40 +50,82 @@ pub struct ValidationResult {
     pub overcounted_edges: Vec<(usize, usize, usize)>, // (vertex_idx_a, vertex_idx_b, count)
     /// Cells that don't contain their generator in the cell interior
     pub generator_outside_cells: Vec<usize>,
+    /// Cells with wrong winding order (clockwise instead of counterclockwise)
+    pub wrong_winding_cells: Vec<usize>,
+    /// Cells with negative or zero area
+    pub negative_area_cells: Vec<usize>,
+    /// Total surface area (should be 4π for a complete sphere)
+    pub total_area: f64,
+    /// Euler characteristic components (V - E + F should equal 2)
+    pub euler_v: usize,
+    pub euler_e: usize,
+    pub euler_f: usize,
 }
 
 impl ValidationResult {
-    /// Check if the grid is valid (no errors)
+    /// Check if the grid is valid (no hard errors)
     pub fn is_valid(&self) -> bool {
         self.degenerate_cells.is_empty()
             && self.duplicate_index_cells.is_empty()
-            && self.near_duplicate_cells.is_empty()
             && self.orphan_edges.is_empty()
             && self.overcounted_edges.is_empty()
             && self.generator_outside_cells.is_empty()
+            && self.wrong_winding_cells.is_empty()
+            && self.negative_area_cells.is_empty()
+            && self.euler_check()
     }
 
-    /// Total number of issues found
+    /// Check Euler characteristic: V - E + F = 2 for a sphere
+    pub fn euler_check(&self) -> bool {
+        (self.euler_v as i64) - (self.euler_e as i64) + (self.euler_f as i64) == 2
+    }
+
+    /// Check if total area is close to 4π (within 1%)
+    pub fn area_check(&self) -> bool {
+        let expected = 4.0 * std::f64::consts::PI;
+        (self.total_area - expected).abs() / expected < 0.01
+    }
+
+    /// Total number of hard issues found
     pub fn issue_count(&self) -> usize {
         self.degenerate_cells.len()
             + self.duplicate_index_cells.len()
-            + self.near_duplicate_cells.len()
             + self.orphan_edges.len()
             + self.overcounted_edges.len()
             + self.generator_outside_cells.len()
+            + self.wrong_winding_cells.len()
+            + self.negative_area_cells.len()
+            + if self.euler_check() { 0 } else { 1 }
     }
 
     /// Print a summary of validation results
     pub fn print_summary(&self) {
         println!("Voronoi Validation Results:");
         println!("  Total cells: {}", self.num_cells);
+        println!(
+            "  Euler: V={} E={} F={} (V-E+F={})",
+            self.euler_v,
+            self.euler_e,
+            self.euler_f,
+            (self.euler_v as i64) - (self.euler_e as i64) + (self.euler_f as i64)
+        );
+        println!(
+            "  Total area: {:.6} (expected {:.6}, error {:.2}%)",
+            self.total_area,
+            4.0 * std::f64::consts::PI,
+            100.0 * (self.total_area - 4.0 * std::f64::consts::PI).abs()
+                / (4.0 * std::f64::consts::PI)
+        );
 
         if self.is_valid() {
-            println!("  Status: VALID ✓");
+            println!("  Status: VALID");
             return;
         }
 
         println!("  Status: INVALID");
+        if !self.euler_check() {
+            println!("  Euler characteristic FAILED (expected V-E+F=2)");
+        }
         if !self.degenerate_cells.is_empty() {
             println!(
                 "  Degenerate cells (<3 vertices): {}",
@@ -72,7 +140,7 @@ impl ValidationResult {
         }
         if !self.near_duplicate_cells.is_empty() {
             println!(
-                "  Cells with near-duplicate vertices: {}",
+                "  (info) Cells with near-duplicate vertices: {}",
                 self.near_duplicate_cells.len()
             );
         }
@@ -89,6 +157,18 @@ impl ValidationResult {
             println!(
                 "  Generator outside cell: {}",
                 self.generator_outside_cells.len()
+            );
+        }
+        if !self.wrong_winding_cells.is_empty() {
+            println!(
+                "  Wrong winding cells: {}",
+                self.wrong_winding_cells.len()
+            );
+        }
+        if !self.negative_area_cells.is_empty() {
+            println!(
+                "  Negative/zero area cells: {}",
+                self.negative_area_cells.len()
             );
         }
     }
@@ -159,17 +239,183 @@ pub fn validate_voronoi(voronoi: &SphericalVoronoi, near_duplicate_threshold: f3
         }
 
         // Check 4: Generator should be "inside" the cell
-        // (For spherical Voronoi, generator should be closer to cell center than to any vertex)
-        // This is a weak check - just verify generator is closer to cell centroid than any neighbor
-        // Skip for now as it's expensive and less critical
+        // For a spherical polygon, a point is inside if it's on the correct side of all edges.
+        // Each edge defines a great circle; the generator should be on the interior side.
+        let generator = voronoi.generators[cell.generator_index];
+        let mut generator_inside = true;
+        for i in 0..vertex_indices.len() {
+            let v1 = voronoi.vertices[vertex_indices[i]];
+            let v2 = voronoi.vertices[vertex_indices[(i + 1) % vertex_indices.len()]];
+            // Edge plane normal: cross product of the two vertices (points on unit sphere)
+            // This gives the normal to the great circle containing the edge
+            let edge_normal = v1.cross(v2);
+            if edge_normal.length_squared() < 1e-12 {
+                continue; // Degenerate edge, skip
+            }
+            // Generator should be on the positive side (same side as the interior)
+            // The winding should be such that the interior is on the left of the edge
+            if generator.dot(edge_normal) < -1e-6 {
+                generator_inside = false;
+                break;
+            }
+        }
+        if !generator_inside {
+            result.generator_outside_cells.push(cell_idx);
+        }
+
+        // Check 5: Cell area (should be positive for counterclockwise winding)
+        let area = spherical_polygon_area(&positions);
+        result.total_area += area;
+        if area <= 0.0 {
+            // Negative or zero area indicates wrong winding or degenerate polygon
+            if area < -1e-10 {
+                result.wrong_winding_cells.push(cell_idx);
+            } else {
+                result.negative_area_cells.push(cell_idx);
+            }
+        }
     }
 
-    // Check edge consistency
+    // Check edge consistency and compute Euler characteristic
+    let mut unique_vertices: HashSet<usize> = HashSet::new();
+    for cell_idx in 0..voronoi.num_cells() {
+        let cell = voronoi.cell(cell_idx);
+        for &vi in cell.vertex_indices {
+            unique_vertices.insert(vi);
+        }
+    }
+    result.euler_v = unique_vertices.len();
+    result.euler_e = edge_to_cells.len();
+    result.euler_f = voronoi.num_cells();
+
     for (edge, cells) in &edge_to_cells {
         match cells.len() {
             1 => result.orphan_edges.push(*edge),
             2 => {} // Correct: each edge should be shared by exactly 2 cells
             n => result.overcounted_edges.push((edge.0, edge.1, n)),
+        }
+    }
+
+    result
+}
+
+/// Result of random point sampling validation
+#[derive(Debug, Clone, Default)]
+pub struct PointSampleResult {
+    /// Number of samples tested
+    pub num_samples: usize,
+    /// Number of samples where the nearest generator matched the cell
+    pub correct: usize,
+    /// Number of samples where the nearest generator didn't match (within tolerance)
+    pub incorrect: usize,
+    /// Maximum distance error (how much closer a wrong generator was)
+    pub max_error: f64,
+    /// Samples where point wasn't inside any cell (mesh has gaps)
+    pub outside_all_cells: usize,
+}
+
+impl PointSampleResult {
+    pub fn is_valid(&self) -> bool {
+        self.incorrect == 0 && self.outside_all_cells == 0
+    }
+
+    pub fn accuracy(&self) -> f64 {
+        if self.num_samples == 0 {
+            1.0
+        } else {
+            self.correct as f64 / self.num_samples as f64
+        }
+    }
+}
+
+/// Validate Voronoi diagram by random point sampling.
+/// For each random point on the sphere, find which cell contains it,
+/// then verify that cell's generator is the closest generator to the point.
+pub fn validate_voronoi_sampling<R: rand::Rng>(
+    voronoi: &SphericalVoronoi,
+    num_samples: usize,
+    tolerance: f64,
+    rng: &mut R,
+) -> PointSampleResult {
+    use rand::distributions::Distribution;
+
+    let mut result = PointSampleResult {
+        num_samples,
+        ..Default::default()
+    };
+
+    // Build a simple spatial lookup for finding which cell contains a point
+    // For each sample point, we'll check against all cells (brute force but correct)
+
+    for _ in 0..num_samples {
+        // Generate random point on unit sphere
+        let normal = rand_distr::StandardNormal;
+        let x: f64 = normal.sample(rng);
+        let y: f64 = normal.sample(rng);
+        let z: f64 = normal.sample(rng);
+        let len = (x * x + y * y + z * z).sqrt();
+        let point = Vec3::new((x / len) as f32, (y / len) as f32, (z / len) as f32);
+
+        // Find the nearest generator
+        let mut nearest_gen = 0;
+        let mut nearest_dist = f64::MAX;
+        for (gi, &gen) in voronoi.generators.iter().enumerate() {
+            let dist = (point - gen).length() as f64;
+            if dist < nearest_dist {
+                nearest_dist = dist;
+                nearest_gen = gi;
+            }
+        }
+
+        // Find which cell contains this point
+        let mut containing_cell: Option<usize> = None;
+        for cell_idx in 0..voronoi.num_cells() {
+            let cell = voronoi.cell(cell_idx);
+            if cell.vertex_indices.len() < 3 {
+                continue;
+            }
+
+            // Check if point is inside this cell's spherical polygon
+            let mut inside = true;
+            for i in 0..cell.vertex_indices.len() {
+                let v1 = voronoi.vertices[cell.vertex_indices[i]];
+                let v2 = voronoi.vertices[cell.vertex_indices[(i + 1) % cell.vertex_indices.len()]];
+                let edge_normal = v1.cross(v2);
+                if edge_normal.length_squared() < 1e-12 {
+                    continue;
+                }
+                if point.dot(edge_normal) < -1e-6 {
+                    inside = false;
+                    break;
+                }
+            }
+
+            if inside {
+                containing_cell = Some(cell_idx);
+                break;
+            }
+        }
+
+        match containing_cell {
+            Some(cell_idx) => {
+                let cell = voronoi.cell(cell_idx);
+                if cell.generator_index == nearest_gen {
+                    result.correct += 1;
+                } else {
+                    // Check if this is within tolerance
+                    let cell_gen_dist = (point - voronoi.generators[cell.generator_index]).length() as f64;
+                    let error = cell_gen_dist - nearest_dist;
+                    if error > tolerance {
+                        result.incorrect += 1;
+                        result.max_error = result.max_error.max(error);
+                    } else {
+                        result.correct += 1; // Within tolerance, count as correct
+                    }
+                }
+            }
+            None => {
+                result.outside_all_cells += 1;
+            }
         }
     }
 
@@ -200,6 +446,475 @@ pub fn validate_voronoi_quick(voronoi: &SphericalVoronoi) -> (bool, String) {
         }
         (false, issues.join(", "))
     }
+}
+
+/// Strict validation with support-set unification (debug use; O(V * N)).
+#[derive(Debug, Clone, Default)]
+pub struct StrictValidationResult {
+    pub num_cells: usize,
+    pub num_vertices: usize,
+    pub num_effective_generators: usize,
+    pub num_merged_generators: usize,
+    pub merge_threshold: f64,
+    pub degenerate_cells: Vec<usize>,
+    pub orphan_edges: Vec<(usize, usize)>,
+    pub overcounted_edges: Vec<(usize, usize, usize)>,
+    pub duplicate_support_vertices: Vec<(usize, usize)>,
+    pub support_lt3: Vec<usize>,
+    pub generator_mismatch_vertices: Vec<usize>,
+    pub ambiguous_vertices: usize,
+    pub collapsed_edges: usize,
+    pub missing_key_edges: usize,
+    pub max_generator_delta: f64,
+    pub max_edge_bisector_error: f64,
+    pub edge_samples: usize,
+    pub euler_v: usize,
+    pub euler_e: usize,
+    pub euler_f: usize,
+    pub euler_ok: bool,
+}
+
+impl StrictValidationResult {
+    /// Check if the mesh is valid (hard errors only).
+    /// Degeneracy-related metrics (support_lt3, gen_mismatch, dup_support, collapsed_edges)
+    /// are informational.
+    pub fn is_valid(&self) -> bool {
+        self.degenerate_cells.is_empty()
+            && self.orphan_edges.is_empty()
+            && self.overcounted_edges.is_empty()
+            && self.euler_ok
+    }
+
+    /// Check if there are any degeneracy-related issues (informational, not errors)
+    pub fn has_degeneracy_issues(&self) -> bool {
+        !self.support_lt3.is_empty()
+            || !self.generator_mismatch_vertices.is_empty()
+            || !self.duplicate_support_vertices.is_empty()
+            || self.collapsed_edges > 0
+            || self.missing_key_edges > 0
+    }
+
+    pub fn print_summary(&self) {
+        let ambiguous_rate = if self.num_vertices > 0 {
+            self.ambiguous_vertices as f64 / self.num_vertices as f64
+        } else {
+            0.0
+        };
+        println!("Strict Validation Results:");
+        println!(
+            "  merged_generators={} (effective={}), merge_threshold={:.2e}",
+            self.num_merged_generators,
+            self.num_effective_generators,
+            self.merge_threshold
+        );
+        println!(
+            "  V/E/F = {}/{}/{} (Euler ok: {})",
+            self.euler_v, self.euler_e, self.euler_f, self.euler_ok
+        );
+        println!(
+            "  [hard] degenerate_cells={}, orphan_edges={}, overcounted_edges={}",
+            self.degenerate_cells.len(),
+            self.orphan_edges.len(),
+            self.overcounted_edges.len(),
+        );
+        println!(
+            "  [info] support_lt3={}, gen_mismatch={}, dup_support={}, collapsed_edges={}, missing_key_edges={}",
+            self.support_lt3.len(),
+            self.generator_mismatch_vertices.len(),
+            self.duplicate_support_vertices.len(),
+            self.collapsed_edges,
+            self.missing_key_edges
+        );
+        println!(
+            "  ambiguous_vertices={} ({:.2}%), max_gen_delta={:.2e}, max_edge_err={:.2e} (samples={})",
+            self.ambiguous_vertices,
+            ambiguous_rate * 100.0,
+            self.max_generator_delta,
+            self.max_edge_bisector_error,
+            self.edge_samples
+        );
+    }
+}
+
+/// Validate with support sets S(v) = { i | max_dot - v·g_i <= eps }.
+/// Uses eps_lo for strict membership and eps_hi for ambiguity detection.
+pub fn validate_voronoi_strict(
+    voronoi: &SphericalVoronoi,
+    eps_lo: f64,
+    eps_hi: f64,
+    merge_threshold: Option<f32>,
+) -> StrictValidationResult {
+    use crate::geometry::gpu_voronoi::{CubeMapGridKnn, KnnProvider, merge_close_points};
+
+    let num_cells = voronoi.num_cells();
+    let num_vertices = voronoi.vertices.len();
+    let mut original_to_effective: Vec<usize> = (0..voronoi.generators.len()).collect();
+    let mut effective_generators: Vec<Vec3> = voronoi.generators.clone();
+    let mut num_merged_generators = 0usize;
+    let merge_threshold = merge_threshold.unwrap_or(0.0);
+
+    if merge_threshold > 0.0 {
+        let knn = CubeMapGridKnn::new(&voronoi.generators);
+        let merge_result = merge_close_points(&voronoi.generators, merge_threshold, &knn);
+        if merge_result.num_merged > 0 {
+            effective_generators = merge_result.effective_points;
+            original_to_effective = merge_result.original_to_effective;
+            num_merged_generators = merge_result.num_merged;
+        }
+    }
+
+    let num_effective_generators = effective_generators.len();
+    let effective_gens_d: Vec<glam::DVec3> = effective_generators
+        .iter()
+        .map(|g| glam::DVec3::new(g.x as f64, g.y as f64, g.z as f64))
+        .collect();
+    let mut result = StrictValidationResult {
+        num_cells,
+        num_vertices,
+        num_effective_generators,
+        num_merged_generators,
+        merge_threshold: merge_threshold as f64,
+        ..Default::default()
+    };
+
+    let mut edge_to_cells: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
+    let mut vertex_to_cells: Vec<Vec<usize>> = vec![Vec::new(); num_vertices];
+
+    for cell_idx in 0..num_cells {
+        let cell = voronoi.cell(cell_idx);
+        let vertex_indices = cell.vertex_indices;
+        let eff_cell_idx = original_to_effective[cell.generator_index];
+        if vertex_indices.len() < 3 {
+            result.degenerate_cells.push(cell_idx);
+        }
+
+        for &vi in vertex_indices {
+            if vi < num_vertices {
+                if !vertex_to_cells[vi].contains(&eff_cell_idx) {
+                    vertex_to_cells[vi].push(eff_cell_idx);
+                }
+            }
+        }
+
+        for i in 0..vertex_indices.len() {
+            let v1 = vertex_indices[i];
+            let v2 = vertex_indices[(i + 1) % vertex_indices.len()];
+            if v1 == v2 {
+                continue;
+            }
+            let edge = if v1 < v2 { (v1, v2) } else { (v2, v1) };
+            let cells = edge_to_cells.entry(edge).or_default();
+            if !cells.contains(&eff_cell_idx) {
+                cells.push(eff_cell_idx);
+            }
+        }
+    }
+
+    for (edge, cells) in &edge_to_cells {
+        if cells.len() == 1 {
+            result.orphan_edges.push(*edge);
+        } else if cells.len() > 2 {
+            result.overcounted_edges.push((edge.0, edge.1, cells.len()));
+        }
+    }
+
+    let mut support_key_to_id: HashMap<Vec<usize>, (usize, usize)> = HashMap::new();
+    let mut support_keys: Vec<Vec<usize>> = Vec::new();
+    let mut vertex_key_id: Vec<usize> = vec![usize::MAX; num_vertices];
+
+    for (v_idx, &v) in voronoi.vertices.iter().enumerate() {
+        if vertex_to_cells[v_idx].is_empty() {
+            continue;
+        }
+        let v64 = glam::DVec3::new(v.x as f64, v.y as f64, v.z as f64).normalize();
+        let mut max_dot = f64::NEG_INFINITY;
+        for g64 in &effective_gens_d {
+            let d = v64.dot(*g64);
+            if d > max_dot {
+                max_dot = d;
+            }
+        }
+
+        let mut support_lo: Vec<usize> = Vec::new();
+        let mut support_hi: Vec<usize> = Vec::new();
+        for (gi, g64) in effective_gens_d.iter().enumerate() {
+            let d = v64.dot(*g64);
+            let delta = max_dot - d;
+            if delta <= eps_hi {
+                support_hi.push(gi);
+                if delta <= eps_lo {
+                    support_lo.push(gi);
+                }
+            }
+        }
+
+        let mut vertex_ambiguous = false;
+        if support_lo.len() < 3 {
+            result.support_lt3.push(v_idx);
+            if support_hi.len() >= 3 {
+                vertex_ambiguous = true;
+            }
+        }
+
+        if support_hi.len() > support_lo.len() {
+            vertex_ambiguous = true;
+        }
+
+        let support_key: &[usize] = if support_lo.len() >= 3 {
+            &support_lo
+        } else {
+            &support_hi
+        };
+
+        if support_key.len() >= 3 {
+            if let Some(&(id, rep_vertex)) = support_key_to_id.get(support_key) {
+                result.duplicate_support_vertices.push((rep_vertex, v_idx));
+                vertex_key_id[v_idx] = id;
+            } else {
+                let id = support_key_to_id.len();
+                let key_vec = support_key.to_vec();
+                support_keys.push(key_vec.clone());
+                support_key_to_id.insert(key_vec, (id, v_idx));
+                vertex_key_id[v_idx] = id;
+            }
+        }
+
+        if !vertex_to_cells[v_idx].is_empty() {
+            let mut mismatch = false;
+            for &eff_idx in &vertex_to_cells[v_idx] {
+                let g = effective_gens_d[eff_idx];
+                let delta = max_dot - v64.dot(g);
+                if delta > result.max_generator_delta {
+                    result.max_generator_delta = delta;
+                }
+                if support_hi.binary_search(&eff_idx).is_err() {
+                    mismatch = true;
+                    break;
+                }
+                if support_lo.binary_search(&eff_idx).is_err() {
+                    vertex_ambiguous = true;
+                }
+            }
+            if mismatch {
+                result.generator_mismatch_vertices.push(v_idx);
+            }
+        }
+
+        if vertex_ambiguous {
+            result.ambiguous_vertices += 1;
+        }
+    }
+
+    let mut rep_cell_for_eff: Vec<Option<usize>> = vec![None; num_effective_generators];
+    for cell_idx in 0..num_cells {
+        let eff_idx = original_to_effective[voronoi.cell(cell_idx).generator_index];
+        if rep_cell_for_eff[eff_idx].is_none() {
+            rep_cell_for_eff[eff_idx] = Some(cell_idx);
+        }
+    }
+
+    let mut edges: HashSet<(usize, usize)> = HashSet::new();
+    let mut collapsed_samples: Vec<(usize, usize, usize)> = Vec::new();
+    let mut missing_key_samples: Vec<(usize, usize)> = Vec::new();
+    for rep in rep_cell_for_eff.iter().flatten() {
+        let cell = voronoi.cell(*rep);
+        let vertex_indices = cell.vertex_indices;
+        if vertex_indices.len() < 3 {
+            continue;
+        }
+        for i in 0..vertex_indices.len() {
+            let v1 = vertex_indices[i];
+            let v2 = vertex_indices[(i + 1) % vertex_indices.len()];
+            let k1 = vertex_key_id.get(v1).copied().unwrap_or(usize::MAX);
+            let k2 = vertex_key_id.get(v2).copied().unwrap_or(usize::MAX);
+            if k1 == usize::MAX || k2 == usize::MAX {
+                result.missing_key_edges += 1;
+                if missing_key_samples.len() < 5 {
+                    missing_key_samples.push((v1, v2));
+                }
+                continue;
+            }
+            if k1 == k2 {
+                result.collapsed_edges += 1;
+                if collapsed_samples.len() < 5 {
+                    collapsed_samples.push((v1, v2, k1));
+                }
+                continue;
+            }
+            let edge = if k1 < k2 { (k1, k2) } else { (k2, k1) };
+            edges.insert(edge);
+        }
+    }
+
+    result.euler_v = support_key_to_id.len();
+    result.euler_e = edges.len();
+    result.euler_f = rep_cell_for_eff.iter().flatten().count();
+    let euler_lhs = result.euler_v as i64 - result.euler_e as i64 + result.euler_f as i64;
+    result.euler_ok = euler_lhs == 2;
+
+    // Soft geometry check: edge bisector error for edges shared by exactly 2 cells.
+    for (edge, cells) in edge_to_cells {
+        if cells.len() != 2 {
+            continue;
+        }
+        let (v1, v2) = edge;
+        let p1 = voronoi.vertices[v1];
+        let p2 = voronoi.vertices[v2];
+        let p1 = glam::DVec3::new(p1.x as f64, p1.y as f64, p1.z as f64).normalize();
+        let p2 = glam::DVec3::new(p2.x as f64, p2.y as f64, p2.z as f64).normalize();
+        let mid = (p1 + p2).normalize();
+        let a = (p1 * 2.0 + p2).normalize();
+        let b = (p1 + p2 * 2.0).normalize();
+
+        let g1 = effective_gens_d[cells[0]];
+        let g2 = effective_gens_d[cells[1]];
+        let n = g1 - g2;
+
+        for s in [p1, a, mid, b, p2] {
+            let err = n.dot(s).abs();
+            if err > result.max_edge_bisector_error {
+                result.max_edge_bisector_error = err;
+            }
+            result.edge_samples += 1;
+        }
+    }
+
+    if std::env::var("STRICT_VALIDATE_DEBUG").is_ok()
+        && (!result.is_valid() || result.ambiguous_vertices > 0)
+    {
+        use crate::geometry::gpu_voronoi::DEFAULT_K;
+
+        eprintln!(
+            "[strict] dup_support={}, collapsed_edges={}, missing_key_edges={}",
+            result.duplicate_support_vertices.len(),
+            result.collapsed_edges,
+            result.missing_key_edges
+        );
+        for &(rep, dup) in result.duplicate_support_vertices.iter().take(5) {
+            let key_id = vertex_key_id.get(rep).copied().unwrap_or(usize::MAX);
+            let key = if key_id != usize::MAX {
+                support_keys.get(key_id)
+            } else {
+                None
+            };
+            let pos_rep = voronoi.vertices[rep];
+            let pos_dup = voronoi.vertices[dup];
+            let dist = (pos_rep - pos_dup).length();
+            eprintln!(
+                "[strict] dup_support rep=v{} dup=v{} dist={:.2e} key={:?} rep_cells={:?} dup_cells={:?}",
+                rep,
+                dup,
+                dist,
+                key,
+                vertex_to_cells.get(rep),
+                vertex_to_cells.get(dup)
+            );
+            if let Some(key) = key {
+                let rep64 = glam::DVec3::new(pos_rep.x as f64, pos_rep.y as f64, pos_rep.z as f64).normalize();
+                let dup64 = glam::DVec3::new(pos_dup.x as f64, pos_dup.y as f64, pos_dup.z as f64).normalize();
+                let mut rep_max = f64::NEG_INFINITY;
+                let mut dup_max = f64::NEG_INFINITY;
+                for g64 in &effective_gens_d {
+                    rep_max = rep_max.max(rep64.dot(*g64));
+                    dup_max = dup_max.max(dup64.dot(*g64));
+                }
+                eprintln!("  rep deltas:");
+                for &gi in key {
+                    let delta = rep_max - rep64.dot(effective_gens_d[gi]);
+                    eprintln!("    g{} delta={:.2e}", gi, delta);
+                }
+                eprintln!("  dup deltas:");
+                for &gi in key {
+                    let delta = dup_max - dup64.dot(effective_gens_d[gi]);
+                    eprintln!("    g{} delta={:.2e}", gi, delta);
+                }
+            }
+        }
+        for (v1, v2, key) in &collapsed_samples {
+            eprintln!("[strict] collapsed_edge v{}-v{} key={}", v1, v2, key);
+        }
+        for (v1, v2) in &missing_key_samples {
+            eprintln!("[strict] missing_key_edge v{}-v{}", v1, v2);
+        }
+
+        if !result.duplicate_support_vertices.is_empty() {
+            let knn = CubeMapGridKnn::new(&effective_generators);
+            let mut scratch = knn.make_scratch();
+            let mut neighbors: Vec<usize> = Vec::with_capacity(DEFAULT_K);
+
+            for &(rep, _dup) in result.duplicate_support_vertices.iter().take(3) {
+                let key_id = vertex_key_id.get(rep).copied().unwrap_or(usize::MAX);
+                let Some(key) = support_keys.get(key_id) else { continue };
+                eprintln!("[strict] support key {:?} neighbor coverage (k={})", key, DEFAULT_K);
+
+                for &gi in key {
+                    neighbors.clear();
+                    knn.knn_into(
+                        effective_generators[gi],
+                        gi,
+                        DEFAULT_K,
+                        &mut scratch,
+                        &mut neighbors,
+                    );
+                    for &gj in key {
+                        if gi == gj {
+                            continue;
+                        }
+                        if !neighbors.contains(&gj) {
+                            eprintln!("  missing: g{} -> g{}", gi, gj);
+                        }
+                    }
+                }
+            }
+        }
+
+        if !result.generator_mismatch_vertices.is_empty() {
+            eprintln!(
+                "[strict] generator_mismatch (eps_lo={:.2e}, eps_hi={:.2e})",
+                eps_lo, eps_hi
+            );
+            for &v_idx in result.generator_mismatch_vertices.iter().take(3) {
+                let v = voronoi.vertices[v_idx];
+                let v64 = glam::DVec3::new(v.x as f64, v.y as f64, v.z as f64).normalize();
+                let mut max_dot = f64::NEG_INFINITY;
+                for g64 in &effective_gens_d {
+                    let d = v64.dot(*g64);
+                    if d > max_dot {
+                        max_dot = d;
+                    }
+                }
+
+                let mut support_lo = 0usize;
+                let mut support_hi = 0usize;
+                for g64 in &effective_gens_d {
+                    let delta = max_dot - v64.dot(*g64);
+                    if delta <= eps_hi {
+                        support_hi += 1;
+                        if delta <= eps_lo {
+                            support_lo += 1;
+                        }
+                    }
+                }
+
+                eprintln!(
+                    "[strict] v{} max_dot={:.2e} support_lo/hi={}/{} cells={:?}",
+                    v_idx,
+                    max_dot,
+                    support_lo,
+                    support_hi,
+                    vertex_to_cells.get(v_idx),
+                );
+                if let Some(cells) = vertex_to_cells.get(v_idx) {
+                    for &eff_idx in cells.iter().take(6) {
+                        let delta = max_dot - v64.dot(effective_gens_d[eff_idx]);
+                        eprintln!("  cell g{} delta={:.2e}", eff_idx, delta);
+                    }
+                }
+            }
+        }
+    }
+
+    result
 }
 
 /// Count unique vertices in a cell (for deduplication analysis)
@@ -765,7 +1480,7 @@ mod tests {
         let flat_data = build_cells_data_flat(&points, &knn, k, termination);
 
         // Dedup vertices
-        let (vertices, cells, cell_indices) = dedup_vertices_hash_flat(flat_data, false);
+        let (vertices, cells, cell_indices) = dedup_vertices_hash_flat(flat_data, &points, false);
 
         // Build SphericalVoronoi
         let voronoi = crate::geometry::SphericalVoronoi::from_raw_parts(

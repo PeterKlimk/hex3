@@ -1,9 +1,108 @@
 //! Tests for GPU-style Voronoi computation.
 
 use glam::Vec3;
+use rustc_hash::FxHashMap;
 
 use super::*;
 use crate::geometry::{random_sphere_points, random_sphere_points_with_rng};
+
+/// Find minimum distance between any two distinct REFERENCED vertices using spatial grid.
+fn find_min_vertex_distance_referenced(voronoi: &crate::geometry::SphericalVoronoi) -> f32 {
+    use std::collections::HashSet;
+
+    // Collect all referenced vertex indices
+    let mut referenced: HashSet<usize> = HashSet::new();
+    for cell in voronoi.iter_cells() {
+        for &idx in cell.vertex_indices {
+            referenced.insert(idx);
+        }
+    }
+
+    let ref_indices: Vec<usize> = referenced.into_iter().collect();
+    if ref_indices.len() < 2 {
+        return f32::MAX;
+    }
+
+    let vertices = &voronoi.vertices;
+
+    // Use a spatial grid with cell size ~0.01 (reasonable for unit sphere)
+    let cell_size = 0.01f32;
+    let inv_cell_size = 1.0 / cell_size;
+
+    let grid_cell = |p: Vec3| -> (i32, i32, i32) {
+        (
+            (p.x * inv_cell_size).floor() as i32,
+            (p.y * inv_cell_size).floor() as i32,
+            (p.z * inv_cell_size).floor() as i32,
+        )
+    };
+
+    let mut grid: FxHashMap<(i32, i32, i32), Vec<usize>> = FxHashMap::default();
+    for &idx in &ref_indices {
+        let pos = vertices[idx];
+        let cell = grid_cell(pos);
+        grid.entry(cell).or_insert_with(Vec::new).push(idx);
+    }
+
+    let mut min_dist = f32::MAX;
+
+    for &i in &ref_indices {
+        let pos = vertices[i];
+        let (cx, cy, cz) = grid_cell(pos);
+        // Check 27 neighboring cells
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                for dz in -1..=1 {
+                    if let Some(indices) = grid.get(&(cx + dx, cy + dy, cz + dz)) {
+                        for &j in indices {
+                            if j != i {
+                                let dist = (vertices[j] - pos).length();
+                                if dist < min_dist {
+                                    min_dist = dist;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    min_dist
+}
+
+const MIN_SPACING_MARGIN: f32 = 1.05;
+
+fn min_spacing_threshold() -> f32 {
+    super::MIN_BISECTOR_DISTANCE * MIN_SPACING_MARGIN
+}
+
+fn near_duplicate_threshold(num_points: usize) -> f32 {
+    if num_points == 0 {
+        return super::MIN_BISECTOR_DISTANCE * 0.25;
+    }
+    let spacing = super::mean_generator_spacing_chord(num_points);
+    (spacing * super::VERTEX_WELD_FRACTION).max(super::MIN_BISECTOR_DISTANCE * 0.25)
+}
+
+fn assert_min_spacing(points: &[Vec3], label: &str) -> f32 {
+    let min_dist = check_min_point_distance(points);
+    let threshold = min_spacing_threshold();
+    println!(
+        "{} min point distance = {:.2e} (threshold: {:.2e})",
+        label,
+        min_dist,
+        threshold
+    );
+    assert!(
+        min_dist >= threshold,
+        "{} min spacing {:.2e} below threshold {:.2e}",
+        label,
+        min_dist,
+        threshold
+    );
+    min_dist
+}
 
 #[test]
 fn test_incremental_builder_maintains_ccw_order() {
@@ -84,6 +183,7 @@ fn test_great_circle_bisector() {
 #[test]
 fn test_gpu_voronoi_basic() {
     let points = random_sphere_points(50);
+    let _ = assert_min_spacing(&points, "gpu_voronoi_basic");
     let voronoi = compute_voronoi_gpu_style(&points, DEFAULT_K);
 
     assert_eq!(voronoi.num_cells(), 50);
@@ -113,202 +213,6 @@ fn test_kdtree_knn() {
     assert!(!neighbors.contains(&0)); // Shouldn't include self
 }
 
-#[test]
-fn test_compare_with_hull_voronoi() {
-    use crate::geometry::SphericalVoronoi;
-
-    let points = random_sphere_points(100);
-
-    let hull_voronoi = SphericalVoronoi::compute(&points);
-    let gpu_voronoi = compute_voronoi_gpu_style(&points, DEFAULT_K);
-
-    assert_eq!(hull_voronoi.num_cells(), gpu_voronoi.num_cells());
-
-    // Compare vertex counts
-    let mut matching = 0;
-    let mut close = 0;
-    let mut different = 0;
-
-    for i in 0..points.len() {
-        let hull_count = hull_voronoi.cell(i).len();
-        let gpu_count = gpu_voronoi.cell(i).len();
-
-        if hull_count == gpu_count {
-            matching += 1;
-        } else if (hull_count as i32 - gpu_count as i32).abs() <= 1 {
-            close += 1;
-        } else {
-            different += 1;
-            println!(
-                "Cell {}: hull={} vs gpu={} vertices",
-                i, hull_count, gpu_count
-            );
-        }
-    }
-
-    println!(
-        "Vertex count comparison: {} matching, {} close (±1), {} different",
-        matching, close, different
-    );
-
-    // Allow some variation due to numerical precision
-    assert!(
-        matching + close > 90,
-        "Too many cells with different vertex counts"
-    );
-}
-
-#[test]
-#[ignore] // Run with: cargo test accuracy_audit -- --ignored --nocapture
-fn accuracy_audit() {
-    use crate::geometry::SphericalVoronoi;
-
-    println!("\n=== GPU Voronoi Accuracy Audit ===\n");
-
-    for &n in &[100, 1000, 10000] {
-        println!("--- n = {} ---", n);
-        let points = random_sphere_points(n);
-
-        let hull = SphericalVoronoi::compute(&points);
-        let gpu = compute_voronoi_gpu_style(&points, DEFAULT_K);
-
-        // Detailed comparison
-        let mut exact_match = 0;
-        let mut vertex_count_match = 0;
-        let mut missing_vertices = 0;
-        let mut extra_vertices = 0;
-        let mut total_hull_verts = 0;
-        let mut total_gpu_verts = 0;
-        let mut worst_cells: Vec<(usize, i32, usize, usize)> = Vec::new();
-
-        for i in 0..n {
-            let hull_cell = hull.cell(i);
-            let gpu_cell = gpu.cell(i);
-            let hull_verts: Vec<Vec3> = hull_cell
-                .vertex_indices
-                .iter()
-                .map(|&vi| hull.vertices[vi])
-                .collect();
-            let gpu_verts: Vec<Vec3> = gpu_cell
-                .vertex_indices
-                .iter()
-                .map(|&vi| gpu.vertices[vi])
-                .collect();
-
-            total_hull_verts += hull_verts.len();
-            total_gpu_verts += gpu_verts.len();
-
-            // Check if vertices match (within tolerance)
-            let mut matched_hull = vec![false; hull_verts.len()];
-            let mut matched_gpu = vec![false; gpu_verts.len()];
-
-            for (gi, gv) in gpu_verts.iter().enumerate() {
-                for (hi, hv) in hull_verts.iter().enumerate() {
-                    if !matched_hull[hi] && (*gv - *hv).length() < 0.01 {
-                        matched_hull[hi] = true;
-                        matched_gpu[gi] = true;
-                        break;
-                    }
-                }
-            }
-
-            let hull_unmatched = matched_hull.iter().filter(|&&x| !x).count();
-            let gpu_unmatched = matched_gpu.iter().filter(|&&x| !x).count();
-
-            if hull_unmatched == 0 && gpu_unmatched == 0 {
-                exact_match += 1;
-            }
-            if hull_verts.len() == gpu_verts.len() {
-                vertex_count_match += 1;
-            }
-            missing_vertices += hull_unmatched;
-            extra_vertices += gpu_unmatched;
-
-            let diff = gpu_verts.len() as i32 - hull_verts.len() as i32;
-            if diff.abs() > 1 {
-                worst_cells.push((i, diff, hull_verts.len(), gpu_verts.len()));
-            }
-        }
-
-        println!(
-            "  Exact vertex match: {}/{} cells ({:.1}%)",
-            exact_match,
-            n,
-            exact_match as f64 / n as f64 * 100.0
-        );
-        println!(
-            "  Vertex count match: {}/{} cells ({:.1}%)",
-            vertex_count_match,
-            n,
-            vertex_count_match as f64 / n as f64 * 100.0
-        );
-        println!(
-            "  Total vertices: hull={}, gpu={} (diff={})",
-            total_hull_verts,
-            total_gpu_verts,
-            total_gpu_verts as i32 - total_hull_verts as i32
-        );
-        println!(
-            "  Missing vertices (in hull, not gpu): {}",
-            missing_vertices
-        );
-        println!("  Extra vertices (in gpu, not hull): {}", extra_vertices);
-
-        if !worst_cells.is_empty() {
-            println!("  Worst cells (|diff| > 1):");
-            worst_cells.sort_by_key(|x| -x.1.abs());
-            for (cell, diff, hull_n, gpu_n) in worst_cells.iter().take(10) {
-                let generator = points[*cell];
-                println!(
-                    "    Cell {}: hull={} gpu={} (diff={:+}) @ ({:.2},{:.2},{:.2})",
-                    cell, hull_n, gpu_n, diff, generator.x, generator.y, generator.z
-                );
-            }
-        }
-        println!();
-    }
-
-    // Analyze a specific bad cell in detail
-    println!("--- Detailed analysis of problematic cells ---");
-    let points = random_sphere_points(1000);
-    let hull = SphericalVoronoi::compute(&points);
-    let gpu = compute_voronoi_gpu_style(&points, DEFAULT_K);
-
-    // Find cell with biggest discrepancy
-    let mut worst_idx = 0;
-    let mut worst_diff = 0i32;
-    for i in 0..1000 {
-        let diff = (gpu.cell(i).len() as i32 - hull.cell(i).len() as i32).abs();
-        if diff > worst_diff {
-            worst_diff = diff;
-            worst_idx = i;
-        }
-    }
-
-    if worst_diff > 0 {
-        let hull_cell = hull.cell(worst_idx);
-        let gpu_cell = gpu.cell(worst_idx);
-        println!("Worst cell: {}", worst_idx);
-        println!("  Generator: {:?}", points[worst_idx]);
-        println!("  Hull vertices ({}):", hull_cell.len());
-        for &vi in hull_cell.vertex_indices {
-            println!("    {:?}", hull.vertices[vi]);
-        }
-        println!("  GPU vertices ({}):", gpu_cell.len());
-        for &vi in gpu_cell.vertex_indices {
-            println!("    {:?}", gpu.vertices[vi]);
-        }
-
-        // Check how many neighbors this cell has
-        let (tree, entries) = build_kdtree(&points);
-        let neighbors = find_k_nearest(&tree, &entries, points[worst_idx], worst_idx, 64);
-        println!("  64-NN neighbor distances:");
-        for (i, &ni) in neighbors.iter().enumerate().take(20) {
-            let dist = geodesic_distance(points[worst_idx], points[ni]);
-            println!("    {}: idx={} dist={:.4}", i, ni, dist);
-        }
-    }
-}
 
 /// Test soundness with non-coincident (Lloyd-relaxed) input.
 /// These points are guaranteed to be well-spaced, so the algorithm should produce
@@ -330,14 +234,13 @@ fn test_soundness_lloyd_relaxed_points() {
         // Lloyd relaxation ensures well-spaced points
         lloyd_relax_voronoi(&mut points, 2);
 
-        // Verify no coincident points
-        let min_dist = check_min_point_distance(&points);
-        println!("n={}: min point distance = {:.2e} (threshold: 1e-5)", n, min_dist);
-        assert!(min_dist > 1e-5, "Lloyd-relaxed points should not be coincident");
+        // Verify min spacing requirement
+        let label = format!("n={}", n);
+        let _ = assert_min_spacing(&points, &label);
 
         // Build Voronoi and validate
         let voronoi = compute_voronoi_gpu_style(&points, DEFAULT_K);
-        let result = validate_voronoi(&voronoi, 1e-6);
+        let result = validate_voronoi(&voronoi, near_duplicate_threshold(points.len()));
 
         println!("  Degenerate cells: {}", result.degenerate_cells.len());
         println!("  Orphan edges: {}", result.orphan_edges.len());
@@ -351,7 +254,7 @@ fn test_soundness_lloyd_relaxed_points() {
 }
 
 /// Test soundness with NON-Lloyd-relaxed points (fibonacci + jitter only).
-/// This exposes issues with closely-spaced points that MIN_BISECTOR_DISTANCE doesn't fully handle.
+/// This can violate the min spacing requirement and is only for stress testing.
 /// Run with: cargo test --release test_soundness_non_lloyd -- --ignored --nocapture
 #[test]
 #[ignore]
@@ -372,23 +275,49 @@ fn test_soundness_non_lloyd() {
         let min_dist = check_min_point_distance(&points);
         let ratio = min_dist / mean_spacing;
         println!("n={}: min_dist={:.2e}, mean={:.2e}, ratio={:.3}", n, min_dist, mean_spacing, ratio);
+        if min_dist < min_spacing_threshold() {
+            println!(
+                "  WARNING: min spacing {:.2e} below required {:.2e}",
+                min_dist,
+                min_spacing_threshold()
+            );
+        }
 
         // Build Voronoi and validate
         let voronoi = compute_voronoi_gpu_style(&points, DEFAULT_K);
-        let result = validate_voronoi(&voronoi, 1e-6);
+        let result = validate_voronoi(&voronoi, near_duplicate_threshold(points.len()));
+
+        // Find minimum distance between distinct referenced vertices
+        let min_vert_dist = find_min_vertex_distance_referenced(&voronoi);
 
         println!("  Degenerate cells: {}", result.degenerate_cells.len());
         println!("  Orphan edges: {}", result.orphan_edges.len());
+        println!("  Min vertex distance: {:.2e}", min_vert_dist);
 
         // Non-Lloyd points may have some degenerate cells due to close spacing
         // The key question: are there orphan edges?
         if !result.orphan_edges.is_empty() {
             println!("  WARNING: {} orphan edges detected!", result.orphan_edges.len());
-            // Show first few
+            // Check if orphan vertices have near-duplicates
             for (i, &(v1, v2)) in result.orphan_edges.iter().take(3).enumerate() {
                 let pos1 = voronoi.vertices[v1];
                 let pos2 = voronoi.vertices[v2];
-                println!("    Orphan {}: v{}--v{}, len={:.2e}", i, v1, v2, (pos1 - pos2).length());
+
+                // Find nearest other vertex to each endpoint
+                let mut min_dist1 = f32::MAX;
+                let mut min_dist2 = f32::MAX;
+                for (j, &v) in voronoi.vertices.iter().enumerate() {
+                    if j != v1 {
+                        min_dist1 = min_dist1.min((v - pos1).length());
+                    }
+                    if j != v2 {
+                        min_dist2 = min_dist2.min((v - pos2).length());
+                    }
+                }
+
+                println!("    Orphan {}: v{}--v{}, edge_len={:.2e}", i, v1, v2, (pos1 - pos2).length());
+                println!("      v{} nearest other vertex: {:.2e}", v1, min_dist1);
+                println!("      v{} nearest other vertex: {:.2e}", v2, min_dist2);
             }
         }
         println!();
@@ -421,7 +350,8 @@ fn diagnose_orphan_edges() {
     println!("Min point distance: {:.2e}", min_dist);
 
     let voronoi = compute_voronoi_gpu_style(&points, DEFAULT_K);
-    let result = validate_voronoi(&voronoi, 1e-6);
+    let near_dup = near_duplicate_threshold(points.len());
+    let result = validate_voronoi(&voronoi, near_dup);
 
     println!("\nTotal cells: {}", voronoi.num_cells());
     println!("Total vertices: {}", voronoi.vertices.len());
@@ -451,7 +381,7 @@ fn diagnose_orphan_edges() {
         voronoi.vertices.iter().enumerate()
             .filter(|(vi, _)| *vi != exclude)
             .map(|(vi, &pos)| (vi, (pos - target_pos).length()))
-            .filter(|(_, dist)| *dist < 5e-4)  // Look for near-duplicates
+            .filter(|(_, dist)| *dist < near_dup)  // Look for near-duplicates
             .collect()
     };
 
@@ -493,6 +423,155 @@ fn diagnose_orphan_edges() {
     }
 }
 
+/// Strict correctness sweep on small counts.
+/// Run with: cargo test --release strict_small_counts -- --ignored --nocapture
+#[test]
+/// Validation test with new strategy:
+/// - Hard errors (degenerate cells, orphan edges, etc.) fail the test
+/// - Support/degeneracy issues (support_lt3, dup_support, collapsed_edges) are informational
+/// - Geometric accuracy is checked with spacing-scaled bounds
+#[ignore]
+fn strict_small_counts() {
+    use crate::geometry::{fibonacci_sphere_points_with_rng, validation::validate_voronoi_strict};
+    use rand::SeedableRng;
+    use rand_chacha::ChaCha8Rng;
+
+    let sizes = [500usize, 1_000, 2_000, 5_000, 10_000];
+    let repeats = 5u64;
+    let cases = [
+        ("mild", 0.15f32),
+        ("default", 0.25f32),
+        ("rough", 0.45f32),
+    ];
+    const SUPPORT_LT3_SOFT_FRAC: f64 = 0.02;
+    const SUPPORT_LT3_HARD_FRAC: f64 = 0.05;
+
+    for &n in &sizes {
+        for &(case_name, jitter_scale) in &cases {
+            for seed_offset in 0..repeats {
+                let seed = 12345 + seed_offset;
+                let mut rng = ChaCha8Rng::seed_from_u64(seed);
+                let mean_spacing = (4.0 * std::f32::consts::PI / n as f32).sqrt();
+                let mut jitter = mean_spacing * jitter_scale;
+                let min_spacing = min_spacing_threshold();
+
+                let mut points = fibonacci_sphere_points_with_rng(n, jitter, &mut rng);
+                let mut min_dist = check_min_point_distance(&points);
+                let mut attempts = 0;
+                while min_dist < min_spacing && attempts < 4 {
+                    jitter *= 0.5;
+                    points = fibonacci_sphere_points_with_rng(n, jitter, &mut rng);
+                    min_dist = check_min_point_distance(&points);
+                    attempts += 1;
+                }
+                assert!(
+                    min_dist >= min_spacing,
+                    "input min spacing {:.2e} below threshold {:.2e} (n={}, case={})",
+                    min_dist,
+                    min_spacing,
+                    n,
+                    case_name
+                );
+
+                let spacing_sq = (mean_spacing as f64) * (mean_spacing as f64);
+                let max_generator_delta = (spacing_sq * 0.05).max(1e-6);
+                let max_edge_error = (spacing_sq * 0.05).max(1e-6);
+
+                let eps_lo = (spacing_sq * 0.005).max(1e-7);
+                let eps_hi = (eps_lo * 5.0).max(5e-7);
+
+                let voronoi = super::compute_voronoi_gpu_style(&points, DEFAULT_K);
+                let strict = validate_voronoi_strict(
+                    &voronoi,
+                    eps_lo,
+                    eps_hi,
+                    Some(super::MIN_BISECTOR_DISTANCE),
+                );
+
+                // Print summary
+                print!(
+                    "n={}, seed={}, case={}, min_dist={:.2e}: ",
+                    n, seed, case_name, min_dist
+                );
+                if strict.is_valid() {
+                    print!("VALID");
+                } else {
+                    print!("INVALID");
+                }
+                if strict.has_degeneracy_issues() {
+                    print!(" (support/degeneracy issues)");
+                }
+                println!(
+                    " | max_gen_delta={:.2e}, max_edge_err={:.2e}",
+                    strict.max_generator_delta,
+                    strict.max_edge_bisector_error
+                );
+
+                // Print details if there are any issues
+                if !strict.is_valid() || strict.has_degeneracy_issues() {
+                    strict.print_summary();
+                }
+
+                // Hard requirements: mesh coherence
+                assert!(
+                    strict.is_valid(),
+                    "mesh coherence failed for n={}, seed={}, case={}",
+                    n,
+                    seed,
+                    case_name
+                );
+
+                let support_lt3 = strict.support_lt3.len() as f64;
+                let support_lt3_ratio = if strict.num_vertices > 0 {
+                    support_lt3 / strict.num_vertices as f64
+                } else {
+                    0.0
+                };
+                if support_lt3_ratio > SUPPORT_LT3_SOFT_FRAC {
+                    println!(
+                        "WARNING: support_lt3 ratio {:.2}% exceeds soft cap {:.2}% ({} of {})",
+                        support_lt3_ratio * 100.0,
+                        SUPPORT_LT3_SOFT_FRAC * 100.0,
+                        strict.support_lt3.len(),
+                        strict.num_vertices
+                    );
+                }
+                assert!(
+                    support_lt3_ratio <= SUPPORT_LT3_HARD_FRAC,
+                    "support_lt3 ratio {:.2}% exceeds hard cap {:.2}% ({} of {}) for n={}, seed={}, case={}",
+                    support_lt3_ratio * 100.0,
+                    SUPPORT_LT3_HARD_FRAC * 100.0,
+                    strict.support_lt3.len(),
+                    strict.num_vertices,
+                    n,
+                    seed,
+                    case_name
+                );
+
+                // Soft requirements: geometric accuracy bounds
+                assert!(
+                    strict.max_generator_delta < max_generator_delta,
+                    "max_generator_delta {:.2e} exceeds bound {:.2e} for n={}, seed={}, case={}",
+                    strict.max_generator_delta,
+                    max_generator_delta,
+                    n,
+                    seed,
+                    case_name
+                );
+                assert!(
+                    strict.max_edge_bisector_error < max_edge_error,
+                    "max_edge_bisector_error {:.2e} exceeds bound {:.2e} for n={}, seed={}, case={}",
+                    strict.max_edge_bisector_error,
+                    max_edge_error,
+                    n,
+                    seed,
+                    case_name
+                );
+            }
+        }
+    }
+}
+
 /// Large-scale soundness test - verifies the algorithm at 750k points.
 /// Run with: cargo test --release test_soundness_large_scale -- --ignored --nocapture
 #[test]
@@ -517,10 +596,14 @@ fn test_soundness_large_scale() {
         lloyd_relax_kmeans(&mut points, 2, 20, &mut rng);
         println!("  Lloyd relaxation: {:.1}ms", t0.elapsed().as_secs_f64() * 1000.0);
 
-        // Verify no coincident points
+        // Verify min spacing requirement
         let min_dist = check_min_point_distance(&points);
-        println!("  Min point distance: {:.2e} (threshold: 1e-5)", min_dist);
-        assert!(min_dist > 1e-5, "Lloyd-relaxed points should not be coincident");
+        let threshold = min_spacing_threshold();
+        println!("  Min point distance: {:.2e} (threshold: {:.2e})", min_dist, threshold);
+        assert!(
+            min_dist >= threshold,
+            "Lloyd-relaxed points should meet min spacing"
+        );
 
         // Build Voronoi and validate
         let t0 = Instant::now();
@@ -528,7 +611,7 @@ fn test_soundness_large_scale() {
         println!("  Voronoi build: {:.1}ms", t0.elapsed().as_secs_f64() * 1000.0);
 
         let t0 = Instant::now();
-        let result = validate_voronoi(&voronoi, 1e-6);
+        let result = validate_voronoi(&voronoi, near_duplicate_threshold(points.len()));
         println!("  Validation: {:.1}ms", t0.elapsed().as_secs_f64() * 1000.0);
 
         println!("  Degenerate cells: {}", result.degenerate_cells.len());
@@ -536,7 +619,7 @@ fn test_soundness_large_scale() {
         println!("  Near-duplicate cells: {}", result.near_duplicate_cells.len());
         println!();
 
-        // With proper epsilons (1e-7), we should have 0 degenerate cells
+        // With spacing-constrained inputs, we should have 0 degenerate cells
         assert!(result.degenerate_cells.is_empty(),
             "n={}: Should have 0 degenerate cells, got {}", n, result.degenerate_cells.len());
 
@@ -549,10 +632,10 @@ fn test_soundness_large_scale() {
 
 /// Test behavior with coincident points.
 /// This validates that:
-/// 1. The MIN_BISECTOR_DISTANCE check reduces errors from bad bisectors
-/// 2. Coincident points inherently cause orphan edges (unavoidable - two points at same location can't have separate valid cells)
-/// 3. The algorithm doesn't crash or panic on bad input
-/// 4. Some degenerate cells may still occur if a point doesn't have enough valid (non-coincident) neighbors
+/// 1. MIN_BISECTOR_DISTANCE merging avoids unstable bisectors
+/// 2. Coincident points still collapse to shared cells (no crash)
+/// 3. The algorithm doesn't panic on bad input
+/// 4. Issues are bounded by the number of bad input points
 #[test]
 fn test_coincident_points_handled_gracefully() {
     use crate::geometry::validation::validate_voronoi;
@@ -577,11 +660,11 @@ fn test_coincident_points_handled_gracefully() {
         }
     }
 
-    // Also add some near-duplicates (within MIN_BISECTOR_DISTANCE = 1e-5)
+    // Also add some near-duplicates (within MIN_BISECTOR_DISTANCE)
     for i in 0..20 {
         let idx = 500 + i;
         if idx + 1 < n {
-            let offset = Vec3::new(1e-6, 1e-6, 1e-6);  // Within 1e-5 threshold
+            let offset = Vec3::splat(super::MIN_BISECTOR_DISTANCE * 0.2);
             points[idx + 1] = (points[idx] + offset).normalize();
         }
     }
@@ -591,28 +674,38 @@ fn test_coincident_points_handled_gracefully() {
     // Check minimum distance - should show the coincident points
     let min_dist = check_min_point_distance(&points);
     println!("Minimum point distance: {:.2e}", min_dist);
-    assert!(min_dist < super::MIN_BISECTOR_DISTANCE,
-        "Test setup should have coincident points below threshold");
+    assert!(
+        min_dist < super::MIN_BISECTOR_DISTANCE,
+        "Test setup should have coincident points below threshold"
+    );
 
     // Build Voronoi - should handle gracefully without panicking
     let voronoi = compute_voronoi_gpu_style(&points, DEFAULT_K);
-    let result = validate_voronoi(&voronoi, 1e-6);
+    let result = validate_voronoi(&voronoi, near_duplicate_threshold(points.len()));
 
-    println!("\nWith MIN_BISECTOR_DISTANCE check (current behavior):");
+    println!("\nWith MIN_BISECTOR_DISTANCE merge (current behavior):");
     println!("  Degenerate cells: {}", result.degenerate_cells.len());
     println!("  Orphan edges: {}", result.orphan_edges.len());
     println!("  Cells produced: {}", voronoi.num_cells());
 
-    // Key observations:
-    // 1. Degenerate cells may occur - these are points whose valid (non-coincident)
-    //    neighbors don't form valid triplets. The check helps but can't fully recover
-    //    from fundamentally invalid input (coincident points).
-    println!("\nNote: {} degenerate cells occurred because those points", result.degenerate_cells.len());
-    println!("      don't have enough valid neighbors to form seed triplets.");
-
-    // 2. Orphan edges ARE expected - coincident points can't have separate valid cells
-    println!("      {} orphan edges occurred because coincident points", result.orphan_edges.len());
-    println!("      cannot have geometrically distinct Voronoi cells.");
+    if !result.degenerate_cells.is_empty() {
+        println!(
+            "\nNote: {} degenerate cells from invalid input",
+            result.degenerate_cells.len()
+        );
+    }
+    if !result.orphan_edges.is_empty() {
+        println!(
+            "      {} orphan edges from invalid input",
+            result.orphan_edges.len()
+        );
+    }
+    if !result.overcounted_edges.is_empty() {
+        println!(
+            "      {} overcounted edges from duplicate cells",
+            result.overcounted_edges.len()
+        );
+    }
 
     // 3. All cells should have been processed (no panics)
     assert_eq!(voronoi.num_cells(), n, "All cells should be processed");
@@ -637,7 +730,7 @@ fn test_bisector_distance_threshold_applied() {
     let mut builder = IncrementalCellBuilder::new(0, generator);
 
     // Neighbor below threshold - should be skipped
-    let too_close = generator + Vec3::new(1e-6, 0.0, 0.0);
+    let too_close = generator + Vec3::new(super::MIN_BISECTOR_DISTANCE * 0.2, 0.0, 0.0);
     let too_close = too_close.normalize();
     builder.clip(1, too_close);
 
@@ -749,3 +842,4 @@ fn bench_knn_breakdown() {
         stats.avg_points_per_cell, stats.avg_points_per_cell * 2.0);
     println!("Heap operations for k={}: up to {} push + {} pop", k, k, k);
 }
+

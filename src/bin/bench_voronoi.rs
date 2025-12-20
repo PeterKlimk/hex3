@@ -9,9 +9,11 @@
 //!
 //! Tests performance at various cell counts with fibonacci + jitter distribution.
 
+mod bench_common;
+
 use clap::Parser;
 use glam::Vec3;
-use hex3::geometry::{fibonacci_sphere_points_with_rng, gpu_voronoi::DEFAULT_K};
+use hex3::geometry::gpu_voronoi::DEFAULT_K;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use std::time::Instant;
@@ -22,7 +24,7 @@ use std::time::Instant;
 struct Args {
     /// Cell counts to benchmark (e.g., 100000, 100k, 1m, 10M)
     /// If none provided, runs all sizes: 100k, 500k, 1M, 2M, 5M, 10M
-    #[arg(value_parser = parse_count)]
+    #[arg(value_parser = bench_common::parse_count)]
     sizes: Vec<usize>,
 
     /// Value of k (number of neighbors) to use
@@ -49,35 +51,51 @@ struct Args {
     #[arg(long)]
     dedup_timing: bool,
 
+    /// Print vertex count distribution (extra pass)
+    #[arg(long)]
+    vertex_stats: bool,
+
     /// Use Lloyd-relaxed points (well-behaved, like production)
     #[arg(long)]
     lloyd: bool,
+
+    /// Inject a number of near-collision points for robustness testing
+    #[arg(long, default_value_t = 0)]
+    inject_bad: usize,
+
+    /// Target spacing for injected points (geodesic distance, radians)
+    #[arg(long)]
+    bad_spacing: Option<f32>,
 }
 
-fn parse_count(s: &str) -> Result<usize, String> {
-    let s = s.to_lowercase();
-    let (num_str, multiplier) = if s.ends_with('m') {
-        (&s[..s.len() - 1], 1_000_000)
-    } else if s.ends_with('k') {
-        (&s[..s.len() - 1], 1_000)
-    } else {
-        (s.as_str(), 1)
-    };
-
-    num_str
-        .parse::<f64>()
-        .map(|n| (n * multiplier as f64) as usize)
-        .map_err(|e| format!("Invalid number '{}': {}", s, e))
+struct BadPointConfig {
+    count: usize,
+    spacing: f32,
 }
 
-fn generate_points(n: usize, seed: u64, lloyd: bool) -> Vec<Vec3> {
+fn generate_points(n: usize, seed: u64, lloyd: bool, bad: Option<BadPointConfig>) -> Vec<Vec3> {
     use hex3::geometry::lloyd_relax_kmeans;
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
-    let mean_spacing = (4.0 * std::f32::consts::PI / n as f32).sqrt();
-    let jitter = if lloyd { mean_spacing * 0.1 } else { mean_spacing * 0.25 };
-    let mut points = fibonacci_sphere_points_with_rng(n, jitter, &mut rng);
+    let jitter_scale = if lloyd { 0.1 } else { 0.25 };
+    let mut points = bench_common::fibonacci_points_with_jitter(n, jitter_scale, &mut rng);
     if lloyd {
         lloyd_relax_kmeans(&mut points, 2, 20, &mut rng);
+    }
+    if let Some(bad) = bad {
+        let added = bench_common::inject_bad_points(&mut points, bad.count, bad.spacing, &mut rng);
+        if added < bad.count {
+            eprintln!(
+                "  WARNING: only injected {} of {} bad points",
+                added,
+                bad.count
+            );
+        }
+        println!(
+            "  Injected {} bad points (spacing <= {:.2e}), total points: {}",
+            added,
+            bad.spacing,
+            points.len()
+        );
     }
     points
 }
@@ -103,7 +121,7 @@ fn analyze_point_spacing(points: &[Vec3], knn: &hex3::geometry::gpu_voronoi::Cub
         }
     }
 
-    let mean_spacing = (4.0 * std::f32::consts::PI / points.len() as f32).sqrt();
+    let mean_spacing = bench_common::mean_spacing(points.len());
     println!("  Min NN distance: {:.6} (at cell {})", min_dist, min_idx);
     println!("  Mean spacing:    {:.6}", mean_spacing);
     println!("  Ratio min/mean:  {:.3}", min_dist / mean_spacing);
@@ -122,22 +140,62 @@ struct PhaseTimings {
 }
 
 /// Run the voronoi computation with detailed phase timing.
-/// Uses the optimized code path with union-find degeneracy unification.
-fn benchmark_voronoi_phases(points: &[Vec3], k: usize) -> (PhaseTimings, usize, usize) {
+/// Uses the optimized flat-buffer path with pre-merge and vertex welding.
+fn benchmark_voronoi_phases(points: &[Vec3], k: usize) -> (PhaseTimings, usize, usize, usize) {
     benchmark_voronoi_phases_inner(points, k, false)
 }
 
-fn benchmark_voronoi_phases_inner(points: &[Vec3], k: usize, print_dedup_timing: bool) -> (PhaseTimings, usize, usize) {
+fn benchmark_voronoi_phases_inner(
+    points: &[Vec3],
+    k: usize,
+    print_dedup_timing: bool,
+) -> (PhaseTimings, usize, usize, usize) {
     use hex3::geometry::gpu_voronoi::{
-        CubeMapGridKnn, TerminationConfig,
-        build_cells_data_flat, dedup::dedup_vertices_hash_flat,
+        CubeMapGridKnn, TerminationConfig, MIN_BISECTOR_DISTANCE,
+        build_cells_data_flat, dedup::dedup_vertices_hash_flat, merge_close_points,
     };
 
-    let n = points.len();
-
-    // Phase 1: CubeMapGridKnn construction
-    let t0 = Instant::now();
+    // Phase 0: Merge close points (required for correctness)
     let knn = CubeMapGridKnn::new(points);
+    let merge_result = merge_close_points(points, MIN_BISECTOR_DISTANCE, &knn);
+    let effective_points = if merge_result.num_merged > 0 {
+        &merge_result.effective_points
+    } else {
+        points
+    };
+    let effective_n = effective_points.len();
+
+    // Rebuild KNN if we merged points
+    let effective_knn;
+    let knn_ref = if merge_result.num_merged > 0 {
+        effective_knn = CubeMapGridKnn::new(effective_points);
+        &effective_knn
+    } else {
+        &knn
+    };
+    
+    let t0 = Instant::now();
+
+    // Report merge stats and post-merge min spacing
+    if merge_result.num_merged > 0 {
+        use hex3::geometry::gpu_voronoi::KnnProvider;
+        let mut min_dist_after = f32::MAX;
+        let mut scratch = knn_ref.make_scratch();
+        let mut neighbors = Vec::with_capacity(1);
+        for i in 0..effective_points.len() {
+            neighbors.clear();
+            knn_ref.knn_into(effective_points[i], i, 1, &mut scratch, &mut neighbors);
+            if let Some(&j) = neighbors.first() {
+                let d = (effective_points[i] - effective_points[j]).length();
+                if d < min_dist_after {
+                    min_dist_after = d;
+                }
+            }
+        }
+        eprintln!("  Merged {} points (threshold={:.0e}), {} -> {} effective, min_dist_after={:.2e}",
+            merge_result.num_merged, MIN_BISECTOR_DISTANCE,
+            points.len(), effective_points.len(), min_dist_after);
+    }
     let t1 = Instant::now();
 
     // Phase 2+3: Cell construction with k-NN (interleaved, parallel)
@@ -147,17 +205,15 @@ fn benchmark_voronoi_phases_inner(points: &[Vec3], k: usize, print_dedup_timing:
         check_start: 10,
         check_step: 6,
     };
-    let flat_data = build_cells_data_flat(points, &knn, k, termination);
+    let flat_data = build_cells_data_flat(effective_points, knn_ref, k, termination);
     let t2 = Instant::now();
 
     // Phase 4: CCW ordering is now a no-op (IncrementalCellBuilder maintains CCW order)
     let t3 = t2;
 
     // Phase 5: Vertex deduplication - flat version iterates chunks directly
-    let (all_vertices, _cells, cell_indices) = dedup_vertices_hash_flat(
-        flat_data,
-        print_dedup_timing,
-    );
+    let (all_vertices, _cells, cell_indices) =
+        dedup_vertices_hash_flat(flat_data, effective_points, print_dedup_timing);
     let t4 = Instant::now();
 
     // Phase 6: Final assembly (just counting)
@@ -175,7 +231,7 @@ fn benchmark_voronoi_phases_inner(points: &[Vec3], k: usize, print_dedup_timing:
         total_ms: (t5 - t0).as_secs_f64() * 1000.0,
     };
 
-    (timings, num_unique_vertices, total_vertex_refs)
+    (timings, num_unique_vertices, total_vertex_refs, effective_n)
 }
 
 fn format_rate(count: usize, ms: f64) -> String {
@@ -189,32 +245,49 @@ fn format_rate(count: usize, ms: f64) -> String {
     }
 }
 
-fn print_vertex_distribution(points: &[Vec3], k: usize) {
+fn print_vertex_distribution(points: &[Vec3], k: usize) -> Vec<usize> {
     use hex3::geometry::gpu_voronoi::{
-        CubeMapGridKnn, TerminationConfig,
-        build_cells_data_flat,
+        CubeMapGridKnn, TerminationConfig, MIN_BISECTOR_DISTANCE,
+        build_cells_data_flat, merge_close_points,
     };
 
     let knn = CubeMapGridKnn::new(points);
+    let merge_result = merge_close_points(points, MIN_BISECTOR_DISTANCE, &knn);
+    let effective_points = if merge_result.num_merged > 0 {
+        &merge_result.effective_points
+    } else {
+        points
+    };
+    let effective_knn;
+    let knn_ref = if merge_result.num_merged > 0 {
+        effective_knn = CubeMapGridKnn::new(effective_points);
+        &effective_knn
+    } else {
+        &knn
+    };
     let termination = TerminationConfig {
         enabled: true,
         check_start: 10,
         check_step: 6,
     };
-    let flat_data = build_cells_data_flat(points, &knn, k, termination);
+    let flat_data = build_cells_data_flat(effective_points, knn_ref, k, termination);
     let stats = flat_data.stats();
 
     // Count cells by vertex count using public iter_cells()
     let mut counts_by_verts: Vec<usize> = vec![0; 20];
-    for cell in flat_data.iter_cells() {
+    let mut invalid_cells: Vec<usize> = Vec::new();
+    for (cell_idx, cell) in flat_data.iter_cells().enumerate() {
         let c = cell.len();
         if c < counts_by_verts.len() {
             counts_by_verts[c] += 1;
         }
+        if c < 3 {
+            invalid_cells.push(cell_idx);
+        }
     }
 
     println!("\nVertex count distribution:");
-    let n = points.len();
+    let n = effective_points.len();
     for (verts, &count) in counts_by_verts.iter().enumerate() {
         if count > 0 {
             let pct = count as f64 / n as f64 * 100.0;
@@ -227,16 +300,90 @@ fn print_vertex_distribution(points: &[Vec3], k: usize) {
     if invalid > 0 {
         println!("\n  WARNING: {} cells have < 3 vertices ({:.3}%)",
             invalid, invalid as f64 / n as f64 * 100.0);
-        println!("  DEBUG: died_after_seeding = {} (should account for most failures)",
-            stats.died_after_seeding);
-        println!("  DEBUG: never_seeded = {} (failed to find valid triplet)",
-            invalid.saturating_sub(stats.died_after_seeding));
-        println!("  DEBUG: avg triplets tried = {:.1}",
-            stats.total_triplets_tried as f64 / n as f64);
+    }
+    if stats.fallback_unterminated > 0 {
+        println!(
+            "  WARNING: {} cells used fallback without termination (full-scan fallback) ({:.3}%)",
+            stats.fallback_unterminated,
+            stats.fallback_unterminated as f64 / n as f64 * 100.0
+        );
+    }
+
+    invalid_cells
+}
+
+fn debug_invalid_cells(points: &[Vec3], invalid_cells: &[usize]) {
+    use hex3::geometry::gpu_voronoi::{IncrementalCellBuilder, MIN_BISECTOR_DISTANCE};
+
+    if invalid_cells.is_empty() {
+        return;
+    }
+
+    println!("\nInvalid cell debug (full scan):");
+    let min_dist_sq = MIN_BISECTOR_DISTANCE * MIN_BISECTOR_DISTANCE;
+    let mut neighbors: Vec<(f32, usize, f32)> = Vec::with_capacity(points.len().saturating_sub(1));
+
+    for &cell_idx in invalid_cells {
+        neighbors.clear();
+        let g = points[cell_idx];
+        let mut min_dist = f32::MAX;
+        let mut skipped = 0usize;
+
+        for (idx, &p) in points.iter().enumerate() {
+            if idx == cell_idx {
+                continue;
+            }
+            let diff = p - g;
+            let dist_sq = diff.length_squared();
+            if dist_sq < min_dist_sq {
+                skipped += 1;
+            }
+            min_dist = min_dist.min(dist_sq.sqrt());
+            let cos = g.dot(p).clamp(-1.0, 1.0);
+            neighbors.push((cos, idx, dist_sq));
+        }
+
+        neighbors.sort_by(|a, b| b.0.total_cmp(&a.0));
+
+        let mut builder = IncrementalCellBuilder::new(cell_idx, g);
+        let mut died_at: Option<(usize, f32, f32)> = None;
+        for &(cos, idx, dist_sq) in &neighbors {
+            builder.clip(idx, points[idx]);
+            if builder.is_dead() {
+                died_at = Some((idx, cos, dist_sq.sqrt()));
+                break;
+            }
+        }
+
+        println!(
+            "  cell {}: seeded={}, dead={}, verts={}, planes={}, min_dist={:.2e}, skipped_close={}",
+            cell_idx,
+            builder.is_seeded(),
+            builder.is_dead(),
+            builder.vertex_count(),
+            builder.planes_count(),
+            min_dist,
+            skipped
+        );
+        if let Some((idx, cos, dist)) = died_at {
+            println!(
+                "    died at neighbor {}: cos={:.6}, dist={:.2e}",
+                idx,
+                cos,
+                dist
+            );
+        }
     }
 }
 
-fn print_results(n: usize, k: usize, timings: PhaseTimings, unique_verts: usize, total_refs: usize) {
+fn print_results(
+    n: usize,
+    effective_n: usize,
+    k: usize,
+    timings: PhaseTimings,
+    unique_verts: usize,
+    total_refs: usize,
+) {
     let total = timings.total_ms.max(0.001);
 
     println!("\n{}", "=".repeat(70));
@@ -253,19 +400,19 @@ fn print_results(n: usize, k: usize, timings: PhaseTimings, unique_verts: usize,
         "  Grid build:          {:>9.1} ms  ({:>5.1}%)  {}",
         timings.grid_ms,
         timings.grid_ms / total * 100.0,
-        format_rate(n, timings.grid_ms)
+        format_rate(effective_n, timings.grid_ms)
     );
     println!(
         "  K-NN queries:        {:>9.1} ms  ({:>5.1}%)  {}",
         timings.knn_ms,
         timings.knn_ms / total * 100.0,
-        format_rate(n, timings.knn_ms)
+        format_rate(effective_n, timings.knn_ms)
     );
     println!(
         "  Cell construction:   {:>9.1} ms  ({:>5.1}%)  {}",
         timings.cell_construction_ms,
         timings.cell_construction_ms / total * 100.0,
-        format_rate(n, timings.cell_construction_ms)
+        format_rate(effective_n, timings.cell_construction_ms)
     );
     println!(
         "  CCW ordering:        {:>9.1} ms  ({:>5.1}%)  {}",
@@ -293,18 +440,20 @@ fn print_results(n: usize, k: usize, timings: PhaseTimings, unique_verts: usize,
     println!("  Vertex references:   {}", format_num(total_refs));
     println!(
         "  Avg verts/cell:      {:.2}",
-        total_refs as f64 / n as f64
+        total_refs as f64 / effective_n as f64
     );
+    println!("  Input cells:        {}", format_num(n));
+    println!("  Effective cells:    {}", format_num(effective_n));
     println!(
         "  Throughput:          {} cells",
-        format_rate(n, timings.total_ms)
+        format_rate(effective_n, timings.total_ms)
     );
 
     // Memory estimate
-    let point_mem = n * std::mem::size_of::<Vec3>();
+    let point_mem = effective_n * std::mem::size_of::<Vec3>();
     let vertex_mem = unique_verts * std::mem::size_of::<Vec3>();
     let index_mem = total_refs * std::mem::size_of::<usize>();
-    let knn_mem = n * k * std::mem::size_of::<usize>();
+    let knn_mem = effective_n * k * std::mem::size_of::<usize>();
     let total_mem = point_mem + vertex_mem + index_mem + knn_mem;
     println!();
     println!("Memory (estimated):");
@@ -328,6 +477,7 @@ fn format_num(n: usize) -> String {
 /// Summary row for final comparison table
 struct SummaryRow {
     n: usize,
+    effective_n: usize,
     timings: PhaseTimings,
 }
 
@@ -784,7 +934,16 @@ fn main() {
         let n = sizes[0].min(100_000); // Cap at 100k for convex hull (it's slow)
         println!("\n\n========== Neighbor Distribution Analysis (n = {}) ==========", format_num(n));
 
-        let points = generate_points(n, seed, args.lloyd);
+        let bad_cfg = if args.inject_bad > 0 {
+            let spacing = args.bad_spacing.unwrap_or(hex3::geometry::gpu_voronoi::MIN_BISECTOR_DISTANCE);
+            Some(BadPointConfig {
+                count: args.inject_bad,
+                spacing,
+            })
+        } else {
+            None
+        };
+        let points = generate_points(n, seed, args.lloyd, bad_cfg);
 
         println!("\nComputing ground-truth Voronoi via convex hull...");
         let t0 = Instant::now();
@@ -845,14 +1004,23 @@ fn main() {
         let n = sizes[0];
         println!("\n\n========== K-value scaling (n = {}) ==========", format_num(n));
 
-        let points = generate_points(n, seed, args.lloyd);
+        let bad_cfg = if args.inject_bad > 0 {
+            let spacing = args.bad_spacing.unwrap_or(hex3::geometry::gpu_voronoi::MIN_BISECTOR_DISTANCE);
+            Some(BadPointConfig {
+                count: args.inject_bad,
+                spacing,
+            })
+        } else {
+            None
+        };
+        let points = generate_points(n, seed, args.lloyd, bad_cfg);
 
         println!("\n{:>4} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10}",
             "k", "Total(ms)", "KNN(ms)", "Cells(ms)", "CCW(ms)", "Dedup(ms)");
         println!("{:-<4}-+-{:-<10}-+-{:-<10}-+-{:-<10}-+-{:-<10}-+-{:-<10}", "", "", "", "", "", "");
 
         for test_k in [12, 16, 20, 24, 28, 32, 40, 48] {
-            let (timings, _, _) = benchmark_voronoi_phases(&points, test_k);
+            let (timings, _, _, _) = benchmark_voronoi_phases(&points, test_k);
             println!("{:>4} | {:>10.1} | {:>10.1} | {:>10.1} | {:>10.1} | {:>10.1}",
                 test_k,
                 timings.total_ms,
@@ -872,7 +1040,16 @@ fn main() {
         let point_type = if args.lloyd { "Lloyd-relaxed" } else { "fibonacci+jitter" };
         println!("\nGenerating {} {} points...", format_num(n), point_type);
         let t_gen = Instant::now();
-        let points = generate_points(n, seed, args.lloyd);
+        let bad_cfg = if args.inject_bad > 0 {
+            let spacing = args.bad_spacing.unwrap_or(hex3::geometry::gpu_voronoi::MIN_BISECTOR_DISTANCE);
+            Some(BadPointConfig {
+                count: args.inject_bad,
+                spacing,
+            })
+        } else {
+            None
+        };
+        let points = generate_points(n, seed, args.lloyd, bad_cfg);
         let gen_time = t_gen.elapsed().as_secs_f64() * 1000.0;
         println!("  Point generation: {:.1} ms", gen_time);
 
@@ -881,13 +1058,31 @@ fn main() {
         analyze_point_spacing(&points, &knn);
 
         println!("Running benchmark...");
-        let (timings, unique_verts, total_refs) = benchmark_voronoi_phases_inner(&points, k, args.dedup_timing);
-        print_results(n, k, timings, unique_verts, total_refs);
+        let (timings, unique_verts, total_refs, effective_n) =
+            benchmark_voronoi_phases_inner(&points, k, args.dedup_timing);
+        print_results(n, effective_n, k, timings, unique_verts, total_refs);
 
-        // Print vertex distribution (extra run but useful for debugging)
-        print_vertex_distribution(&points, k);
+        // Optional: vertex distribution (extra pass for debugging)
+        let debug_invalid = std::env::var("VORONOI_DEBUG_INVALID").is_ok();
+        if args.vertex_stats || debug_invalid {
+            let invalid_cells = print_vertex_distribution(&points, k);
+            if debug_invalid {
+                let knn = hex3::geometry::gpu_voronoi::CubeMapGridKnn::new(&points);
+                let merge_result = hex3::geometry::gpu_voronoi::merge_close_points(
+                    &points,
+                    hex3::geometry::gpu_voronoi::MIN_BISECTOR_DISTANCE,
+                    &knn,
+                );
+                let effective_points = if merge_result.num_merged > 0 {
+                    &merge_result.effective_points
+                } else {
+                    &points
+                };
+                debug_invalid_cells(effective_points, &invalid_cells);
+            }
+        }
 
-        summary.push(SummaryRow { n, timings });
+        summary.push(SummaryRow { n, effective_n, timings });
 
         // Memory cleanup hint
         drop(points);
@@ -899,21 +1094,22 @@ fn main() {
         println!(" SUMMARY (k={})", k);
         println!("{}", "=".repeat(90));
         println!();
-        println!("{:>8} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10} | {:>12}",
-            "n", "Total", "Grid", "KNN", "Cells", "Dedup", "Throughput");
-        println!("{:-<8}-+-{:-<10}-+-{:-<10}-+-{:-<10}-+-{:-<10}-+-{:-<10}-+-{:-<12}",
-            "", "", "", "", "", "", "");
+        println!("{:>8} | {:>8} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10} | {:>12}",
+            "n", "eff", "Total", "Grid", "KNN", "Cells", "Dedup", "Throughput");
+        println!("{:-<8}-+-{:-<8}-+-{:-<10}-+-{:-<10}-+-{:-<10}-+-{:-<10}-+-{:-<10}-+-{:-<12}",
+            "", "", "", "", "", "", "", "");
 
         for row in &summary {
             let t = &row.timings;
-            println!("{:>8} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10} | {:>12}",
+            println!("{:>8} | {:>8} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10} | {:>12}",
                 format_num(row.n),
+                format_num(row.effective_n),
                 format_ms(t.total_ms),
                 format_ms_pct(t.grid_ms, t.total_ms),
                 format_ms_pct(t.knn_ms, t.total_ms),
                 format_ms_pct(t.cell_construction_ms, t.total_ms),
                 format_ms_pct(t.dedup_ms, t.total_ms),
-                format_rate(row.n, t.total_ms));
+                format_rate(row.effective_n, t.total_ms));
         }
 
         println!();

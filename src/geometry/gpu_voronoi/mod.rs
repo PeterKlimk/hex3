@@ -23,10 +23,23 @@ pub use dedup::dedup_vertices_hash_flat;
 pub use knn::{CubeMapGridKnn, KnnProvider};
 
 /// Minimum distance between generator and neighbor for a valid bisector.
-/// If closer than this, the bisector plane is numerically unstable and we skip the neighbor.
-/// This is an absolute threshold (not relative to mean spacing) because f32 precision
-/// is the limiting factor, not point density.
-pub(crate) const MIN_BISECTOR_DISTANCE: f32 = 1e-5;
+/// Points closer than this are merged before Voronoi computation to prevent:
+/// 1. Numerically unstable bisector planes
+/// 2. Multiple close neighbors collectively killing cells
+/// 3. Orphan edges from inconsistent cell topologies
+pub const MIN_BISECTOR_DISTANCE: f32 = 1e-3;
+/// Fraction of mean generator spacing used for vertex welding.
+pub const VERTEX_WELD_FRACTION: f32 = 0.03;
+
+/// Approximate mean chord length between uniformly-distributed generators.
+/// Used to scale tolerances; assumes roughly even generator spacing.
+pub(crate) fn mean_generator_spacing_chord(num_points: usize) -> f32 {
+    if num_points == 0 {
+        return 0.0;
+    }
+    let mean_angle = (4.0 * std::f32::consts::PI / num_points as f32).sqrt();
+    2.0 * (0.5 * mean_angle).sin()
+}
 
 #[derive(Debug)]
 pub(crate) struct FlatChunk {
@@ -36,10 +49,8 @@ pub(crate) struct FlatChunk {
     pub(crate) total_neighbors_processed: usize,
     /// Number of cells that terminated early in this chunk.
     pub(crate) terminated_cells: usize,
-    /// Number of cells that died after seeding (debug).
-    pub(crate) died_after_seeding: usize,
-    /// Total triplets tried across all cells in this chunk (debug).
-    pub(crate) total_triplets_tried: usize,
+    /// Number of cells that used fallback but still did not terminate.
+    pub(crate) fallback_unterminated: usize,
 }
 
 #[derive(Debug)]
@@ -63,14 +74,12 @@ impl FlatCellsData {
     pub fn stats(&self) -> VoronoiStats {
         let total_neighbors: usize = self.chunks.iter().map(|c| c.total_neighbors_processed).sum();
         let terminated: usize = self.chunks.iter().map(|c| c.terminated_cells).sum();
-        let died_after_seeding: usize = self.chunks.iter().map(|c| c.died_after_seeding).sum();
-        let total_triplets_tried: usize = self.chunks.iter().map(|c| c.total_triplets_tried).sum();
+        let fallback_unterminated: usize = self.chunks.iter().map(|c| c.fallback_unterminated).sum();
         let n = self.num_cells.max(1) as f64;
         VoronoiStats {
             avg_neighbors_processed: total_neighbors as f64 / n,
             termination_rate: terminated as f64 / n,
-            died_after_seeding,
-            total_triplets_tried,
+            fallback_unterminated,
         }
     }
 
@@ -121,10 +130,8 @@ pub struct VoronoiStats {
     pub avg_neighbors_processed: f64,
     /// Fraction of cells that terminated early (0.0 to 1.0).
     pub termination_rate: f64,
-    /// Number of cells that died after seeding (for debugging).
-    pub died_after_seeding: usize,
-    /// Total triplets tried across all cells (for debugging).
-    pub total_triplets_tried: usize,
+    /// Number of cells that used fallback but still did not terminate.
+    pub fallback_unterminated: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -155,10 +162,9 @@ struct PhaseTimingsMs {
 }
 
 /// Build cells into flat buffers with chunked parallelism.
-/// Returns (vertices, counts, degenerate_edges).
+/// Returns (vertices, counts).
 /// - vertices: flat buffer of all vertex data
 /// - counts: vertex count per cell (counts[i] = number of vertices for cell i)
-/// - degenerate_edges: triplet pairs for degeneracy unification
 /// Configuration for adaptive k-NN fetching.
 #[derive(Debug, Clone, Copy)]
 pub struct AdaptiveKConfig {
@@ -282,8 +288,7 @@ pub fn build_cells_data_flat_adaptive(
             let mut counts = Vec::with_capacity(end - start);
             let mut total_neighbors_processed = 0usize;
             let mut terminated_cells = 0usize;
-            let mut died_after_seeding = 0usize;
-            let mut total_triplets_tried = 0usize;
+            let mut fallback_unterminated = 0usize;
 
             for i in start..end {
                 builder.reset(i, points[i]);
@@ -292,6 +297,7 @@ pub fn build_cells_data_flat_adaptive(
                 let mut terminated = false;
                 let mut current_k = adaptive.initial_k;
                 let mut used_fallback = false;
+                let mut full_scan_done = false;
 
                 if use_resumable {
                     // Use resumable queries for adaptive-k
@@ -355,6 +361,24 @@ pub fn build_cells_data_flat_adaptive(
                                         }
                                     }
                                 }
+                                if termination.enabled
+                                    && !terminated
+                                    && adaptive.fallback_k < points.len().saturating_sub(1)
+                                {
+                                    // Correctness fallback: clip against all generators.
+                                    // This is rare and expensive but guarantees completeness.
+                                    for (p_idx, &p) in points.iter().enumerate() {
+                                        if p_idx == i || builder.has_neighbor(p_idx) {
+                                            continue;
+                                        }
+                                        builder.clip(p_idx, p);
+                                        cell_neighbors_processed += 1;
+                                        if builder.is_dead() {
+                                            break;
+                                        }
+                                    }
+                                    full_scan_done = true;
+                                }
                                 break; // Fallback processed, we're done
                             }
                             break; // Can't fetch more
@@ -389,8 +413,36 @@ pub fn build_cells_data_flat_adaptive(
 
                 total_neighbors_processed += cell_neighbors_processed;
                 terminated_cells += terminated as usize;
-                died_after_seeding += builder.died_after_seeding as usize;
-                total_triplets_tried += builder.triplets_tried;
+                if termination.enabled && used_fallback && !terminated {
+                    fallback_unterminated += 1;
+                }
+
+                if builder.is_dead() {
+                    let recovered = builder.try_reseed_best();
+                    if !recovered {
+                        if !full_scan_done {
+                            builder.reset(i, points[i]);
+                            for (p_idx, &p) in points.iter().enumerate() {
+                                if p_idx == i {
+                                    continue;
+                                }
+                                builder.clip(p_idx, p);
+                            }
+                        }
+                        let recovered = if builder.is_dead() {
+                            builder.try_reseed_best()
+                        } else {
+                            builder.vertex_count() >= 3
+                        };
+                        if !recovered {
+                            panic!(
+                                "TODO: reseed/full-scan recovery failed for cell {} (planes={})",
+                                i,
+                                builder.planes_count()
+                            );
+                        }
+                    }
+                }
 
                 let count = builder.get_vertices_into(&mut vertices);
                 debug_assert!(count <= u8::MAX as usize, "vertex count exceeds u8");
@@ -402,8 +454,7 @@ pub fn build_cells_data_flat_adaptive(
                 counts,
                 total_neighbors_processed,
                 terminated_cells,
-                died_after_seeding,
-                total_triplets_tried,
+                fallback_unterminated,
             }
         })
         .collect();
@@ -420,6 +471,128 @@ struct CoreResult {
     timings_ms: PhaseTimingsMs,
 }
 
+/// Result of merging close points before Voronoi computation.
+pub struct MergeResult {
+    /// Points to use for Voronoi (representatives only, or all if no merges).
+    pub effective_points: Vec<Vec3>,
+    /// Maps original point index -> representative index in effective_points.
+    /// If no merges occurred, this is just identity (0, 1, 2, ...).
+    pub original_to_effective: Vec<usize>,
+    /// Number of points that were merged (removed).
+    pub num_merged: usize,
+}
+
+/// Simple disjoint-set (union-find) for point merging.
+struct SimpleDsu {
+    parent: Vec<usize>,
+}
+
+impl SimpleDsu {
+    fn new(n: usize) -> Self {
+        Self { parent: (0..n).collect() }
+    }
+
+    fn find(&mut self, x: usize) -> usize {
+        if self.parent[x] != x {
+            self.parent[x] = self.find(self.parent[x]);
+        }
+        self.parent[x]
+    }
+
+    fn union(&mut self, a: usize, b: usize) {
+        let ra = self.find(a);
+        let rb = self.find(b);
+        if ra != rb {
+            self.parent[ra] = rb;
+        }
+    }
+}
+
+/// Find and merge points that are too close together.
+/// Uses strict radius-based merging to ensure no remaining pair is within threshold.
+/// Returns effective points (representatives) and a mapping from original to effective indices.
+///
+/// NOTE: A potentially more efficient approach for the future would be to detect close
+/// neighbors during cell construction and "borrow" the cell from the close neighbor
+/// when a cell dies. This would avoid the preprocessing pass but requires more complex
+/// recovery logic in the cell builder.
+pub fn merge_close_points(points: &[Vec3], threshold: f32, knn: &impl KnnProvider) -> MergeResult {
+    let n = points.len();
+    if n == 0 {
+        return MergeResult {
+            effective_points: Vec::new(),
+            original_to_effective: Vec::new(),
+            num_merged: 0,
+        };
+    }
+
+    let threshold_sq = threshold * threshold;
+    let mut dsu = SimpleDsu::new(n);
+    let _ = knn; // Keep signature for now; strict merge doesn't use k-NN.
+
+    // Strict radius-based merge: union all pairs within threshold.
+    // Guarantees no remaining pair is closer than threshold (within precision).
+    let cell_size = threshold;
+    let inv_cell_size = 1.0 / cell_size;
+
+    #[inline]
+    fn grid_cell(p: Vec3, inv_cell_size: f32) -> (i32, i32, i32) {
+        (
+            (p.x * inv_cell_size).floor() as i32,
+            (p.y * inv_cell_size).floor() as i32,
+            (p.z * inv_cell_size).floor() as i32,
+        )
+    }
+
+    let mut grid: rustc_hash::FxHashMap<(i32, i32, i32), Vec<usize>> =
+        rustc_hash::FxHashMap::default();
+
+    for (i, &p) in points.iter().enumerate() {
+        let (cx, cy, cz) = grid_cell(p, inv_cell_size);
+
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                for dz in -1..=1 {
+                    if let Some(indices) = grid.get(&(cx + dx, cy + dy, cz + dz)) {
+                        for &j in indices {
+                            let dist_sq = (points[j] - p).length_squared();
+                            if dist_sq < threshold_sq {
+                                dsu.union(i, j);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        grid.entry((cx, cy, cz))
+            .or_insert_with(Vec::new)
+            .push(i);
+    }
+
+    // Count how many unique representatives we have
+    let mut rep_to_effective: Vec<Option<usize>> = vec![None; n];
+    let mut effective_points = Vec::new();
+    let mut original_to_effective = vec![0usize; n];
+
+    for i in 0..n {
+        let rep = dsu.find(i);
+        if rep_to_effective[rep].is_none() {
+            rep_to_effective[rep] = Some(effective_points.len());
+            effective_points.push(points[rep]);
+        }
+        original_to_effective[i] = rep_to_effective[rep].unwrap();
+    }
+
+    let num_merged = n - effective_points.len();
+
+    MergeResult {
+        effective_points,
+        original_to_effective,
+        num_merged,
+    }
+}
+
 fn compute_voronoi_gpu_style_core(
     points: &[Vec3],
     k: usize,
@@ -429,15 +602,61 @@ fn compute_voronoi_gpu_style_core(
     use std::time::Instant;
 
     let t0 = Instant::now();
+
+    // Build initial KNN on original points (used for merge detection)
     let knn = CubeMapGridKnn::new(points);
+
+    // Find and merge close points to prevent orphan edges
+    let merge_result = merge_close_points(points, MIN_BISECTOR_DISTANCE, &knn);
     let t1 = Instant::now();
 
-    let flat_data = build_cells_data_flat(points, &knn, k, termination);
+    // Use effective points for Voronoi computation
+    let (effective_points, effective_knn);
+    let needs_remap = merge_result.num_merged > 0;
+
+    if needs_remap {
+        // Some points were merged - need new KNN on effective points
+        effective_points = merge_result.effective_points;
+        effective_knn = Some(CubeMapGridKnn::new(&effective_points));
+    } else {
+        // No merges - use original points directly
+        effective_points = points.to_vec();
+        effective_knn = None;
+    }
+
+    let knn_ref: &CubeMapGridKnn = effective_knn.as_ref().unwrap_or(&knn);
+
+    let flat_data = build_cells_data_flat(&effective_points, knn_ref, k, termination);
     let stats = if collect_stats { Some(flat_data.stats()) } else { None };
     let t2 = Instant::now();
 
-    let (all_vertices, cells, cell_indices) = dedup::dedup_vertices_hash_flat(flat_data, false);
+    let (all_vertices, eff_cells, eff_cell_indices) =
+        dedup::dedup_vertices_hash_flat(flat_data, &effective_points, false);
     let t3 = Instant::now();
+
+    // Remap cells back to original point indices if we merged
+    let (cells, cell_indices) = if needs_remap {
+        use crate::geometry::VoronoiCell;
+
+        // Each original point maps to an effective point's cell
+        let mut new_cells = Vec::with_capacity(points.len());
+        let mut new_cell_indices = Vec::new();
+
+        for orig_idx in 0..points.len() {
+            let eff_idx = merge_result.original_to_effective[orig_idx];
+            let eff_cell = &eff_cells[eff_idx];
+
+            let start = new_cell_indices.len();
+            let eff_start = eff_cell.vertex_start();
+            let eff_end = eff_start + eff_cell.vertex_count();
+            new_cell_indices.extend_from_slice(&eff_cell_indices[eff_start..eff_end]);
+
+            new_cells.push(VoronoiCell::new(orig_idx, start, eff_cell.vertex_count()));
+        }
+        (new_cells, new_cell_indices)
+    } else {
+        (eff_cells, eff_cell_indices)
+    };
 
     let voronoi = crate::geometry::SphericalVoronoi::from_raw_parts(
         points.to_vec(),

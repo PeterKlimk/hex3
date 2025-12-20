@@ -10,7 +10,7 @@ pub type VertexList = Vec<VertexData>;
 // Epsilon values for numerical stability
 pub(crate) const EPS_PLANE_CONTAINS: f32 = 1e-7;
 pub(crate) const EPS_PLANE_CLIP: f32 = 1e-7;
-pub(crate) const EPS_PLANE_PARALLEL: f32 = 1e-8;
+pub(crate) const EPS_PLANE_PARALLEL: f32 = 1e-6;
 pub(crate) const EPS_TERMINATION_MARGIN: f32 = 1e-7;
 
 /// Maximum number of neighbors to consider per cell.
@@ -73,10 +73,6 @@ pub struct IncrementalCellBuilder {
     seeded: bool,
     /// True if clipping has already eliminated the cell (intersection empty).
     dead: bool,
-    /// Debug: number of triplets tried before finding a valid seed (0 = never seeded)
-    pub triplets_tried: usize,
-    /// Debug: true if cell was seeded but then died during clipping
-    pub died_after_seeding: bool,
 }
 
 impl IncrementalCellBuilder {
@@ -92,8 +88,6 @@ impl IncrementalCellBuilder {
             tmp_edge_planes: Vec::with_capacity(MAX_VERTICES),
             seeded: false,
             dead: false,
-            triplets_tried: 0,
-            died_after_seeding: false,
         }
     }
 
@@ -108,8 +102,6 @@ impl IncrementalCellBuilder {
         self.tmp_edge_planes.clear();
         self.seeded = false;
         self.dead = false;
-        self.triplets_tried = 0;
-        self.died_after_seeding = false;
     }
 
     /// Returns true if this neighbor has already been clipped into the cell.
@@ -149,13 +141,19 @@ impl IncrementalCellBuilder {
         None
     }
 
+    /// Compute exact intersection of two great circle planes on unit sphere.
+    /// Returns the candidate point closer to `hint` (typically arc midpoint or generator).
     #[inline]
-    fn intersect_arc_with_plane(arc_start: Vec3, arc_end: Vec3, plane: &GreatCircle) -> Vec3 {
-        let d_start = plane.signed_distance(arc_start);
-        let d_end = plane.signed_distance(arc_end);
-        let t = d_start / (d_start - d_end);
-        let p = arc_start * (1.0 - t) + arc_end * t;
-        p.normalize()
+    fn intersect_two_planes(plane_a: &GreatCircle, plane_b: &GreatCircle, hint: Vec3) -> Vec3 {
+        let cross = plane_a.normal.cross(plane_b.normal);
+        let len_sq = cross.length_squared();
+        if len_sq < EPS_PLANE_PARALLEL * EPS_PLANE_PARALLEL {
+            // Parallel planes - fall back to hint direction
+            return hint.normalize();
+        }
+        let v = cross / len_sq.sqrt();
+        // Pick the candidate closer to hint
+        if v.dot(hint) >= 0.0 { v } else { -v }
     }
 
     fn seed_from_triplet(&mut self, a: usize, b: usize, c: usize) -> bool {
@@ -243,7 +241,6 @@ impl IncrementalCellBuilder {
         // First priority: try triplets including the newest plane (most likely to succeed)
         for i in 0..new_plane_idx {
             for j in (i + 1)..new_plane_idx {
-                self.triplets_tried += 1;
                 if self.seed_from_triplet(i, j, new_plane_idx) {
                     return Some([i, j, new_plane_idx]);
                 }
@@ -258,7 +255,6 @@ impl IncrementalCellBuilder {
         for a in 0..new_plane_idx {
             for b in (a + 1)..new_plane_idx {
                 for c in (b + 1)..new_plane_idx {
-                    self.triplets_tried += 1;
                     if self.seed_from_triplet(a, b, c) {
                         return Some([a, b, c]);
                     }
@@ -292,7 +288,6 @@ impl IncrementalCellBuilder {
             self.vertices.clear();
             self.edge_planes.clear();
             self.dead = true;
-            self.died_after_seeding = true;
             return;
         }
 
@@ -317,8 +312,13 @@ impl IncrementalCellBuilder {
         let entry_edge_plane = self.edge_planes[entry_idx];
         let entry_start = self.vertices[entry_idx].pos;
         let entry_end = self.vertices[(entry_idx + 1) % n].pos;
+        // Use interpolation to find approximate point, then exact intersection for precise position
+        let d_entry_start = new_plane.signed_distance(entry_start);
+        let d_entry_end = new_plane.signed_distance(entry_end);
+        let t_entry = d_entry_start / (d_entry_start - d_entry_end);
+        let entry_hint = (entry_start * (1.0 - t_entry) + entry_end * t_entry).normalize();
         let entry_vertex = CellVertex {
-            pos: Self::intersect_arc_with_plane(entry_start, entry_end, &new_plane),
+            pos: Self::intersect_two_planes(&self.planes[entry_edge_plane], &new_plane, entry_hint),
             plane_a: entry_edge_plane,
             plane_b: new_plane_idx,
         };
@@ -326,8 +326,12 @@ impl IncrementalCellBuilder {
         let exit_edge_plane = self.edge_planes[exit_idx];
         let exit_start = self.vertices[exit_idx].pos;
         let exit_end = self.vertices[(exit_idx + 1) % n].pos;
+        let d_exit_start = new_plane.signed_distance(exit_start);
+        let d_exit_end = new_plane.signed_distance(exit_end);
+        let t_exit = d_exit_start / (d_exit_start - d_exit_end);
+        let exit_hint = (exit_start * (1.0 - t_exit) + exit_end * t_exit).normalize();
         let exit_vertex = CellVertex {
-            pos: Self::intersect_arc_with_plane(exit_start, exit_end, &new_plane),
+            pos: Self::intersect_two_planes(&self.planes[exit_edge_plane], &new_plane, exit_hint),
             plane_a: exit_edge_plane,
             plane_b: new_plane_idx,
         };
@@ -368,9 +372,6 @@ impl IncrementalCellBuilder {
         self.planes.push(new_plane);
         self.neighbor_indices.push(neighbor_idx);
 
-        if self.dead {
-            return;
-        }
         if !self.seeded {
             if self.planes.len() < 3 {
                 return;
@@ -386,7 +387,7 @@ impl IncrementalCellBuilder {
                 }
                 self.clip_with_plane(plane_idx);
                 if self.dead {
-                    break;
+                    return;
                 }
             }
             return;
@@ -411,6 +412,74 @@ impl IncrementalCellBuilder {
 
         let cos_2max = 2.0 * min_cos * min_cos - 1.0;
         next_neighbor_cos < cos_2max - EPS_TERMINATION_MARGIN
+    }
+
+    /// Attempt to reseed using the best-conditioned triplet among all planes.
+    /// Returns true if a non-degenerate cell is recovered.
+    pub fn try_reseed_best(&mut self) -> bool {
+        let plane_count = self.planes.len();
+        if plane_count < 3 {
+            return false;
+        }
+
+        let mut best_triplet: Option<(usize, usize, usize)> = None;
+        let mut best_score = 0.0f32;
+        let min_score = EPS_PLANE_PARALLEL * EPS_PLANE_PARALLEL;
+
+        for a in 0..plane_count {
+            for b in (a + 1)..plane_count {
+                for c in (b + 1)..plane_count {
+                    let na = self.planes[a].normal;
+                    let nb = self.planes[b].normal;
+                    let nc = self.planes[c].normal;
+                    let ab = na.cross(nb).length_squared();
+                    let bc = nb.cross(nc).length_squared();
+                    let ca = nc.cross(na).length_squared();
+                    let score = ab.min(bc).min(ca);
+                    if score <= best_score.max(min_score) {
+                        continue;
+                    }
+
+                    self.vertices.clear();
+                    self.edge_planes.clear();
+                    self.dead = false;
+                    self.seeded = false;
+
+                    if !self.seed_from_triplet(a, b, c) {
+                        continue;
+                    }
+
+                    best_score = score;
+                    best_triplet = Some((a, b, c));
+                }
+            }
+        }
+
+        let (a, b, c) = match best_triplet {
+            Some(t) => t,
+            None => return false,
+        };
+
+        self.vertices.clear();
+        self.edge_planes.clear();
+        self.dead = false;
+        self.seeded = false;
+        if !self.seed_from_triplet(a, b, c) {
+            return false;
+        }
+        self.seeded = true;
+
+        for plane_idx in 0..plane_count {
+            if plane_idx == a || plane_idx == b || plane_idx == c {
+                continue;
+            }
+            self.clip_with_plane(plane_idx);
+            if self.dead {
+                return false;
+            }
+        }
+
+        self.vertices.len() >= 3
     }
 
     /// Get the final vertices with their canonical triplet keys.
@@ -448,6 +517,21 @@ impl IncrementalCellBuilder {
     #[inline]
     pub fn vertex_count(&self) -> usize {
         self.vertices.len()
+    }
+
+    #[inline]
+    pub fn planes_count(&self) -> usize {
+        self.planes.len()
+    }
+
+    #[inline]
+    pub fn is_dead(&self) -> bool {
+        self.dead
+    }
+
+    #[inline]
+    pub fn is_seeded(&self) -> bool {
+        self.seeded
     }
 
     /// Write vertices with keys to a provided buffer, returning the slice written.
