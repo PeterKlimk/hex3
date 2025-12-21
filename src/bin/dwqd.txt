@@ -1,3 +1,0 @@
- 229 -            if angle > SUPPORT_CLUSTER_RADIUS_ANGLE {
-      230 -                ill_conditioned = true;
-      231 -            }

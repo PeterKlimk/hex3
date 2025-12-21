@@ -7,6 +7,7 @@ mod cell_builder;
 mod constants;
 pub mod dedup;
 mod knn;
+mod timing;
 
 #[cfg(test)]
 mod tests;
@@ -17,7 +18,7 @@ use rustc_hash::FxHashSet;
 
 // Re-exports
 pub use cell_builder::{
-    GreatCircle, IncrementalCellBuilder, F64CellBuilder, DEFAULT_K, MAX_PLANES, MAX_VERTICES,
+    GreatCircle, IncrementalCellBuilder, F64CellBuilder, MAX_PLANES, MAX_VERTICES,
     VertexKey,
     VertexData, VertexList,
     geodesic_distance, order_vertices_ccw_indices,
@@ -275,42 +276,32 @@ impl TerminationConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-struct PhaseTimingsMs {
-    total: f64,
-    kdtree: f64,
-    knn: f64,
-    cell_construction: f64,
-    dedup: f64,
-    assemble: f64,
-}
-
 /// Build cells into flat buffers with chunked parallelism.
 /// Returns (vertices, counts).
 /// - vertices: flat buffer of all vertex data
 /// - counts: vertex count per cell (counts[i] = number of vertices for cell i)
 ///
-/// Uses a two-phase approach:
-/// 1. Fetch initial_k neighbors and process with early termination
-/// 2. If not terminated, use within_cos range query to get remaining candidates
+/// Uses adaptive k-NN with early termination:
+/// 1. Fetch k=12 neighbors, clip, check termination
+/// 2. If needed, resume to k=24, then k=48
+/// 3. If still not terminated, full scan
 pub fn build_cells_data_flat(
     points: &[Vec3],
     knn: &impl KnnProvider,
-    initial_k: usize,
     termination: TerminationConfig,
-) -> FlatCellsData {
+) -> (FlatCellsData, timing::CellSubAccum) {
     use constants::EPS_TERMINATION_MARGIN;
     use rayon::prelude::*;
 
     let n = points.len();
     if n == 0 {
-        return FlatCellsData {
+        return (FlatCellsData {
             chunks: Vec::new(),
             num_cells: 0,
-        };
+        }, timing::CellSubAccum::new());
     }
 
-    let support_eps = SUPPORT_EPS_ABS;
+    let _support_eps = SUPPORT_EPS_ABS; // Kept for potential future use
     // Position weld threshold (chord length) used for deferred keying of uncertified vertices.
     // Matches the scale used by strict validation / near-duplicate thresholds in tests.
     let pos_weld_chord: f64 = {
@@ -328,12 +319,15 @@ pub fn build_cells_data_flat(
         start = end;
     }
 
-    let mut chunks: Vec<FlatChunk> = ranges
+    let mut chunks: Vec<(FlatChunk, timing::CellSubAccum)> = ranges
         .par_iter()
         .map(|&(start, end)| {
+            use cell_builder::F64CellBuilder;
+            use timing::{Timer, CellSubAccum};
+
             let mut scratch = knn.make_scratch();
-            let mut neighbors = Vec::with_capacity(initial_k.max(64));
-            let mut builder = IncrementalCellBuilder::new(0, Vec3::ZERO);
+            let mut neighbors = Vec::with_capacity(64);
+            let mut builder = F64CellBuilder::new(0, Vec3::ZERO);
 
             let estimated_vertices = (end - start) * 6;
             let mut vertices = Vec::with_capacity(estimated_vertices);
@@ -348,19 +342,25 @@ pub fn build_cells_data_flat(
             let mut fallback_unterminated = 0usize;
             let cert_checked_cells = 0usize;
             let cert_failed_cells = 0usize;
-            let mut cert_checked_vertices = 0usize;
-            let mut cert_failed_vertices = 0usize;
-            let mut cert_failed_ill_vertices = 0usize;
-            let mut cert_failed_gap_vertices = 0usize;
-            let mut cert_failed_vertex_indices: Vec<(u32, u8)> = Vec::new();
+            let cert_checked_vertices = 0usize;
+            let cert_failed_vertices = 0usize;
+            let cert_failed_ill_vertices = 0usize;
+            let cert_failed_gap_vertices = 0usize;
+            let cert_failed_vertex_indices: Vec<(u32, u8)> = Vec::new();
             let mut f64_fallback_cells = 0usize;
-            let mut gap_sampler = GapSampler::new(
+            let gap_sampler = GapSampler::new(
                 SUPPORT_GAP_SAMPLE_LIMIT,
                 (start as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15).wrapping_add(0xD1B5_4A32_D192_ED03),
             );
 
-            // Note: F64CellBuilder is now the default path; VORONOI_FORCE_F64 is no longer needed.
-            let _force_f64 = std::env::var("VORONOI_FORCE_F64").is_ok();
+            // Sub-phase timing accumulators
+            let mut sub_accum = CellSubAccum::new();
+
+            // Adaptive k-NN: start small, resume to larger k if needed
+            // Track more than we initially need so resume is cheap
+            const K_INITIAL: usize = 12;
+            const K_EXPAND: usize = 24;
+            const TRACK_LIMIT: usize = 24;
 
             for i in start..end {
                 builder.reset(i, points[i]);
@@ -369,11 +369,20 @@ pub fn build_cells_data_flat(
                 let mut terminated = false;
                 let mut used_fallback = false;
                 let mut full_scan_done = false;
+                let mut knn_exhausted = false;
 
-                // Phase 1: Initial k-NN query
+                // Phase 1: Initial resumable k-NN query (k=12, track up to 24)
+                let t_knn = Timer::start();
                 neighbors.clear();
-                knn.knn_into(points[i], i, initial_k, &mut scratch, &mut neighbors);
+                let status = knn.knn_resumable_into(
+                    points[i], i, K_INITIAL, TRACK_LIMIT, &mut scratch, &mut neighbors
+                );
+                knn_exhausted = status == knn::KnnStatus::Exhausted;
+                sub_accum.add_knn(t_knn.elapsed());
 
+                let t_clip = Timer::start();
+
+                // Process initial neighbors
                 for idx in 0..neighbors.len() {
                     let neighbor_idx = neighbors[idx];
                     let neighbor = points[neighbor_idx];
@@ -389,51 +398,65 @@ pub fn build_cells_data_flat(
                     }
                 }
 
-                // Phase 2: If not terminated and we have vertices, use within_cos for remaining
-                if termination.enabled && !terminated && builder.vertex_count() >= 3 {
-                    // Compute the required threshold based on current vertices
-                    let min_cos = builder.min_vertex_cos();
-                    if min_cos > 0.0 {
-                        // Conservative bound: any generator that could affect a vertex must be
-                        // within 2*theta + margin of the generator (where theta = acos(min_cos))
-                        let eps_cell = SUPPORT_VERTEX_ANGLE_EPS + SUPPORT_CLUSTER_RADIUS_ANGLE;
-                        let sin_theta = (1.0 - min_cos * min_cos).max(0.0).sqrt();
-                        let (sin_eps, cos_eps) = (eps_cell as f32).sin_cos();
-                        let cos_theta_eps = min_cos * cos_eps - sin_theta * sin_eps;
-                        let cos_2max = 2.0 * cos_theta_eps * cos_theta_eps - 1.0;
-                        let termination_margin = EPS_TERMINATION_MARGIN
-                            + SUPPORT_CERT_MARGIN_ABS as f32
-                            + 2.0 * SUPPORT_EPS_ABS as f32
-                            + 2.0 * support_cluster_drift_dot() as f32;
-                        let required_cos = cos_2max - termination_margin;
+                // Phase 2: Resume to k=24 if needed (cheap - just slices buffer)
+                if termination.enabled && !terminated && !knn_exhausted {
+                    used_fallback = true;
+                    let t_knn2 = Timer::start();
+                    let prev_count = neighbors.len();
+                    let status = knn.knn_resume_into(
+                        points[i], i, K_EXPAND, &mut scratch, &mut neighbors
+                    );
+                    knn_exhausted = status == knn::KnnStatus::Exhausted;
+                    sub_accum.add_knn(t_knn2.elapsed());
 
-                        // Get all candidates within threshold
-                        used_fallback = true;
-                        neighbors.clear();
-                        knn.within_cos_into(points[i], i, required_cos, &mut scratch, &mut neighbors);
+                    // Process new neighbors
+                    for idx in prev_count..neighbors.len() {
+                        let neighbor_idx = neighbors[idx];
+                        if builder.has_neighbor(neighbor_idx) {
+                            continue;
+                        }
+                        let neighbor = points[neighbor_idx];
+                        builder.clip(neighbor_idx, neighbor);
+                        cell_neighbors_processed += 1;
 
-                        // Process candidates, skipping already-clipped
-                        for &neighbor_idx in &neighbors {
-                            if builder.has_neighbor(neighbor_idx) {
-                                continue;
-                            }
-                            let neighbor = points[neighbor_idx];
-                            builder.clip(neighbor_idx, neighbor);
-                            cell_neighbors_processed += 1;
-
-                            if builder.vertex_count() >= 3 {
-                                let neighbor_cos = points[i].dot(neighbor).clamp(-1.0, 1.0);
-                                if builder.can_terminate(neighbor_cos) {
-                                    terminated = true;
-                                    break;
-                                }
+                        if builder.vertex_count() >= 3 {
+                            let neighbor_cos = points[i].dot(neighbor).clamp(-1.0, 1.0);
+                            if builder.can_terminate(neighbor_cos) {
+                                terminated = true;
+                                break;
                             }
                         }
                     }
                 }
 
-                // Final fallback: full scan if still not terminated
-                if termination.enabled && !terminated && !builder.is_dead() && builder.vertex_count() >= 3 {
+                // Phase 3: Fresh query at k=48 if still needed (rare)
+                if termination.enabled && !terminated && !knn_exhausted {
+                    let t_knn3 = Timer::start();
+                    knn.knn_into(points[i], i, 48, &mut scratch, &mut neighbors);
+                    knn_exhausted = neighbors.len() < 48;
+                    sub_accum.add_knn(t_knn3.elapsed());
+
+                    for &neighbor_idx in &neighbors {
+                        if builder.has_neighbor(neighbor_idx) {
+                            continue;
+                        }
+                        let neighbor = points[neighbor_idx];
+                        builder.clip(neighbor_idx, neighbor);
+                        cell_neighbors_processed += 1;
+
+                        if builder.vertex_count() >= 3 {
+                            let neighbor_cos = points[i].dot(neighbor).clamp(-1.0, 1.0);
+                            if builder.can_terminate(neighbor_cos) {
+                                terminated = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                sub_accum.add_clip(t_clip.elapsed());
+
+                // Final fallback: full scan if knn exhausted and still not terminated
+                if termination.enabled && !terminated && knn_exhausted && !builder.is_dead() && builder.vertex_count() >= 3 {
                     if std::env::var("VORONOI_DEBUG_FALLBACK").is_ok() {
                         eprintln!("[FALLBACK] cell {} entering full-scan fallback ({} neighbors so far)",
                             i, builder.planes_count());
@@ -506,61 +529,24 @@ pub fn build_cells_data_flat(
                 cell_used_fallback.push(used_fallback as u8);
                 cell_full_scan_done.push(full_scan_done as u8);
                 cell_candidates_complete.push(candidates_complete as u8);
-                let mut cert_checked = false;
-                let mut cert_failed = false;
-                // Rollback positions (unused in f64-primary path, kept for potential fallback)
-                let _vertices_start = vertices.len();
-                let _support_start = support_data.len();
-                let _failed_idx_start = cert_failed_vertex_indices.len();
-                let _cert_checked_vertices_start = cert_checked_vertices;
-                let _cert_failed_vertices_start = cert_failed_vertices;
-                let _cert_failed_ill_vertices_start = cert_failed_ill_vertices;
-                let _cert_failed_gap_vertices_start = cert_failed_gap_vertices;
 
-                // Build cell with f64 precision (default path).
-                // IncrementalCellBuilder is used for neighbor collection and termination,
-                // F64CellBuilder provides the actual geometry with proper error bounds.
-                {
-                    use cell_builder::F64CellBuilder;
-                    let mut f64_builder = F64CellBuilder::new(i, points[i]);
-                    for neighbor_idx in builder.neighbor_indices_iter() {
-                        f64_builder.clip(neighbor_idx, points[neighbor_idx]);
-                        if f64_builder.is_dead() {
-                            break;
-                        }
-                    }
-
-                    let count = if !f64_builder.is_dead() && f64_builder.vertex_count() >= 3 {
-                        let f64_vertices = f64_builder.into_vertex_data(points, &mut support_data);
-                        let c = f64_vertices.len();
-                        vertices.extend(f64_vertices);
-                        c
-                    } else {
-                        // F64 failed (degenerate cell), use f32 with Quantized keys as fallback
-                        f64_fallback_cells += 1;
-                        builder.get_vertices_into(
-                            points,
-                            support_eps,
-                            pos_weld_chord,
-                            candidates_complete,
-                            &mut support_data,
-                            &mut vertices,
-                            &mut cert_checked,
-                            &mut cert_failed,
-                            &mut cert_checked_vertices,
-                            &mut cert_failed_vertices,
-                            &mut cert_failed_ill_vertices,
-                            &mut cert_failed_gap_vertices,
-                            &mut gap_sampler,
-                            &mut cert_failed_vertex_indices,
-                        )
-                    };
-                    counts.push(count as u8);
-                }
-
+                // Extract vertices - use certified keys if possible, fallback to quantized
+                let t_cert = Timer::start();
+                let count = if !builder.is_dead() && builder.vertex_count() >= 3 {
+                    let cell_vertices = builder.to_vertex_data(points, &mut support_data);
+                    let c = cell_vertices.len();
+                    vertices.extend(cell_vertices);
+                    c
+                } else {
+                    // Cell construction failed, use position-based keys as fallback
+                    f64_fallback_cells += 1;
+                    builder.get_vertices_fallback(pos_weld_chord, &mut vertices)
+                };
+                sub_accum.add_cert(t_cert.elapsed());
+                counts.push(count as u8);
             }
 
-            FlatChunk {
+            (FlatChunk {
                 vertices,
                 counts,
                 support_data,
@@ -583,27 +569,34 @@ pub fn build_cells_data_flat(
                 cert_failed_vertex_indices,
                 vertex_offset: 0, // Computed below
                 f64_fallback_cells,
-            }
+            }, sub_accum)
         })
         .collect();
 
+    // Separate chunks and timing, merge timing from all chunks
+    let mut merged_timing = timing::CellSubAccum::new();
+    let mut flat_chunks: Vec<FlatChunk> = Vec::with_capacity(chunks.len());
+    for (mut chunk, sub_timing) in chunks {
+        merged_timing.merge(&sub_timing);
+        flat_chunks.push(chunk);
+    }
+
     // Compute vertex offsets for global indexing
     let mut offset = 0u32;
-    for chunk in &mut chunks {
+    for chunk in &mut flat_chunks {
         chunk.vertex_offset = offset;
         offset += chunk.vertices.len() as u32;
     }
 
-    FlatCellsData {
-        chunks,
+    (FlatCellsData {
+        chunks: flat_chunks,
         num_cells: n,
-    }
+    }, merged_timing)
 }
 
 struct CoreResult {
     voronoi: crate::geometry::SphericalVoronoi,
     stats: Option<VoronoiStats>,
-    timings_ms: PhaseTimingsMs,
 }
 
 /// Result of merging close points before Voronoi computation.
@@ -730,46 +723,41 @@ pub fn merge_close_points(points: &[Vec3], threshold: f32, knn: &impl KnnProvide
 
 fn compute_voronoi_gpu_style_core(
     points: &[Vec3],
-    k: usize,
     termination: TerminationConfig,
     collect_stats: bool,
 ) -> CoreResult {
-    use std::time::Instant;
+    use timing::{Timer, TimingBuilder};
 
-    let t0 = Instant::now();
+    let mut tb = TimingBuilder::new();
 
-    // Build initial KNN on original points (used for merge detection)
-    let knn = CubeMapGridKnn::new(points);
-
-    // Find and merge close points to prevent orphan edges
-    let merge_result = merge_close_points(points, MIN_BISECTOR_DISTANCE, &knn);
-    let t1 = Instant::now();
-
-    // Use effective points for Voronoi computation
-    let (effective_points, effective_knn);
+    // Preprocessing: merge close points (not timed - separate from Voronoi computation)
+    let knn_for_merge = CubeMapGridKnn::new(points);
+    let merge_result = merge_close_points(points, MIN_BISECTOR_DISTANCE, &knn_for_merge);
     let needs_remap = merge_result.num_merged > 0;
 
-    if needs_remap {
-        // Some points were merged - need new KNN on effective points
-        effective_points = merge_result.effective_points;
-        effective_knn = Some(CubeMapGridKnn::new(&effective_points));
+    let effective_points = if needs_remap {
+        merge_result.effective_points
     } else {
-        // No merges - use original points directly
-        effective_points = points.to_vec();
-        effective_knn = None;
-    }
+        points.to_vec()
+    };
 
-    let knn_ref: &CubeMapGridKnn = effective_knn.as_ref().unwrap_or(&knn);
+    // Build KNN on effective points (this is the timed grid build)
+    let t = Timer::start();
+    let knn = CubeMapGridKnn::new(&effective_points);
+    tb.set_knn_build(t.elapsed());
 
-    let flat_data = build_cells_data_flat(&effective_points, knn_ref, k, termination);
+    let t = Timer::start();
+    let (flat_data, cell_sub_timing) = build_cells_data_flat(&effective_points, &knn, termination);
     let stats = if collect_stats { Some(flat_data.stats()) } else { None };
-    let t2 = Instant::now();
+    tb.set_cell_construction(t.elapsed(), cell_sub_timing.into_sub_phases());
 
+    let t = Timer::start();
     let (all_vertices, eff_cells, eff_cell_indices) =
         dedup::dedup_vertices_hash_flat(flat_data, false);
-    let t3 = Instant::now();
+    tb.set_dedup(t.elapsed());
 
     // Remap cells back to original point indices if we merged
+    let t = Timer::start();
     let (cells, cell_indices) = if needs_remap {
         use crate::geometry::VoronoiCell;
 
@@ -799,111 +787,51 @@ fn compute_voronoi_gpu_style_core(
         cells,
         cell_indices,
     );
-    let t4 = Instant::now();
+    tb.set_assemble(t.elapsed());
 
-    let timings_ms = PhaseTimingsMs {
-        total: (t4 - t0).as_secs_f64() * 1000.0,
-        kdtree: (t1 - t0).as_secs_f64() * 1000.0,
-        knn: 0.0,
-        cell_construction: (t2 - t1).as_secs_f64() * 1000.0,
-        dedup: (t3 - t2).as_secs_f64() * 1000.0,
-        assemble: (t4 - t3).as_secs_f64() * 1000.0,
-    };
+    // Report timing if feature enabled
+    let timings = tb.finish();
+    timings.report(points.len());
 
-    CoreResult { voronoi, stats, timings_ms }
+    CoreResult { voronoi, stats }
 }
 
 /// Compute spherical Voronoi diagram using the GPU-style algorithm.
-pub fn compute_voronoi_gpu_style(points: &[Vec3], k: usize) -> crate::geometry::SphericalVoronoi {
-    compute_voronoi_gpu_style_timed(points, k, false)
+///
+/// Uses adaptive k-NN (12→24→48→full) with early termination.
+///
+/// Timing output is controlled by the `timing` feature flag:
+/// ```bash
+/// cargo run --release --features timing
+/// ```
+pub fn compute_voronoi_gpu_style(points: &[Vec3]) -> crate::geometry::SphericalVoronoi {
+    let termination = TerminationConfig {
+        enabled: true,
+        check_start: 10,
+        check_step: 6,
+    };
+    compute_voronoi_gpu_style_core(points, termination, false).voronoi
 }
 
 /// Compute spherical Voronoi with statistics.
 pub fn compute_voronoi_gpu_style_with_stats(
     points: &[Vec3],
-    k: usize,
-) -> (crate::geometry::SphericalVoronoi, VoronoiStats) {
-    compute_voronoi_gpu_style_with_stats_and_termination_params(points, k, true, 10, 6)
-}
-
-/// Compute spherical Voronoi with statistics, optionally disabling early termination.
-pub fn compute_voronoi_gpu_style_with_stats_and_termination(
-    points: &[Vec3],
-    k: usize,
-    enable_termination: bool,
-) -> (crate::geometry::SphericalVoronoi, VoronoiStats) {
-    compute_voronoi_gpu_style_with_stats_and_termination_params(points, k, enable_termination, 10, 6)
-}
-
-/// Compute spherical Voronoi with statistics and configurable termination.
-pub fn compute_voronoi_gpu_style_with_stats_and_termination_params(
-    points: &[Vec3],
-    k: usize,
-    enable_termination: bool,
-    termination_check_start: usize,
-    termination_check_step: usize,
 ) -> (crate::geometry::SphericalVoronoi, VoronoiStats) {
     let termination = TerminationConfig {
-        enabled: enable_termination,
-        check_start: termination_check_start,
-        check_step: termination_check_step,
+        enabled: true,
+        check_start: 10,
+        check_step: 6,
     };
-    let result = compute_voronoi_gpu_style_core(points, k, termination, true);
+    let result = compute_voronoi_gpu_style_core(points, termination, true);
     (result.voronoi, result.stats.expect("stats requested"))
 }
 
-/// Compute spherical Voronoi with optional timing output.
-pub fn compute_voronoi_gpu_style_timed(
+/// Compute spherical Voronoi with custom termination config (for benchmarks).
+pub fn compute_voronoi_gpu_style_with_termination(
     points: &[Vec3],
-    k: usize,
-    print_timing: bool,
+    termination: TerminationConfig,
 ) -> crate::geometry::SphericalVoronoi {
-    compute_voronoi_gpu_style_timed_with_termination(points, k, print_timing, true)
-}
-
-/// Compute spherical Voronoi with optional timing output, optionally disabling early termination.
-pub fn compute_voronoi_gpu_style_timed_with_termination(
-    points: &[Vec3],
-    k: usize,
-    print_timing: bool,
-    enable_termination: bool,
-) -> crate::geometry::SphericalVoronoi {
-    compute_voronoi_gpu_style_timed_with_termination_params(points, k, print_timing, enable_termination, 10, 6)
-}
-
-/// Compute spherical Voronoi with optional timing output and configurable termination.
-pub fn compute_voronoi_gpu_style_timed_with_termination_params(
-    points: &[Vec3],
-    k: usize,
-    print_timing: bool,
-    enable_termination: bool,
-    termination_check_start: usize,
-    termination_check_step: usize,
-) -> crate::geometry::SphericalVoronoi {
-    let termination = TerminationConfig {
-        enabled: enable_termination,
-        check_start: termination_check_start,
-        check_step: termination_check_step,
-    };
-    let result = compute_voronoi_gpu_style_core(points, k, termination, false);
-
-    if print_timing {
-        let t = result.timings_ms;
-        let total = t.total.max(1e-9);
-        println!("GPU-style Voronoi breakdown (n={}, k={}):", points.len(), k);
-        println!("  k-d tree build:    {:6.1} ms ({:4.1}%)", t.kdtree, t.kdtree / total * 100.0);
-        if t.knn > 0.0 {
-            println!("  k-NN queries:      {:6.1} ms ({:4.1}%)", t.knn, t.knn / total * 100.0);
-        } else {
-            println!("  k-NN queries:      (computed on-demand in cell construction)");
-        }
-        println!("  Cell construction: {:6.1} ms ({:4.1}%)", t.cell_construction, t.cell_construction / total * 100.0);
-        println!("  Dedup (hash):      {:6.1} ms ({:4.1}%) [FxHashMap]", t.dedup, t.dedup / total * 100.0);
-        println!("  Assemble struct:   {:6.1} ms ({:4.1}%) [{} verts]", t.assemble, t.assemble / total * 100.0, result.voronoi.vertices.len());
-        println!("  Total:             {:6.1} ms", t.total);
-    }
-
-    result.voronoi
+    compute_voronoi_gpu_style_core(points, termination, false).voronoi
 }
 
 /// Benchmark result for comparing Voronoi methods.
@@ -919,7 +847,6 @@ pub struct BenchmarkResult {
 /// Run a benchmark comparing the two Voronoi methods.
 pub fn benchmark_voronoi(
     num_points: usize,
-    k: usize,
     iterations: usize,
 ) -> (BenchmarkResult, BenchmarkResult) {
     use crate::geometry::{random_sphere_points, SphericalVoronoi};
@@ -929,7 +856,7 @@ pub fn benchmark_voronoi(
 
     // Warm up
     let _ = SphericalVoronoi::compute(&points);
-    let _ = compute_voronoi_gpu_style(&points, k);
+    let _ = compute_voronoi_gpu_style(&points);
 
     // Benchmark convex hull method
     let start = Instant::now();
@@ -948,7 +875,7 @@ pub fn benchmark_voronoi(
     let start = Instant::now();
     let mut gpu_result = None;
     for _ in 0..iterations {
-        gpu_result = Some(compute_voronoi_gpu_style(&points, k));
+        gpu_result = Some(compute_voronoi_gpu_style(&points));
     }
     let gpu_time = start.elapsed().as_secs_f64() * 1000.0 / iterations as f64;
     let gpu_voronoi = gpu_result.unwrap();
@@ -966,7 +893,7 @@ pub fn benchmark_voronoi(
             avg_vertices_per_cell: hull_avg_verts,
         },
         BenchmarkResult {
-            method: format!("GPU-style (k={})", k),
+            method: "GPU-style".to_string(),
             num_points,
             time_ms: gpu_time,
             cells_with_vertices: gpu_cells_with_verts,

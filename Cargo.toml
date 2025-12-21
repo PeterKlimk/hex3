@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 default-run = "hex3"
 
+[features]
+default = []
+timing = []  # Enable timing instrumentation in gpu_voronoi
+
 [profile.release]
 debug = true
 

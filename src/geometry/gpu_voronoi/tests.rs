@@ -50,7 +50,7 @@ fn test_incremental_builder_maintains_ccw_order() {
         check_step: 6,
     };
 
-    let flat_data = build_cells_data_flat(&points, &knn, DEFAULT_K, termination);
+    let (flat_data, _timing) = build_cells_data_flat(&points, &knn, termination);
 
     let mut already_ordered = 0;
     let mut rotated_ccw = 0;  // CCW but starting from different vertex
@@ -118,7 +118,7 @@ fn test_great_circle_bisector() {
 fn test_gpu_voronoi_basic() {
     let points = random_sphere_points(50);
     let _ = assert_min_spacing(&points, "gpu_voronoi_basic");
-    let voronoi = compute_voronoi_gpu_style(&points, DEFAULT_K);
+    let voronoi = compute_voronoi_gpu_style(&points);
 
     assert_eq!(voronoi.num_cells(), 50);
     assert_eq!(voronoi.generators.len(), 50);
@@ -173,7 +173,7 @@ fn test_soundness_lloyd_relaxed_points() {
         let _ = assert_min_spacing(&points, &label);
 
         // Build Voronoi and validate
-        let voronoi = compute_voronoi_gpu_style(&points, DEFAULT_K);
+        let voronoi = compute_voronoi_gpu_style(&points);
         let result = validate_voronoi(&voronoi, near_duplicate_threshold(points.len()));
 
         println!("  Degenerate cells: {}", result.degenerate_cells.len());
@@ -245,7 +245,7 @@ fn strict_small_counts() {
                 let eps_lo = (f32::EPSILON * 64.0) as f64;  // ~7.6e-6
                 let eps_hi = eps_lo * 5.0;
 
-                let voronoi = super::compute_voronoi_gpu_style(&points, DEFAULT_K);
+                let voronoi = super::compute_voronoi_gpu_style(&points);
                 let strict = validate_voronoi_strict(
                     &voronoi,
                     eps_lo,
@@ -337,126 +337,6 @@ fn strict_small_counts() {
     }
 }
 
-/// Measure ambiguity rates for standard point distributions.
-/// Run with: cargo test --release measure_ambiguity_rates -- --ignored --nocapture
-#[test]
-#[ignore]
-fn measure_ambiguity_rates() {
-    use crate::geometry::{fibonacci_sphere_points_with_rng, lloyd_relax_kmeans};
-    use rand::SeedableRng;
-    use rand_chacha::ChaCha8Rng;
-    use std::collections::HashSet;
-
-    println!("\n=== Ambiguity Rate Analysis ===\n");
-
-    let sizes = [1_000usize, 5_000, 10_000, 50_000, 100_000];
-    let margins = [0.0, 0.5, 1.0, 2.0]; // multiples of support_eps
-
-    for &n in &sizes {
-        println!("--- N = {} ---", n);
-
-        let mean_spacing = (4.0 * std::f64::consts::PI / n as f64).sqrt();
-        let support_eps = mean_spacing * mean_spacing * 0.01; // SUPPORT_EPS_SCALE = 0.01
-
-        // Test different point distributions
-        for (dist_name, lloyd_iters) in [("Fibonacci+jitter", 0), ("Lloyd 2 iters", 2)] {
-            let mut rng = ChaCha8Rng::seed_from_u64(12345);
-            let jitter = mean_spacing as f32 * 0.25;
-            let mut points = fibonacci_sphere_points_with_rng(n, jitter, &mut rng);
-
-            if lloyd_iters > 0 {
-                lloyd_relax_kmeans(&mut points, lloyd_iters, 20, &mut rng);
-            }
-
-            let voronoi = compute_voronoi_gpu_style(&points, DEFAULT_K);
-            let num_vertices = voronoi.vertices.len();
-            let num_cells = voronoi.num_cells();
-
-            // For each vertex, compute delta to 4th closest generator
-            let mut fourth_deltas: Vec<f64> = Vec::with_capacity(num_vertices);
-
-            for v in &voronoi.vertices {
-                let v64 = glam::DVec3::new(v.x as f64, v.y as f64, v.z as f64).normalize();
-
-                // Find top 4 generators by dot product
-                let mut dots: Vec<f64> = voronoi
-                    .generators
-                    .iter()
-                    .map(|g| {
-                        let g64 = glam::DVec3::new(g.x as f64, g.y as f64, g.z as f64);
-                        v64.dot(g64)
-                    })
-                    .collect();
-                dots.sort_by(|a, b| b.partial_cmp(a).unwrap());
-
-                let max_dot = dots[0];
-                let fourth_delta = if dots.len() >= 4 {
-                    max_dot - dots[3]
-                } else {
-                    f64::MAX
-                };
-                fourth_deltas.push(fourth_delta);
-            }
-
-            // Build vertex -> cells mapping
-            let mut vertex_to_cells: Vec<HashSet<usize>> = vec![HashSet::new(); num_vertices];
-            for cell_idx in 0..num_cells {
-                let cell = voronoi.cell(cell_idx);
-                for &vi in cell.vertex_indices {
-                    if vi < num_vertices {
-                        vertex_to_cells[vi].insert(cell_idx);
-                    }
-                }
-            }
-
-            println!("  {}: {} vertices, {} cells", dist_name, num_vertices, num_cells);
-            println!("    support_eps = {:.2e}", support_eps);
-
-            for &margin_mult in &margins {
-                let threshold = support_eps * (1.0 + margin_mult);
-
-                let ambiguous_vertices: Vec<usize> = fourth_deltas
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, &delta)| delta <= threshold)
-                    .map(|(i, _)| i)
-                    .collect();
-
-                let ambiguous_cells: HashSet<usize> = ambiguous_vertices
-                    .iter()
-                    .flat_map(|&vi| vertex_to_cells[vi].iter().cloned())
-                    .collect();
-
-                let vert_pct = 100.0 * ambiguous_vertices.len() as f64 / num_vertices as f64;
-                let cell_pct = 100.0 * ambiguous_cells.len() as f64 / num_cells as f64;
-
-                println!(
-                    "    margin={:.1}x: {:5} ambig verts ({:5.2}%), {:5} ambig cells ({:5.2}%)",
-                    margin_mult,
-                    ambiguous_vertices.len(),
-                    vert_pct,
-                    ambiguous_cells.len(),
-                    cell_pct
-                );
-            }
-
-            // Also show distribution of fourth_delta values
-            let mut sorted_deltas = fourth_deltas.clone();
-            sorted_deltas.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            let p50 = sorted_deltas[num_vertices / 2];
-            let p90 = sorted_deltas[num_vertices * 9 / 10];
-            let p99 = sorted_deltas[num_vertices * 99 / 100];
-            let min_delta = sorted_deltas[0];
-
-            println!(
-                "    4th-gen delta: min={:.2e}, p50={:.2e}, p90={:.2e}, p99={:.2e}",
-                min_delta, p50, p90, p99
-            );
-            println!();
-        }
-    }
-}
-
 /// Strict correctness sweep on large counts using efficient k-NN validation.
 /// Run with: cargo test --release strict_large_counts -- --ignored --nocapture
 #[test]
@@ -515,7 +395,7 @@ fn strict_large_counts() {
 
             // Build Voronoi
             let t0 = Instant::now();
-            let voronoi = super::compute_voronoi_gpu_style(&points, DEFAULT_K);
+            let voronoi = super::compute_voronoi_gpu_style(&points);
             let build_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
             // Configure validation based on size
@@ -700,7 +580,7 @@ fn test_orphan_edge_certification() {
 
         let knn = CubeMapGridKnn::new(&points);
         let termination = TerminationConfig { enabled: true, check_start: 10, check_step: 6 };
-        let flat_data = build_cells_data_flat(&points, &knn, DEFAULT_K, termination);
+        let (flat_data, _timing) = build_cells_data_flat(&points, &knn, termination);
         let flat_stats = flat_data.stats();
 
         // Collect positions of cert-failed vertices (pre-dedup)
@@ -715,7 +595,7 @@ fn test_orphan_edge_certification() {
 
         // Build voronoi separately for validation (duplicates work but simpler for test)
         let t0 = Instant::now();
-        let voronoi = super::compute_voronoi_gpu_style(&points, DEFAULT_K);
+        let voronoi = super::compute_voronoi_gpu_style(&points);
         let voronoi_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
         // Run strict validation to get actual orphan edge indices
@@ -784,20 +664,28 @@ fn test_orphan_edge_certification() {
             };
 
             let mut analyze_candidate_coverage = |cell_idx: usize| -> Option<(usize, f32)> {
+                use super::knn::KnnStatus;
+
                 if let Some(result) = coverage_cache.get(&cell_idx) {
                     return Some(*result);
                 }
 
-                let initial_k = DEFAULT_K;
+                const K_STEPS: [usize; 3] = [12, 24, 48];
+                const TRACK_LIMIT: usize = 48;
+
                 let mut scratch = knn.make_scratch();
-                let mut neighbors = Vec::with_capacity(initial_k.max(64));
+                let mut neighbors = Vec::with_capacity(TRACK_LIMIT);
                 let mut builder = super::IncrementalCellBuilder::new(cell_idx, points[cell_idx]);
 
                 let mut terminated = false;
+                let mut knn_exhausted = false;
 
-                // Phase 1: Initial k-NN query
+                // Phase 1: Initial resumable k-NN query
                 neighbors.clear();
-                knn.knn_into(points[cell_idx], cell_idx, initial_k, &mut scratch, &mut neighbors);
+                let status = knn.knn_resumable_into(
+                    points[cell_idx], cell_idx, K_STEPS[0], TRACK_LIMIT, &mut scratch, &mut neighbors
+                );
+                knn_exhausted = status == KnnStatus::Exhausted;
 
                 for (idx, &neighbor_idx) in neighbors.iter().enumerate() {
                     let neighbor = points[neighbor_idx];
@@ -812,41 +700,32 @@ fn test_orphan_edge_certification() {
                     }
                 }
 
-                // Phase 2: Use within_cos for remaining candidates if not terminated
-                if termination.enabled && !terminated && builder.vertex_count() >= 3 {
-                    let min_cos = builder.min_vertex_cos();
-                    if min_cos > 0.0 {
-                        use super::constants::EPS_TERMINATION_MARGIN;
-                        let eps_cell = super::SUPPORT_VERTEX_ANGLE_EPS + super::SUPPORT_CLUSTER_RADIUS_ANGLE;
-                        let sin_theta = (1.0 - min_cos * min_cos).max(0.0).sqrt();
-                        let (sin_eps, cos_eps) = (eps_cell as f32).sin_cos();
-                        let cos_theta_eps = min_cos * cos_eps - sin_theta * sin_eps;
-                        let cos_2max = 2.0 * cos_theta_eps * cos_theta_eps - 1.0;
-                        let termination_margin = EPS_TERMINATION_MARGIN
-                            + super::SUPPORT_CERT_MARGIN_ABS as f32
-                            + 2.0 * super::SUPPORT_EPS_ABS as f32
-                            + 2.0 * super::support_cluster_drift_dot() as f32;
-                        let required_cos = cos_2max - termination_margin;
+                // Phase 2+: Resume to get more neighbors if needed
+                let mut step_idx = 1;
+                while termination.enabled && !terminated && !knn_exhausted && step_idx < K_STEPS.len() {
+                    let prev_count = neighbors.len();
+                    let status = knn.knn_resume_into(
+                        points[cell_idx], cell_idx, K_STEPS[step_idx], &mut scratch, &mut neighbors
+                    );
+                    knn_exhausted = status == KnnStatus::Exhausted;
 
-                        neighbors.clear();
-                        knn.within_cos_into(points[cell_idx], cell_idx, required_cos, &mut scratch, &mut neighbors);
+                    for idx in prev_count..neighbors.len() {
+                        let neighbor_idx = neighbors[idx];
+                        if builder.has_neighbor(neighbor_idx) {
+                            continue;
+                        }
+                        let neighbor = points[neighbor_idx];
+                        builder.clip(neighbor_idx, neighbor);
 
-                        for &neighbor_idx in &neighbors {
-                            if builder.has_neighbor(neighbor_idx) {
-                                continue;
-                            }
-                            let neighbor = points[neighbor_idx];
-                            builder.clip(neighbor_idx, neighbor);
-
-                            if builder.vertex_count() >= 3 {
-                                let neighbor_cos = points[cell_idx].dot(neighbor).clamp(-1.0, 1.0);
-                                if builder.can_terminate(neighbor_cos) {
-                                    terminated = true;
-                                    break;
-                                }
+                        if builder.vertex_count() >= 3 {
+                            let neighbor_cos = points[cell_idx].dot(neighbor).clamp(-1.0, 1.0);
+                            if builder.can_terminate(neighbor_cos) {
+                                terminated = true;
+                                break;
                             }
                         }
                     }
+                    step_idx += 1;
                 }
 
                 // Dead cell recovery
@@ -872,12 +751,12 @@ fn test_orphan_edge_certification() {
                 }
 
                 let _ = terminated;
-                let min_cos = match builder.min_vertex_generator_dot() {
-                    Some(v) => v,
-                    None => return None,
-                };
+                let min_cos = builder.min_vertex_cos();
+                if builder.vertex_count() < 3 {
+                    return None;
+                }
                 let eps_cell = super::SUPPORT_VERTEX_ANGLE_EPS + super::SUPPORT_CLUSTER_RADIUS_ANGLE;
-                let sin_theta = (1.0 - min_cos * min_cos).max(0.0).sqrt();
+                let sin_theta = (1.0f32 - min_cos * min_cos).max(0.0).sqrt();
                 let (sin_eps, cos_eps) = (eps_cell as f32).sin_cos();
                 let cos_theta_eps = min_cos * cos_eps - sin_theta * sin_eps;
                 let cos_2max = 2.0 * cos_theta_eps * cos_theta_eps - 1.0;
@@ -1110,7 +989,7 @@ fn test_soundness_large_scale() {
 
         // Build Voronoi and validate
         let t0 = Instant::now();
-        let voronoi = compute_voronoi_gpu_style(&points, DEFAULT_K);
+        let voronoi = compute_voronoi_gpu_style(&points);
         println!("  Voronoi build: {:.1}ms", t0.elapsed().as_secs_f64() * 1000.0);
 
         let t0 = Instant::now();
@@ -1183,7 +1062,7 @@ fn test_coincident_points_handled_gracefully() {
     );
 
     // Build Voronoi - should handle gracefully without panicking
-    let voronoi = compute_voronoi_gpu_style(&points, DEFAULT_K);
+    let voronoi = compute_voronoi_gpu_style(&points);
     let result = validate_voronoi(&voronoi, near_duplicate_threshold(points.len()));
 
     println!("\nWith MIN_BISECTOR_DISTANCE merge (current behavior):");
@@ -1279,74 +1158,6 @@ fn check_min_point_distance(points: &[Vec3]) -> f32 {
     min_dist
 }
 
-#[test]
-#[ignore] // Run with: cargo test bench_knn_breakdown -- --ignored --nocapture
-fn bench_knn_breakdown() {
-    use std::time::Instant;
-    use crate::geometry::cube_grid::CubeMapGrid;
-
-    println!("\nk-NN micro-breakdown at 500k points");
-    println!("{:-<60}", "");
-
-    let n = 500_000;
-    let k = DEFAULT_K;
-    let points = random_sphere_points(n);
-
-    // Build grid directly to access stats
-    let res = ((n as f64 / 300.0).sqrt() as usize).max(4);
-    let grid = CubeMapGrid::new(&points, res);
-    let stats = grid.stats();
-    println!("Grid: res={} cells={} avg_pts/cell={:.1}", res, stats.num_cells, stats.avg_points_per_cell);
-
-    let knn = CubeMapGridKnn::new(&points);
-
-    // Sample queries to measure
-    let sample_size = 10_000;
-
-    // Warm up
-    let mut scratch = knn.make_scratch();
-    let mut neighbors = Vec::with_capacity(k);
-    for i in 0..1000 {
-        neighbors.clear();
-        knn.knn_into(points[i], i, k, &mut scratch, &mut neighbors);
-    }
-
-    // Measure total time for sample
-    let t0 = Instant::now();
-    for i in 0..sample_size {
-        neighbors.clear();
-        knn.knn_into(points[i], i, k, &mut scratch, &mut neighbors);
-    }
-    let total_us = t0.elapsed().as_micros();
-    let per_query_us = total_us as f64 / sample_size as f64;
-
-    println!("Total time for {} queries: {:.1}ms", sample_size, total_us as f64 / 1000.0);
-    println!("Per-query average: {:.2}µs", per_query_us);
-    println!("\nEstimated full 500k (serial): {:.1}ms", per_query_us * n as f64 / 1000.0);
-
-    // Compare with kiddo
-    let (tree, entries) = super::build_kdtree(&points);
-
-    let t0 = Instant::now();
-    for i in 0..sample_size {
-        let _ = super::find_k_nearest(&tree, &entries, points[i], i, k);
-    }
-    let kiddo_us = t0.elapsed().as_micros();
-    let kiddo_per_query = kiddo_us as f64 / sample_size as f64;
-
-    println!("\nKiddo per-query: {:.2}µs", kiddo_per_query);
-    println!("CubeMapGrid is {:.2}x slower than Kiddo (serial)", per_query_us / kiddo_per_query);
-
-    // At 50 pts/cell and k=24, we expect to visit ~1-2 cells typically
-    // Let's estimate: if we check ~50-100 points per query, that's 50-100 heap operations
-    println!("\n--- Estimated operation counts per query ---");
-    println!("Points per cell: ~{:.0}", stats.avg_points_per_cell);
-    println!("If visiting 1-2 cells: ~{:.0}-{:.0} distance computations",
-        stats.avg_points_per_cell, stats.avg_points_per_cell * 2.0);
-    println!("Heap operations for k={}: up to {} push + {} pop", k, k, k);
-}
-
-
 /// Stress test for f64 slack-based certification.
 /// Tests that f64 can certify vertices across various point distributions.
 #[test]
@@ -1393,8 +1204,8 @@ fn test_f64_slack_stress() {
                 // Build f64 cell
                 let mut f64_builder = F64CellBuilder::new(cell_idx, points[cell_idx]);
                 let mut scratch = knn.make_scratch();
-                let mut neighbors = Vec::with_capacity(DEFAULT_K);
-                knn.knn_into(points[cell_idx], cell_idx, DEFAULT_K, &mut scratch, &mut neighbors);
+                let mut neighbors = Vec::with_capacity(24);
+                knn.knn_into(points[cell_idx], cell_idx, 24, &mut scratch, &mut neighbors);
 
                 for &neighbor_idx in &neighbors {
                     f64_builder.clip(neighbor_idx, points[neighbor_idx]);
@@ -1408,7 +1219,7 @@ fn test_f64_slack_stress() {
 
                 // This will panic if certification fails
                 let mut support_data: Vec<u32> = Vec::new();
-                let vertex_data = f64_builder.into_vertex_data(&points, &mut support_data);
+                let vertex_data = f64_builder.to_vertex_data(&points, &mut support_data);
                 vertices_certified += vertex_data.len();
             }
 
@@ -1471,8 +1282,8 @@ fn test_verify_error_with_arb() {
     // Build f64 cell for target
     let mut f64_builder = F64CellBuilder::new(target_cell, points[target_cell]);
     let mut scratch = knn.make_scratch();
-    let mut neighbors = Vec::with_capacity(DEFAULT_K);
-    knn.knn_into(points[target_cell], target_cell, DEFAULT_K, &mut scratch, &mut neighbors);
+    let mut neighbors = Vec::with_capacity(24);
+    knn.knn_into(points[target_cell], target_cell, 24, &mut scratch, &mut neighbors);
 
     for &neighbor_idx in &neighbors {
         f64_builder.clip(neighbor_idx, points[neighbor_idx]);
@@ -1698,357 +1509,6 @@ fn test_verify_error_with_arb() {
     }
 }
 
-/// Test whether recomputing vertex positions from planes improves accuracy.
-#[test]
-#[ignore] // Run with: cargo test test_recompute_vertex_accuracy -- --ignored --nocapture
-fn test_recompute_vertex_accuracy() {
-    use super::cell_builder::F64CellBuilder;
-    use super::knn::CubeMapGridKnn;
-    use crate::geometry::fibonacci_sphere_points_with_rng;
-    use rand::SeedableRng;
-    use rand_chacha::ChaCha8Rng;
-
-    const DEFAULT_K: usize = 24;
-
-    println!("\n=== Recompute Vertex Accuracy Test ===\n");
-
-    let n = 5000usize;
-    let seed = 12345u64;
-    let jitter_scale = 0.15f32;
-
-    let mean_spacing = (4.0 * std::f32::consts::PI / n as f32).sqrt();
-    let jitter = mean_spacing * jitter_scale;
-
-    let mut rng = ChaCha8Rng::seed_from_u64(seed);
-    let points = fibonacci_sphere_points_with_rng(n, jitter, &mut rng);
-    let knn = CubeMapGridKnn::new(&points);
-
-    let mut total_vertices = 0usize;
-    let mut max_diff = 0.0f64;
-    let mut sum_diff = 0.0f64;
-    let mut max_diff_cell = 0usize;
-    let mut max_diff_vertex = 0usize;
-
-    for cell_idx in 0..n {
-        let mut builder = F64CellBuilder::new(cell_idx, points[cell_idx]);
-        let mut scratch = knn.make_scratch();
-        let mut neighbors = Vec::with_capacity(DEFAULT_K);
-        knn.knn_into(points[cell_idx], cell_idx, DEFAULT_K, &mut scratch, &mut neighbors);
-
-        for &neighbor_idx in &neighbors {
-            builder.clip(neighbor_idx, points[neighbor_idx]);
-        }
-
-        if builder.is_dead() || builder.vertex_count() < 3 {
-            continue;
-        }
-
-        // Compare stored positions vs recomputed from planes
-        for (v_idx, stored_pos, plane_a, plane_b) in builder.vertices_iter() {
-            let stored = stored_pos.normalize();
-
-            // Recompute from plane normals
-            let n_a = builder.plane_normal(plane_a);
-            let n_b = builder.plane_normal(plane_b);
-            let cross = n_a.cross(n_b);
-            let len = cross.length();
-            if len < 1e-10 {
-                continue; // Skip degenerate
-            }
-            let recomputed = cross / len;
-            // Pick sign matching stored
-            let recomputed = if recomputed.dot(stored) >= 0.0 { recomputed } else { -recomputed };
-
-            let diff = (stored - recomputed).length();
-            total_vertices += 1;
-            sum_diff += diff;
-            if diff > max_diff {
-                max_diff = diff;
-                max_diff_cell = cell_idx;
-                max_diff_vertex = v_idx;
-            }
-        }
-    }
-
-    let avg_diff = sum_diff / total_vertices as f64;
-    println!("Total vertices: {}", total_vertices);
-    println!("Max stored vs recomputed diff: {:.2e} at cell {} vertex {}", max_diff, max_diff_cell, max_diff_vertex);
-    println!("Avg stored vs recomputed diff: {:.2e}", avg_diff);
-
-    // If max_diff is very small (< eps), stored == recomputed and there's no point recomputing
-    // If max_diff is significant, recomputing could help
-    if max_diff < 1e-14 {
-        println!("\nConclusion: Stored positions ARE recomputed from planes. No benefit to recomputing.");
-    } else {
-        println!("\nConclusion: Stored positions differ from plane-based. Recomputing could help!");
-    }
-}
-
-/// Test that extremely poorly conditioned cases correctly fail certification.
-///
-/// We create synthetic point configurations with nearly-parallel bisector planes
-/// to verify that certification correctly rejects these ill-conditioned cases.
-#[test]
-#[ignore] // Run with: cargo test test_extreme_conditioning_fails -- --ignored --nocapture
-fn test_extreme_conditioning_fails() {
-    use super::cell_builder::F64CellBuilder;
-    use super::constants::SUPPORT_EPS_ABS;
-    use glam::Vec3;
-    use std::panic;
-
-    println!("\n=== Extreme Conditioning Certification Test ===\n");
-
-    // Create a configuration where two neighbors create nearly-parallel bisector planes.
-    // This happens when neighbors are nearly collinear with the generator.
-    //
-    // Generator at north pole, two neighbors very close together near equator
-    // Their bisector planes will be nearly parallel.
-
-    let generator = Vec3::new(0.0, 0.0, 1.0); // North pole
-
-    // Two neighbors that are very close to each other (nearly collinear from generator's view)
-    // This creates nearly-parallel bisector planes
-    let angle1 = 0.5f32; // radians from equator
-    let angle2 = 0.5f32 + 1e-6; // tiny angular difference
-
-    let neighbor1 = Vec3::new(angle1.cos(), 0.0, angle1.sin()).normalize();
-    let neighbor2 = Vec3::new(angle2.cos(), 1e-7, angle2.sin()).normalize();
-
-    // A third neighbor to complete a valid cell
-    let neighbor3 = Vec3::new(-0.5, 0.5, 0.5).normalize();
-
-    let points = vec![generator, neighbor1, neighbor2, neighbor3];
-
-    println!("Generator: {:?}", generator);
-    println!("Neighbor1: {:?}", neighbor1);
-    println!("Neighbor2: {:?}", neighbor2);
-    println!("Neighbor3: {:?}", neighbor3);
-
-    // Check the conditioning between neighbor1 and neighbor2's bisector planes
-    let dir1 = (generator - neighbor1).normalize();
-    let dir2 = (generator - neighbor2).normalize();
-    let conditioning = dir1.cross(dir2).length();
-    println!("\nConditioning (sin angle between planes 1&2): {:.2e}", conditioning);
-
-    // Build the cell
-    let mut builder = F64CellBuilder::new(0, generator);
-    builder.clip(1, neighbor1);
-    builder.clip(2, neighbor2);
-    builder.clip(3, neighbor3);
-
-    println!("Cell has {} vertices", builder.vertex_count());
-
-    if builder.is_dead() || builder.vertex_count() < 3 {
-        println!("Cell is dead or degenerate - extreme case handled by clipping");
-        return;
-    }
-
-    // Try to certify - this should panic for ill-conditioned vertices
-    let mut support_data = Vec::new();
-    let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
-        builder.clone().into_vertex_data(&points, &mut support_data)
-    }));
-
-    match result {
-        Ok(vertices) => {
-            println!("\nCertification PASSED ({} vertices)", vertices.len());
-            // Check the actual conditioning of each vertex
-            for (i, _) in vertices.iter().enumerate() {
-                let cond = builder.vertex_conditioning_by_index(i);
-                println!("  Vertex {}: conditioning = {:.2e}", i, cond);
-            }
-            // This is OK if conditioning isn't actually bad
-            if conditioning > 1e-4 {
-                println!("\nNote: Conditioning wasn't extreme enough to fail.");
-            }
-        }
-        Err(e) => {
-            println!("\nCertification correctly FAILED (panicked)");
-            if let Some(msg) = e.downcast_ref::<String>() {
-                println!("  Message: {}", msg);
-            } else if let Some(msg) = e.downcast_ref::<&str>() {
-                println!("  Message: {}", msg);
-            }
-        }
-    }
-
-    // Now try an even more extreme case: neighbors almost exactly collinear
-    println!("\n--- Even more extreme case ---");
-
-    let neighbor1_extreme = Vec3::new(1.0, 0.0, 0.0).normalize();
-    let neighbor2_extreme = Vec3::new(1.0, 1e-8, 0.0).normalize(); // Tiny offset
-
-    let dir1 = (generator - neighbor1_extreme).normalize();
-    let dir2 = (generator - neighbor2_extreme).normalize();
-    let conditioning_extreme = dir1.cross(dir2).length();
-    println!("Extreme conditioning: {:.2e}", conditioning_extreme);
-
-    let points_extreme = vec![generator, neighbor1_extreme, neighbor2_extreme, neighbor3];
-
-    let mut builder2 = F64CellBuilder::new(0, generator);
-    builder2.clip(1, neighbor1_extreme);
-    builder2.clip(2, neighbor2_extreme);
-    builder2.clip(3, neighbor3);
-
-    if builder2.is_dead() || builder2.vertex_count() < 3 {
-        println!("Extreme cell is dead or degenerate - handled by clipping");
-        return;
-    }
-
-    let mut support_data2 = Vec::new();
-    let result2 = panic::catch_unwind(panic::AssertUnwindSafe(|| {
-        builder2.clone().into_vertex_data(&points_extreme, &mut support_data2)
-    }));
-
-    match result2 {
-        Ok(vertices) => {
-            println!("Extreme case: Certification PASSED ({} vertices)", vertices.len());
-            for (i, _) in vertices.iter().enumerate() {
-                let cond = builder2.vertex_conditioning_by_index(i);
-                println!("  Vertex {}: conditioning = {:.2e}", i, cond);
-            }
-        }
-        Err(_) => {
-            println!("Extreme case: Certification correctly FAILED");
-        }
-    }
-}
-
-/// Test certification rate with conditioning-based error thresholds.
-///
-/// This test measures what percentage of vertices would certify if we use
-/// conditioning-aware error bounds instead of a fixed threshold.
-#[test]
-#[ignore] // Run with: cargo test test_conditioning_certification_rate -- --ignored --nocapture
-fn test_conditioning_certification_rate() {
-    use super::cell_builder::F64CellBuilder;
-    use super::constants::SUPPORT_EPS_ABS;
-    use super::knn::CubeMapGridKnn;
-    use crate::geometry::fibonacci_sphere_points_with_rng;
-    use rand::SeedableRng;
-    use rand_chacha::ChaCha8Rng;
-
-    const DEFAULT_K: usize = 24;
-
-    println!("\n=== Conditioning-Based Certification Rate Test ===\n");
-
-    let n = 5000usize;
-    let seed = 12345u64;
-    let jitter_scale = 0.15f32;
-
-    let mean_spacing = (4.0 * std::f32::consts::PI / n as f32).sqrt();
-    let jitter = mean_spacing * jitter_scale;
-
-    let mut rng = ChaCha8Rng::seed_from_u64(seed);
-    let points = fibonacci_sphere_points_with_rng(n, jitter, &mut rng);
-    let knn = CubeMapGridKnn::new(&points);
-
-    // Stats
-    let mut total_vertices = 0usize;
-    let mut certified_fixed = 0usize;    // Current fixed threshold
-    let mut certified_cond = 0usize;     // Conditioning-based threshold
-    let mut worst_conditioning = f64::MAX;
-    let mut worst_conditioning_cell = 0usize;
-    let mut worst_conditioning_vertex = 0usize;
-
-    // Histogram of conditioning values
-    let mut conditioning_buckets = [0usize; 10]; // [0-0.1, 0.1-0.2, ..., 0.9-1.0]
-    let mut failed_by_bucket = [0usize; 10];
-
-    // Fixed threshold (current approach)
-    let fixed_margin = 2.0 * (super::constants::SUPPORT_VERTEX_ANGLE_EPS + f64::EPSILON * 16.0).sin();
-    let fixed_threshold = SUPPORT_EPS_ABS + fixed_margin;
-
-    // Base error for conditioning model: accumulated clipping error
-    // Empirically, we observed ~1.5e-6 error for conditioning ~0.65
-    // So base_error ≈ 1.5e-6 * 0.65 ≈ 1e-6
-    // Use a conservative multiplier
-    let base_accumulated_error = 1e-5; // Conservative estimate for num_clips * f64 arithmetic
-
-    for cell_idx in 0..n {
-        let mut builder = F64CellBuilder::new(cell_idx, points[cell_idx]);
-        let mut scratch = knn.make_scratch();
-        let mut neighbors = Vec::with_capacity(DEFAULT_K);
-        knn.knn_into(points[cell_idx], cell_idx, DEFAULT_K, &mut scratch, &mut neighbors);
-
-        for &neighbor_idx in &neighbors {
-            builder.clip(neighbor_idx, points[neighbor_idx]);
-        }
-
-        if builder.is_dead() || builder.vertex_count() < 3 {
-            continue;
-        }
-
-        // Compute gaps for all vertices
-        let vertex_gaps = builder.compute_vertex_gaps(&points, SUPPORT_EPS_ABS);
-
-        for (v_idx, gap_info) in vertex_gaps.iter().enumerate() {
-            total_vertices += 1;
-            let (min_gap, _support_set) = gap_info;
-
-            // Get vertex conditioning
-            let conditioning = builder.vertex_conditioning_by_index(v_idx);
-
-            // Bucket
-            let bucket = ((conditioning * 10.0) as usize).min(9);
-            conditioning_buckets[bucket] += 1;
-
-            // Track worst
-            if conditioning < worst_conditioning {
-                worst_conditioning = conditioning;
-                worst_conditioning_cell = cell_idx;
-                worst_conditioning_vertex = v_idx;
-            }
-
-            // Check fixed threshold
-            if *min_gap > fixed_threshold {
-                certified_fixed += 1;
-            }
-
-            // Conditioning-based threshold:
-            // pos_error ≈ base_accumulated_error / conditioning
-            // gap_error ≈ pos_error * max_generator_distance
-            // For now, use a simplified model: threshold = EPS + base_error / conditioning
-            let cond_pos_error = base_accumulated_error / conditioning.max(0.01);
-            // Multiply by typical generator distance (~mean_spacing)
-            let cond_gap_error = cond_pos_error * (mean_spacing as f64);
-            let cond_threshold = SUPPORT_EPS_ABS + cond_gap_error;
-
-            if *min_gap > cond_threshold {
-                certified_cond += 1;
-            } else {
-                failed_by_bucket[bucket] += 1;
-            }
-        }
-
-    }
-
-    println!("Configuration:");
-    println!("  n = {}, seed = {}, jitter = {:.2}", n, seed, jitter_scale);
-    println!("  base_accumulated_error = {:.2e}", base_accumulated_error);
-    println!("  fixed_threshold = {:.6e}", fixed_threshold);
-    println!();
-    println!("Results:");
-    println!("  Total vertices: {}", total_vertices);
-    println!("  Certified (fixed threshold): {} ({:.2}%)",
-             certified_fixed, 100.0 * certified_fixed as f64 / total_vertices as f64);
-    println!("  Certified (conditioning-based): {} ({:.2}%)",
-             certified_cond, 100.0 * certified_cond as f64 / total_vertices as f64);
-    println!();
-    println!("Worst conditioning: {:.6} at cell {} vertex {}",
-             worst_conditioning, worst_conditioning_cell, worst_conditioning_vertex);
-    println!();
-    println!("Conditioning distribution:");
-    for (i, &count) in conditioning_buckets.iter().enumerate() {
-        let failed = failed_by_bucket[i];
-        let range_start = i as f64 * 0.1;
-        let range_end = (i + 1) as f64 * 0.1;
-        println!("  [{:.1}-{:.1}]: {:5} vertices, {:5} failed ({:.2}%)",
-                 range_start, range_end, count, failed,
-                 if count > 0 { 100.0 * failed as f64 / count as f64 } else { 0.0 });
-    }
-}
-
 #[test]
 fn test_gpu_voronoi_10k_timing() {
     use crate::geometry::random_sphere_points;
@@ -2059,7 +1519,7 @@ fn test_gpu_voronoi_10k_timing() {
     
     println!("\nTesting 10k cells with GPU voronoi...");
     let t0 = Instant::now();
-    let (voronoi, stats) = compute_voronoi_gpu_style_with_stats(&points, 24);
+    let (voronoi, stats) = compute_voronoi_gpu_style_with_stats(&points);
     let elapsed = t0.elapsed().as_secs_f64() * 1000.0;
     
     println!("Time: {:.1}ms", elapsed);
@@ -2079,7 +1539,7 @@ fn test_gpu_voronoi_50k_timing() {
     
     println!("\nTesting 50k cells with GPU voronoi...");
     let t0 = Instant::now();
-    let (voronoi, stats) = compute_voronoi_gpu_style_with_stats(&points, 24);
+    let (voronoi, stats) = compute_voronoi_gpu_style_with_stats(&points);
     let elapsed = t0.elapsed().as_secs_f64() * 1000.0;
     
     println!("Time: {:.1}ms", elapsed);
@@ -2100,7 +1560,7 @@ fn test_gpu_voronoi_100k_validation() {
     
     println!("\nTesting 100k cells with GPU voronoi...");
     let t0 = Instant::now();
-    let (voronoi, stats) = compute_voronoi_gpu_style_with_stats(&points, 24);
+    let (voronoi, stats) = compute_voronoi_gpu_style_with_stats(&points);
     let elapsed = t0.elapsed().as_secs_f64() * 1000.0;
     
     println!("Time: {:.1}ms", elapsed);

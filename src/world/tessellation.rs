@@ -6,7 +6,7 @@ use glam::Vec3;
 use rand::Rng;
 
 use crate::geometry::{
-    compute_voronoi_gpu_style, fibonacci_sphere_points_with_rng, gpu_voronoi::DEFAULT_K,
+    compute_voronoi_gpu_style, fibonacci_sphere_points_with_rng,
     lloyd_relax_kmeans, SphericalVoronoi,
 };
 
@@ -94,7 +94,7 @@ impl Tessellation {
 
         let voronoi = {
             let _t = Timed::debug("  GPU-style Voronoi computation");
-            compute_voronoi_gpu_style(&points, DEFAULT_K)
+            compute_voronoi_gpu_style(&points)
         };
 
         // Diagnostic: count cells with insufficient vertices

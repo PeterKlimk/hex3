@@ -809,7 +809,7 @@ pub fn validate_voronoi_strict(
     if std::env::var("STRICT_VALIDATE_DEBUG").is_ok()
         && (!result.is_valid() || result.ambiguous_vertices > 0)
     {
-        use crate::geometry::gpu_voronoi::DEFAULT_K;
+        const DEBUG_K: usize = 24; // k value for debug neighbor queries
 
         eprintln!(
             "[strict] dup_support={}, collapsed_edges={}, missing_key_edges={}",
@@ -867,19 +867,19 @@ pub fn validate_voronoi_strict(
         if !result.duplicate_support_vertices.is_empty() {
             let knn = CubeMapGridKnn::new(&effective_generators);
             let mut scratch = knn.make_scratch();
-            let mut neighbors: Vec<usize> = Vec::with_capacity(DEFAULT_K);
+            let mut neighbors: Vec<usize> = Vec::with_capacity(DEBUG_K);
 
             for &(rep, _dup) in result.duplicate_support_vertices.iter().take(3) {
                 let key_id = vertex_key_id.get(rep).copied().unwrap_or(usize::MAX);
                 let Some(key) = support_keys.get(key_id) else { continue };
-                eprintln!("[strict] support key {:?} neighbor coverage (k={})", key, DEFAULT_K);
+                eprintln!("[strict] support key {:?} neighbor coverage (k={})", key, DEBUG_K);
 
                 for &gi in key {
                     neighbors.clear();
                     knn.knn_into(
                         effective_generators[gi],
                         gi,
-                        DEFAULT_K,
+                        DEBUG_K,
                         &mut scratch,
                         &mut neighbors,
                     );
@@ -1018,7 +1018,7 @@ pub fn analyze_orphan_edges(voronoi: &SphericalVoronoi, tolerance: f32) -> Orpha
     for &(v1, v2) in &result.orphan_edges {
         let pos1 = voronoi.vertices[v1];
         let pos2 = voronoi.vertices[v2];
-        let edge_midpoint = ((pos1 + pos2) / 2.0).normalize();
+        let _edge_midpoint = ((pos1 + pos2) / 2.0).normalize();
 
         // Find cells that contain either v1 or v2
         let mut cells_with_v1: Vec<usize> = Vec::new();
@@ -1089,7 +1089,7 @@ pub fn analyze_knn_coverage(
 ) -> KnnCoverageAnalysis {
     use super::gpu_voronoi::{build_kdtree, find_k_nearest, compute_voronoi_gpu_style};
 
-    let voronoi = compute_voronoi_gpu_style(points, k);
+    let voronoi = compute_voronoi_gpu_style(points);
     let result = validate_voronoi(&voronoi, 1e-6);
 
     if result.orphan_edges.is_empty() {
@@ -1667,26 +1667,26 @@ mod tests {
     #[test]
     fn test_gpu_voronoi_k24_validity() {
         let points = generate_test_points(1000, 12345);
-        let voronoi = compute_voronoi_gpu_style(&points, 24);
+        let voronoi = compute_voronoi_gpu_style(&points);
         let result = validate_voronoi(&voronoi, 1e-6);
 
         result.print_summary();
         assert!(
             result.degenerate_cells.is_empty(),
-            "GPU k=24 should not produce degenerate cells"
+            "GPU Voronoi should not produce degenerate cells"
         );
     }
 
     #[test]
     fn test_gpu_voronoi_k12_validity() {
+        // This test is now redundant since k is fixed, but kept for coverage
         let points = generate_test_points(1000, 12345);
-        let voronoi = compute_voronoi_gpu_style(&points, 12);
+        let voronoi = compute_voronoi_gpu_style(&points);
         let result = validate_voronoi(&voronoi, 1e-6);
 
         result.print_summary();
-        // k=12 might have some issues at this scale
         println!(
-            "k=12 validity: {} degenerate, {} near-dup cells",
+            "GPU validity: {} degenerate, {} near-dup cells",
             result.degenerate_cells.len(),
             result.near_duplicate_cells.len()
         );
@@ -1695,7 +1695,7 @@ mod tests {
     #[test]
     fn test_deduplicate_voronoi() {
         let points = generate_test_points(1000, 12345);
-        let voronoi = compute_voronoi_gpu_style(&points, 24);
+        let voronoi = compute_voronoi_gpu_style(&points);
 
         let before = validate_voronoi(&voronoi, 1e-4);
         let deduped = deduplicate_voronoi(&voronoi, 1e-4);
@@ -1745,13 +1745,11 @@ mod tests {
             println!("Hull method:");
             hull_result.print_summary();
 
-            // Test GPU method at various k
-            for k in [12, 16, 24, 32] {
-                let gpu = compute_voronoi_gpu_style(&points, k);
-                let gpu_result = validate_voronoi(&gpu, 1e-6);
-                let (valid, msg) = validate_voronoi_quick(&gpu);
-                println!("GPU k={}: {} - {}", k, if valid { "VALID" } else { "INVALID" }, msg);
-            }
+            // Test GPU method (uses adaptive k internally)
+            let gpu = compute_voronoi_gpu_style(&points);
+            let gpu_result = validate_voronoi(&gpu, 1e-6);
+            let (valid, msg) = validate_voronoi_quick(&gpu);
+            println!("GPU: {} - {}", if valid { "VALID" } else { "INVALID" }, msg);
             println!();
         }
     }
@@ -1765,18 +1763,16 @@ mod tests {
             println!("--- n = {} ---", n);
             let points = generate_test_points(n, 12345);
 
-            for k in [16, 24, 32] {
-                let gpu = compute_voronoi_gpu_style(&points, k);
-                let analysis = analyze_orphan_edges(&gpu, 1e-4);
+            let gpu = compute_voronoi_gpu_style(&points);
+            let analysis = analyze_orphan_edges(&gpu, 1e-4);
 
-                if analysis.total_orphan_edges > 0 {
-                    println!("GPU k={}:", k);
-                    println!("  Total orphan edges: {}", analysis.total_orphan_edges);
-                    println!("  Position mismatch (same pos, diff idx): {}", analysis.position_mismatch_edges);
-                    println!("  True orphans (no adjacent cell): {}", analysis.true_orphan_edges);
-                } else {
-                    println!("GPU k={}: No orphan edges", k);
-                }
+            if analysis.total_orphan_edges > 0 {
+                println!("GPU:");
+                println!("  Total orphan edges: {}", analysis.total_orphan_edges);
+                println!("  Position mismatch (same pos, diff idx): {}", analysis.position_mismatch_edges);
+                println!("  True orphans (no adjacent cell): {}", analysis.true_orphan_edges);
+            } else {
+                println!("GPU: No orphan edges");
             }
             println!();
         }
@@ -1789,7 +1785,7 @@ mod tests {
 
         let n = 50000;
         let points = generate_test_points(n, 12345);
-        let gpu = compute_voronoi_gpu_style(&points, 24);
+        let gpu = compute_voronoi_gpu_style(&points);
         let result = validate_voronoi(&gpu, 1e-6);
 
         println!("Orphan edges: {}", result.orphan_edges.len());
@@ -1829,44 +1825,45 @@ mod tests {
         let n = 50000;
         let points = generate_test_points(n, 12345);
 
-        for k in [16, 24, 32, 48] {
-            let (voronoi, stats) = compute_voronoi_gpu_style_with_stats(&points, k);
-            let (valid, msg) = validate_voronoi_quick(&voronoi);
+        let (voronoi, stats) = compute_voronoi_gpu_style_with_stats(&points);
+        let (valid, msg) = validate_voronoi_quick(&voronoi);
 
-            println!("k={:2}: avg neighbors processed: {:.1}, termination rate: {:.1}%, valid: {} ({})",
-                k,
-                stats.avg_neighbors_processed,
-                stats.termination_rate * 100.0,
-                valid,
-                msg);
-        }
+        println!("avg neighbors processed: {:.1}, termination rate: {:.1}%, valid: {} ({})",
+            stats.avg_neighbors_processed,
+            stats.termination_rate * 100.0,
+            valid,
+            msg);
 
-        println!("\nConclusion: With early termination, higher k has diminishing cost impact.");
+        println!("\nWith adaptive k (12→24→48) and early termination, most cells terminate early.");
     }
 
     #[test]
     #[ignore] // Run with: cargo test bench_termination_frequency -- --ignored --nocapture
     fn bench_termination_frequency() {
-        use crate::geometry::gpu_voronoi::compute_voronoi_gpu_style_timed_with_termination_params;
+        use crate::geometry::gpu_voronoi::{
+            compute_voronoi_gpu_style_with_termination, TerminationConfig,
+        };
         use std::time::Instant;
 
         println!("\n=== Termination Check Frequency Benchmark ===\n");
 
         let n = 500_000;
         let points = generate_test_points(n, 12345);
-        let k = 24;
         let iterations = 3;
 
-        println!("n={}, k={}, {} iterations each\n", n, k, iterations);
+        println!("n={}, {} iterations each\n", n, iterations);
 
         // Compare old default (8,2) with new (10,6)
         for (start, step) in [(8, 2), (10, 6)] {
             let mut times = Vec::new();
             for _ in 0..iterations {
                 let t0 = Instant::now();
-                let _ = compute_voronoi_gpu_style_timed_with_termination_params(
-                    &points, k, false, step > 0, start, step
-                );
+                let termination = TerminationConfig {
+                    enabled: step > 0,
+                    check_start: start,
+                    check_step: step,
+                };
+                let _ = compute_voronoi_gpu_style_with_termination(&points, termination);
                 times.push(t0.elapsed().as_secs_f64() * 1000.0);
             }
             let avg = times.iter().sum::<f64>() / times.len() as f64;
@@ -1887,7 +1884,6 @@ mod tests {
         println!("\n=== Incremental Voronoi Full Validation ===\n");
 
         let n = 10_000;
-        let k = 24;
         let points = generate_test_points(n, 12345);
         let knn = CubeMapGridKnn::new(&points);
 
@@ -1898,7 +1894,7 @@ mod tests {
         };
 
         // Build with flat buffers (already produces CCW-ordered vertices)
-        let flat_data = build_cells_data_flat(&points, &knn, k, termination);
+        let (flat_data, _timing) = build_cells_data_flat(&points, &knn, termination);
 
         // Dedup vertices
         let (vertices, cells, cell_indices) = dedup_vertices_hash_flat(flat_data, false);
@@ -1959,7 +1955,7 @@ mod tests {
         let points = generate_test_points(n, 12345);
 
         let hull = SphericalVoronoi::compute(&points);
-        let gpu = compute_voronoi_gpu_style(&points, 24);
+        let gpu = compute_voronoi_gpu_style(&points);
 
         // Count edges in each
         let count_edges = |voronoi: &SphericalVoronoi| -> usize {

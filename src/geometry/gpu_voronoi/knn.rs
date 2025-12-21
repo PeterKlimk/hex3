@@ -2,6 +2,8 @@
 
 use glam::Vec3;
 
+pub use crate::geometry::cube_grid::KnnStatus;
+
 /// Trait for k-nearest neighbor queries.
 pub trait KnnProvider: Sync {
     type Scratch: Send;
@@ -18,18 +20,31 @@ pub trait KnnProvider: Sync {
         out_indices: &mut Vec<usize>,
     );
 
-    /// Find all neighbors within a cosine threshold of the query point.
+    /// Start a resumable k-NN query.
     ///
-    /// `min_cos` is the minimum dot product (cosine of angle) required.
-    /// Points where `query.dot(point) >= min_cos` are included.
-    fn within_cos_into(
+    /// `track_limit` controls how many candidates are tracked internally.
+    /// Can resume up to k=track_limit; beyond that, a fresh query is needed.
+    fn knn_resumable_into(
         &self,
         query: Vec3,
         query_idx: usize,
-        min_cos: f32,
+        k: usize,
+        track_limit: usize,
         scratch: &mut Self::Scratch,
         out_indices: &mut Vec<usize>,
-    );
+    ) -> KnnStatus;
+
+    /// Resume a k-NN query to fetch additional neighbors.
+    ///
+    /// `new_k` should be larger than the previous k but within the original `track_limit`.
+    fn knn_resume_into(
+        &self,
+        query: Vec3,
+        query_idx: usize,
+        new_k: usize,
+        scratch: &mut Self::Scratch,
+        out_indices: &mut Vec<usize>,
+    ) -> KnnStatus;
 }
 
 /// K-NN provider using CubeMapGrid - O(n) build time, good for large point sets.
@@ -79,21 +94,50 @@ impl<'a> KnnProvider for CubeMapGridKnn<'a> {
     }
 
     #[inline]
-    fn within_cos_into(
+    fn knn_resumable_into(
         &self,
         query: Vec3,
         query_idx: usize,
-        min_cos: f32,
+        k: usize,
+        track_limit: usize,
         scratch: &mut Self::Scratch,
         out_indices: &mut Vec<usize>,
-    ) {
-        self.grid.within_cos_into(
+    ) -> KnnStatus {
+        if k == 0 {
+            out_indices.clear();
+            return KnnStatus::Exhausted;
+        }
+        self.grid.find_k_nearest_resumable_into(
             self.points,
             query,
             query_idx,
-            min_cos,
+            k,
+            track_limit,
             scratch,
             out_indices,
-        );
+        )
+    }
+
+    #[inline]
+    fn knn_resume_into(
+        &self,
+        query: Vec3,
+        query_idx: usize,
+        new_k: usize,
+        scratch: &mut Self::Scratch,
+        out_indices: &mut Vec<usize>,
+    ) -> KnnStatus {
+        if new_k == 0 {
+            out_indices.clear();
+            return KnnStatus::Exhausted;
+        }
+        self.grid.resume_k_nearest_into(
+            self.points,
+            query,
+            query_idx,
+            new_k,
+            scratch,
+            out_indices,
+        )
     }
 }
