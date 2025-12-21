@@ -12,6 +12,7 @@ use super::constants::{
     SUPPORT_CERT_MARGIN_ABS,
     SUPPORT_EPS_ABS,
     SUPPORT_CLUSTER_RADIUS_ANGLE,
+    SUPPORT_VERTEX_ANGLE_EPS,
     support_cluster_drift_dot,
 };
 
@@ -167,7 +168,7 @@ impl IncrementalCellBuilder {
         &self,
         points: &[Vec3],
         v: &CellVertex,
-    ) -> (DVec3, f64, bool) {
+    ) -> (DVec3, f64, bool, f64) {
         #[inline]
         fn angle_between_unit(a: DVec3, b: DVec3) -> f64 {
             let dot = a.dot(b).clamp(-1.0, 1.0);
@@ -231,19 +232,16 @@ impl IncrementalCellBuilder {
             SUPPORT_CLUSTER_RADIUS_ANGLE
         };
 
-        // Heuristic plane-error bound (kept for comparison).
-        /*
+        // Formal plane-error bound: error in plane normals scaled by conditioning.
         let na_f32 = self.planes[v.plane_a].normal;
         let nb_f32 = self.planes[v.plane_b].normal;
         let na_f32 = DVec3::new(na_f32.x as f64, na_f32.y as f64, na_f32.z as f64).normalize();
         let nb_f32 = DVec3::new(nb_f32.x as f64, nb_f32.y as f64, nb_f32.z as f64).normalize();
         let plane_err = angle_between_unit(na_f32, n_a) + angle_between_unit(nb_f32, n_b);
-        let r_est = plane_err / len;
-        let drift_heur = 2.0 * (r_est * 0.5).sin();
-        */
+        let plane_sin = len.max(EPS_PLANE_PARALLEL as f64);
+        let r_est = plane_err / plane_sin;
 
-        let drift = 2.0 * (drift_angle * 0.5).sin();
-        (v64, drift, ill_conditioned)
+        (v64, drift_angle, ill_conditioned, r_est)
     }
     pub fn new(generator_idx: usize, generator: Vec3) -> Self {
         Self {
@@ -606,7 +604,15 @@ impl IncrementalCellBuilder {
             return false;
         }
 
-        let cos_2max = 2.0 * min_cos * min_cos - 1.0;
+        // Conservative bound for epsilon-aware certification:
+        // if a vertex is at angle theta from the generator, any generator within
+        // (theta + 2*eps) of that vertex must be within (2*theta + 2*eps) of the generator.
+        // Use eps_cell as a worst-case bound over vertices to ensure candidate completeness.
+        let eps_cell = SUPPORT_VERTEX_ANGLE_EPS + SUPPORT_CLUSTER_RADIUS_ANGLE;
+        let sin_theta = (1.0 - min_cos * min_cos).max(0.0).sqrt();
+        let (sin_eps, cos_eps) = (eps_cell as f32).sin_cos();
+        let cos_theta_eps = min_cos * cos_eps - sin_theta * sin_eps;
+        let cos_2max = 2.0 * cos_theta_eps * cos_theta_eps - 1.0;
         // Conservatively include support/certification margins in dot space.
         let termination_margin = EPS_TERMINATION_MARGIN
             + SUPPORT_CERT_MARGIN_ABS as f32
@@ -745,12 +751,23 @@ impl IncrementalCellBuilder {
                 support.clear();
                 let mut fail_ill = false;
                 let mut fail_gap = false;
-                let (v64, cluster_drift, ill_conditioned) = self.canonical_vertex_dir(points, v);
-                let cert_threshold = SUPPORT_CERT_MARGIN_ABS + 2.0 * cluster_drift;
+                let (v64, drift_angle, ill_conditioned, plane_err) =
+                    self.canonical_vertex_dir(points, v);
+                // Per-vertex epsilon (angle) derived from FP error + observed drift.
+                let eps_angle: f64 = SUPPORT_VERTEX_ANGLE_EPS + drift_angle + plane_err;
+                let eps_cell = SUPPORT_VERTEX_ANGLE_EPS + SUPPORT_CLUSTER_RADIUS_ANGLE;
+                let cert_threshold = SUPPORT_CERT_MARGIN_ABS;
                 if ill_conditioned {
                     *cert_failed = true;
                     fail_ill = true;
                     *cert_failed_ill_vertices += 1;
+                }
+                if eps_angle > eps_cell {
+                    *cert_failed = true;
+                    if !fail_ill {
+                        *cert_failed_gap_vertices += 1;
+                    }
+                    fail_gap = true;
                 }
                 let mut max_dot = f64::NEG_INFINITY;
                 for g in &candidate_positions {
@@ -760,18 +777,32 @@ impl IncrementalCellBuilder {
                     }
                 }
 
+                let max_dot = max_dot.clamp(-1.0, 1.0);
+                let sin_theta = (1.0 - max_dot * max_dot).max(0.0).sqrt();
+                let angle2: f64 = 2.0 * eps_angle;
+                let angle3: f64 = 3.0 * eps_angle;
+                let (sin2, cos2) = angle2.sin_cos();
+                let (sin3, cos3) = angle3.sin_cos();
+                let cluster_dot = max_dot * cos2 - sin_theta * sin2;
+                let gap_dot = max_dot * cos3 - sin_theta * sin3;
+                let cluster_delta = (max_dot - cluster_dot).max(0.0f64) + support_eps;
+                let mut gap_delta = (max_dot - gap_dot).max(0.0f64) + support_eps;
+                if gap_delta < cluster_delta {
+                    gap_delta = cluster_delta;
+                }
+
                 let mut best_outside = f64::NEG_INFINITY;
                 for (idx, g) in candidate_positions.iter().enumerate() {
                     let d = v64.dot(*g);
-                    if max_dot - d <= support_eps {
+                    if max_dot - d <= cluster_delta {
                         support.push(candidates[idx]);
                     } else if d > best_outside {
                         best_outside = d;
                     }
                 }
 
-                let max_dot_min = max_dot - support_eps;
-                if best_outside.is_finite() && max_dot_min - best_outside <= cert_threshold {
+                let max_dot_min = max_dot - cluster_delta;
+                if !fail_gap && best_outside.is_finite() && max_dot - best_outside <= gap_delta + cert_threshold {
                     *cert_failed = true;
                     if !fail_ill {
                         *cert_failed_gap_vertices += 1;

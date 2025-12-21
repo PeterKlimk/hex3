@@ -1331,8 +1331,8 @@ fn test_orphan_edge_certification() {
 
                 let reason_str = match nearest_reason {
                     Some(1) => "ill_cond",
-                    Some(2) => "gap",
-                    Some(3) => "both",
+                    Some(2) => "cluster",
+                    Some(3) => "ill+cluster",
                     _ => "none",
                 };
 
