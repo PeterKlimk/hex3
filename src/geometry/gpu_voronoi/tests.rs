@@ -1221,6 +1221,8 @@ fn test_orphan_edge_certification() {
 
             let mismatch_vertices: HashSet<usize> = strict.generator_mismatch_vertices.iter().copied().collect();
             let support_lt3_vertices: HashSet<usize> = strict.support_lt3.iter().copied().collect();
+            let mut coverage_cache: std::collections::HashMap<usize, (usize, f32)> =
+                std::collections::HashMap::new();
 
             let find_owner_cell = |v1: usize, v2: usize| -> Option<usize> {
                 for cell_idx in 0..voronoi.num_cells() {
@@ -1235,6 +1237,192 @@ fn test_orphan_edge_certification() {
                     }
                 }
                 None
+            };
+
+            let mut analyze_candidate_coverage = |cell_idx: usize| -> Option<(usize, f32)> {
+                if let Some(result) = coverage_cache.get(&cell_idx) {
+                    return Some(*result);
+                }
+
+                let adaptive = super::AdaptiveKConfig {
+                    initial_k: 12.min(DEFAULT_K),
+                    step_k: 12,
+                    track_limit: DEFAULT_K,
+                    fallback_k: if DEFAULT_K < 48 { 48 } else { 0 },
+                };
+                let use_resumable = adaptive.step_k > 0 && adaptive.track_limit > adaptive.initial_k;
+                let max_capacity = adaptive.track_limit.max(adaptive.fallback_k);
+
+                let mut scratch = knn.make_scratch();
+                let mut neighbors = Vec::with_capacity(max_capacity);
+                let mut builder = super::IncrementalCellBuilder::new(cell_idx, points[cell_idx]);
+
+                let mut cell_neighbors_processed = 0usize;
+                let mut terminated = false;
+                let mut current_k = adaptive.initial_k;
+                let mut _used_fallback = false;
+                let mut full_scan_done = false;
+
+                if use_resumable {
+                    neighbors.clear();
+                    let mut status = knn.knn_resumable_into(
+                        points[cell_idx], cell_idx, current_k, adaptive.track_limit, &mut scratch, &mut neighbors
+                    );
+
+                    loop {
+                        for idx in cell_neighbors_processed..neighbors.len() {
+                            let neighbor_idx = neighbors[idx];
+                            let neighbor = points[neighbor_idx];
+                            builder.clip(neighbor_idx, neighbor);
+                            cell_neighbors_processed += 1;
+
+                            if termination.should_check(cell_neighbors_processed) && builder.vertex_count() >= 3 {
+                                let neighbor_cos = points[cell_idx].dot(neighbor).clamp(-1.0, 1.0);
+                                if builder.can_terminate(neighbor_cos) {
+                                    terminated = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if terminated {
+                            break;
+                        }
+
+                        if status.is_exhausted() || current_k >= adaptive.track_limit {
+                            if !terminated && adaptive.fallback_k > adaptive.track_limit && !_used_fallback {
+                                _used_fallback = true;
+                                neighbors.clear();
+                                knn.knn_into(
+                                    points[cell_idx], cell_idx, adaptive.fallback_k, &mut scratch, &mut neighbors
+                                );
+
+                                for idx in 0..neighbors.len() {
+                                    let neighbor_idx = neighbors[idx];
+                                    if builder.has_neighbor(neighbor_idx) {
+                                        continue;
+                                    }
+                                    let neighbor = points[neighbor_idx];
+                                    builder.clip(neighbor_idx, neighbor);
+                                    cell_neighbors_processed += 1;
+
+                                    if termination.should_check(cell_neighbors_processed) && builder.vertex_count() >= 3 {
+                                        let neighbor_cos = points[cell_idx].dot(neighbor).clamp(-1.0, 1.0);
+                                        if builder.can_terminate(neighbor_cos) {
+                                            terminated = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                                if termination.enabled
+                                    && !terminated
+                                    && adaptive.fallback_k < points.len().saturating_sub(1)
+                                {
+                                    let already_clipped: HashSet<usize> =
+                                        builder.neighbor_indices_iter().collect();
+                                    for (p_idx, &p) in points.iter().enumerate() {
+                                        if p_idx == cell_idx || already_clipped.contains(&p_idx) {
+                                            continue;
+                                        }
+                                        builder.clip(p_idx, p);
+                                        cell_neighbors_processed += 1;
+                                        if builder.is_dead() {
+                                            break;
+                                        }
+                                    }
+                                    full_scan_done = true;
+                                }
+                                break;
+                            }
+                            break;
+                        }
+
+                        current_k = (current_k + adaptive.step_k).min(adaptive.track_limit);
+                        status = knn.knn_resume_into(
+                            points[cell_idx], cell_idx, current_k, &mut scratch, &mut neighbors
+                        );
+                    }
+                } else {
+                    neighbors.clear();
+                    knn.knn_into(
+                        points[cell_idx], cell_idx, current_k, &mut scratch, &mut neighbors
+                    );
+
+                    for idx in 0..neighbors.len() {
+                        let neighbor_idx = neighbors[idx];
+                        let neighbor = points[neighbor_idx];
+                        builder.clip(neighbor_idx, neighbor);
+                        cell_neighbors_processed = idx + 1;
+
+                        if termination.should_check(cell_neighbors_processed) && builder.vertex_count() >= 3 {
+                            let neighbor_cos = points[cell_idx].dot(neighbor).clamp(-1.0, 1.0);
+                            if builder.can_terminate(neighbor_cos) {
+                                terminated = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if builder.is_dead() {
+                    let recovered = builder.try_reseed_best();
+                    if !recovered {
+                        if !full_scan_done {
+                            builder.reset(cell_idx, points[cell_idx]);
+                            for (p_idx, &p) in points.iter().enumerate() {
+                                if p_idx == cell_idx {
+                                    continue;
+                                }
+                                builder.clip(p_idx, p);
+                            }
+                            full_scan_done = true;
+                        }
+                        let recovered = if builder.is_dead() {
+                            builder.try_reseed_best()
+                        } else {
+                            builder.vertex_count() >= 3
+                        };
+                        if !recovered {
+                            return None;
+                        }
+                    }
+                }
+
+                let _ = cell_neighbors_processed;
+                let _ = terminated;
+                let _ = full_scan_done;
+                let min_cos = match builder.min_vertex_generator_dot() {
+                    Some(v) => v,
+                    None => return None,
+                };
+                let eps_cell = super::SUPPORT_VERTEX_ANGLE_EPS + super::SUPPORT_CLUSTER_RADIUS_ANGLE;
+                let sin_theta = (1.0 - min_cos * min_cos).max(0.0).sqrt();
+                let (sin_eps, cos_eps) = (eps_cell as f32).sin_cos();
+                let cos_theta_eps = min_cos * cos_eps - sin_theta * sin_eps;
+                let cos_2max = 2.0 * cos_theta_eps * cos_theta_eps - 1.0;
+
+                let mut candidates: HashSet<usize> = builder.neighbor_indices_iter().collect();
+                candidates.insert(cell_idx);
+                let mut missing = 0usize;
+                let mut nearest_missing = f32::INFINITY;
+                for (idx, &p) in points.iter().enumerate() {
+                    if idx == cell_idx {
+                        continue;
+                    }
+                    let dot = points[cell_idx].dot(p).clamp(-1.0, 1.0);
+                    if dot >= cos_2max && !candidates.contains(&idx) {
+                        missing += 1;
+                        let angle = dot.acos();
+                        if angle < nearest_missing {
+                            nearest_missing = angle;
+                        }
+                    }
+                }
+                if !nearest_missing.is_finite() {
+                    nearest_missing = f32::NAN;
+                }
+                coverage_cache.insert(cell_idx, (missing, nearest_missing));
+                Some((missing, nearest_missing))
             };
 
             let nearest_other_vertex = |v_idx: usize| -> (usize, f32) {
@@ -1356,6 +1544,9 @@ fn test_orphan_edge_certification() {
                 let (near1, near1_d) = nearest_other_vertex(v1);
                 let (near2, near2_d) = nearest_other_vertex(v2);
                 let positional_edge_match = find_positional_edge_match(v1, v2);
+                let (missing_count, nearest_missing) = owner_cell
+                    .and_then(|cell| analyze_candidate_coverage(cell))
+                    .unwrap_or((0, f32::NAN));
                 println!(
                     "      owner_cell={:?} candidates_complete={} terminated={} used_fallback={} full_scan={} gen_mismatch(v1,v2)=({},{}) support_lt3(v1,v2)=({},{})",
                     owner_cell,
@@ -1380,6 +1571,15 @@ fn test_orphan_edge_certification() {
                     println!("      positional_edge_match=edge({},{}) dist={:.2e} shared_by_cells={}", a, b, d, cells);
                 } else {
                     println!("      positional_edge_match=none (tol={:.2e})", tol);
+                }
+                if missing_count > 0 {
+                    println!(
+                        "      candidate_coverage: missing_within_radius={} nearest_missing_angle={:.2e}",
+                        missing_count,
+                        nearest_missing
+                    );
+                } else {
+                    println!("      candidate_coverage: complete");
                 }
             }
 

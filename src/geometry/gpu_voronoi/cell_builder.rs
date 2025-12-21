@@ -861,6 +861,16 @@ impl IncrementalCellBuilder {
     }
 
     #[inline]
+    pub fn min_vertex_generator_dot(&self) -> Option<f32> {
+        if self.vertices.len() < 3 {
+            return None;
+        }
+        Some(self.vertices.iter()
+            .map(|v| self.generator.dot(v.pos).clamp(-1.0, 1.0))
+            .fold(1.0f32, f32::min))
+    }
+
+    #[inline]
     pub fn planes_count(&self) -> usize {
         self.planes.len()
     }
