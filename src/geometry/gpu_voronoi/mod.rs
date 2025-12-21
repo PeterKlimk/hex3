@@ -283,93 +283,17 @@ struct PhaseTimingsMs {
 /// Returns (vertices, counts).
 /// - vertices: flat buffer of all vertex data
 /// - counts: vertex count per cell (counts[i] = number of vertices for cell i)
-/// Configuration for adaptive k-NN fetching.
-#[derive(Debug, Clone, Copy)]
-pub struct AdaptiveKConfig {
-    /// Initial number of neighbors to fetch.
-    pub initial_k: usize,
-    /// Step size when resuming to fetch more neighbors.
-    pub step_k: usize,
-    /// Track limit for resumable queries (bounds how far we can resume).
-    /// If we need more than this, falls back to fresh query with fallback_k.
-    pub track_limit: usize,
-    /// Fallback k for fresh query when track_limit isn't enough.
-    /// Set to 0 to disable fallback (cells may be incomplete).
-    pub fallback_k: usize,
-}
-
-impl Default for AdaptiveKConfig {
-    fn default() -> Self {
-        Self {
-            initial_k: 12,
-            step_k: 12,
-            track_limit: 24,
-            fallback_k: 48,
-        }
-    }
-}
-
-impl AdaptiveKConfig {
-    /// Non-adaptive config: always fetch exactly k neighbors.
-    pub fn fixed(k: usize) -> Self {
-        Self {
-            initial_k: k,
-            step_k: 0,
-            track_limit: k,
-            fallback_k: 0,
-        }
-    }
-
-    /// Adaptive config with track_limit and optional fallback.
-    pub fn adaptive(initial_k: usize, step_k: usize, track_limit: usize, fallback_k: usize) -> Self {
-        Self { initial_k, step_k, track_limit, fallback_k }
-    }
-
-    /// Fast preset for Lloyd-relaxed points (well-behaved, uniform spacing).
-    /// Most cells terminate early; track_limit=24 is sufficient with k=48 fallback.
-    pub fn fast() -> Self {
-        Self {
-            initial_k: 12,
-            step_k: 12,
-            track_limit: 24,
-            fallback_k: 48,
-        }
-    }
-
-    /// Robust preset for jittery or irregular point distributions.
-    /// Higher track_limit handles most cells without fallback.
-    pub fn robust() -> Self {
-        Self {
-            initial_k: 12,
-            step_k: 10,
-            track_limit: 32,
-            fallback_k: 48,
-        }
-    }
-}
-
+///
+/// Uses a two-phase approach:
+/// 1. Fetch initial_k neighbors and process with early termination
+/// 2. If not terminated, use within_cos range query to get remaining candidates
 pub fn build_cells_data_flat(
     points: &[Vec3],
     knn: &impl KnnProvider,
-    k: usize,
+    initial_k: usize,
     termination: TerminationConfig,
 ) -> FlatCellsData {
-    // Use adaptive-k by default: fast path with track_limit=k, fallback to 48 if needed
-    let adaptive = AdaptiveKConfig {
-        initial_k: 12.min(k),
-        step_k: 12,
-        track_limit: k,
-        fallback_k: if k < 48 { 48 } else { 0 },
-    };
-    build_cells_data_flat_adaptive(points, knn, adaptive, termination)
-}
-
-pub fn build_cells_data_flat_adaptive(
-    points: &[Vec3],
-    knn: &impl KnnProvider,
-    adaptive: AdaptiveKConfig,
-    termination: TerminationConfig,
-) -> FlatCellsData {
+    use constants::EPS_TERMINATION_MARGIN;
     use rayon::prelude::*;
 
     let n = points.len();
@@ -392,15 +316,11 @@ pub fn build_cells_data_flat_adaptive(
         start = end;
     }
 
-    // Check if adaptive-k is actually needed (step_k > 0 and track_limit > initial_k)
-    let use_resumable = adaptive.step_k > 0 && adaptive.track_limit > adaptive.initial_k;
-    let max_capacity = adaptive.track_limit.max(adaptive.fallback_k);
-
     let mut chunks: Vec<FlatChunk> = ranges
         .par_iter()
         .map(|&(start, end)| {
             let mut scratch = knn.make_scratch();
-            let mut neighbors = Vec::with_capacity(max_capacity);
+            let mut neighbors = Vec::with_capacity(initial_k.max(64));
             let mut builder = IncrementalCellBuilder::new(0, Vec3::ZERO);
 
             let estimated_vertices = (end - start) * 6;
@@ -431,27 +351,61 @@ pub fn build_cells_data_flat_adaptive(
 
                 let mut cell_neighbors_processed = 0usize;
                 let mut terminated = false;
-                let mut current_k = adaptive.initial_k;
                 let mut used_fallback = false;
                 let mut full_scan_done = false;
 
-                if use_resumable {
-                    // Use resumable queries for adaptive-k
-                    let track_limit = adaptive.track_limit;
-                    neighbors.clear();
-                    let mut status = knn.knn_resumable_into(
-                        points[i], i, current_k, track_limit, &mut scratch, &mut neighbors
-                    );
+                // Phase 1: Initial k-NN query
+                neighbors.clear();
+                knn.knn_into(points[i], i, initial_k, &mut scratch, &mut neighbors);
 
-                    loop {
-                        // Process neighbors starting from where we left off
-                        for idx in cell_neighbors_processed..neighbors.len() {
-                            let neighbor_idx = neighbors[idx];
+                for idx in 0..neighbors.len() {
+                    let neighbor_idx = neighbors[idx];
+                    let neighbor = points[neighbor_idx];
+                    builder.clip(neighbor_idx, neighbor);
+                    cell_neighbors_processed = idx + 1;
+
+                    if termination.should_check(cell_neighbors_processed) && builder.vertex_count() >= 3 {
+                        let neighbor_cos = points[i].dot(neighbor).clamp(-1.0, 1.0);
+                        if builder.can_terminate(neighbor_cos) {
+                            terminated = true;
+                            break;
+                        }
+                    }
+                }
+
+                // Phase 2: If not terminated and we have vertices, use within_cos for remaining
+                if termination.enabled && !terminated && builder.vertex_count() >= 3 {
+                    // Compute the required threshold based on current vertices
+                    let min_cos = builder.min_vertex_cos();
+                    if min_cos > 0.0 {
+                        // Conservative bound: any generator that could affect a vertex must be
+                        // within 2*theta + margin of the generator (where theta = acos(min_cos))
+                        let eps_cell = SUPPORT_VERTEX_ANGLE_EPS + SUPPORT_CLUSTER_RADIUS_ANGLE;
+                        let sin_theta = (1.0 - min_cos * min_cos).max(0.0).sqrt();
+                        let (sin_eps, cos_eps) = (eps_cell as f32).sin_cos();
+                        let cos_theta_eps = min_cos * cos_eps - sin_theta * sin_eps;
+                        let cos_2max = 2.0 * cos_theta_eps * cos_theta_eps - 1.0;
+                        let termination_margin = EPS_TERMINATION_MARGIN
+                            + SUPPORT_CERT_MARGIN_ABS as f32
+                            + 2.0 * SUPPORT_EPS_ABS as f32
+                            + 2.0 * support_cluster_drift_dot() as f32;
+                        let required_cos = cos_2max - termination_margin;
+
+                        // Get all candidates within threshold
+                        used_fallback = true;
+                        neighbors.clear();
+                        knn.within_cos_into(points[i], i, required_cos, &mut scratch, &mut neighbors);
+
+                        // Process candidates, skipping already-clipped
+                        for &neighbor_idx in &neighbors {
+                            if builder.has_neighbor(neighbor_idx) {
+                                continue;
+                            }
                             let neighbor = points[neighbor_idx];
                             builder.clip(neighbor_idx, neighbor);
-                            cell_neighbors_processed = idx + 1;
+                            cell_neighbors_processed += 1;
 
-                            if termination.should_check(cell_neighbors_processed) && builder.vertex_count() >= 3 {
+                            if builder.vertex_count() >= 3 {
                                 let neighbor_cos = points[i].dot(neighbor).clamp(-1.0, 1.0);
                                 if builder.can_terminate(neighbor_cos) {
                                     terminated = true;
@@ -459,103 +413,32 @@ pub fn build_cells_data_flat_adaptive(
                                 }
                             }
                         }
+                    }
+                }
 
-                        if terminated {
+                // Final fallback: full scan if still not terminated
+                if termination.enabled && !terminated && !builder.is_dead() && builder.vertex_count() >= 3 {
+                    if std::env::var("VORONOI_DEBUG_FALLBACK").is_ok() {
+                        eprintln!("[FALLBACK] cell {} entering full-scan fallback ({} neighbors so far)",
+                            i, builder.planes_count());
+                    }
+                    let fallback_start = std::time::Instant::now();
+                    let already_clipped: FxHashSet<usize> = builder.neighbor_indices_iter().collect();
+                    for (p_idx, &p) in points.iter().enumerate() {
+                        if p_idx == i || already_clipped.contains(&p_idx) {
+                            continue;
+                        }
+                        builder.clip(p_idx, p);
+                        cell_neighbors_processed += 1;
+                        if builder.is_dead() {
                             break;
                         }
-
-                        // Need more neighbors?
-                        if status.is_exhausted() || current_k >= track_limit {
-                            // Hit track_limit - check if we should fallback
-                            if !terminated && adaptive.fallback_k > track_limit && !used_fallback {
-                                // Fallback: fresh query with higher k
-                                // IMPORTANT: The fresh query returns ALL k neighbors sorted by distance.
-                                // We must process from index 0, not cell_neighbors_processed, because
-                                // the new neighbors list is completely different from the resumable one.
-                                // However, we've already clipped some neighbors into the builder.
-                                // The builder tracks clipped neighbor indices, so we skip those.
-                                used_fallback = true;
-                                neighbors.clear();
-                                knn.knn_into(points[i], i, adaptive.fallback_k, &mut scratch, &mut neighbors);
-
-                                // Process ALL neighbors from the fresh query, skipping already-clipped ones
-                                for idx in 0..neighbors.len() {
-                                    let neighbor_idx = neighbors[idx];
-                                    // Skip if we already clipped this neighbor
-                                    if builder.has_neighbor(neighbor_idx) {
-                                        continue;
-                                    }
-                                    let neighbor = points[neighbor_idx];
-                                    builder.clip(neighbor_idx, neighbor);
-                                    cell_neighbors_processed += 1;
-
-                                    if termination.should_check(cell_neighbors_processed) && builder.vertex_count() >= 3 {
-                                        let neighbor_cos = points[i].dot(neighbor).clamp(-1.0, 1.0);
-                                        if builder.can_terminate(neighbor_cos) {
-                                            terminated = true;
-                                            break;
-                                        }
-                                    }
-                                }
-                                if termination.enabled
-                                    && !terminated
-                                    && adaptive.fallback_k < points.len().saturating_sub(1)
-                                {
-                                    // Correctness fallback: clip against all generators.
-                                    // This is rare and expensive but guarantees completeness.
-                                    if std::env::var("VORONOI_DEBUG_FALLBACK").is_ok() {
-                                        eprintln!("[FALLBACK] cell {} entering full-scan fallback ({} neighbors so far)",
-                                            i, builder.planes_count());
-                                    }
-                                    let fallback_start = std::time::Instant::now();
-                                    // Build a HashSet for O(1) neighbor lookup instead of O(n) linear search
-                                    let already_clipped: FxHashSet<usize> = builder.neighbor_indices_iter().collect();
-                                    for (p_idx, &p) in points.iter().enumerate() {
-                                        if p_idx == i || already_clipped.contains(&p_idx) {
-                                            continue;
-                                        }
-                                        builder.clip(p_idx, p);
-                                        cell_neighbors_processed += 1;
-                                        if builder.is_dead() {
-                                            break;
-                                        }
-                                    }
-                                    if std::env::var("VORONOI_DEBUG_FALLBACK").is_ok() {
-                                        let elapsed = fallback_start.elapsed().as_secs_f64() * 1000.0;
-                                        eprintln!("[FALLBACK] cell {} full-scan took {:.1}ms", i, elapsed);
-                                    }
-                                    full_scan_done = true;
-                                }
-                                break; // Fallback processed, we're done
-                            }
-                            break; // Can't fetch more
-                        }
-
-                        // Resume with larger k
-                        current_k = (current_k + adaptive.step_k).min(track_limit);
-                        status = knn.knn_resume_into(
-                            points[i], i, current_k, &mut scratch, &mut neighbors
-                        );
                     }
-                } else {
-                    // Non-adaptive: single fetch
-                    neighbors.clear();
-                    knn.knn_into(points[i], i, current_k, &mut scratch, &mut neighbors);
-
-                    for idx in 0..neighbors.len() {
-                        let neighbor_idx = neighbors[idx];
-                        let neighbor = points[neighbor_idx];
-                        builder.clip(neighbor_idx, neighbor);
-                        cell_neighbors_processed = idx + 1;
-
-                        if termination.should_check(cell_neighbors_processed) && builder.vertex_count() >= 3 {
-                            let neighbor_cos = points[i].dot(neighbor).clamp(-1.0, 1.0);
-                            if builder.can_terminate(neighbor_cos) {
-                                terminated = true;
-                                break;
-                            }
-                        }
+                    if std::env::var("VORONOI_DEBUG_FALLBACK").is_ok() {
+                        let elapsed = fallback_start.elapsed().as_secs_f64() * 1000.0;
+                        eprintln!("[FALLBACK] cell {} full-scan took {:.1}ms", i, elapsed);
                     }
+                    full_scan_done = true;
                 }
 
                 total_neighbors_processed += cell_neighbors_processed;
@@ -564,6 +447,7 @@ pub fn build_cells_data_flat_adaptive(
                     fallback_unterminated += 1;
                 }
 
+                // Dead cell recovery
                 if builder.is_dead() {
                     let recovered = builder.try_reseed_best();
                     if !recovered {
@@ -601,18 +485,22 @@ pub fn build_cells_data_flat_adaptive(
                     }
                 }
 
-                let candidates_complete = full_scan_done
-                    || (termination.enabled && terminated)
-                    || (termination.enabled
-                        && used_fallback
-                        && adaptive.fallback_k >= points.len().saturating_sub(1));
+                let candidates_complete = full_scan_done || (termination.enabled && terminated);
                 cell_terminated.push(terminated as u8);
                 cell_used_fallback.push(used_fallback as u8);
                 cell_full_scan_done.push(full_scan_done as u8);
                 cell_candidates_complete.push(candidates_complete as u8);
                 let mut cert_checked = false;
                 let mut cert_failed = false;
-                let count = builder.get_vertices_into(
+                let vertices_start = vertices.len();
+                let support_start = support_data.len();
+                let failed_idx_start = cert_failed_vertex_indices.len();
+                let cert_checked_vertices_start = cert_checked_vertices;
+                let cert_failed_vertices_start = cert_failed_vertices;
+                let cert_failed_ill_vertices_start = cert_failed_ill_vertices;
+                let cert_failed_gap_vertices_start = cert_failed_gap_vertices;
+
+                let mut count = builder.get_vertices_into(
                     points,
                     support_eps,
                     candidates_complete,
@@ -627,6 +515,77 @@ pub fn build_cells_data_flat_adaptive(
                     &mut gap_sampler,
                     &mut cert_failed_vertex_indices,
                 );
+
+                // Defer resolution of uncertified vertices: rebuild the cell against the full
+                // generator set and re-emit vertices/keys with a complete candidate set.
+                //
+                // This keeps topology coherent even when the initial local candidate set
+                // (k-NN + termination) is insufficient to stabilize support membership.
+                if cert_failed && !full_scan_done {
+                    if std::env::var("VORONOI_DEBUG_FALLBACK").is_ok() {
+                        eprintln!(
+                            "[CERT-DEFER] cell {} rebuilding with full-scan due to uncertified vertices",
+                            i
+                        );
+                    }
+
+                    // Roll back provisional outputs and counters for this cell.
+                    vertices.truncate(vertices_start);
+                    support_data.truncate(support_start);
+                    cert_failed_vertex_indices.truncate(failed_idx_start);
+                    cert_checked_vertices = cert_checked_vertices_start;
+                    cert_failed_vertices = cert_failed_vertices_start;
+                    cert_failed_ill_vertices = cert_failed_ill_vertices_start;
+                    cert_failed_gap_vertices = cert_failed_gap_vertices_start;
+
+                    // Full-scan rebuild.
+                    builder.reset(i, points[i]);
+                    for (p_idx, &p) in points.iter().enumerate() {
+                        if p_idx == i {
+                            continue;
+                        }
+                        builder.clip(p_idx, p);
+                        if builder.is_dead() {
+                            break;
+                        }
+                    }
+                    if builder.is_dead() {
+                        let recovered = builder.try_reseed_best();
+                        if !recovered {
+                            panic!(
+                                "TODO: full-scan certification rebuild failed for cell {} (planes={})",
+                                i,
+                                builder.planes_count()
+                            );
+                        }
+                    }
+
+                    if let Some(v) = cell_full_scan_done.last_mut() {
+                        *v = 1;
+                    }
+                    if let Some(v) = cell_candidates_complete.last_mut() {
+                        *v = 1;
+                    }
+
+                    // Re-emit vertices with a complete candidate set.
+                    cert_checked = false;
+                    cert_failed = false;
+                    count = builder.get_vertices_into(
+                        points,
+                        support_eps,
+                        true,
+                        &mut support_data,
+                        &mut vertices,
+                        &mut cert_checked,
+                        &mut cert_failed,
+                        &mut cert_checked_vertices,
+                        &mut cert_failed_vertices,
+                        &mut cert_failed_ill_vertices,
+                        &mut cert_failed_gap_vertices,
+                        &mut gap_sampler,
+                        &mut cert_failed_vertex_indices,
+                    );
+                }
                 if cert_checked {
                     cert_checked_cells += 1;
                     if cert_failed {

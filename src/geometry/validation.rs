@@ -568,6 +568,14 @@ pub fn validate_voronoi_strict(
         .iter()
         .map(|g| glam::DVec3::new(g.x as f64, g.y as f64, g.z as f64))
         .collect();
+
+    // Build KNN index for generators to speed up support computation
+    let gen_knn = CubeMapGridKnn::new(&effective_generators);
+    // For support computation, we need enough neighbors to capture all generators within eps_hi
+    // A vertex's support includes generators equidistant (within eps) from it.
+    // For typical Voronoi, vertices have ~6 supporting generators, but we use more for safety.
+    let support_knn_k = 96.min(num_effective_generators);
+
     let mut result = StrictValidationResult {
         num_cells,
         num_vertices,
@@ -622,23 +630,40 @@ pub fn validate_voronoi_strict(
     let mut support_keys: Vec<Vec<usize>> = Vec::new();
     let mut vertex_key_id: Vec<usize> = vec![usize::MAX; num_vertices];
 
+    let mut gen_scratch = gen_knn.make_scratch();
+    let mut neighbor_buf: Vec<usize> = Vec::with_capacity(support_knn_k);
+
     for (v_idx, &v) in voronoi.vertices.iter().enumerate() {
         if vertex_to_cells[v_idx].is_empty() {
             continue;
         }
         let v64 = glam::DVec3::new(v.x as f64, v.y as f64, v.z as f64).normalize();
+
+        // Use KNN to find candidate generators instead of scanning all
+        neighbor_buf.clear();
+        gen_knn.knn_into(v, usize::MAX, support_knn_k, &mut gen_scratch, &mut neighbor_buf);
+
+        // Also include generators from vertex_to_cells (they must be in support)
+        for &eff_idx in &vertex_to_cells[v_idx] {
+            if !neighbor_buf.contains(&eff_idx) {
+                neighbor_buf.push(eff_idx);
+            }
+        }
+
+        // Find max_dot among candidates
         let mut max_dot = f64::NEG_INFINITY;
-        for g64 in &effective_gens_d {
-            let d = v64.dot(*g64);
+        for &gi in &neighbor_buf {
+            let d = v64.dot(effective_gens_d[gi]);
             if d > max_dot {
                 max_dot = d;
             }
         }
 
+        // Find support sets among candidates
         let mut support_lo: Vec<usize> = Vec::new();
         let mut support_hi: Vec<usize> = Vec::new();
-        for (gi, g64) in effective_gens_d.iter().enumerate() {
-            let d = v64.dot(*g64);
+        for &gi in &neighbor_buf {
+            let d = v64.dot(effective_gens_d[gi]);
             let delta = max_dot - d;
             if delta <= eps_hi {
                 support_hi.push(gi);
@@ -647,6 +672,8 @@ pub fn validate_voronoi_strict(
                 }
             }
         }
+        support_lo.sort_unstable();
+        support_hi.sort_unstable();
 
         let mut vertex_ambiguous = false;
         if support_lo.len() < 3 {

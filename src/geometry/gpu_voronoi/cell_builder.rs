@@ -226,7 +226,7 @@ impl IncrementalCellBuilder {
             if angle > SUPPORT_CLUSTER_RADIUS_ANGLE {
                 ill_conditioned = true;
             }
-            angle.min(SUPPORT_CLUSTER_RADIUS_ANGLE)
+            angle
         } else {
             ill_conditioned = true;
             SUPPORT_CLUSTER_RADIUS_ANGLE
@@ -456,13 +456,11 @@ impl IncrementalCellBuilder {
             return;
         }
 
-        let mut inside = [false; MAX_VERTICES];
-        for (i, v) in self.vertices.iter().enumerate() {
-            let dist = new_plane.signed_distance(v.pos);
-            inside[i] = dist >= -EPS_PLANE_CLIP;
-        }
+        let inside: Vec<bool> = self.vertices.iter()
+            .map(|v| new_plane.signed_distance(v.pos) >= -EPS_PLANE_CLIP)
+            .collect();
 
-        let inside_count = inside[..n].iter().filter(|&&x| x).count();
+        let inside_count = inside.iter().filter(|&&x| x).count();
         if inside_count == n {
             return;
         }
@@ -590,15 +588,22 @@ impl IncrementalCellBuilder {
         self.clip_with_plane(new_plane_idx);
     }
 
+    /// Get the minimum cosine (furthest vertex angle) from generator.
+    /// Returns 1.0 if no vertices.
+    #[inline]
+    pub fn min_vertex_cos(&self) -> f32 {
+        self.vertices.iter()
+            .map(|v| self.generator.dot(v.pos).clamp(-1.0, 1.0))
+            .fold(1.0f32, f32::min)
+    }
+
     /// Check if we can terminate early based on security radius.
     pub fn can_terminate(&self, next_neighbor_cos: f32) -> bool {
         if self.vertices.len() < 3 {
             return false;
         }
 
-        let min_cos = self.vertices.iter()
-            .map(|v| self.generator.dot(v.pos).clamp(-1.0, 1.0))
-            .fold(1.0f32, f32::min);
+        let min_cos = self.min_vertex_cos();
 
         if min_cos <= 0.0 {
             return false;
@@ -734,12 +739,16 @@ impl IncrementalCellBuilder {
                 .iter()
                 .map(|&idx| {
                     let p = points[idx as usize];
-                    DVec3::new(p.x as f64, p.y as f64, p.z as f64)
+                    let v = DVec3::new(p.x as f64, p.y as f64, p.z as f64);
+                    if v.length_squared() > 0.0 { v.normalize() } else { v }
                 })
                 .collect();
         }
 
         let mut support: Vec<u32> = Vec::with_capacity(self.planes.len() + 1);
+        let mut lowers: Vec<f64> = Vec::new();
+        let mut uppers: Vec<f64> = Vec::new();
+        let mut in_flags: Vec<u8> = Vec::new();
         let do_support = candidates_complete && support_eps > 0.0;
         if do_support && !self.vertices.is_empty() {
             *cert_checked = true;
@@ -751,67 +760,100 @@ impl IncrementalCellBuilder {
                 support.clear();
                 let mut fail_ill = false;
                 let mut fail_gap = false;
-                let (v64, drift_angle, ill_conditioned, plane_err) =
+                let (v64, drift_angle, ill_conditioned, intersection_err) =
                     self.canonical_vertex_dir(points, v);
-                // Per-vertex epsilon (angle) derived from FP error + observed drift.
-                let eps_angle: f64 = SUPPORT_VERTEX_ANGLE_EPS + drift_angle + plane_err;
-                let eps_cell = SUPPORT_VERTEX_ANGLE_EPS + SUPPORT_CLUSTER_RADIUS_ANGLE;
-                let cert_threshold = SUPPORT_CERT_MARGIN_ABS;
+                // Per-vertex angular uncertainty bound for support membership checks.
+                // Conservative: base FP + observed drift + conditioning-amplified plane error.
+                let mut eps_angle: f64 = SUPPORT_VERTEX_ANGLE_EPS + drift_angle + intersection_err;
+                // Dot-space safety margin for both cluster construction and invariance certification.
+                let tau: f64 = support_eps + SUPPORT_CERT_MARGIN_ABS;
                 if ill_conditioned {
                     *cert_failed = true;
                     fail_ill = true;
                     *cert_failed_ill_vertices += 1;
                 }
-                if eps_angle > eps_cell {
+                if !eps_angle.is_finite() || eps_angle <= 0.0 {
+                    eps_angle = SUPPORT_CLUSTER_RADIUS_ANGLE;
                     *cert_failed = true;
                     if !fail_ill {
                         *cert_failed_gap_vertices += 1;
                     }
                     fail_gap = true;
                 }
-                let mut max_dot = f64::NEG_INFINITY;
+
+                // If eps_angle is enormous, the direction is effectively unconstrained; treat as failure.
+                // Use eps=PI for interval construction (covers full sphere) to avoid under-approximation.
+                if eps_angle >= std::f64::consts::PI {
+                    eps_angle = std::f64::consts::PI;
+                    *cert_failed = true;
+                    if !fail_ill {
+                        *cert_failed_gap_vertices += 1;
+                    }
+                    fail_gap = true;
+                }
+
+                // Interval-based support clustering and invariance certification.
+                // For each candidate generator p_i, compute a conservative interval for the true dot:
+                //   dot(v*, p_i) ∈ [lower_i, upper_i] given angle(v*, v̂) <= eps_angle.
+                // Then the support set S contains all candidates whose upper bound is within tau
+                // of the best lower bound, and is certified invariant if the in/out intervals
+                // are separated by > tau.
+                let (sin_eps, cos_eps) = eps_angle.sin_cos();
+                let cand_n = candidate_positions.len();
+                lowers.clear();
+                uppers.clear();
+                lowers.reserve(cand_n);
+                uppers.reserve(cand_n);
+
+                let mut best_lower = f64::NEG_INFINITY;
                 for g in &candidate_positions {
-                    let d = v64.dot(*g);
-                    if d > max_dot {
-                        max_dot = d;
+                    let d = v64.dot(*g).clamp(-1.0, 1.0);
+                    let sin_theta = (1.0 - d * d).max(0.0).sqrt();
+                    let lower = d * cos_eps - sin_theta * sin_eps;
+                    let upper = d * cos_eps + sin_theta * sin_eps;
+                    lowers.push(lower);
+                    uppers.push(upper);
+                    if lower > best_lower {
+                        best_lower = lower;
                     }
                 }
 
-                let max_dot = max_dot.clamp(-1.0, 1.0);
-                let sin_theta = (1.0 - max_dot * max_dot).max(0.0).sqrt();
-                let angle2: f64 = 2.0 * eps_angle;
-                let angle3: f64 = 3.0 * eps_angle;
-                let (sin2, cos2) = angle2.sin_cos();
-                let (sin3, cos3) = angle3.sin_cos();
-                let cluster_dot = max_dot * cos2 - sin_theta * sin2;
-                let gap_dot = max_dot * cos3 - sin_theta * sin3;
-                let cluster_delta = (max_dot - cluster_dot).max(0.0f64) + support_eps;
-                let mut gap_delta = (max_dot - gap_dot).max(0.0f64) + support_eps;
-                if gap_delta < cluster_delta {
-                    gap_delta = cluster_delta;
-                }
-
-                let mut best_outside = f64::NEG_INFINITY;
-                for (idx, g) in candidate_positions.iter().enumerate() {
-                    let d = v64.dot(*g);
-                    if max_dot - d <= cluster_delta {
-                        support.push(candidates[idx]);
-                    } else if d > best_outside {
-                        best_outside = d;
+                // Membership: possible winners within tau of best_lower.
+                in_flags.clear();
+                in_flags.resize(cand_n, 0);
+                for idx in 0..cand_n {
+                    if uppers[idx] >= best_lower - tau {
+                        in_flags[idx] = 1;
                     }
                 }
 
-                let max_dot_min = max_dot - cluster_delta;
-                if !fail_gap && best_outside.is_finite() && max_dot - best_outside <= gap_delta + cert_threshold {
+                // Certified invariant if the worst-case inside is strictly better than
+                // the best-case outside, with safety margin tau.
+                let mut in_min_lower = f64::INFINITY;
+                let mut out_max_upper = f64::NEG_INFINITY;
+                for idx in 0..cand_n {
+                    if in_flags[idx] == 1 {
+                        in_min_lower = in_min_lower.min(lowers[idx]);
+                    } else {
+                        out_max_upper = out_max_upper.max(uppers[idx]);
+                    }
+                }
+
+                // Record a dot-space separation margin (positive means certified).
+                if out_max_upper.is_finite() && in_min_lower.is_finite() {
+                    gap_sampler.record(in_min_lower - out_max_upper - tau);
+                }
+
+                let certified_invariant = in_min_lower.is_finite()
+                    && (out_max_upper.is_finite() == false || in_min_lower > out_max_upper + tau);
+                if !certified_invariant {
                     *cert_failed = true;
                     if !fail_ill {
                         *cert_failed_gap_vertices += 1;
                     }
                     fail_gap = true;
                 }
-                if best_outside.is_finite() {
-                    gap_sampler.record(max_dot_min - best_outside);
-                }
+
                 *cert_checked_vertices += 1;
                 let vertex_failed = fail_ill || fail_gap;
                 if vertex_failed {
@@ -824,13 +866,23 @@ impl IncrementalCellBuilder {
                 let gen = self.generator_idx as u32;
                 let na = self.neighbor_indices[v.plane_a] as u32;
                 let nb = self.neighbor_indices[v.plane_b] as u32;
+                if certified_invariant {
+                    // Only emit a full support set when it is certified invariant.
+                    // Otherwise, the cluster membership can differ across adjacent cells,
+                    // leading to inconsistent keys and topology breaks (orphan edges).
+                    for idx in 0..cand_n {
+                        if in_flags[idx] == 1 {
+                            support.push(candidates[idx]);
+                        }
+                    }
+                }
                 support.push(gen);
                 support.push(na);
                 support.push(nb);
                 support.sort_unstable();
                 support.dedup();
 
-                if support.len() >= 4 {
+                if certified_invariant && support.len() >= 4 {
                     debug_assert!(support.len() <= u8::MAX as usize, "support list too large");
                     let start = support_data.len() as u32;
                     support_data.extend(support.iter().copied());

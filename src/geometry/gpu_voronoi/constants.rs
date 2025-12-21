@@ -5,7 +5,7 @@
 /// 1. Numerically unstable bisector planes
 /// 2. Multiple close neighbors collectively killing cells
 /// 3. Orphan edges from inconsistent cell topologies
-pub const MIN_BISECTOR_DISTANCE: f32 = 1e-5;
+pub const MIN_BISECTOR_DISTANCE: f32 = 1e-4;
 
 /// Fraction of mean generator spacing used for near-duplicate thresholds in tests.
 pub const VERTEX_WELD_FRACTION: f32 = 0.01;
@@ -15,7 +15,10 @@ pub const VERTEX_WELD_FRACTION: f32 = 0.01;
 pub const SUPPORT_EPS_ABS: f64 = (f32::EPSILON as f64) * 64.0;
 
 /// Additional margin when certifying a bounded support cluster.
-pub const SUPPORT_CERT_MARGIN_ABS: f64 = 0.0;
+///
+/// This is intentionally non-zero to avoid razor-thin pass/fail boundaries when
+/// comparing near-ties in dot space under accumulated numeric error.
+pub const SUPPORT_CERT_MARGIN_ABS: f64 = SUPPORT_EPS_ABS;
 
 /// Cluster radius for ambiguity certification (radians).
 pub const SUPPORT_CLUSTER_RADIUS_ANGLE: f64 = 1e-7;

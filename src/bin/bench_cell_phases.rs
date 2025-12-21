@@ -388,11 +388,9 @@ fn benchmark_termination_distribution(points: &[Vec3], knn: &impl KnnProvider, k
     }
 }
 
-/// Compare adaptive-k against a fixed high-k baseline
+/// Compare k=24 against a high-k baseline
 fn test_adaptive_k_correctness(points: &[Vec3], knn: &impl KnnProvider) {
-    use hex3::geometry::gpu_voronoi::AdaptiveKConfig;
-
-    println!("\n--- Adaptive-K Correctness Test ---\n");
+    println!("\n--- Cell Construction Correctness Test ---\n");
 
     let termination = TerminationConfig {
         enabled: true,
@@ -400,20 +398,18 @@ fn test_adaptive_k_correctness(points: &[Vec3], knn: &impl KnnProvider) {
         check_step: 6,
     };
 
-    // Build with adaptive-k (what production uses)
-    let adaptive = AdaptiveKConfig::default(); // initial=12, step=12, max=48
-    let flat_adaptive = hex3::geometry::gpu_voronoi::build_cells_data_flat_adaptive(
-        points, knn, adaptive, termination
+    // Build with k=24 (production default)
+    let flat_default = hex3::geometry::gpu_voronoi::build_cells_data_flat(
+        points, knn, 24, termination
     );
 
-    // Build with fixed high-k (ground truth)
-    let fixed_high = AdaptiveKConfig::fixed(64);
-    let flat_truth = hex3::geometry::gpu_voronoi::build_cells_data_flat_adaptive(
-        points, knn, fixed_high, termination
+    // Build with high-k (ground truth)
+    let flat_truth = hex3::geometry::gpu_voronoi::build_cells_data_flat(
+        points, knn, 64, termination
     );
 
     // Compare vertex counts per cell
-    let adaptive_counts: Vec<usize> = flat_adaptive.iter_cells()
+    let default_counts: Vec<usize> = flat_default.iter_cells()
         .map(|verts| verts.len())
         .collect();
     let truth_counts: Vec<usize> = flat_truth.iter_cells()
@@ -421,30 +417,28 @@ fn test_adaptive_k_correctness(points: &[Vec3], knn: &impl KnnProvider) {
         .collect();
 
     let mut mismatches = 0usize;
-    for (i, (&a, &t)) in adaptive_counts.iter().zip(truth_counts.iter()).enumerate() {
+    for (i, (&a, &t)) in default_counts.iter().zip(truth_counts.iter()).enumerate() {
         if a != t {
             mismatches += 1;
             if mismatches <= 5 {
-                println!("  Cell {}: adaptive={} verts, truth={} verts", i, a, t);
+                println!("  Cell {}: k=24={} verts, k=64={} verts", i, a, t);
             }
         }
     }
 
     if mismatches == 0 {
-        println!("  ✓ All {} cells match! Adaptive-k is correct.", points.len());
+        println!("  ✓ All {} cells match!", points.len());
     } else {
         println!("  ✗ {} cells have mismatched vertex counts", mismatches);
     }
 
-    println!("  Adaptive stats: {} total vertices", flat_adaptive.total_vertices());
-    println!("  Truth stats: {} total vertices", flat_truth.total_vertices());
+    println!("  k=24 stats: {} total vertices", flat_default.total_vertices());
+    println!("  k=64 stats: {} total vertices", flat_truth.total_vertices());
 }
 
-/// Performance comparison: fixed-k vs adaptive-k
+/// Performance comparison: different k values
 fn benchmark_adaptive_vs_fixed(points: &[Vec3], knn: &impl KnnProvider) {
-    use hex3::geometry::gpu_voronoi::AdaptiveKConfig;
-
-    println!("\n--- Adaptive-K vs Fixed-K Performance ---\n");
+    println!("\n--- K-Value Performance Comparison ---\n");
 
     let termination = TerminationConfig {
         enabled: true,
@@ -453,21 +447,21 @@ fn benchmark_adaptive_vs_fixed(points: &[Vec3], knn: &impl KnnProvider) {
     };
 
     let configs = [
-        ("Fixed k=24", AdaptiveKConfig::fixed(24)),
-        ("Fixed k=48", AdaptiveKConfig::fixed(48)),
-        ("Adaptive 12/24/48", AdaptiveKConfig::adaptive(12, 12, 24, 48)),
+        ("k=12", 12),
+        ("k=24", 24),
+        ("k=48", 48),
     ];
 
-    for (name, config) in configs {
+    for (name, k) in configs {
         // Warmup
-        let _ = hex3::geometry::gpu_voronoi::build_cells_data_flat_adaptive(
-            points, knn, config, termination
+        let _ = hex3::geometry::gpu_voronoi::build_cells_data_flat(
+            points, knn, k, termination
         );
 
         // Measure
         let t0 = Instant::now();
-        let result = hex3::geometry::gpu_voronoi::build_cells_data_flat_adaptive(
-            points, knn, config, termination
+        let result = hex3::geometry::gpu_voronoi::build_cells_data_flat(
+            points, knn, k, termination
         );
         let elapsed = t0.elapsed().as_secs_f64() * 1000.0;
         std::hint::black_box(&result);
@@ -595,11 +589,9 @@ fn benchmark_all_distributions(n: usize, seed: u64, k: usize, verbose: bool) {
     }
 }
 
-/// Test adaptive-k correctness across all distribution tiers
+/// Test correctness across all distribution tiers
 fn test_adaptive_correctness_all_tiers(n: usize, seed: u64) {
-    use hex3::geometry::gpu_voronoi::AdaptiveKConfig;
-
-    println!("\n=== Adaptive-K Correctness Across Tiers (n={}) ===\n", n);
+    println!("\n=== Cell Construction Correctness Across Tiers (n={}) ===\n", n);
 
     let termination = TerminationConfig {
         enabled: true,
@@ -617,40 +609,36 @@ fn test_adaptive_correctness_all_tiers(n: usize, seed: u64) {
         let points = generate_points(n, dist, seed);
         let knn = CubeMapGridKnn::new(&points);
 
-        // Adaptive-k
-        let adaptive = AdaptiveKConfig::default();
-        let flat_adaptive = hex3::geometry::gpu_voronoi::build_cells_data_flat_adaptive(
-            &points, &knn, adaptive, termination
+        // k=24 (production default)
+        let flat_default = hex3::geometry::gpu_voronoi::build_cells_data_flat(
+            &points, &knn, 24, termination
         );
 
-        // Ground truth (fixed high-k)
-        let fixed_high = AdaptiveKConfig::fixed(64);
-        let flat_truth = hex3::geometry::gpu_voronoi::build_cells_data_flat_adaptive(
-            &points, &knn, fixed_high, termination
+        // Ground truth (high-k)
+        let flat_truth = hex3::geometry::gpu_voronoi::build_cells_data_flat(
+            &points, &knn, 64, termination
         );
 
-        let adaptive_counts: Vec<usize> = flat_adaptive.iter_cells()
+        let default_counts: Vec<usize> = flat_default.iter_cells()
             .map(|verts| verts.len())
             .collect();
         let truth_counts: Vec<usize> = flat_truth.iter_cells()
             .map(|verts| verts.len())
             .collect();
 
-        let mismatches: usize = adaptive_counts.iter()
+        let mismatches: usize = default_counts.iter()
             .zip(truth_counts.iter())
             .filter(|(a, t)| a != t)
             .count();
 
         let status = if mismatches == 0 { "✓" } else { "✗" };
         println!("  {} {:<12}: {} cells, {} mismatches, {} total verts",
-            status, dist.name(), n, mismatches, flat_adaptive.total_vertices());
+            status, dist.name(), n, mismatches, flat_default.total_vertices());
     }
 }
 
 /// Performance comparison across tiers
 fn benchmark_performance_all_tiers(n: usize, seed: u64) {
-    use hex3::geometry::gpu_voronoi::AdaptiveKConfig;
-
     println!("\n=== Performance Across Tiers (n={}) ===\n", n);
 
     let termination = TerminationConfig {
@@ -666,11 +654,11 @@ fn benchmark_performance_all_tiers(n: usize, seed: u64) {
     ];
 
     let configs = [
-        ("Fixed k=24", AdaptiveKConfig::fixed(24)),
-        ("Adaptive", AdaptiveKConfig::adaptive(12, 12, 24, 48)),
+        ("k=24", 24usize),
+        ("k=48", 48usize),
     ];
 
-    println!("  {:12} | {:>12} | {:>12}", "Distribution", "Fixed k=24", "Adaptive");
+    println!("  {:12} | {:>12} | {:>12}", "Distribution", "k=24", "k=48");
     println!("  {:─<12}-+-{:─>12}-+-{:─>12}", "", "", "");
 
     for dist in distributions {
@@ -678,16 +666,16 @@ fn benchmark_performance_all_tiers(n: usize, seed: u64) {
         let knn = CubeMapGridKnn::new(&points);
 
         let mut times = Vec::new();
-        for (_, config) in &configs {
+        for (_, k) in &configs {
             // Warmup
-            let _ = hex3::geometry::gpu_voronoi::build_cells_data_flat_adaptive(
-                &points, &knn, *config, termination
+            let _ = hex3::geometry::gpu_voronoi::build_cells_data_flat(
+                &points, &knn, *k, termination
             );
 
             // Measure
             let t0 = Instant::now();
-            let result = hex3::geometry::gpu_voronoi::build_cells_data_flat_adaptive(
-                &points, &knn, *config, termination
+            let result = hex3::geometry::gpu_voronoi::build_cells_data_flat(
+                &points, &knn, *k, termination
             );
             let elapsed = t0.elapsed().as_secs_f64() * 1000.0;
             std::hint::black_box(&result);
@@ -699,13 +687,9 @@ fn benchmark_performance_all_tiers(n: usize, seed: u64) {
     }
 }
 
-/// Benchmark various adaptive-k configurations across all distributions
+/// Benchmark k-value tuning across all distributions
 fn benchmark_adaptive_tuning_behaved(n: usize, seed: u64) {
-    use hex3::geometry::gpu_voronoi::AdaptiveKConfig;
-
-    println!("\n=== Adaptive-K Tuning Across Distributions (n={}) ===\n", n);
-    println!("  Config format: initial/step/max (track_limit = max)");
-    println!();
+    println!("\n=== K-Value Tuning Across Distributions (n={}) ===\n", n);
 
     let termination = TerminationConfig {
         enabled: true,
@@ -713,27 +697,11 @@ fn benchmark_adaptive_tuning_behaved(n: usize, seed: u64) {
         check_step: 6,
     };
 
-    // Configurations to test
-    // Format: adaptive(initial_k, step_k, track_limit, fallback_k)
-    let configs: Vec<(&str, AdaptiveKConfig)> = vec![
-        // Baselines (no fallback)
-        ("Fixed k=24", AdaptiveKConfig::fixed(24)),
-        ("Fixed k=48", AdaptiveKConfig::fixed(48)),
-
-        // track_limit=24, no fallback (fast, behaved only)
-        ("12/12/24/0", AdaptiveKConfig::adaptive(12, 12, 24, 0)),
-
-        // track_limit=24 with fallback=48 (fast path + safety net)
-        ("12/12/24/48", AdaptiveKConfig::adaptive(12, 12, 24, 48)),
-        ("10/7/24/48", AdaptiveKConfig::adaptive(10, 7, 24, 48)),
-        ("10/14/24/48", AdaptiveKConfig::adaptive(10, 14, 24, 48)),
-
-        // track_limit=32 with fallback=48
-        ("12/10/32/48", AdaptiveKConfig::adaptive(12, 10, 32, 48)),
-        ("10/11/32/48", AdaptiveKConfig::adaptive(10, 11, 32, 48)),
-
-        // Default config
-        ("default", AdaptiveKConfig::default()),
+    let configs: Vec<(&str, usize)> = vec![
+        ("k=12", 12),
+        ("k=24", 24),
+        ("k=36", 36),
+        ("k=48", 48),
     ];
 
     let distributions = [
@@ -747,35 +715,33 @@ fn benchmark_adaptive_tuning_behaved(n: usize, seed: u64) {
         "Config", "Behaved", "Jittery", "Evil");
     println!("  {:─<14}-+-{:─^12}-+-{:─^12}-+-{:─^12}", "", "", "", "");
 
-    for (name, config) in &configs {
+    for (name, k) in &configs {
         let mut times = Vec::new();
-        let mut all_correct = true;
 
         for dist in &distributions {
             let points = generate_points(n, *dist, seed);
             let knn = CubeMapGridKnn::new(&points);
 
             // Ground truth
-            let truth = hex3::geometry::gpu_voronoi::build_cells_data_flat_adaptive(
-                &points, &knn, AdaptiveKConfig::fixed(64), termination
+            let truth = hex3::geometry::gpu_voronoi::build_cells_data_flat(
+                &points, &knn, 64, termination
             );
             let truth_verts = truth.total_vertices();
 
             // Warmup
-            let _ = hex3::geometry::gpu_voronoi::build_cells_data_flat_adaptive(
-                &points, &knn, *config, termination
+            let _ = hex3::geometry::gpu_voronoi::build_cells_data_flat(
+                &points, &knn, *k, termination
             );
 
             // Measure
             let t0 = Instant::now();
-            let result = hex3::geometry::gpu_voronoi::build_cells_data_flat_adaptive(
-                &points, &knn, *config, termination
+            let result = hex3::geometry::gpu_voronoi::build_cells_data_flat(
+                &points, &knn, *k, termination
             );
             let elapsed = t0.elapsed().as_secs_f64() * 1000.0;
             std::hint::black_box(&result);
 
             let correct = result.total_vertices() == truth_verts;
-            all_correct = all_correct && correct;
             times.push((elapsed, correct));
         }
 
@@ -788,7 +754,7 @@ fn benchmark_adaptive_tuning_behaved(n: usize, seed: u64) {
     }
 }
 
-/// Benchmark raw KNN query performance (for measuring scratch/resumable changes)
+/// Benchmark raw KNN query performance
 fn benchmark_knn_raw(n: usize, seed: u64) {
     use hex3::geometry::cube_grid::CubeMapGrid;
 
@@ -802,7 +768,7 @@ fn benchmark_knn_raw(n: usize, seed: u64) {
         println!("  {} points:", dist.name());
 
         // Test different k values
-        for k in [12, 24, 48] {
+        for k in [12, 24, 48, 64] {
             let mut scratch = grid.make_scratch();
             let mut neighbors = Vec::with_capacity(k);
 
@@ -821,75 +787,28 @@ fn benchmark_knn_raw(n: usize, seed: u64) {
             println!("    k={:2}: {:>7.1}ms ({:.2}µs/query)", k, elapsed, elapsed * 1000.0 / n as f64);
         }
 
-        // Test resumable: k=12 then resume to k=24
-        {
+        // Test within_cos range queries
+        for min_cos in [0.99, 0.95, 0.90] {
             let mut scratch = grid.make_scratch();
-            let mut neighbors = Vec::with_capacity(48);
-            let track_limit = 24; // Track 24 candidates (like-for-like with fixed k=24)
+            let mut neighbors = Vec::with_capacity(64);
 
             // Warmup
             for i in 0..1000 {
-                grid.find_k_nearest_resumable_into(&points, points[i], i, 12, track_limit, &mut scratch, &mut neighbors);
-                grid.resume_k_nearest_into(&points, points[i], i, 24, &mut scratch, &mut neighbors);
+                grid.within_cos_into(&points, points[i], i, min_cos, &mut scratch, &mut neighbors);
             }
 
             // Measure
             let t0 = Instant::now();
+            let mut total_found = 0usize;
             for i in 0..n {
-                let _exhausted = grid.find_k_nearest_resumable_into(&points, points[i], i, 12, track_limit, &mut scratch, &mut neighbors);
-                grid.resume_k_nearest_into(&points, points[i], i, 24, &mut scratch, &mut neighbors);
+                grid.within_cos_into(&points, points[i], i, min_cos, &mut scratch, &mut neighbors);
+                total_found += neighbors.len();
             }
             let elapsed = t0.elapsed().as_secs_f64() * 1000.0;
+            let avg_found = total_found as f64 / n as f64;
 
-            println!("    12→24 resume:  {:>7.1}ms ({:.2}µs/query)", elapsed, elapsed * 1000.0 / n as f64);
-        }
-
-        // Test re-query: k=12 then fresh k=24 (baseline)
-        {
-            let mut scratch = grid.make_scratch();
-            let mut neighbors = Vec::with_capacity(24);
-
-            // Warmup
-            for i in 0..1000 {
-                grid.find_k_nearest_with_scratch_into(&points, points[i], i, 12, &mut scratch, &mut neighbors);
-                grid.find_k_nearest_with_scratch_into(&points, points[i], i, 24, &mut scratch, &mut neighbors);
-            }
-
-            // Measure
-            let t0 = Instant::now();
-            for i in 0..n {
-                grid.find_k_nearest_with_scratch_into(&points, points[i], i, 12, &mut scratch, &mut neighbors);
-                grid.find_k_nearest_with_scratch_into(&points, points[i], i, 24, &mut scratch, &mut neighbors);
-            }
-            let elapsed = t0.elapsed().as_secs_f64() * 1000.0;
-
-            println!("    12→24 requery: {:>7.1}ms ({:.2}µs/query)", elapsed, elapsed * 1000.0 / n as f64);
-        }
-
-        // Compare track_limit=24 vs track_limit=48
-        {
-            let mut scratch = grid.make_scratch();
-            let mut neighbors = Vec::with_capacity(48);
-
-            // track_limit=24
-            let t0 = Instant::now();
-            for i in 0..n {
-                grid.find_k_nearest_resumable_into(&points, points[i], i, 12, 24, &mut scratch, &mut neighbors);
-                grid.resume_k_nearest_into(&points, points[i], i, 24, &mut scratch, &mut neighbors);
-            }
-            let time_24 = t0.elapsed().as_secs_f64() * 1000.0;
-
-            // track_limit=48
-            let t0 = Instant::now();
-            for i in 0..n {
-                grid.find_k_nearest_resumable_into(&points, points[i], i, 12, 48, &mut scratch, &mut neighbors);
-                grid.resume_k_nearest_into(&points, points[i], i, 24, &mut scratch, &mut neighbors);
-            }
-            let time_48 = t0.elapsed().as_secs_f64() * 1000.0;
-
-            let diff_pct = (time_48 - time_24) / time_24 * 100.0;
-            println!("    track_limit comparison: 24={:.1}ms, 48={:.1}ms ({:+.1}%)",
-                time_24, time_48, diff_pct);
+            println!("    within_cos({:.2}): {:>7.1}ms ({:.2}µs/query, avg {:.1} found)",
+                min_cos, elapsed, elapsed * 1000.0 / n as f64, avg_found);
         }
 
         println!();

@@ -1,75 +1,9 @@
 //! Tests for GPU-style Voronoi computation.
 
 use glam::Vec3;
-use rustc_hash::FxHashMap;
 
 use super::*;
 use crate::geometry::{random_sphere_points, random_sphere_points_with_rng};
-
-/// Find minimum distance between any two distinct REFERENCED vertices using spatial grid.
-fn find_min_vertex_distance_referenced(voronoi: &crate::geometry::SphericalVoronoi) -> f32 {
-    use std::collections::HashSet;
-
-    // Collect all referenced vertex indices
-    let mut referenced: HashSet<usize> = HashSet::new();
-    for cell in voronoi.iter_cells() {
-        for &idx in cell.vertex_indices {
-            referenced.insert(idx);
-        }
-    }
-
-    let ref_indices: Vec<usize> = referenced.into_iter().collect();
-    if ref_indices.len() < 2 {
-        return f32::MAX;
-    }
-
-    let vertices = &voronoi.vertices;
-
-    // Use a spatial grid with cell size ~0.01 (reasonable for unit sphere)
-    let cell_size = 0.01f32;
-    let inv_cell_size = 1.0 / cell_size;
-
-    let grid_cell = |p: Vec3| -> (i32, i32, i32) {
-        (
-            (p.x * inv_cell_size).floor() as i32,
-            (p.y * inv_cell_size).floor() as i32,
-            (p.z * inv_cell_size).floor() as i32,
-        )
-    };
-
-    let mut grid: FxHashMap<(i32, i32, i32), Vec<usize>> = FxHashMap::default();
-    for &idx in &ref_indices {
-        let pos = vertices[idx];
-        let cell = grid_cell(pos);
-        grid.entry(cell).or_insert_with(Vec::new).push(idx);
-    }
-
-    let mut min_dist = f32::MAX;
-
-    for &i in &ref_indices {
-        let pos = vertices[i];
-        let (cx, cy, cz) = grid_cell(pos);
-        // Check 27 neighboring cells
-        for dx in -1..=1 {
-            for dy in -1..=1 {
-                for dz in -1..=1 {
-                    if let Some(indices) = grid.get(&(cx + dx, cy + dy, cz + dz)) {
-                        for &j in indices {
-                            if j != i {
-                                let dist = (vertices[j] - pos).length();
-                                if dist < min_dist {
-                                    min_dist = dist;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    min_dist
-}
 
 const MIN_SPACING_MARGIN: f32 = 1.05;
 
@@ -253,176 +187,6 @@ fn test_soundness_lloyd_relaxed_points() {
     }
 }
 
-/// Test soundness with NON-Lloyd-relaxed points (fibonacci + jitter only).
-/// This can violate the min spacing requirement and is only for stress testing.
-/// Run with: cargo test --release test_soundness_non_lloyd -- --ignored --nocapture
-#[test]
-#[ignore]
-fn test_soundness_non_lloyd() {
-    use crate::geometry::{fibonacci_sphere_points_with_rng, validation::validate_voronoi};
-    use rand::SeedableRng;
-    use rand_chacha::ChaCha8Rng;
-
-    println!("\n=== Soundness Test: Non-Lloyd Points (fibonacci + jitter) ===\n");
-
-    for &n in &[100_000, 250_000, 500_000, 750_000] {
-        let mut rng = ChaCha8Rng::seed_from_u64(12345);
-        let mean_spacing = (4.0 * std::f32::consts::PI / n as f32).sqrt();
-        let jitter = mean_spacing * 0.25;  // Same jitter as bench_voronoi
-        let points = fibonacci_sphere_points_with_rng(n, jitter, &mut rng);
-
-        // Check minimum point distance
-        let min_dist = check_min_point_distance(&points);
-        let ratio = min_dist / mean_spacing;
-        println!("n={}: min_dist={:.2e}, mean={:.2e}, ratio={:.3}", n, min_dist, mean_spacing, ratio);
-        if min_dist < min_spacing_threshold() {
-            println!(
-                "  WARNING: min spacing {:.2e} below required {:.2e}",
-                min_dist,
-                min_spacing_threshold()
-            );
-        }
-
-        // Build Voronoi and validate
-        let voronoi = compute_voronoi_gpu_style(&points, DEFAULT_K);
-        let result = validate_voronoi(&voronoi, near_duplicate_threshold(points.len()));
-
-        // Find minimum distance between distinct referenced vertices
-        let min_vert_dist = find_min_vertex_distance_referenced(&voronoi);
-
-        println!("  Degenerate cells: {}", result.degenerate_cells.len());
-        println!("  Orphan edges: {}", result.orphan_edges.len());
-        println!("  Min vertex distance: {:.2e}", min_vert_dist);
-
-        // Non-Lloyd points may have some degenerate cells due to close spacing
-        // The key question: are there orphan edges?
-        if !result.orphan_edges.is_empty() {
-            println!("  WARNING: {} orphan edges detected!", result.orphan_edges.len());
-            // Check if orphan vertices have near-duplicates
-            for (i, &(v1, v2)) in result.orphan_edges.iter().take(3).enumerate() {
-                let pos1 = voronoi.vertices[v1];
-                let pos2 = voronoi.vertices[v2];
-
-                // Find nearest other vertex to each endpoint
-                let mut min_dist1 = f32::MAX;
-                let mut min_dist2 = f32::MAX;
-                for (j, &v) in voronoi.vertices.iter().enumerate() {
-                    if j != v1 {
-                        min_dist1 = min_dist1.min((v - pos1).length());
-                    }
-                    if j != v2 {
-                        min_dist2 = min_dist2.min((v - pos2).length());
-                    }
-                }
-
-                println!("    Orphan {}: v{}--v{}, edge_len={:.2e}", i, v1, v2, (pos1 - pos2).length());
-                println!("      v{} nearest other vertex: {:.2e}", v1, min_dist1);
-                println!("      v{} nearest other vertex: {:.2e}", v2, min_dist2);
-            }
-        }
-        println!();
-    }
-}
-
-/// Diagnose orphan edges in well-spaced points.
-/// Run with: cargo test --release diagnose_orphan_edges -- --ignored --nocapture
-#[test]
-#[ignore]
-fn diagnose_orphan_edges() {
-    use crate::geometry::{fibonacci_sphere_points_with_rng, lloyd_relax_kmeans, validation::validate_voronoi};
-    use rand::SeedableRng;
-    use rand_chacha::ChaCha8Rng;
-    use std::collections::HashMap;
-
-    println!("\n=== Orphan Edge Diagnosis ===\n");
-
-    let n = 750_000;  // Use 750k to match largest soundness test scale
-    let mut rng = ChaCha8Rng::seed_from_u64(12345);
-    let mean_spacing = (4.0 * std::f32::consts::PI / n as f32).sqrt();
-    let jitter = mean_spacing * 0.25;
-    let mut points = fibonacci_sphere_points_with_rng(n, jitter, &mut rng);
-    lloyd_relax_kmeans(&mut points, 2, 20, &mut rng);
-
-    // Check min spacing
-    let min_dist = check_min_point_distance(&points);
-    println!("Point count: {}", n);
-    println!("Mean spacing: {:.2e}", mean_spacing);
-    println!("Min point distance: {:.2e}", min_dist);
-
-    let voronoi = compute_voronoi_gpu_style(&points, DEFAULT_K);
-    let near_dup = near_duplicate_threshold(points.len());
-    let result = validate_voronoi(&voronoi, near_dup);
-
-    println!("\nTotal cells: {}", voronoi.num_cells());
-    println!("Total vertices: {}", voronoi.vertices.len());
-    println!("Orphan edges: {}", result.orphan_edges.len());
-    println!("Near-duplicate cells: {}", result.near_duplicate_cells.len());
-
-    if result.orphan_edges.is_empty() {
-        println!("\nNo orphan edges to diagnose!");
-        return;
-    }
-
-    // Build edge -> cells map
-    let mut edge_to_cells: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
-    for cell_idx in 0..voronoi.num_cells() {
-        let cell = voronoi.cell(cell_idx);
-        let n_verts = cell.vertex_indices.len();
-        for i in 0..n_verts {
-            let v1 = cell.vertex_indices[i];
-            let v2 = cell.vertex_indices[(i + 1) % n_verts];
-            let edge = if v1 < v2 { (v1, v2) } else { (v2, v1) };
-            edge_to_cells.entry(edge).or_default().push(cell_idx);
-        }
-    }
-
-    // Helper: find vertices near a position
-    let find_near_vertices = |target_pos: Vec3, exclude: usize| -> Vec<(usize, f32)> {
-        voronoi.vertices.iter().enumerate()
-            .filter(|(vi, _)| *vi != exclude)
-            .map(|(vi, &pos)| (vi, (pos - target_pos).length()))
-            .filter(|(_, dist)| *dist < near_dup)  // Look for near-duplicates
-            .collect()
-    };
-
-    println!("\n--- Analyzing orphan edges ---\n");
-
-    for (i, &(v1, v2)) in result.orphan_edges.iter().take(3).enumerate() {
-        let pos1 = voronoi.vertices[v1];
-        let pos2 = voronoi.vertices[v2];
-        let edge_len = (pos1 - pos2).length();
-
-        println!("Orphan edge {}: vertices ({}, {})", i, v1, v2);
-        println!("  Edge length: {:.2e}", edge_len);
-        println!("  v1 pos: ({:.6}, {:.6}, {:.6})", pos1.x, pos1.y, pos1.z);
-        println!("  v2 pos: ({:.6}, {:.6}, {:.6})", pos2.x, pos2.y, pos2.z);
-
-        // Check for near-duplicate vertices
-        let mut near_v1 = find_near_vertices(pos1, v1);
-        near_v1.sort_by(|a, b| a.1.total_cmp(&b.1));
-        let mut near_v2 = find_near_vertices(pos2, v2);
-        near_v2.sort_by(|a, b| a.1.total_cmp(&b.1));
-
-        if !near_v1.is_empty() {
-            println!("  Near-duplicate vertices for v1:");
-            for (vj, dist) in near_v1.iter().take(3) {
-                println!("    vertex {} at dist {:.2e}", vj, dist);
-            }
-        }
-        if !near_v2.is_empty() {
-            println!("  Near-duplicate vertices for v2:");
-            for (vj, dist) in near_v2.iter().take(3) {
-                println!("    vertex {} at dist {:.2e}", vj, dist);
-            }
-        }
-
-        // Check what cells should share this edge
-        let cells = edge_to_cells.get(&(v1, v2)).cloned().unwrap_or_default();
-        println!("  Edge appears in {} cell(s): {:?}", cells.len(), cells);
-        println!();
-    }
-}
-
 /// Strict correctness sweep on small counts.
 /// Run with: cargo test --release strict_small_counts
 #[test]
@@ -567,260 +331,6 @@ fn strict_small_counts() {
                     case_name
                 );
             }
-        }
-    }
-}
-
-/// Diagnose orphan edges for specific failing case.
-/// Run with: cargo test --release diagnose_5000_orphans -- --ignored --nocapture
-#[test]
-#[ignore]
-fn diagnose_5000_orphans() {
-    use crate::geometry::fibonacci_sphere_points_with_rng;
-    use rand::SeedableRng;
-    use rand_chacha::ChaCha8Rng;
-    use std::collections::HashMap;
-
-    let n = 5000usize;
-    let seed = 12349u64;
-    let jitter_scale = 0.15f32; // mild case
-
-    let mut rng = ChaCha8Rng::seed_from_u64(seed);
-    let mean_spacing = (4.0 * std::f32::consts::PI / n as f32).sqrt();
-    let jitter = mean_spacing * jitter_scale;
-    let points = fibonacci_sphere_points_with_rng(n, jitter, &mut rng);
-
-    println!("\n=== Diagnosis for n={}, seed={}, jitter={:.2e} ===\n", n, seed, jitter);
-
-    let voronoi = compute_voronoi_gpu_style(&points, DEFAULT_K);
-
-    println!("Cells: {}", voronoi.num_cells());
-    println!("Vertices: {}", voronoi.vertices.len());
-
-    // Build edge map
-    let mut edge_to_cells: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
-    for cell_idx in 0..voronoi.num_cells() {
-        let cell = voronoi.cell(cell_idx);
-        for i in 0..cell.vertex_indices.len() {
-            let v1 = cell.vertex_indices[i];
-            let v2 = cell.vertex_indices[(i + 1) % cell.vertex_indices.len()];
-            if v1 == v2 {
-                continue;
-            }
-            let edge = if v1 < v2 { (v1, v2) } else { (v2, v1) };
-            edge_to_cells.entry(edge).or_default().push(cell_idx);
-        }
-    }
-
-    // Find orphan edges
-    let orphan_edges: Vec<_> = edge_to_cells
-        .iter()
-        .filter(|(_, cells)| cells.len() == 1)
-        .map(|(e, c)| (*e, c[0]))
-        .collect();
-
-    println!("Orphan edges: {}\n", orphan_edges.len());
-
-    if orphan_edges.is_empty() {
-        println!("No orphan edges to analyze!");
-        return;
-    }
-
-    // Analyze each orphan edge
-    for (i, &((v1, v2), cell_idx)) in orphan_edges.iter().enumerate() {
-        println!("--- Orphan edge {} ---", i);
-        let pos1 = voronoi.vertices[v1];
-        let pos2 = voronoi.vertices[v2];
-        let edge_len = (pos1 - pos2).length();
-        let edge_mid = ((pos1 + pos2) / 2.0).normalize();
-
-        println!("Edge v{}--v{}, length={:.2e}", v1, v2, edge_len);
-        println!("  v{}: ({:.6}, {:.6}, {:.6})", v1, pos1.x, pos1.y, pos1.z);
-        println!("  v{}: ({:.6}, {:.6}, {:.6})", v2, pos2.x, pos2.y, pos2.z);
-        println!("Appears only in cell {}", cell_idx);
-
-        let cell = voronoi.cell(cell_idx);
-        let gen_idx = cell.generator_index;
-        let gen = voronoi.generators[gen_idx];
-        println!(
-            "  Cell {} generator: {} at ({:.4}, {:.4}, {:.4})",
-            cell_idx, gen_idx, gen.x, gen.y, gen.z
-        );
-        println!("  Cell vertex count: {}", cell.vertex_indices.len());
-
-        // What generators are closest to the edge midpoint?
-        let mut dots: Vec<(usize, f32)> = voronoi
-            .generators
-            .iter()
-            .enumerate()
-            .map(|(gi, g)| (gi, edge_mid.dot(*g)))
-            .collect();
-        dots.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
-
-        println!("Top 5 generators closest to edge midpoint:");
-        for (gi, dot) in dots.iter().take(5) {
-            let delta = dots[0].1 - dot;
-            let is_owner = if *gi == gen_idx { " <-- owner" } else { "" };
-            println!("    g{}: dot={:.6}, delta={:.2e}{}", gi, dot, delta, is_owner);
-        }
-
-        // What cells touch v1 and v2?
-        let cells_with_v1: std::collections::HashSet<usize> = edge_to_cells
-            .iter()
-            .filter(|(e, _)| e.0 == v1 || e.1 == v1)
-            .flat_map(|(_, cells)| cells.iter().cloned())
-            .collect();
-
-        let cells_with_v2: std::collections::HashSet<usize> = edge_to_cells
-            .iter()
-            .filter(|(e, _)| e.0 == v2 || e.1 == v2)
-            .flat_map(|(_, cells)| cells.iter().cloned())
-            .collect();
-
-        println!("Cells touching v{}: {:?}", v1, cells_with_v1);
-        println!("Cells touching v{}: {:?}", v2, cells_with_v2);
-
-        // The "missing neighbor" would be in both sets but not cell_idx
-        let common: Vec<usize> = cells_with_v1
-            .intersection(&cells_with_v2)
-            .filter(|&&c| c != cell_idx)
-            .cloned()
-            .collect();
-        println!("Potential missing neighbor (common excl owner): {:?}", common);
-
-        // Check if there's a near-duplicate vertex
-        println!("\nNear-duplicates of v{} (within 1e-4):", v1);
-        let mut near_v1: Vec<(usize, f32)> = voronoi
-            .vertices
-            .iter()
-            .enumerate()
-            .filter(|(vi, _)| *vi != v1)
-            .map(|(vi, v)| (vi, (*v - pos1).length()))
-            .filter(|(_, d)| *d < 1e-4)
-            .collect();
-        near_v1.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-        if near_v1.is_empty() {
-            println!("  (none)");
-        } else {
-            for (vi, d) in near_v1.iter().take(3) {
-                println!("  v{} at dist {:.2e}", vi, d);
-            }
-        }
-
-        println!("Near-duplicates of v{} (within 1e-4):", v2);
-        let mut near_v2: Vec<(usize, f32)> = voronoi
-            .vertices
-            .iter()
-            .enumerate()
-            .filter(|(vi, _)| *vi != v2)
-            .map(|(vi, v)| (vi, (*v - pos2).length()))
-            .filter(|(_, d)| *d < 1e-4)
-            .collect();
-        near_v2.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-        if near_v2.is_empty() {
-            println!("  (none)");
-        } else {
-            for (vi, d) in near_v2.iter().take(3) {
-                println!("  v{} at dist {:.2e}", vi, d);
-            }
-        }
-        println!();
-    }
-
-    // Now check support sets for the near-duplicate vertices
-    println!("\n=== Support Set Analysis ===\n");
-    let v7581 = voronoi.vertices[7581];
-    let v7644 = voronoi.vertices[7644];
-    println!("v7581 pos: ({:.9}, {:.9}, {:.9})", v7581.x, v7581.y, v7581.z);
-    println!("v7644 pos: ({:.9}, {:.9}, {:.9})", v7644.x, v7644.y, v7644.z);
-    println!("Distance: {:.2e}\n", (v7581 - v7644).length());
-
-    // Compute support sets for each vertex using double precision
-    let compute_support = |v: Vec3, eps: f64| -> Vec<(usize, f64)> {
-        let v64 = glam::DVec3::new(v.x as f64, v.y as f64, v.z as f64).normalize();
-        let mut dots: Vec<(usize, f64)> = voronoi
-            .generators
-            .iter()
-            .enumerate()
-            .map(|(gi, g)| {
-                let g64 = glam::DVec3::new(g.x as f64, g.y as f64, g.z as f64);
-                (gi, v64.dot(g64))
-            })
-            .collect();
-        dots.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
-        let max_dot = dots[0].1;
-        dots.into_iter()
-            .filter(|(_, d)| max_dot - d <= eps)
-            .collect()
-    };
-
-    // Try different epsilon values
-    for eps in [1e-7, 1e-6, 1e-5, 1e-4] {
-        println!("eps = {:.0e}:", eps);
-        let support_7581 = compute_support(v7581, eps);
-        let support_7644 = compute_support(v7644, eps);
-        let gens_7581: Vec<usize> = support_7581.iter().map(|(g, _)| *g).collect();
-        let gens_7644: Vec<usize> = support_7644.iter().map(|(g, _)| *g).collect();
-        println!("  v7581 support ({} gens): {:?}", gens_7581.len(), gens_7581);
-        println!("  v7644 support ({} gens): {:?}", gens_7644.len(), gens_7644);
-        let set1: std::collections::HashSet<_> = gens_7581.iter().collect();
-        let set2: std::collections::HashSet<_> = gens_7644.iter().collect();
-        if set1 == set2 {
-            println!("  -> MATCH (same set)");
-        } else {
-            println!("  -> MISMATCH!");
-        }
-    }
-
-    // Check which cells have which vertices and their neighbor counts
-    println!("\n=== Cell Neighbor Analysis ===\n");
-    for cell_idx in [3762usize, 3796, 3851, 3707] {
-        let cell = voronoi.cell(cell_idx);
-        println!("Cell {} has {} vertices", cell_idx, cell.vertex_indices.len());
-
-        // Check if v7581 or v7644 is in this cell
-        let has_7581 = cell.vertex_indices.contains(&7581);
-        let has_7644 = cell.vertex_indices.contains(&7644);
-        if has_7581 {
-            println!("  Contains v7581");
-        }
-        if has_7644 {
-            println!("  Contains v7644");
-        }
-    }
-
-    // Compute support_eps used
-    let mean_spacing = (4.0 * std::f64::consts::PI / n as f64).sqrt();
-    let support_eps = super::SUPPORT_EPS_ABS;
-    println!("\n=== Exact Support Analysis ===");
-    println!("mean_spacing = {:.6e}", mean_spacing);
-    println!("support_eps = {:.6e}\n", support_eps);
-
-    // Check deltas for each vertex
-    for (name, v) in [("v7581", v7581), ("v7644", v7644)] {
-        println!("{}:", name);
-        let v64 = glam::DVec3::new(v.x as f64, v.y as f64, v.z as f64).normalize();
-        let mut dots: Vec<(usize, f64)> = voronoi
-            .generators
-            .iter()
-            .enumerate()
-            .map(|(gi, g)| {
-                let g64 = glam::DVec3::new(g.x as f64, g.y as f64, g.z as f64);
-                (gi, v64.dot(g64))
-            })
-            .collect();
-        dots.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
-        let max_dot = dots[0].1;
-
-        for (gi, dot) in dots.iter().take(6) {
-            let delta = max_dot - dot;
-            let in_support = delta <= support_eps;
-            println!(
-                "  g{}: delta={:.6e} {}",
-                gi,
-                delta,
-                if in_support { "<= eps (IN)" } else { "> eps (OUT)" }
-            );
         }
     }
 }
@@ -1128,35 +638,63 @@ fn test_orphan_edge_certification() {
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
     use std::collections::HashSet;
+    use std::time::Instant;
+    use super::{build_cells_data_flat, CubeMapGridKnn, TerminationConfig, merge_close_points, MIN_BISECTOR_DISTANCE};
 
     println!("\n=== Orphan Edge vs Certification Correlation ===\n");
 
-    // Known failing cases from strict_large_counts
-    let configs = [
-        // (n, seed) - these are cases that produce orphan edges with default k
-        (100_000usize, 12346u64),
-        (100_000, 12345), // control case - should have no orphan edges
+    // Test configurations: (n, seed, use_lloyd, description)
+    // Config 1: Fib + jitter + merge only (less well-behaved, no relaxation)
+    // Config 2: Fib + jitter + Lloyd + merge (more evenly spaced)
+    let configs: &[(usize, u64, bool, &str)] = &[
+        // Without Lloyd relaxation - raw jittered fibonacci with merge
+        (100_000, 12345, false, "fib+jitter+merge"),
+        (100_000, 12346, false, "fib+jitter+merge"),
+        // With Lloyd relaxation - well-spaced points
+        (100_000, 12345, true, "fib+jitter+lloyd+merge"),
+        (100_000, 12346, true, "fib+jitter+lloyd+merge"),
     ];
 
-    for &(n, seed) in &configs {
+    for &(n, seed, use_lloyd, desc) in configs {
+        let t_start = Instant::now();
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
         let mean_spacing = (4.0 * std::f32::consts::PI / n as f32).sqrt();
         let jitter = mean_spacing * 0.25;
         let mut points = fibonacci_sphere_points_with_rng(n, jitter, &mut rng);
 
-        // Use same Lloyd relaxation as strict_large_counts (for n >= 100k)
-        lloyd_relax_kmeans(&mut points, 2, 15, &mut rng);
+        // Optionally apply Lloyd relaxation
+        let lloyd_ms = if use_lloyd {
+            let t0 = Instant::now();
+            lloyd_relax_kmeans(&mut points, 2, 15, &mut rng);
+            t0.elapsed().as_secs_f64() * 1000.0
+        } else {
+            0.0
+        };
 
-        // Check min distance
+        // Apply merge to remove points that are too close
+        let t0 = Instant::now();
+        let knn_for_merge = CubeMapGridKnn::new(&points);
+        let merge_result = merge_close_points(&points, MIN_BISECTOR_DISTANCE, &knn_for_merge);
+        let merge_ms = t0.elapsed().as_secs_f64() * 1000.0;
+
+        // Use effective points after merge
+        let points = if merge_result.num_merged > 0 {
+            merge_result.effective_points
+        } else {
+            points
+        };
+        let n_effective = points.len();
+
+        // Check min distance after merge
         let min_dist = check_min_point_distance(&points);
         let min_spacing = min_spacing_threshold();
+        println!("\n--- {} (n={}, seed={}) ---", desc, n, seed);
+        println!("  points: {} -> {} (merged {}), min_dist={:.2e} (threshold={:.2e})",
+                 n, n_effective, merge_result.num_merged, min_dist, min_spacing);
         if min_dist < min_spacing {
-            println!("n={} seed={}: SKIP (min_dist={:.2e} < threshold)", n, seed, min_dist);
+            println!("  SKIP (min_dist below threshold)");
             continue;
         }
-
-        // Build flat data to get cert-failed vertex positions
-        use super::{build_cells_data_flat, CubeMapGridKnn, TerminationConfig};
 
         let knn = CubeMapGridKnn::new(&points);
         let termination = TerminationConfig { enabled: true, check_start: 10, check_step: 6 };
@@ -1174,16 +712,20 @@ fn test_orphan_edge_certification() {
         }
 
         // Build voronoi separately for validation (duplicates work but simpler for test)
+        let t0 = Instant::now();
         let voronoi = super::compute_voronoi_gpu_style(&points, DEFAULT_K);
+        let voronoi_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
         // Run strict validation to get actual orphan edge indices
+        let t0 = Instant::now();
         let eps_lo = super::SUPPORT_EPS_ABS;
         let eps_hi = eps_lo * 5.0;
         let strict = validate_voronoi_strict(&voronoi, eps_lo, eps_hi, None);
+        let validate_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
-        print!("n={:>6} seed={}: ", n, seed);
-        print!(
-            "orphan_edges={} cert_failed={} cert_checked_cells={} cert_failed_cells={} cert_checked_vertices={} cert_failed_vertices={} ",
+        println!("  timing: lloyd={:.0}ms merge={:.0}ms voronoi={:.0}ms validate={:.0}ms",
+                 lloyd_ms, merge_ms, voronoi_ms, validate_ms);
+        print!("  result: orphan_edges={} cert_failed={} cert_checked_cells={} cert_failed_cells={} cert_checked_vertices={} cert_failed_vertices={} ",
             strict.orphan_edges.len(),
             cert_failed_positions.len(),
             flat_stats.support_cert_checked,
@@ -1244,39 +786,57 @@ fn test_orphan_edge_certification() {
                     return Some(*result);
                 }
 
-                let adaptive = super::AdaptiveKConfig {
-                    initial_k: 12.min(DEFAULT_K),
-                    step_k: 12,
-                    track_limit: DEFAULT_K,
-                    fallback_k: if DEFAULT_K < 48 { 48 } else { 0 },
-                };
-                let use_resumable = adaptive.step_k > 0 && adaptive.track_limit > adaptive.initial_k;
-                let max_capacity = adaptive.track_limit.max(adaptive.fallback_k);
-
+                let initial_k = DEFAULT_K;
                 let mut scratch = knn.make_scratch();
-                let mut neighbors = Vec::with_capacity(max_capacity);
+                let mut neighbors = Vec::with_capacity(initial_k.max(64));
                 let mut builder = super::IncrementalCellBuilder::new(cell_idx, points[cell_idx]);
 
-                let mut cell_neighbors_processed = 0usize;
                 let mut terminated = false;
-                let mut current_k = adaptive.initial_k;
-                let mut _used_fallback = false;
-                let mut full_scan_done = false;
 
-                if use_resumable {
-                    neighbors.clear();
-                    let mut status = knn.knn_resumable_into(
-                        points[cell_idx], cell_idx, current_k, adaptive.track_limit, &mut scratch, &mut neighbors
-                    );
+                // Phase 1: Initial k-NN query
+                neighbors.clear();
+                knn.knn_into(points[cell_idx], cell_idx, initial_k, &mut scratch, &mut neighbors);
 
-                    loop {
-                        for idx in cell_neighbors_processed..neighbors.len() {
-                            let neighbor_idx = neighbors[idx];
+                for (idx, &neighbor_idx) in neighbors.iter().enumerate() {
+                    let neighbor = points[neighbor_idx];
+                    builder.clip(neighbor_idx, neighbor);
+
+                    if termination.should_check(idx + 1) && builder.vertex_count() >= 3 {
+                        let neighbor_cos = points[cell_idx].dot(neighbor).clamp(-1.0, 1.0);
+                        if builder.can_terminate(neighbor_cos) {
+                            terminated = true;
+                            break;
+                        }
+                    }
+                }
+
+                // Phase 2: Use within_cos for remaining candidates if not terminated
+                if termination.enabled && !terminated && builder.vertex_count() >= 3 {
+                    let min_cos = builder.min_vertex_cos();
+                    if min_cos > 0.0 {
+                        use super::constants::EPS_TERMINATION_MARGIN;
+                        let eps_cell = super::SUPPORT_VERTEX_ANGLE_EPS + super::SUPPORT_CLUSTER_RADIUS_ANGLE;
+                        let sin_theta = (1.0 - min_cos * min_cos).max(0.0).sqrt();
+                        let (sin_eps, cos_eps) = (eps_cell as f32).sin_cos();
+                        let cos_theta_eps = min_cos * cos_eps - sin_theta * sin_eps;
+                        let cos_2max = 2.0 * cos_theta_eps * cos_theta_eps - 1.0;
+                        let termination_margin = EPS_TERMINATION_MARGIN
+                            + super::SUPPORT_CERT_MARGIN_ABS as f32
+                            + 2.0 * super::SUPPORT_EPS_ABS as f32
+                            + 2.0 * super::support_cluster_drift_dot() as f32;
+                        let required_cos = cos_2max - termination_margin;
+
+                        neighbors.clear();
+                        knn.within_cos_into(points[cell_idx], cell_idx, required_cos, &mut scratch, &mut neighbors);
+
+                        for &neighbor_idx in &neighbors {
+                            if builder.has_neighbor(neighbor_idx) {
+                                continue;
+                            }
                             let neighbor = points[neighbor_idx];
                             builder.clip(neighbor_idx, neighbor);
-                            cell_neighbors_processed += 1;
 
-                            if termination.should_check(cell_neighbors_processed) && builder.vertex_count() >= 3 {
+                            if builder.vertex_count() >= 3 {
                                 let neighbor_cos = points[cell_idx].dot(neighbor).clamp(-1.0, 1.0);
                                 if builder.can_terminate(neighbor_cos) {
                                     terminated = true;
@@ -1284,98 +844,19 @@ fn test_orphan_edge_certification() {
                                 }
                             }
                         }
-
-                        if terminated {
-                            break;
-                        }
-
-                        if status.is_exhausted() || current_k >= adaptive.track_limit {
-                            if !terminated && adaptive.fallback_k > adaptive.track_limit && !_used_fallback {
-                                _used_fallback = true;
-                                neighbors.clear();
-                                knn.knn_into(
-                                    points[cell_idx], cell_idx, adaptive.fallback_k, &mut scratch, &mut neighbors
-                                );
-
-                                for idx in 0..neighbors.len() {
-                                    let neighbor_idx = neighbors[idx];
-                                    if builder.has_neighbor(neighbor_idx) {
-                                        continue;
-                                    }
-                                    let neighbor = points[neighbor_idx];
-                                    builder.clip(neighbor_idx, neighbor);
-                                    cell_neighbors_processed += 1;
-
-                                    if termination.should_check(cell_neighbors_processed) && builder.vertex_count() >= 3 {
-                                        let neighbor_cos = points[cell_idx].dot(neighbor).clamp(-1.0, 1.0);
-                                        if builder.can_terminate(neighbor_cos) {
-                                            terminated = true;
-                                            break;
-                                        }
-                                    }
-                                }
-                                if termination.enabled
-                                    && !terminated
-                                    && adaptive.fallback_k < points.len().saturating_sub(1)
-                                {
-                                    let already_clipped: HashSet<usize> =
-                                        builder.neighbor_indices_iter().collect();
-                                    for (p_idx, &p) in points.iter().enumerate() {
-                                        if p_idx == cell_idx || already_clipped.contains(&p_idx) {
-                                            continue;
-                                        }
-                                        builder.clip(p_idx, p);
-                                        cell_neighbors_processed += 1;
-                                        if builder.is_dead() {
-                                            break;
-                                        }
-                                    }
-                                    full_scan_done = true;
-                                }
-                                break;
-                            }
-                            break;
-                        }
-
-                        current_k = (current_k + adaptive.step_k).min(adaptive.track_limit);
-                        status = knn.knn_resume_into(
-                            points[cell_idx], cell_idx, current_k, &mut scratch, &mut neighbors
-                        );
-                    }
-                } else {
-                    neighbors.clear();
-                    knn.knn_into(
-                        points[cell_idx], cell_idx, current_k, &mut scratch, &mut neighbors
-                    );
-
-                    for idx in 0..neighbors.len() {
-                        let neighbor_idx = neighbors[idx];
-                        let neighbor = points[neighbor_idx];
-                        builder.clip(neighbor_idx, neighbor);
-                        cell_neighbors_processed = idx + 1;
-
-                        if termination.should_check(cell_neighbors_processed) && builder.vertex_count() >= 3 {
-                            let neighbor_cos = points[cell_idx].dot(neighbor).clamp(-1.0, 1.0);
-                            if builder.can_terminate(neighbor_cos) {
-                                terminated = true;
-                                break;
-                            }
-                        }
                     }
                 }
 
+                // Dead cell recovery
                 if builder.is_dead() {
                     let recovered = builder.try_reseed_best();
                     if !recovered {
-                        if !full_scan_done {
-                            builder.reset(cell_idx, points[cell_idx]);
-                            for (p_idx, &p) in points.iter().enumerate() {
-                                if p_idx == cell_idx {
-                                    continue;
-                                }
-                                builder.clip(p_idx, p);
+                        builder.reset(cell_idx, points[cell_idx]);
+                        for (p_idx, &p) in points.iter().enumerate() {
+                            if p_idx == cell_idx {
+                                continue;
                             }
-                            full_scan_done = true;
+                            builder.clip(p_idx, p);
                         }
                         let recovered = if builder.is_dead() {
                             builder.try_reseed_best()
@@ -1388,9 +869,7 @@ fn test_orphan_edge_certification() {
                     }
                 }
 
-                let _ = cell_neighbors_processed;
                 let _ = terminated;
-                let _ = full_scan_done;
                 let min_cos = match builder.min_vertex_generator_dot() {
                     Some(v) => v,
                     None => return None,
@@ -1499,6 +978,7 @@ fn test_orphan_edge_certification() {
             // For each orphan edge, report the minimum distance of the two endpoints
             let mut matches = 0usize;
             let mut near_misses = 0usize;
+            let t_loop = Instant::now();
 
             for &(v1, v2) in &strict.orphan_edges {
                 let pos_a = voronoi.vertices[v1];
@@ -1583,9 +1063,12 @@ fn test_orphan_edge_certification() {
                 }
             }
 
-            println!("  Summary: {} exact matches, {} near misses out of {} orphan edges",
-                matches, near_misses, strict.orphan_edges.len());
+            let loop_ms = t_loop.elapsed().as_secs_f64() * 1000.0;
+            println!("  Summary: {} exact matches, {} near misses out of {} orphan edges (analysis={:.0}ms)",
+                matches, near_misses, strict.orphan_edges.len(), loop_ms);
         }
+        let total_ms = t_start.elapsed().as_secs_f64() * 1000.0;
+        println!("  Total time: {:.0}ms", total_ms);
     }
     println!();
 }
