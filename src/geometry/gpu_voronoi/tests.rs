@@ -1161,6 +1161,7 @@ fn test_orphan_edge_certification() {
         let knn = CubeMapGridKnn::new(&points);
         let termination = TerminationConfig { enabled: true, check_start: 10, check_step: 6 };
         let flat_data = build_cells_data_flat(&points, &knn, DEFAULT_K, termination);
+        let flat_stats = flat_data.stats();
 
         // Collect positions of cert-failed vertices (pre-dedup)
         let mut cert_failed_positions: Vec<(glam::Vec3, u8)> = Vec::new();
@@ -1181,12 +1182,117 @@ fn test_orphan_edge_certification() {
         let strict = validate_voronoi_strict(&voronoi, eps_lo, eps_hi, None);
 
         print!("n={:>6} seed={}: ", n, seed);
-        print!("orphan_edges={} cert_failed={} ", strict.orphan_edges.len(), cert_failed_positions.len());
+        print!(
+            "orphan_edges={} cert_failed={} cert_checked_cells={} cert_failed_cells={} cert_checked_vertices={} cert_failed_vertices={} ",
+            strict.orphan_edges.len(),
+            cert_failed_positions.len(),
+            flat_stats.support_cert_checked,
+            flat_stats.support_cert_failed,
+            flat_stats.support_cert_checked_vertices,
+            flat_stats.support_cert_failed_vertices,
+        );
 
         if strict.orphan_edges.is_empty() {
             println!("(no orphan edges to analyze)");
         } else {
             println!();
+            strict.print_summary();
+
+            let tol = near_duplicate_threshold(n);
+            println!("  positional match tolerance: {:.2e}", tol);
+
+            // Build edge -> cells map for positional matching diagnostics.
+            // (This duplicates work done in strict validation but keeps the test self-contained.)
+            let mut edge_to_cells: std::collections::HashMap<(usize, usize), Vec<usize>> =
+                std::collections::HashMap::new();
+            for cell_idx in 0..voronoi.num_cells() {
+                let cell = voronoi.cell(cell_idx);
+                let m = cell.vertex_indices.len();
+                for i in 0..m {
+                    let a = cell.vertex_indices[i];
+                    let b = cell.vertex_indices[(i + 1) % m];
+                    if a == b {
+                        continue;
+                    }
+                    let edge = if a < b { (a, b) } else { (b, a) };
+                    edge_to_cells.entry(edge).or_default().push(cell_idx);
+                }
+            }
+
+            let mismatch_vertices: HashSet<usize> = strict.generator_mismatch_vertices.iter().copied().collect();
+            let support_lt3_vertices: HashSet<usize> = strict.support_lt3.iter().copied().collect();
+
+            let find_owner_cell = |v1: usize, v2: usize| -> Option<usize> {
+                for cell_idx in 0..voronoi.num_cells() {
+                    let cell = voronoi.cell(cell_idx);
+                    let n = cell.vertex_indices.len();
+                    for i in 0..n {
+                        let a = cell.vertex_indices[i];
+                        let b = cell.vertex_indices[(i + 1) % n];
+                        if (a == v1 && b == v2) || (a == v2 && b == v1) {
+                            return Some(cell_idx);
+                        }
+                    }
+                }
+                None
+            };
+
+            let nearest_other_vertex = |v_idx: usize| -> (usize, f32) {
+                let pos = voronoi.vertices[v_idx];
+                let mut best_idx = usize::MAX;
+                let mut best_dist = f32::MAX;
+                for (i, &p) in voronoi.vertices.iter().enumerate() {
+                    if i == v_idx {
+                        continue;
+                    }
+                    let d = (p - pos).length();
+                    if d < best_dist {
+                        best_dist = d;
+                        best_idx = i;
+                    }
+                }
+                (best_idx, best_dist)
+            };
+
+            let find_positional_edge_match = |v1: usize, v2: usize| -> Option<((usize, usize), f32)> {
+                let p1 = voronoi.vertices[v1];
+                let p2 = voronoi.vertices[v2];
+                let mut best: Option<((usize, usize), f32)> = None;
+                for (&(a, b), _) in &edge_to_cells {
+                    if (a == v1 && b == v2) || (a == v2 && b == v1) {
+                        continue;
+                    }
+                    let pa = voronoi.vertices[a];
+                    let pb = voronoi.vertices[b];
+                    let d_direct = (pa - p1).length().max((pb - p2).length());
+                    let d_swap = (pa - p2).length().max((pb - p1).length());
+                    let d = d_direct.min(d_swap);
+                    if d <= tol {
+                        if best.map(|(_, bd)| d < bd).unwrap_or(true) {
+                            best = Some(((a, b), d));
+                        }
+                    }
+                }
+                best
+            };
+
+            let cell_flags = |cell_idx: usize| -> Option<(u8, u8, u8, u8)> {
+                let mut base = 0usize;
+                for chunk in &flat_data.chunks {
+                    let len = chunk.counts.len();
+                    if cell_idx < base + len {
+                        let local = cell_idx - base;
+                        return Some((
+                            chunk.cell_terminated[local],
+                            chunk.cell_used_fallback[local],
+                            chunk.cell_full_scan_done[local],
+                            chunk.cell_candidates_complete[local],
+                        ));
+                    }
+                    base += len;
+                }
+                None
+            };
 
             // Helper to find nearest cert-failed vertex distance for a given position
             let find_nearest_cert_fail = |pos: glam::Vec3| -> (f32, Option<u8>) {
@@ -1209,6 +1315,9 @@ fn test_orphan_edge_certification() {
             for &(v1, v2) in &strict.orphan_edges {
                 let pos_a = voronoi.vertices[v1];
                 let pos_b = voronoi.vertices[v2];
+                let owner_cell = find_owner_cell(v1, v2);
+                let flags = owner_cell.and_then(|c| cell_flags(c));
+                let (terminated, used_fallback, full_scan, candidates_complete) = flags.unwrap_or((0, 0, 0, 0));
 
                 let (dist_a, reason_a) = find_nearest_cert_fail(pos_a);
                 let (dist_b, reason_b) = find_nearest_cert_fail(pos_b);
@@ -1238,6 +1347,39 @@ fn test_orphan_edge_certification() {
                 } else {
                     println!("    edge({},{}): NO MATCH (closer v{} dist={:.2e})",
                         v1, v2, closer_v, min_dist);
+                }
+
+                let v1_mismatch = mismatch_vertices.contains(&v1);
+                let v2_mismatch = mismatch_vertices.contains(&v2);
+                let v1_lt3 = support_lt3_vertices.contains(&v1);
+                let v2_lt3 = support_lt3_vertices.contains(&v2);
+                let (near1, near1_d) = nearest_other_vertex(v1);
+                let (near2, near2_d) = nearest_other_vertex(v2);
+                let positional_edge_match = find_positional_edge_match(v1, v2);
+                println!(
+                    "      owner_cell={:?} candidates_complete={} terminated={} used_fallback={} full_scan={} gen_mismatch(v1,v2)=({},{}) support_lt3(v1,v2)=({},{})",
+                    owner_cell,
+                    candidates_complete,
+                    terminated,
+                    used_fallback,
+                    full_scan,
+                    v1_mismatch as u8,
+                    v2_mismatch as u8,
+                    v1_lt3 as u8,
+                    v2_lt3 as u8,
+                );
+                println!(
+                    "      nearest_other(v1)=(v{} dist={:.2e}) nearest_other(v2)=(v{} dist={:.2e})",
+                    near1,
+                    near1_d,
+                    near2,
+                    near2_d,
+                );
+                if let Some(((a, b), d)) = positional_edge_match {
+                    let cells = edge_to_cells.get(&(a.min(b), a.max(b))).map(|v| v.len()).unwrap_or(0);
+                    println!("      positional_edge_match=edge({},{}) dist={:.2e} shared_by_cells={}", a, b, d, cells);
+                } else {
+                    println!("      positional_edge_match=none (tol={:.2e})", tol);
                 }
             }
 

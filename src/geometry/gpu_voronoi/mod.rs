@@ -51,6 +51,19 @@ pub(crate) struct FlatChunk {
     pub(crate) vertices: Vec<VertexData>,
     pub(crate) counts: Vec<u8>,
     pub(crate) support_data: Vec<u32>,
+    /// Per-cell flag: whether the cell terminated early.
+    #[allow(dead_code)]
+    pub(crate) cell_terminated: Vec<u8>,
+    /// Per-cell flag: whether the cell used the fallback k-NN query.
+    #[allow(dead_code)]
+    pub(crate) cell_used_fallback: Vec<u8>,
+    /// Per-cell flag: whether the cell performed a full scan over all generators.
+    #[allow(dead_code)]
+    pub(crate) cell_full_scan_done: Vec<u8>,
+    /// Per-cell flag: whether the neighbor candidate set is treated as complete
+    /// (i.e., support certification is eligible to run for this cell).
+    #[allow(dead_code)]
+    pub(crate) cell_candidates_complete: Vec<u8>,
     /// Total neighbors processed in this chunk (for stats).
     pub(crate) total_neighbors_processed: usize,
     /// Number of cells that terminated early in this chunk.
@@ -394,6 +407,10 @@ pub fn build_cells_data_flat_adaptive(
             let mut vertices = Vec::with_capacity(estimated_vertices);
             let mut counts = Vec::with_capacity(end - start);
             let mut support_data: Vec<u32> = Vec::with_capacity(estimated_vertices);
+            let mut cell_terminated: Vec<u8> = Vec::with_capacity(end - start);
+            let mut cell_used_fallback: Vec<u8> = Vec::with_capacity(end - start);
+            let mut cell_full_scan_done: Vec<u8> = Vec::with_capacity(end - start);
+            let mut cell_candidates_complete: Vec<u8> = Vec::with_capacity(end - start);
             let mut total_neighbors_processed = 0usize;
             let mut terminated_cells = 0usize;
             let mut fallback_unterminated = 0usize;
@@ -589,6 +606,10 @@ pub fn build_cells_data_flat_adaptive(
                     || (termination.enabled
                         && used_fallback
                         && adaptive.fallback_k >= points.len().saturating_sub(1));
+                cell_terminated.push(terminated as u8);
+                cell_used_fallback.push(used_fallback as u8);
+                cell_full_scan_done.push(full_scan_done as u8);
+                cell_candidates_complete.push(candidates_complete as u8);
                 let mut cert_checked = false;
                 let mut cert_failed = false;
                 let count = builder.get_vertices_into(
@@ -620,6 +641,10 @@ pub fn build_cells_data_flat_adaptive(
                 vertices,
                 counts,
                 support_data,
+                cell_terminated,
+                cell_used_fallback,
+                cell_full_scan_done,
+                cell_candidates_complete,
                 total_neighbors_processed,
                 terminated_cells,
                 fallback_unterminated,
