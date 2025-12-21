@@ -1,10 +1,10 @@
 //! Vertex deduplication for Voronoi cell construction.
 
 use glam::Vec3;
+use rustc_hash::FxHashMap;
 
 use crate::geometry::VoronoiCell;
-use super::{FlatCellsData, VERTEX_WELD_FRACTION, mean_generator_spacing_chord};
-use rustc_hash::FxHashMap;
+use super::{FlatCellsData, VertexKey};
 
 #[inline]
 pub fn bits_for_indices(max_index: usize) -> u32 {
@@ -17,286 +17,10 @@ pub fn pack_triplet_u128(triplet: [usize; 3], bits: u32) -> u128 {
     (triplet[0] as u128) | ((triplet[1] as u128) << bits) | ((triplet[2] as u128) << (2 * bits))
 }
 
-#[derive(Clone)]
-struct DisjointSet {
-    parent: Vec<usize>,
-    size: Vec<u32>,
-}
-
-impl DisjointSet {
-    fn new(n: usize) -> Self {
-        Self {
-            parent: (0..n).collect(),
-            size: vec![1u32; n],
-        }
-    }
-
-    fn find(&mut self, x: usize) -> usize {
-        let mut x = x;
-        while self.parent[x] != x {
-            self.parent[x] = self.parent[self.parent[x]];
-            x = self.parent[x];
-        }
-        x
-    }
-
-    fn union(&mut self, a: usize, b: usize) -> bool {
-        let mut a = self.find(a);
-        let mut b = self.find(b);
-        if a == b {
-            return false;
-        }
-        if self.size[a] < self.size[b] {
-            std::mem::swap(&mut a, &mut b);
-        }
-        self.parent[b] = a;
-        self.size[a] += self.size[b];
-        true
-    }
-}
-
-/// Heuristic weld distance based on mean generator spacing.
-#[inline]
-fn default_weld_distance(num_points: usize) -> f32 {
-    mean_generator_spacing_chord(num_points) * VERTEX_WELD_FRACTION
-}
-
-/// Parallel sort-based vertex welding.
-/// Uses sorting + binary search instead of hash map for better cache locality
-/// when cells are sparse (nearly 1:1 with vertices).
-fn weld_vertices_by_distance(
-    vertices: &mut [Vec3],
-    cell_indices: &mut [usize],
-    weld_distance: f32,
-    print_timing: bool,
-) -> usize {
-    use rayon::prelude::*;
-    use std::time::Instant;
-
-    if weld_distance <= 0.0 || vertices.len() < 2 {
-        return 0;
-    }
-
-    let t0 = Instant::now();
-
-    let n = vertices.len();
-    let weld_distance_sq = weld_distance * weld_distance;
-    let inv_cell_size = 1.0 / weld_distance;
-
-    #[inline]
-    fn grid_cell(p: Vec3, inv_cell_size: f32) -> (i32, i32, i32) {
-        (
-            (p.x * inv_cell_size).floor() as i32,
-            (p.y * inv_cell_size).floor() as i32,
-            (p.z * inv_cell_size).floor() as i32,
-        )
-    }
-
-    // Sort-based approach: compute grid cells, sort by cell, then scan for pairs
-    // This avoids hash map overhead when cells are sparse (nearly 1:1 with vertices)
-
-    // Phase 1: Compute grid cell for each vertex (parallel)
-    let mut sorted_indices: Vec<(u64, u32)> = (0..n as u32)
-        .into_par_iter()
-        .map(|i| {
-            let p = vertices[i as usize];
-            let (cx, cy, cz) = grid_cell(p, inv_cell_size);
-            // Pack cell coords into u64 for sorting (offset to handle negatives)
-            let key = ((cx as i64 + i32::MAX as i64) as u64) << 42
-                    | ((cy as i64 + i32::MAX as i64) as u64) << 21
-                    | ((cz as i64 + i32::MAX as i64) as u64);
-            (key, i)
-        })
-        .collect();
-
-    let t1 = Instant::now();
-
-    // Phase 2: Sort by grid cell
-    sorted_indices.par_sort_unstable_by_key(|&(key, _)| key);
-
-    let t2 = Instant::now();
-
-    // Phase 3: Find pairs by scanning sorted list
-    // Vertices in the same cell are adjacent after sorting
-    // For cross-cell pairs, we need to check neighbors - use a sliding window approach
-
-    // First, find cell boundaries
-    let mut cell_starts: Vec<usize> = Vec::with_capacity(n / 4);
-    cell_starts.push(0);
-    for i in 1..n {
-        if sorted_indices[i].0 != sorted_indices[i - 1].0 {
-            cell_starts.push(i);
-        }
-    }
-    cell_starts.push(n); // sentinel
-    let num_cells = cell_starts.len() - 1;
-
-    let t3 = Instant::now();
-
-    // For each cell, check pairs within cell and with neighboring cells
-    // Use parallel iteration over cells
-    let pairs: Vec<(usize, usize)> = (0..num_cells)
-        .into_par_iter()
-        .flat_map(|cell_idx| {
-            let start = cell_starts[cell_idx];
-            let end = cell_starts[cell_idx + 1];
-            let mut local_pairs = Vec::new();
-
-            // Get the cell key to find neighbors
-            let cell_key = sorted_indices[start].0;
-            let cx = ((cell_key >> 42) as i64 - i32::MAX as i64) as i32;
-            let cy = (((cell_key >> 21) & 0x1FFFFF) as i64 - i32::MAX as i64) as i32;
-            let cz = ((cell_key & 0x1FFFFF) as i64 - i32::MAX as i64) as i32;
-
-            // Pairs within this cell
-            for i in start..end {
-                let vi = sorted_indices[i].1 as usize;
-                let p_i = vertices[vi];
-                for j in (i + 1)..end {
-                    let vj = sorted_indices[j].1 as usize;
-                    if (vertices[vj] - p_i).length_squared() <= weld_distance_sq {
-                        local_pairs.push((vi, vj));
-                    }
-                }
-            }
-
-            // Check neighboring cells (13 of 26 neighbors to avoid duplicate pairs)
-            // Only check cells with "larger" keys
-            for dx in 0i32..=1 {
-                for dy in -1i32..=1 {
-                    for dz in -1i32..=1 {
-                        if dx == 0 && dy < 0 {
-                            continue;
-                        }
-                        if dx == 0 && dy == 0 && dz <= 0 {
-                            continue;
-                        }
-                        let ncx = cx + dx;
-                        let ncy = cy + dy;
-                        let ncz = cz + dz;
-                        let neighbor_key = ((ncx as i64 + i32::MAX as i64) as u64) << 42
-                                         | ((ncy as i64 + i32::MAX as i64) as u64) << 21
-                                         | ((ncz as i64 + i32::MAX as i64) as u64);
-
-                        // Binary search for neighbor cell
-                        if let Ok(pos) = sorted_indices.binary_search_by_key(&neighbor_key, |&(k, _)| k) {
-                            // Find cell boundaries
-                            let mut nstart = pos;
-                            while nstart > 0 && sorted_indices[nstart - 1].0 == neighbor_key {
-                                nstart -= 1;
-                            }
-                            let mut nend = pos + 1;
-                            while nend < n && sorted_indices[nend].0 == neighbor_key {
-                                nend += 1;
-                            }
-
-                            // Check all pairs between cells
-                            for i in start..end {
-                                let vi = sorted_indices[i].1 as usize;
-                                let p_i = vertices[vi];
-                                for j in nstart..nend {
-                                    let vj = sorted_indices[j].1 as usize;
-                                    if (vertices[vj] - p_i).length_squared() <= weld_distance_sq {
-                                        local_pairs.push((vi, vj));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            local_pairs
-        })
-        .collect();
-
-    let t4 = Instant::now();
-
-    if pairs.is_empty() {
-        if print_timing {
-            eprintln!(
-                "    [weld] compute_keys: {:.1}ms, sort: {:.1}ms, find_bounds: {:.1}ms, find_pairs: {:.1}ms (0 pairs, {} cells)",
-                (t1 - t0).as_secs_f64() * 1000.0,
-                (t2 - t1).as_secs_f64() * 1000.0,
-                (t3 - t2).as_secs_f64() * 1000.0,
-                (t4 - t3).as_secs_f64() * 1000.0,
-                num_cells,
-            );
-        }
-        return 0;
-    }
-
-    let num_pairs = pairs.len();
-
-    // Phase 4: Sequential union-find (cheap now that we have the pairs)
-    let mut dsu = DisjointSet::new(n);
-    let mut unions = 0usize;
-    for (i, j) in pairs {
-        unions += dsu.union(i, j) as usize;
-    }
-
-    let t5 = Instant::now();
-
-    if unions == 0 {
-        return 0;
-    }
-
-    // Average welded vertices to keep results stable and on-sphere.
-    let mut sums = vec![Vec3::ZERO; n];
-    let mut counts = vec![0u32; n];
-    for i in 0..n {
-        let root = dsu.find(i);
-        sums[root] += vertices[i];
-        counts[root] += 1;
-    }
-    for i in 0..n {
-        if counts[i] == 0 {
-            continue;
-        }
-        let avg = sums[i] / counts[i] as f32;
-        let len_sq = avg.length_squared();
-        if len_sq > 0.0 {
-            vertices[i] = avg / len_sq.sqrt();
-        }
-    }
-
-    let t6 = Instant::now();
-
-    // Precompute all roots (sequential, but DSU find is nearly O(1))
-    let roots: Vec<usize> = (0..n).map(|i| dsu.find(i)).collect();
-
-    // Update cell indices in parallel
-    cell_indices.par_iter_mut().for_each(|idx| {
-        *idx = roots[*idx];
-    });
-
-    let t7 = Instant::now();
-
-    if print_timing {
-        eprintln!(
-            "    [weld] compute_keys: {:.1}ms, sort: {:.1}ms, find_bounds: {:.1}ms, find_pairs: {:.1}ms, union: {:.1}ms, avg+update: {:.1}ms",
-            (t1 - t0).as_secs_f64() * 1000.0,
-            (t2 - t1).as_secs_f64() * 1000.0,
-            (t3 - t2).as_secs_f64() * 1000.0,
-            (t4 - t3).as_secs_f64() * 1000.0,
-            (t5 - t4).as_secs_f64() * 1000.0,
-            (t7 - t5).as_secs_f64() * 1000.0,
-        );
-        eprintln!(
-            "    [weld] n={}, cells={}, pairs={}, unions={}",
-            n, num_cells, num_pairs, unions,
-        );
-    }
-
-    unions
-}
-
 /// Hash-based vertex deduplication for flat chunk data.
-/// Performs a global vertex weld after triplet-based deduplication to merge
-/// near-duplicate vertices.
+/// Uses triplet keys for the common case and a support-list hash map for degeneracies.
 pub fn dedup_vertices_hash_flat(
     flat_data: FlatCellsData,
-    points: &[Vec3],
     print_timing: bool,
 ) -> (Vec<Vec3>, Vec<VoronoiCell>, Vec<usize>) {
     use std::time::Instant;
@@ -327,6 +51,7 @@ pub fn dedup_vertices_hash_flat(
 
     let mut heads: Vec<u32> = vec![NIL; num_points];
     let mut nodes: Vec<TripletNode> = Vec::with_capacity(expected_vertices);
+    let mut support_map: FxHashMap<Vec<u32>, usize> = FxHashMap::default();
 
     let t1 = Instant::now();
 
@@ -348,30 +73,48 @@ pub fn dedup_vertices_hash_flat(
             let base = write_idx;
 
             for local_i in 0..count {
-                let (triplet, pos) = chunk.vertices[chunk_vert_idx + local_i];
-                let a = triplet[0] as usize;
-                let bc = pack_bc(triplet[1], triplet[2]);
-                // Linear scan through linked list for cell `a`
-                let mut node_id = heads[a];
-                let mut found_idx: Option<u32> = None;
-                while node_id != NIL {
-                    let node = &nodes[node_id as usize];
-                    if node.bc == bc {
-                        found_idx = Some(node.idx);
-                        break;
-                    }
-                    node_id = node.next;
-                }
+                let (key, pos) = chunk.vertices[chunk_vert_idx + local_i];
+                let idx = match key {
+                    VertexKey::Triplet(triplet) => {
+                        let a = triplet[0] as usize;
+                        let bc = pack_bc(triplet[1], triplet[2]);
+                        // Linear scan through linked list for cell `a`
+                        let mut node_id = heads[a];
+                        let mut found_idx: Option<u32> = None;
+                        while node_id != NIL {
+                            let node = &nodes[node_id as usize];
+                            if node.bc == bc {
+                                found_idx = Some(node.idx);
+                                break;
+                            }
+                            node_id = node.next;
+                        }
 
-                let idx = match found_idx {
-                    Some(idx) => idx as usize,
-                    None => {
-                        let idx = all_vertices.len();
-                        all_vertices.push(pos);
-                        let new_id = nodes.len() as u32;
-                        nodes.push(TripletNode { bc, idx: idx as u32, next: heads[a] });
-                        heads[a] = new_id;
-                        idx
+                        match found_idx {
+                            Some(idx) => idx as usize,
+                            None => {
+                                let idx = all_vertices.len();
+                                all_vertices.push(pos);
+                                let new_id = nodes.len() as u32;
+                                nodes.push(TripletNode { bc, idx: idx as u32, next: heads[a] });
+                                heads[a] = new_id;
+                                idx
+                            }
+                        }
+                    }
+                    VertexKey::Support { start, len } => {
+                        let start = start as usize;
+                        let len = len as usize;
+                        debug_assert!(start + len <= chunk.support_data.len(), "support key out of bounds");
+                        let support = &chunk.support_data[start..start + len];
+                        if let Some(&idx) = support_map.get(support) {
+                            idx
+                        } else {
+                            let idx = all_vertices.len();
+                            all_vertices.push(pos);
+                            support_map.insert(support.to_vec(), idx);
+                            idx
+                        }
                     }
                 };
                 cell_indices[base + local_i] = idx;
@@ -388,12 +131,9 @@ pub fn dedup_vertices_hash_flat(
 
     let t2 = Instant::now();
 
-    let weld_distance = default_weld_distance(points.len());
-    let weld_unions = weld_vertices_by_distance(&mut all_vertices, &mut cell_indices, weld_distance, print_timing);
-    let t3 = Instant::now();
-
+    // Deduplicate cell indices (removes consecutive duplicates after remapping)
     let (deduped_cells, deduped_indices) = deduplicate_cell_indices(&cells, &cell_indices);
-    let t4 = Instant::now();
+    let t3 = Instant::now();
 
     if print_timing {
         let mut pre_lt3 = 0usize;
@@ -413,13 +153,11 @@ pub fn dedup_vertices_hash_flat(
             }
         }
         eprintln!(
-            "  [dedup-flat] setup: {:.1}ms, lookup: {:.1}ms, weld: {:.1}ms, dedup_cells: {:.1}ms (weld_dist={:.2e}, unions={})",
+            "  [dedup-flat] setup: {:.1}ms, lookup: {:.1}ms, dedup_cells: {:.1}ms (support_keys={})",
             (t1 - t0).as_secs_f64() * 1000.0,
             (t2 - t1).as_secs_f64() * 1000.0,
             (t3 - t2).as_secs_f64() * 1000.0,
-            (t4 - t3).as_secs_f64() * 1000.0,
-            weld_distance,
-            weld_unions
+            support_map.len()
         );
         eprintln!(
             "  [dedup-flat] pre_lt3={}, post_lt3={}, over_merged={}",

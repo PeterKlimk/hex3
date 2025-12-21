@@ -1,17 +1,102 @@
 //! Cell building types and algorithms for spherical Voronoi computation.
 
-use glam::Vec3;
+use glam::{DVec3, Vec3};
 
-/// Vertex data: (triplet key, position). Uses u32 indices to save space.
-pub type VertexData = ([u32; 3], Vec3);
+use super::constants::{
+    EPS_PLANE_CLIP,
+    EPS_PLANE_CONDITION,
+    EPS_PLANE_CONTAINS,
+    EPS_PLANE_PARALLEL,
+    EPS_TERMINATION_MARGIN,
+    MIN_BISECTOR_DISTANCE,
+    SUPPORT_CERT_MARGIN_ABS,
+    SUPPORT_EPS_ABS,
+    SUPPORT_CLUSTER_RADIUS_ANGLE,
+    support_cluster_drift_dot,
+};
+
+/// Vertex key for deduplication (fast triplet or full support set).
+#[derive(Debug, Clone, Copy)]
+pub enum VertexKey {
+    Triplet([u32; 3]),
+    Support { start: u32, len: u8 },
+}
+
+/// Vertex data: (key, position). Uses u32 indices to save space.
+pub type VertexData = (VertexKey, Vec3);
 /// Vertex list for a single cell.
 pub type VertexList = Vec<VertexData>;
 
-// Epsilon values for numerical stability
-pub(crate) const EPS_PLANE_CONTAINS: f32 = 1e-7;
-pub(crate) const EPS_PLANE_CLIP: f32 = 1e-7;
-pub(crate) const EPS_PLANE_PARALLEL: f32 = 1e-6;
-pub(crate) const EPS_TERMINATION_MARGIN: f32 = 1e-7;
+// Epsilon values are defined in constants.rs.
+
+pub struct GapSampler {
+    count: usize,
+    min: f64,
+    sample: Vec<f64>,
+    limit: usize,
+    rng: u64,
+}
+
+impl GapSampler {
+    pub fn new(limit: usize, seed: u64) -> Self {
+        let seed = if seed == 0 { 0x9E37_79B9_7F4A_7C15 } else { seed };
+        Self {
+            count: 0,
+            min: f64::INFINITY,
+            sample: Vec::with_capacity(limit),
+            limit,
+            rng: seed,
+        }
+    }
+
+    #[inline]
+    pub(crate) fn record(&mut self, gap: f64) {
+        if !gap.is_finite() {
+            return;
+        }
+        self.count += 1;
+        if gap < self.min {
+            self.min = gap;
+        }
+        if self.limit == 0 {
+            return;
+        }
+        if self.sample.len() < self.limit {
+            self.sample.push(gap);
+            return;
+        }
+        let idx = (self.next_u64() % self.count as u64) as usize;
+        if idx < self.limit {
+            self.sample[idx] = gap;
+        }
+    }
+
+    #[inline]
+    pub(crate) fn count(&self) -> usize {
+        self.count
+    }
+
+    #[inline]
+    pub(crate) fn min(&self) -> f64 {
+        self.min
+    }
+
+    #[inline]
+    pub(crate) fn sample(&self) -> &[f64] {
+        &self.sample
+    }
+
+    #[inline]
+    fn next_u64(&mut self) -> u64 {
+        // xorshift64
+        let mut x = self.rng;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        self.rng = x;
+        x
+    }
+}
 
 /// Maximum number of neighbors to consider per cell.
 pub const DEFAULT_K: usize = 24;
@@ -55,6 +140,7 @@ struct CellVertex {
     pos: Vec3,
     plane_a: usize,
     plane_b: usize,
+    ill_conditioned: bool,
 }
 
 /// Incremental cell builder using ordered polygon clipping.
@@ -76,6 +162,89 @@ pub struct IncrementalCellBuilder {
 }
 
 impl IncrementalCellBuilder {
+    #[inline]
+    fn canonical_vertex_dir(
+        &self,
+        points: &[Vec3],
+        v: &CellVertex,
+    ) -> (DVec3, f64, bool) {
+        #[inline]
+        fn angle_between_unit(a: DVec3, b: DVec3) -> f64 {
+            let dot = a.dot(b).clamp(-1.0, 1.0);
+            dot.acos()
+        }
+
+        let gen = points[self.generator_idx];
+        let na_idx = self.neighbor_indices[v.plane_a];
+        let nb_idx = self.neighbor_indices[v.plane_b];
+        let na = points[na_idx];
+        let nb = points[nb_idx];
+
+        // Treat the f32 positions as canonical (no renormalization) to stay
+        // consistent with the f32 plane normals used during clipping.
+        let g64 = DVec3::new(gen.x as f64, gen.y as f64, gen.z as f64);
+        let na64 = DVec3::new(na.x as f64, na.y as f64, na.z as f64);
+        let nb64 = DVec3::new(nb.x as f64, nb.y as f64, nb.z as f64);
+
+        let n_a = (g64 - na64).normalize();
+        let n_b = (g64 - nb64).normalize();
+        let cross = n_a.cross(n_b);
+        let len = cross.length();
+
+        let mut ill_conditioned = v.ill_conditioned;
+        if len < EPS_PLANE_PARALLEL as f64 {
+            ill_conditioned = true;
+        }
+
+        let mut v64 = if len > 0.0 {
+            cross / len
+        } else {
+            DVec3::new(v.pos.x as f64, v.pos.y as f64, v.pos.z as f64).normalize()
+        };
+
+        let ref_sum = g64 + na64 + nb64;
+        let ref_dir = if ref_sum.length_squared() > 0.0 {
+            ref_sum.normalize()
+        } else {
+            g64
+        };
+        if v64.dot(ref_dir) < 0.0 {
+            v64 = -v64;
+        }
+
+        let v32 = {
+            let v32 = DVec3::new(v.pos.x as f64, v.pos.y as f64, v.pos.z as f64);
+            if v32.length_squared() > 0.0 {
+                v32.normalize()
+            } else {
+                v64
+            }
+        };
+        let angle = angle_between_unit(v64, v32);
+        let drift_angle = if angle.is_finite() {
+            if angle > SUPPORT_CLUSTER_RADIUS_ANGLE {
+                ill_conditioned = true;
+            }
+            angle.min(SUPPORT_CLUSTER_RADIUS_ANGLE)
+        } else {
+            ill_conditioned = true;
+            SUPPORT_CLUSTER_RADIUS_ANGLE
+        };
+
+        // Heuristic plane-error bound (kept for comparison).
+        /*
+        let na_f32 = self.planes[v.plane_a].normal;
+        let nb_f32 = self.planes[v.plane_b].normal;
+        let na_f32 = DVec3::new(na_f32.x as f64, na_f32.y as f64, na_f32.z as f64).normalize();
+        let nb_f32 = DVec3::new(nb_f32.x as f64, nb_f32.y as f64, nb_f32.z as f64).normalize();
+        let plane_err = angle_between_unit(na_f32, n_a) + angle_between_unit(nb_f32, n_b);
+        let r_est = plane_err / len;
+        let drift_heur = 2.0 * (r_est * 0.5).sin();
+        */
+
+        let drift = 2.0 * (drift_angle * 0.5).sin();
+        (v64, drift, ill_conditioned)
+    }
     pub fn new(generator_idx: usize, generator: Vec3) -> Self {
         Self {
             generator_idx,
@@ -123,7 +292,7 @@ impl IncrementalCellBuilder {
         plane_a: usize,
         plane_b: usize,
         plane_c: usize,
-    ) -> Option<Vec3> {
+    ) -> Option<(Vec3, bool)> {
         let n_a = self.planes[plane_a].normal;
         let n_b = self.planes[plane_b].normal;
         let cross = n_a.cross(n_b);
@@ -131,6 +300,7 @@ impl IncrementalCellBuilder {
         if len < EPS_PLANE_PARALLEL {
             return None;
         }
+        let ill_conditioned = len < EPS_PLANE_CONDITION;
         let v1 = cross / len;
         let v2 = -v1;
 
@@ -142,7 +312,7 @@ impl IncrementalCellBuilder {
 
         for v in [primary, secondary] {
             if self.planes[plane_c].signed_distance(v) >= -EPS_PLANE_CLIP {
-                return Some(v);
+                return Some((v, ill_conditioned));
             }
         }
         None
@@ -151,28 +321,35 @@ impl IncrementalCellBuilder {
     /// Compute exact intersection of two great circle planes on unit sphere.
     /// Returns the candidate point closer to `hint` (typically arc midpoint or generator).
     #[inline]
-    fn intersect_two_planes(plane_a: &GreatCircle, plane_b: &GreatCircle, hint: Vec3) -> Vec3 {
+    fn intersect_two_planes(
+        plane_a: &GreatCircle,
+        plane_b: &GreatCircle,
+        hint: Vec3,
+    ) -> (Vec3, bool) {
         let cross = plane_a.normal.cross(plane_b.normal);
         let len_sq = cross.length_squared();
         if len_sq < EPS_PLANE_PARALLEL * EPS_PLANE_PARALLEL {
             // Parallel planes - fall back to hint direction
-            return hint.normalize();
+            return (hint.normalize(), true);
         }
-        let v = cross / len_sq.sqrt();
+        let len = len_sq.sqrt();
+        let v = cross / len;
+        let ill_conditioned = len < EPS_PLANE_CONDITION;
         // Pick the candidate closer to hint
-        if v.dot(hint) >= 0.0 { v } else { -v }
+        let v = if v.dot(hint) >= 0.0 { v } else { -v };
+        (v, ill_conditioned)
     }
 
     fn seed_from_triplet(&mut self, a: usize, b: usize, c: usize) -> bool {
-        let v0 = match self.intersect_planes_in_triplet(a, b, c) {
+        let (v0, v0_ill) = match self.intersect_planes_in_triplet(a, b, c) {
             Some(v) => v,
             None => return false,
         };
-        let v1 = match self.intersect_planes_in_triplet(b, c, a) {
+        let (v1, v1_ill) = match self.intersect_planes_in_triplet(b, c, a) {
             Some(v) => v,
             None => return false,
         };
-        let v2 = match self.intersect_planes_in_triplet(c, a, b) {
+        let (v2, v2_ill) = match self.intersect_planes_in_triplet(c, a, b) {
             Some(v) => v,
             None => return false,
         };
@@ -226,16 +403,16 @@ impl IncrementalCellBuilder {
         self.edge_planes.clear();
 
         if normal.dot(self.generator) >= 0.0 {
-            self.vertices.push(CellVertex { pos: v0, plane_a: a, plane_b: b });
-            self.vertices.push(CellVertex { pos: v1, plane_a: b, plane_b: c });
-            self.vertices.push(CellVertex { pos: v2, plane_a: c, plane_b: a });
+            self.vertices.push(CellVertex { pos: v0, plane_a: a, plane_b: b, ill_conditioned: v0_ill });
+            self.vertices.push(CellVertex { pos: v1, plane_a: b, plane_b: c, ill_conditioned: v1_ill });
+            self.vertices.push(CellVertex { pos: v2, plane_a: c, plane_b: a, ill_conditioned: v2_ill });
             self.edge_planes.push(b);
             self.edge_planes.push(c);
             self.edge_planes.push(a);
         } else {
-            self.vertices.push(CellVertex { pos: v0, plane_a: a, plane_b: b });
-            self.vertices.push(CellVertex { pos: v2, plane_a: c, plane_b: a });
-            self.vertices.push(CellVertex { pos: v1, plane_a: b, plane_b: c });
+            self.vertices.push(CellVertex { pos: v0, plane_a: a, plane_b: b, ill_conditioned: v0_ill });
+            self.vertices.push(CellVertex { pos: v2, plane_a: c, plane_b: a, ill_conditioned: v2_ill });
+            self.vertices.push(CellVertex { pos: v1, plane_a: b, plane_b: c, ill_conditioned: v1_ill });
             self.edge_planes.push(a);
             self.edge_planes.push(c);
             self.edge_planes.push(b);
@@ -324,10 +501,16 @@ impl IncrementalCellBuilder {
         let d_entry_end = new_plane.signed_distance(entry_end);
         let t_entry = d_entry_start / (d_entry_start - d_entry_end);
         let entry_hint = (entry_start * (1.0 - t_entry) + entry_end * t_entry).normalize();
+        let (entry_pos, entry_ill) = Self::intersect_two_planes(
+            &self.planes[entry_edge_plane],
+            &new_plane,
+            entry_hint,
+        );
         let entry_vertex = CellVertex {
-            pos: Self::intersect_two_planes(&self.planes[entry_edge_plane], &new_plane, entry_hint),
+            pos: entry_pos,
             plane_a: entry_edge_plane,
             plane_b: new_plane_idx,
+            ill_conditioned: entry_ill,
         };
 
         let exit_edge_plane = self.edge_planes[exit_idx];
@@ -337,10 +520,16 @@ impl IncrementalCellBuilder {
         let d_exit_end = new_plane.signed_distance(exit_end);
         let t_exit = d_exit_start / (d_exit_start - d_exit_end);
         let exit_hint = (exit_start * (1.0 - t_exit) + exit_end * t_exit).normalize();
+        let (exit_pos, exit_ill) = Self::intersect_two_planes(
+            &self.planes[exit_edge_plane],
+            &new_plane,
+            exit_hint,
+        );
         let exit_vertex = CellVertex {
-            pos: Self::intersect_two_planes(&self.planes[exit_edge_plane], &new_plane, exit_hint),
+            pos: exit_pos,
             plane_a: exit_edge_plane,
             plane_b: new_plane_idx,
+            ill_conditioned: exit_ill,
         };
 
         self.tmp_vertices.clear();
@@ -370,7 +559,7 @@ impl IncrementalCellBuilder {
     pub fn clip(&mut self, neighbor_idx: usize, neighbor: Vec3) {
         // Skip neighbors that are too close - their bisector is numerically unstable
         let diff = self.generator - neighbor;
-        if diff.length_squared() < super::MIN_BISECTOR_DISTANCE * super::MIN_BISECTOR_DISTANCE {
+        if diff.length_squared() < MIN_BISECTOR_DISTANCE * MIN_BISECTOR_DISTANCE {
             return;
         }
 
@@ -418,7 +607,12 @@ impl IncrementalCellBuilder {
         }
 
         let cos_2max = 2.0 * min_cos * min_cos - 1.0;
-        next_neighbor_cos < cos_2max - EPS_TERMINATION_MARGIN
+        // Conservatively include support/certification margins in dot space.
+        let termination_margin = EPS_TERMINATION_MARGIN
+            + SUPPORT_CERT_MARGIN_ABS as f32
+            + 2.0 * SUPPORT_EPS_ABS as f32
+            + 2.0 * support_cluster_drift_dot() as f32;
+        next_neighbor_cos < cos_2max - termination_margin
     }
 
     /// Attempt to reseed using the best-conditioned triplet among all planes.
@@ -489,17 +683,30 @@ impl IncrementalCellBuilder {
         self.vertices.len() >= 3
     }
 
-    /// Get the final vertices with their canonical triplet keys.
-    pub fn get_vertices_with_keys(&self) -> VertexList {
-        let mut out = Vec::with_capacity(self.vertices.len());
-        self.get_vertices_into(&mut out);
-        out
-    }
-
-    /// Write vertices with canonical triplet keys into the provided buffer.
+    /// Write vertices with canonical keys into the provided buffer.
     /// Returns the number of vertices written.
+    ///
+    /// Failed vertex indices are recorded with reason codes:
+    /// - 1 = ill-conditioned only
+    /// - 2 = gap only
+    /// - 3 = both ill-conditioned and gap
     #[inline]
-    pub fn get_vertices_into(&self, out: &mut Vec<VertexData>) -> usize {
+    pub fn get_vertices_into(
+        &self,
+        points: &[Vec3],
+        support_eps: f64,
+        candidates_complete: bool,
+        support_data: &mut Vec<u32>,
+        out: &mut Vec<VertexData>,
+        cert_checked: &mut bool,
+        cert_failed: &mut bool,
+        cert_checked_vertices: &mut usize,
+        cert_failed_vertices: &mut usize,
+        cert_failed_ill_vertices: &mut usize,
+        cert_failed_gap_vertices: &mut usize,
+        gap_sampler: &mut GapSampler,
+        cert_failed_vertex_indices: &mut Vec<(u32, u8)>,
+    ) -> usize {
         #[inline]
         fn sort3(mut a: [u32; 3]) -> [u32; 3] {
             if a[0] > a[1] { a.swap(0, 1); }
@@ -510,13 +717,109 @@ impl IncrementalCellBuilder {
 
         out.reserve(self.vertices.len());
         let count = self.vertices.len();
+
+        let mut candidates: Vec<u32> = Vec::new();
+        let mut candidate_positions: Vec<DVec3> = Vec::new();
+        if candidates_complete && support_eps > 0.0 {
+            candidates.reserve(self.neighbor_indices.len() + 1);
+            candidates.push(self.generator_idx as u32);
+            candidates.extend(self.neighbor_indices.iter().map(|&idx| idx as u32));
+            candidate_positions = candidates
+                .iter()
+                .map(|&idx| {
+                    let p = points[idx as usize];
+                    DVec3::new(p.x as f64, p.y as f64, p.z as f64)
+                })
+                .collect();
+        }
+
+        let mut support: Vec<u32> = Vec::with_capacity(self.planes.len() + 1);
+        let do_support = candidates_complete && support_eps > 0.0;
+        if do_support && !self.vertices.is_empty() {
+            *cert_checked = true;
+        }
         for v in &self.vertices {
-            let triplet = sort3([
-                self.generator_idx as u32,
-                self.neighbor_indices[v.plane_a] as u32,
-                self.neighbor_indices[v.plane_b] as u32,
-            ]);
-            out.push((triplet, v.pos));
+            // Track vertex index before pushing
+            let vertex_idx = out.len() as u32;
+            let key = if do_support {
+                support.clear();
+                let mut fail_ill = false;
+                let mut fail_gap = false;
+                let (v64, cluster_drift, ill_conditioned) = self.canonical_vertex_dir(points, v);
+                let cert_threshold = SUPPORT_CERT_MARGIN_ABS + 2.0 * cluster_drift;
+                if ill_conditioned {
+                    *cert_failed = true;
+                    fail_ill = true;
+                    *cert_failed_ill_vertices += 1;
+                }
+                let mut max_dot = f64::NEG_INFINITY;
+                for g in &candidate_positions {
+                    let d = v64.dot(*g);
+                    if d > max_dot {
+                        max_dot = d;
+                    }
+                }
+
+                let mut best_outside = f64::NEG_INFINITY;
+                for (idx, g) in candidate_positions.iter().enumerate() {
+                    let d = v64.dot(*g);
+                    if max_dot - d <= support_eps {
+                        support.push(candidates[idx]);
+                    } else if d > best_outside {
+                        best_outside = d;
+                    }
+                }
+
+                let max_dot_min = max_dot - support_eps;
+                if best_outside.is_finite() && max_dot_min - best_outside <= cert_threshold {
+                    *cert_failed = true;
+                    if !fail_ill {
+                        *cert_failed_gap_vertices += 1;
+                    }
+                    fail_gap = true;
+                }
+                if best_outside.is_finite() {
+                    gap_sampler.record(max_dot_min - best_outside);
+                }
+                *cert_checked_vertices += 1;
+                let vertex_failed = fail_ill || fail_gap;
+                if vertex_failed {
+                    *cert_failed_vertices += 1;
+                    // Reason code: 1=ill_cond, 2=gap, 3=both
+                    let reason = (fail_ill as u8) | ((fail_gap as u8) << 1);
+                    cert_failed_vertex_indices.push((vertex_idx, reason));
+                }
+
+                let gen = self.generator_idx as u32;
+                let na = self.neighbor_indices[v.plane_a] as u32;
+                let nb = self.neighbor_indices[v.plane_b] as u32;
+                support.push(gen);
+                support.push(na);
+                support.push(nb);
+                support.sort_unstable();
+                support.dedup();
+
+                if support.len() >= 4 {
+                    debug_assert!(support.len() <= u8::MAX as usize, "support list too large");
+                    let start = support_data.len() as u32;
+                    support_data.extend(support.iter().copied());
+                    let len = support.len() as u8;
+                    VertexKey::Support { start, len }
+                } else if support.len() == 3 {
+                    VertexKey::Triplet([support[0], support[1], support[2]])
+                } else {
+                    let triplet = sort3([gen, na, nb]);
+                    VertexKey::Triplet(triplet)
+                }
+            } else {
+                let triplet = sort3([
+                    self.generator_idx as u32,
+                    self.neighbor_indices[v.plane_a] as u32,
+                    self.neighbor_indices[v.plane_b] as u32,
+                ]);
+                VertexKey::Triplet(triplet)
+            };
+            out.push((key, v.pos));
         }
         count
     }

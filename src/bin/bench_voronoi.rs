@@ -213,7 +213,7 @@ fn benchmark_voronoi_phases_inner(
 
     // Phase 5: Vertex deduplication - flat version iterates chunks directly
     let (all_vertices, _cells, cell_indices) =
-        dedup_vertices_hash_flat(flat_data, effective_points, print_dedup_timing);
+        dedup_vertices_hash_flat(flat_data, print_dedup_timing);
     let t4 = Instant::now();
 
     // Phase 6: Final assembly (just counting)
@@ -308,8 +308,110 @@ fn print_vertex_distribution(points: &[Vec3], k: usize) -> Vec<usize> {
             stats.fallback_unterminated as f64 / n as f64 * 100.0
         );
     }
+    if stats.support_cert_checked > 0 {
+        println!(
+            "  Support certification failures: {} of {} cells ({:.3}%)",
+            stats.support_cert_failed,
+            stats.support_cert_checked,
+            stats.support_cert_failed as f64 / stats.support_cert_checked as f64 * 100.0
+        );
+    }
+    if stats.support_cert_checked_vertices > 0 {
+        println!(
+            "  Vertex certification failures: {} of {} vertices ({:.3}%)",
+            stats.support_cert_failed_vertices,
+            stats.support_cert_checked_vertices,
+            stats.support_cert_failed_vertices as f64 / stats.support_cert_checked_vertices as f64 * 100.0
+        );
+        println!(
+            "  Vertex fail reasons: ill-conditioned={} gap={}",
+            stats.support_cert_failed_ill_vertices,
+            stats.support_cert_failed_gap_vertices
+        );
+        // Correlate with validation if we have failed vertices
+        if !stats.support_cert_failed_vertex_indices.is_empty() {
+            correlate_cert_with_validation(effective_points, &flat_data, &stats);
+        }
+    }
+    if stats.support_cert_gap_count > 0 && stats.support_cert_gap_min.is_finite() {
+        println!(
+            "  Support gap stats: min={:.3e} median~={:.3e}",
+            stats.support_cert_gap_min,
+            stats.support_cert_gap_median
+        );
+    }
 
     invalid_cells
+}
+
+/// Correlate certification failures with validation results.
+fn correlate_cert_with_validation(
+    points: &[Vec3],
+    _flat_data: &hex3::geometry::gpu_voronoi::FlatCellsData,
+    stats: &hex3::geometry::gpu_voronoi::VoronoiStats,
+) {
+    use hex3::geometry::gpu_voronoi::{compute_voronoi_gpu_style, SUPPORT_EPS_ABS, DEFAULT_K};
+    use hex3::geometry::validation::validate_voronoi_strict;
+    use std::collections::HashSet;
+
+    // Build a fresh voronoi for validation (duplicates work, but simple)
+    let voronoi = compute_voronoi_gpu_style(points, DEFAULT_K);
+
+    // Run strict validation
+    let eps_lo = SUPPORT_EPS_ABS;
+    let eps_hi = eps_lo * 5.0;
+    let strict = validate_voronoi_strict(&voronoi, eps_lo, eps_hi, None);
+
+    // Build sets for comparison
+    let cert_failed_set: HashSet<u32> = stats.support_cert_failed_vertex_indices
+        .iter()
+        .map(|&(idx, _)| idx)
+        .collect();
+    let support_lt3_set: HashSet<u32> = strict.support_lt3
+        .iter()
+        .map(|&idx| idx as u32)
+        .collect();
+
+    // Compute overlap
+    let overlap: HashSet<_> = cert_failed_set.intersection(&support_lt3_set).collect();
+    let cert_only: HashSet<_> = cert_failed_set.difference(&support_lt3_set).collect();
+    let valid_only: HashSet<_> = support_lt3_set.difference(&cert_failed_set).collect();
+
+    println!("  Correlation with validation (support_lt3):");
+    println!("    cert_failed={}, support_lt3={}, overlap={}",
+        cert_failed_set.len(), support_lt3_set.len(), overlap.len());
+    println!("    cert_only={} (cert failed but validation passed), valid_only={} (validation failed but cert passed)",
+        cert_only.len(), valid_only.len());
+
+    // Break down by reason
+    let ill_only: usize = stats.support_cert_failed_vertex_indices
+        .iter()
+        .filter(|&&(_, reason)| reason == 1)
+        .count();
+    let gap_only: usize = stats.support_cert_failed_vertex_indices
+        .iter()
+        .filter(|&&(_, reason)| reason == 2)
+        .count();
+    let both: usize = stats.support_cert_failed_vertex_indices
+        .iter()
+        .filter(|&&(_, reason)| reason == 3)
+        .count();
+
+    let ill_in_support_lt3: usize = stats.support_cert_failed_vertex_indices
+        .iter()
+        .filter(|&&(idx, reason)| reason == 1 && support_lt3_set.contains(&idx))
+        .count();
+    let gap_in_support_lt3: usize = stats.support_cert_failed_vertex_indices
+        .iter()
+        .filter(|&&(idx, reason)| reason == 2 && support_lt3_set.contains(&idx))
+        .count();
+    let both_in_support_lt3: usize = stats.support_cert_failed_vertex_indices
+        .iter()
+        .filter(|&&(idx, reason)| reason == 3 && support_lt3_set.contains(&idx))
+        .count();
+
+    println!("    By reason: ill_cond={} ({} in support_lt3), gap={} ({} in support_lt3), both={} ({} in support_lt3)",
+        ill_only, ill_in_support_lt3, gap_only, gap_in_support_lt3, both, both_in_support_lt3);
 }
 
 fn debug_invalid_cells(points: &[Vec3], invalid_cells: &[usize]) {

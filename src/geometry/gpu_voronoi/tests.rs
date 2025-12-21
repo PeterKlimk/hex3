@@ -476,8 +476,8 @@ fn strict_small_counts() {
                 let max_generator_delta = (spacing_sq * 0.05).max(1e-6);
                 let max_edge_error = (spacing_sq * 0.05).max(1e-6);
 
-                let eps_lo = (spacing_sq * 0.005).max(1e-7);
-                let eps_hi = (eps_lo * 5.0).max(5e-7);
+                let eps_lo = super::SUPPORT_EPS_ABS;
+                let eps_hi = eps_lo * 5.0;
 
                 let voronoi = super::compute_voronoi_gpu_style(&points, DEFAULT_K);
                 let strict = validate_voronoi_strict(
@@ -571,6 +571,380 @@ fn strict_small_counts() {
     }
 }
 
+/// Diagnose orphan edges for specific failing case.
+/// Run with: cargo test --release diagnose_5000_orphans -- --ignored --nocapture
+#[test]
+#[ignore]
+fn diagnose_5000_orphans() {
+    use crate::geometry::fibonacci_sphere_points_with_rng;
+    use rand::SeedableRng;
+    use rand_chacha::ChaCha8Rng;
+    use std::collections::HashMap;
+
+    let n = 5000usize;
+    let seed = 12349u64;
+    let jitter_scale = 0.15f32; // mild case
+
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let mean_spacing = (4.0 * std::f32::consts::PI / n as f32).sqrt();
+    let jitter = mean_spacing * jitter_scale;
+    let points = fibonacci_sphere_points_with_rng(n, jitter, &mut rng);
+
+    println!("\n=== Diagnosis for n={}, seed={}, jitter={:.2e} ===\n", n, seed, jitter);
+
+    let voronoi = compute_voronoi_gpu_style(&points, DEFAULT_K);
+
+    println!("Cells: {}", voronoi.num_cells());
+    println!("Vertices: {}", voronoi.vertices.len());
+
+    // Build edge map
+    let mut edge_to_cells: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
+    for cell_idx in 0..voronoi.num_cells() {
+        let cell = voronoi.cell(cell_idx);
+        for i in 0..cell.vertex_indices.len() {
+            let v1 = cell.vertex_indices[i];
+            let v2 = cell.vertex_indices[(i + 1) % cell.vertex_indices.len()];
+            if v1 == v2 {
+                continue;
+            }
+            let edge = if v1 < v2 { (v1, v2) } else { (v2, v1) };
+            edge_to_cells.entry(edge).or_default().push(cell_idx);
+        }
+    }
+
+    // Find orphan edges
+    let orphan_edges: Vec<_> = edge_to_cells
+        .iter()
+        .filter(|(_, cells)| cells.len() == 1)
+        .map(|(e, c)| (*e, c[0]))
+        .collect();
+
+    println!("Orphan edges: {}\n", orphan_edges.len());
+
+    if orphan_edges.is_empty() {
+        println!("No orphan edges to analyze!");
+        return;
+    }
+
+    // Analyze each orphan edge
+    for (i, &((v1, v2), cell_idx)) in orphan_edges.iter().enumerate() {
+        println!("--- Orphan edge {} ---", i);
+        let pos1 = voronoi.vertices[v1];
+        let pos2 = voronoi.vertices[v2];
+        let edge_len = (pos1 - pos2).length();
+        let edge_mid = ((pos1 + pos2) / 2.0).normalize();
+
+        println!("Edge v{}--v{}, length={:.2e}", v1, v2, edge_len);
+        println!("  v{}: ({:.6}, {:.6}, {:.6})", v1, pos1.x, pos1.y, pos1.z);
+        println!("  v{}: ({:.6}, {:.6}, {:.6})", v2, pos2.x, pos2.y, pos2.z);
+        println!("Appears only in cell {}", cell_idx);
+
+        let cell = voronoi.cell(cell_idx);
+        let gen_idx = cell.generator_index;
+        let gen = voronoi.generators[gen_idx];
+        println!(
+            "  Cell {} generator: {} at ({:.4}, {:.4}, {:.4})",
+            cell_idx, gen_idx, gen.x, gen.y, gen.z
+        );
+        println!("  Cell vertex count: {}", cell.vertex_indices.len());
+
+        // What generators are closest to the edge midpoint?
+        let mut dots: Vec<(usize, f32)> = voronoi
+            .generators
+            .iter()
+            .enumerate()
+            .map(|(gi, g)| (gi, edge_mid.dot(*g)))
+            .collect();
+        dots.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+
+        println!("Top 5 generators closest to edge midpoint:");
+        for (gi, dot) in dots.iter().take(5) {
+            let delta = dots[0].1 - dot;
+            let is_owner = if *gi == gen_idx { " <-- owner" } else { "" };
+            println!("    g{}: dot={:.6}, delta={:.2e}{}", gi, dot, delta, is_owner);
+        }
+
+        // What cells touch v1 and v2?
+        let cells_with_v1: std::collections::HashSet<usize> = edge_to_cells
+            .iter()
+            .filter(|(e, _)| e.0 == v1 || e.1 == v1)
+            .flat_map(|(_, cells)| cells.iter().cloned())
+            .collect();
+
+        let cells_with_v2: std::collections::HashSet<usize> = edge_to_cells
+            .iter()
+            .filter(|(e, _)| e.0 == v2 || e.1 == v2)
+            .flat_map(|(_, cells)| cells.iter().cloned())
+            .collect();
+
+        println!("Cells touching v{}: {:?}", v1, cells_with_v1);
+        println!("Cells touching v{}: {:?}", v2, cells_with_v2);
+
+        // The "missing neighbor" would be in both sets but not cell_idx
+        let common: Vec<usize> = cells_with_v1
+            .intersection(&cells_with_v2)
+            .filter(|&&c| c != cell_idx)
+            .cloned()
+            .collect();
+        println!("Potential missing neighbor (common excl owner): {:?}", common);
+
+        // Check if there's a near-duplicate vertex
+        println!("\nNear-duplicates of v{} (within 1e-4):", v1);
+        let mut near_v1: Vec<(usize, f32)> = voronoi
+            .vertices
+            .iter()
+            .enumerate()
+            .filter(|(vi, _)| *vi != v1)
+            .map(|(vi, v)| (vi, (*v - pos1).length()))
+            .filter(|(_, d)| *d < 1e-4)
+            .collect();
+        near_v1.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        if near_v1.is_empty() {
+            println!("  (none)");
+        } else {
+            for (vi, d) in near_v1.iter().take(3) {
+                println!("  v{} at dist {:.2e}", vi, d);
+            }
+        }
+
+        println!("Near-duplicates of v{} (within 1e-4):", v2);
+        let mut near_v2: Vec<(usize, f32)> = voronoi
+            .vertices
+            .iter()
+            .enumerate()
+            .filter(|(vi, _)| *vi != v2)
+            .map(|(vi, v)| (vi, (*v - pos2).length()))
+            .filter(|(_, d)| *d < 1e-4)
+            .collect();
+        near_v2.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        if near_v2.is_empty() {
+            println!("  (none)");
+        } else {
+            for (vi, d) in near_v2.iter().take(3) {
+                println!("  v{} at dist {:.2e}", vi, d);
+            }
+        }
+        println!();
+    }
+
+    // Now check support sets for the near-duplicate vertices
+    println!("\n=== Support Set Analysis ===\n");
+    let v7581 = voronoi.vertices[7581];
+    let v7644 = voronoi.vertices[7644];
+    println!("v7581 pos: ({:.9}, {:.9}, {:.9})", v7581.x, v7581.y, v7581.z);
+    println!("v7644 pos: ({:.9}, {:.9}, {:.9})", v7644.x, v7644.y, v7644.z);
+    println!("Distance: {:.2e}\n", (v7581 - v7644).length());
+
+    // Compute support sets for each vertex using double precision
+    let compute_support = |v: Vec3, eps: f64| -> Vec<(usize, f64)> {
+        let v64 = glam::DVec3::new(v.x as f64, v.y as f64, v.z as f64).normalize();
+        let mut dots: Vec<(usize, f64)> = voronoi
+            .generators
+            .iter()
+            .enumerate()
+            .map(|(gi, g)| {
+                let g64 = glam::DVec3::new(g.x as f64, g.y as f64, g.z as f64);
+                (gi, v64.dot(g64))
+            })
+            .collect();
+        dots.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        let max_dot = dots[0].1;
+        dots.into_iter()
+            .filter(|(_, d)| max_dot - d <= eps)
+            .collect()
+    };
+
+    // Try different epsilon values
+    for eps in [1e-7, 1e-6, 1e-5, 1e-4] {
+        println!("eps = {:.0e}:", eps);
+        let support_7581 = compute_support(v7581, eps);
+        let support_7644 = compute_support(v7644, eps);
+        let gens_7581: Vec<usize> = support_7581.iter().map(|(g, _)| *g).collect();
+        let gens_7644: Vec<usize> = support_7644.iter().map(|(g, _)| *g).collect();
+        println!("  v7581 support ({} gens): {:?}", gens_7581.len(), gens_7581);
+        println!("  v7644 support ({} gens): {:?}", gens_7644.len(), gens_7644);
+        let set1: std::collections::HashSet<_> = gens_7581.iter().collect();
+        let set2: std::collections::HashSet<_> = gens_7644.iter().collect();
+        if set1 == set2 {
+            println!("  -> MATCH (same set)");
+        } else {
+            println!("  -> MISMATCH!");
+        }
+    }
+
+    // Check which cells have which vertices and their neighbor counts
+    println!("\n=== Cell Neighbor Analysis ===\n");
+    for cell_idx in [3762usize, 3796, 3851, 3707] {
+        let cell = voronoi.cell(cell_idx);
+        println!("Cell {} has {} vertices", cell_idx, cell.vertex_indices.len());
+
+        // Check if v7581 or v7644 is in this cell
+        let has_7581 = cell.vertex_indices.contains(&7581);
+        let has_7644 = cell.vertex_indices.contains(&7644);
+        if has_7581 {
+            println!("  Contains v7581");
+        }
+        if has_7644 {
+            println!("  Contains v7644");
+        }
+    }
+
+    // Compute support_eps used
+    let mean_spacing = (4.0 * std::f64::consts::PI / n as f64).sqrt();
+    let support_eps = super::SUPPORT_EPS_ABS;
+    println!("\n=== Exact Support Analysis ===");
+    println!("mean_spacing = {:.6e}", mean_spacing);
+    println!("support_eps = {:.6e}\n", support_eps);
+
+    // Check deltas for each vertex
+    for (name, v) in [("v7581", v7581), ("v7644", v7644)] {
+        println!("{}:", name);
+        let v64 = glam::DVec3::new(v.x as f64, v.y as f64, v.z as f64).normalize();
+        let mut dots: Vec<(usize, f64)> = voronoi
+            .generators
+            .iter()
+            .enumerate()
+            .map(|(gi, g)| {
+                let g64 = glam::DVec3::new(g.x as f64, g.y as f64, g.z as f64);
+                (gi, v64.dot(g64))
+            })
+            .collect();
+        dots.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        let max_dot = dots[0].1;
+
+        for (gi, dot) in dots.iter().take(6) {
+            let delta = max_dot - dot;
+            let in_support = delta <= support_eps;
+            println!(
+                "  g{}: delta={:.6e} {}",
+                gi,
+                delta,
+                if in_support { "<= eps (IN)" } else { "> eps (OUT)" }
+            );
+        }
+    }
+}
+
+/// Measure ambiguity rates for standard point distributions.
+/// Run with: cargo test --release measure_ambiguity_rates -- --ignored --nocapture
+#[test]
+#[ignore]
+fn measure_ambiguity_rates() {
+    use crate::geometry::{fibonacci_sphere_points_with_rng, lloyd_relax_kmeans};
+    use rand::SeedableRng;
+    use rand_chacha::ChaCha8Rng;
+    use std::collections::HashSet;
+
+    println!("\n=== Ambiguity Rate Analysis ===\n");
+
+    let sizes = [1_000usize, 5_000, 10_000, 50_000, 100_000];
+    let margins = [0.0, 0.5, 1.0, 2.0]; // multiples of support_eps
+
+    for &n in &sizes {
+        println!("--- N = {} ---", n);
+
+        let mean_spacing = (4.0 * std::f64::consts::PI / n as f64).sqrt();
+        let support_eps = mean_spacing * mean_spacing * 0.01; // SUPPORT_EPS_SCALE = 0.01
+
+        // Test different point distributions
+        for (dist_name, lloyd_iters) in [("Fibonacci+jitter", 0), ("Lloyd 2 iters", 2)] {
+            let mut rng = ChaCha8Rng::seed_from_u64(12345);
+            let jitter = mean_spacing as f32 * 0.25;
+            let mut points = fibonacci_sphere_points_with_rng(n, jitter, &mut rng);
+
+            if lloyd_iters > 0 {
+                lloyd_relax_kmeans(&mut points, lloyd_iters, 20, &mut rng);
+            }
+
+            let voronoi = compute_voronoi_gpu_style(&points, DEFAULT_K);
+            let num_vertices = voronoi.vertices.len();
+            let num_cells = voronoi.num_cells();
+
+            // For each vertex, compute delta to 4th closest generator
+            let mut fourth_deltas: Vec<f64> = Vec::with_capacity(num_vertices);
+
+            for v in &voronoi.vertices {
+                let v64 = glam::DVec3::new(v.x as f64, v.y as f64, v.z as f64).normalize();
+
+                // Find top 4 generators by dot product
+                let mut dots: Vec<f64> = voronoi
+                    .generators
+                    .iter()
+                    .map(|g| {
+                        let g64 = glam::DVec3::new(g.x as f64, g.y as f64, g.z as f64);
+                        v64.dot(g64)
+                    })
+                    .collect();
+                dots.sort_by(|a, b| b.partial_cmp(a).unwrap());
+
+                let max_dot = dots[0];
+                let fourth_delta = if dots.len() >= 4 {
+                    max_dot - dots[3]
+                } else {
+                    f64::MAX
+                };
+                fourth_deltas.push(fourth_delta);
+            }
+
+            // Build vertex -> cells mapping
+            let mut vertex_to_cells: Vec<HashSet<usize>> = vec![HashSet::new(); num_vertices];
+            for cell_idx in 0..num_cells {
+                let cell = voronoi.cell(cell_idx);
+                for &vi in cell.vertex_indices {
+                    if vi < num_vertices {
+                        vertex_to_cells[vi].insert(cell_idx);
+                    }
+                }
+            }
+
+            println!("  {}: {} vertices, {} cells", dist_name, num_vertices, num_cells);
+            println!("    support_eps = {:.2e}", support_eps);
+
+            for &margin_mult in &margins {
+                let threshold = support_eps * (1.0 + margin_mult);
+
+                let ambiguous_vertices: Vec<usize> = fourth_deltas
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, &delta)| delta <= threshold)
+                    .map(|(i, _)| i)
+                    .collect();
+
+                let ambiguous_cells: HashSet<usize> = ambiguous_vertices
+                    .iter()
+                    .flat_map(|&vi| vertex_to_cells[vi].iter().cloned())
+                    .collect();
+
+                let vert_pct = 100.0 * ambiguous_vertices.len() as f64 / num_vertices as f64;
+                let cell_pct = 100.0 * ambiguous_cells.len() as f64 / num_cells as f64;
+
+                println!(
+                    "    margin={:.1}x: {:5} ambig verts ({:5.2}%), {:5} ambig cells ({:5.2}%)",
+                    margin_mult,
+                    ambiguous_vertices.len(),
+                    vert_pct,
+                    ambiguous_cells.len(),
+                    cell_pct
+                );
+            }
+
+            // Also show distribution of fourth_delta values
+            let mut sorted_deltas = fourth_deltas.clone();
+            sorted_deltas.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            let p50 = sorted_deltas[num_vertices / 2];
+            let p90 = sorted_deltas[num_vertices * 9 / 10];
+            let p99 = sorted_deltas[num_vertices * 99 / 100];
+            let min_delta = sorted_deltas[0];
+
+            println!(
+                "    4th-gen delta: min={:.2e}, p50={:.2e}, p90={:.2e}, p99={:.2e}",
+                min_delta, p50, p90, p99
+            );
+            println!();
+        }
+    }
+}
+
 /// Strict correctness sweep on large counts using efficient k-NN validation.
 /// Run with: cargo test --release strict_large_counts -- --ignored --nocapture
 #[test]
@@ -638,7 +1012,7 @@ fn strict_large_counts() {
                 LargeValidationConfig {
                     knn_k: 48,
                     vertex_sample_rate: 0.05,
-                    eps_factor: 0.01,
+                    eps_abs: super::SUPPORT_EPS_ABS,
                     seed,
                 }
             } else if n >= 100_000 {
@@ -646,7 +1020,7 @@ fn strict_large_counts() {
                 LargeValidationConfig {
                     knn_k: 48,
                     vertex_sample_rate: 0.10,
-                    eps_factor: 0.01,
+                    eps_abs: super::SUPPORT_EPS_ABS,
                     seed,
                 }
             } else {
@@ -654,7 +1028,7 @@ fn strict_large_counts() {
                 LargeValidationConfig {
                     knn_k: 48,
                     vertex_sample_rate: 1.0,
-                    eps_factor: 0.01,
+                    eps_abs: super::SUPPORT_EPS_ABS,
                     seed,
                 }
             };
@@ -738,6 +1112,140 @@ fn strict_large_counts() {
         }
         println!();
     }
+}
+
+/// Correlate orphan edges with certification failures.
+/// Run with: cargo test --release test_orphan_edge_certification -- --ignored --nocapture
+///
+/// This test checks: when validation finds orphan edges, were the vertices involved
+/// flagged by certification as problematic?
+///
+/// Uses the known-failing case: n=100000, seed=12346 which produces 4 orphan edges.
+#[test]
+#[ignore]
+fn test_orphan_edge_certification() {
+    use crate::geometry::{fibonacci_sphere_points_with_rng, lloyd_relax_kmeans, validation::validate_voronoi_strict};
+    use rand::SeedableRng;
+    use rand_chacha::ChaCha8Rng;
+    use std::collections::HashSet;
+
+    println!("\n=== Orphan Edge vs Certification Correlation ===\n");
+
+    // Known failing cases from strict_large_counts
+    let configs = [
+        // (n, seed) - these are cases that produce orphan edges with default k
+        (100_000usize, 12346u64),
+        (100_000, 12345), // control case - should have no orphan edges
+    ];
+
+    for &(n, seed) in &configs {
+        let mut rng = ChaCha8Rng::seed_from_u64(seed);
+        let mean_spacing = (4.0 * std::f32::consts::PI / n as f32).sqrt();
+        let jitter = mean_spacing * 0.25;
+        let mut points = fibonacci_sphere_points_with_rng(n, jitter, &mut rng);
+
+        // Use same Lloyd relaxation as strict_large_counts (for n >= 100k)
+        lloyd_relax_kmeans(&mut points, 2, 15, &mut rng);
+
+        // Check min distance
+        let min_dist = check_min_point_distance(&points);
+        let min_spacing = min_spacing_threshold();
+        if min_dist < min_spacing {
+            println!("n={} seed={}: SKIP (min_dist={:.2e} < threshold)", n, seed, min_dist);
+            continue;
+        }
+
+        // Build flat data to get cert-failed vertex positions
+        use super::{build_cells_data_flat, CubeMapGridKnn, TerminationConfig};
+
+        let knn = CubeMapGridKnn::new(&points);
+        let termination = TerminationConfig { enabled: true, check_start: 10, check_step: 6 };
+        let flat_data = build_cells_data_flat(&points, &knn, DEFAULT_K, termination);
+
+        // Collect positions of cert-failed vertices (pre-dedup)
+        let mut cert_failed_positions: Vec<(glam::Vec3, u8)> = Vec::new();
+        for chunk in &flat_data.chunks {
+            for &(local_idx, reason) in &chunk.cert_failed_vertex_indices {
+                // Find this vertex's position in the chunk
+                let pos = chunk.vertices[local_idx as usize].1;
+                cert_failed_positions.push((pos, reason));
+            }
+        }
+
+        // Build voronoi separately for validation (duplicates work but simpler for test)
+        let voronoi = super::compute_voronoi_gpu_style(&points, DEFAULT_K);
+
+        // Run strict validation to get actual orphan edge indices
+        let eps_lo = super::SUPPORT_EPS_ABS;
+        let eps_hi = eps_lo * 5.0;
+        let strict = validate_voronoi_strict(&voronoi, eps_lo, eps_hi, None);
+
+        print!("n={:>6} seed={}: ", n, seed);
+        print!("orphan_edges={} cert_failed={} ", strict.orphan_edges.len(), cert_failed_positions.len());
+
+        if strict.orphan_edges.is_empty() {
+            println!("(no orphan edges to analyze)");
+        } else {
+            println!();
+
+            // Helper to find nearest cert-failed vertex distance for a given position
+            let find_nearest_cert_fail = |pos: glam::Vec3| -> (f32, Option<u8>) {
+                let mut min_dist = f32::MAX;
+                let mut nearest_reason: Option<u8> = None;
+                for &(cert_pos, reason) in &cert_failed_positions {
+                    let dist = (pos - cert_pos).length();
+                    if dist < min_dist {
+                        min_dist = dist;
+                        nearest_reason = Some(reason);
+                    }
+                }
+                (min_dist, nearest_reason)
+            };
+
+            // For each orphan edge, report the minimum distance of the two endpoints
+            let mut matches = 0usize;
+            let mut near_misses = 0usize;
+
+            for &(v1, v2) in &strict.orphan_edges {
+                let pos_a = voronoi.vertices[v1];
+                let pos_b = voronoi.vertices[v2];
+
+                let (dist_a, reason_a) = find_nearest_cert_fail(pos_a);
+                let (dist_b, reason_b) = find_nearest_cert_fail(pos_b);
+
+                // Use the closer endpoint
+                let (min_dist, nearest_reason, closer_v) = if dist_a <= dist_b {
+                    (dist_a, reason_a, v1)
+                } else {
+                    (dist_b, reason_b, v2)
+                };
+
+                let reason_str = match nearest_reason {
+                    Some(1) => "ill_cond",
+                    Some(2) => "gap",
+                    Some(3) => "both",
+                    _ => "none",
+                };
+
+                if min_dist < 1e-6 {
+                    matches += 1;
+                    println!("    edge({},{}): MATCH via v{} (dist={:.2e}, reason={})",
+                        v1, v2, closer_v, min_dist, reason_str);
+                } else if min_dist < 1e-3 {
+                    near_misses += 1;
+                    println!("    edge({},{}): NEAR via v{} (dist={:.2e}, reason={})",
+                        v1, v2, closer_v, min_dist, reason_str);
+                } else {
+                    println!("    edge({},{}): NO MATCH (closer v{} dist={:.2e})",
+                        v1, v2, closer_v, min_dist);
+                }
+            }
+
+            println!("  Summary: {} exact matches, {} near misses out of {} orphan edges",
+                matches, near_misses, strict.orphan_edges.len());
+        }
+    }
+    println!();
 }
 
 /// Large-scale soundness test - verifies the algorithm at 750k points.

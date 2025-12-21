@@ -1218,18 +1218,19 @@ pub struct LargeValidationConfig {
     /// Fraction of vertices to sample for detailed checks (0.0-1.0).
     /// 1.0 = check all vertices, 0.01 = check 1% of vertices.
     pub vertex_sample_rate: f64,
-    /// Epsilon for support set membership (relative to mean spacing).
-    pub eps_factor: f64,
+    /// Absolute epsilon for support set membership in dot space.
+    pub eps_abs: f64,
     /// Random seed for reproducible sampling.
     pub seed: u64,
 }
 
 impl Default for LargeValidationConfig {
     fn default() -> Self {
+        use crate::geometry::gpu_voronoi::SUPPORT_EPS_ABS;
         Self {
             knn_k: 48,
             vertex_sample_rate: 1.0, // Check all by default
-            eps_factor: 0.01,
+            eps_abs: SUPPORT_EPS_ABS,
             seed: 12345,
         }
     }
@@ -1482,9 +1483,8 @@ pub fn validate_voronoi_large(
     let mut scratch = knn.make_scratch();
     let mut neighbors: Vec<usize> = Vec::with_capacity(config.knn_k);
 
-    // Compute epsilon based on mean spacing
-    let mean_spacing = (4.0 * std::f64::consts::PI / voronoi.generators.len() as f64).sqrt();
-    let eps = mean_spacing * config.eps_factor;
+    // Use an absolute epsilon in dot space (based on numeric precision).
+    let eps = config.eps_abs;
 
     // Convert generators to f64 for precision
     let generators_d: Vec<glam::DVec3> = voronoi
@@ -1874,7 +1874,7 @@ mod tests {
         let flat_data = build_cells_data_flat(&points, &knn, k, termination);
 
         // Dedup vertices
-        let (vertices, cells, cell_indices) = dedup_vertices_hash_flat(flat_data, &points, false);
+        let (vertices, cells, cell_indices) = dedup_vertices_hash_flat(flat_data, false);
 
         // Build SphericalVoronoi
         let voronoi = crate::geometry::SphericalVoronoi::from_raw_parts(

@@ -1,0 +1,38 @@
+//! Shared constants for GPU-style Voronoi construction and validation.
+
+/// Minimum distance between generator and neighbor for a valid bisector.
+/// Points closer than this are merged before Voronoi computation to prevent:
+/// 1. Numerically unstable bisector planes
+/// 2. Multiple close neighbors collectively killing cells
+/// 3. Orphan edges from inconsistent cell topologies
+pub const MIN_BISECTOR_DISTANCE: f32 = 1e-4;
+
+/// Fraction of mean generator spacing used for near-duplicate thresholds in tests.
+pub const VERTEX_WELD_FRACTION: f32 = 0.01;
+
+/// Support-set epsilon in dot space (absolute, based on f32 numeric precision).
+/// 64 ulps leaves headroom for accumulated error from f32 plane intersections.
+pub const SUPPORT_EPS_ABS: f64 = (f32::EPSILON as f64) * 64.0;
+
+/// Additional margin when certifying a bounded support cluster.
+pub const SUPPORT_CERT_MARGIN_ABS: f64 = 0.0;
+
+/// Cluster radius for ambiguity certification (radians).
+pub const SUPPORT_CLUSTER_RADIUS_ANGLE: f64 = 1.0e-6;
+/// Approximate angular error scale from f32 inputs, used for adaptive cluster bounds.
+pub const SUPPORT_VERTEX_ANGLE_EPS: f64 = f32::EPSILON as f64 * 8.0;
+/// Reservoir sample size for support gap statistics.
+pub const SUPPORT_GAP_SAMPLE_LIMIT: usize = 1024;
+
+#[inline]
+pub fn support_cluster_drift_dot() -> f64 {
+    2.0 * (SUPPORT_CLUSTER_RADIUS_ANGLE * 0.5).sin()
+}
+
+// Epsilon values for numerical stability (f32 units).
+pub(crate) const EPS_PLANE_CONTAINS: f32 = 1e-7;
+pub(crate) const EPS_PLANE_CLIP: f32 = 1e-7;
+pub(crate) const EPS_PLANE_PARALLEL: f32 = 1e-6;
+// Ill-conditioning threshold used to defer certification (sin(angle) between plane normals).
+pub(crate) const EPS_PLANE_CONDITION: f32 = 1e-2;
+pub(crate) const EPS_TERMINATION_MARGIN: f32 = 1e-7;

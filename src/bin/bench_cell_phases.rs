@@ -192,6 +192,7 @@ fn build_cells_instrumented(
     let mut neighbors = Vec::with_capacity(k);
     let mut builder = IncrementalCellBuilder::new(0, Vec3::ZERO);
     let mut vertices_out: Vec<VertexData> = Vec::with_capacity(n * 6);
+    let mut support_data: Vec<u32> = Vec::new();
 
     for i in 0..n {
         // Phase 1: KNN lookup
@@ -232,7 +233,29 @@ fn build_cells_instrumented(
         // Phase 4: Output vertices
         let t3 = Instant::now();
         let before = vertices_out.len();
-        builder.get_vertices_into(&mut vertices_out);
+        let mut cert_checked = false;
+        let mut cert_failed = false;
+        let mut cert_checked_vertices = 0usize;
+        let mut cert_failed_vertices = 0usize;
+        let mut cert_failed_ill_vertices = 0usize;
+        let mut cert_failed_gap_vertices = 0usize;
+        let mut cert_failed_vertex_indices: Vec<(u32, u8)> = Vec::new();
+        let mut gap_sampler = hex3::geometry::gpu_voronoi::GapSampler::new(0, 1);
+        builder.get_vertices_into(
+            points,
+            0.0,
+            false,
+            &mut support_data,
+            &mut vertices_out,
+            &mut cert_checked,
+            &mut cert_failed,
+            &mut cert_checked_vertices,
+            &mut cert_failed_vertices,
+            &mut cert_failed_ill_vertices,
+            &mut cert_failed_gap_vertices,
+            &mut gap_sampler,
+            &mut cert_failed_vertex_indices,
+        );
         total_vertices_written += vertices_out.len() - before;
         total_output_ns += t3.elapsed().as_nanos() as u64;
     }

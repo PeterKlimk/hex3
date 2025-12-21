@@ -4,6 +4,7 @@
 //! independently from its k nearest neighbors. This enables massive parallelism on GPU.
 
 mod cell_builder;
+mod constants;
 pub mod dedup;
 mod knn;
 
@@ -17,20 +18,23 @@ use rustc_hash::FxHashSet;
 // Re-exports
 pub use cell_builder::{
     GreatCircle, IncrementalCellBuilder, DEFAULT_K, MAX_PLANES, MAX_VERTICES,
+    VertexKey,
     VertexData, VertexList,
     geodesic_distance, order_vertices_ccw_indices,
 };
+pub use constants::{
+    MIN_BISECTOR_DISTANCE,
+    SUPPORT_CERT_MARGIN_ABS,
+    SUPPORT_CLUSTER_RADIUS_ANGLE,
+    SUPPORT_EPS_ABS,
+    SUPPORT_GAP_SAMPLE_LIMIT,
+    SUPPORT_VERTEX_ANGLE_EPS,
+    VERTEX_WELD_FRACTION,
+    support_cluster_drift_dot,
+};
+pub use cell_builder::GapSampler;
 pub use dedup::dedup_vertices_hash_flat;
 pub use knn::{CubeMapGridKnn, KnnProvider};
-
-/// Minimum distance between generator and neighbor for a valid bisector.
-/// Points closer than this are merged before Voronoi computation to prevent:
-/// 1. Numerically unstable bisector planes
-/// 2. Multiple close neighbors collectively killing cells
-/// 3. Orphan edges from inconsistent cell topologies
-pub const MIN_BISECTOR_DISTANCE: f32 = 1e-4;
-/// Fraction of mean generator spacing used for vertex welding.
-pub const VERTEX_WELD_FRACTION: f32 = 0.01;
 
 /// Approximate mean chord length between uniformly-distributed generators.
 /// Used to scale tolerances; assumes roughly even generator spacing.
@@ -46,12 +50,36 @@ pub(crate) fn mean_generator_spacing_chord(num_points: usize) -> f32 {
 pub(crate) struct FlatChunk {
     pub(crate) vertices: Vec<VertexData>,
     pub(crate) counts: Vec<u8>,
+    pub(crate) support_data: Vec<u32>,
     /// Total neighbors processed in this chunk (for stats).
     pub(crate) total_neighbors_processed: usize,
     /// Number of cells that terminated early in this chunk.
     pub(crate) terminated_cells: usize,
     /// Number of cells that used fallback but still did not terminate.
     pub(crate) fallback_unterminated: usize,
+    /// Number of cells where support certification was evaluated.
+    pub(crate) cert_checked_cells: usize,
+    /// Number of cells where support certification failed.
+    pub(crate) cert_failed_cells: usize,
+    /// Number of vertices where support certification was evaluated.
+    pub(crate) cert_checked_vertices: usize,
+    /// Number of vertices where support certification failed.
+    pub(crate) cert_failed_vertices: usize,
+    /// Number of vertices that failed due to ill-conditioned intersections.
+    pub(crate) cert_failed_ill_vertices: usize,
+    /// Number of vertices that failed due to a small gap to the next best generator.
+    pub(crate) cert_failed_gap_vertices: usize,
+    /// Number of support gap samples recorded.
+    pub(crate) cert_gap_count: usize,
+    /// Minimum observed support gap.
+    pub(crate) cert_gap_min: f64,
+    /// Reservoir samples of support gaps.
+    pub(crate) cert_gap_samples: Vec<f64>,
+    /// Failed vertex indices with reason codes (1=ill_cond, 2=gap, 3=both).
+    /// Index is global within the chunk's vertex array.
+    pub(crate) cert_failed_vertex_indices: Vec<(u32, u8)>,
+    /// Starting global vertex index for this chunk (set during assembly).
+    pub(crate) vertex_offset: u32,
 }
 
 #[derive(Debug)]
@@ -76,11 +104,66 @@ impl FlatCellsData {
         let total_neighbors: usize = self.chunks.iter().map(|c| c.total_neighbors_processed).sum();
         let terminated: usize = self.chunks.iter().map(|c| c.terminated_cells).sum();
         let fallback_unterminated: usize = self.chunks.iter().map(|c| c.fallback_unterminated).sum();
+        let cert_checked_cells: usize = self.chunks.iter().map(|c| c.cert_checked_cells).sum();
+        let cert_failed_cells: usize = self.chunks.iter().map(|c| c.cert_failed_cells).sum();
+        let cert_checked_vertices: usize = self.chunks.iter().map(|c| c.cert_checked_vertices).sum();
+        let cert_failed_vertices: usize = self.chunks.iter().map(|c| c.cert_failed_vertices).sum();
+        let cert_failed_ill_vertices: usize = self.chunks.iter().map(|c| c.cert_failed_ill_vertices).sum();
+        let cert_failed_gap_vertices: usize = self.chunks.iter().map(|c| c.cert_failed_gap_vertices).sum();
+        let cert_gap_count: usize = self.chunks.iter().map(|c| c.cert_gap_count).sum();
+        let cert_gap_min = self.chunks.iter()
+            .filter(|c| c.cert_gap_count > 0)
+            .map(|c| c.cert_gap_min)
+            .fold(f64::INFINITY, f64::min);
+        let mut cert_gap_samples: Vec<(f64, f64)> = Vec::new();
+        cert_gap_samples.reserve(self.chunks.len() * 8);
+        for chunk in &self.chunks {
+            if chunk.cert_gap_count == 0 || chunk.cert_gap_samples.is_empty() {
+                continue;
+            }
+            let weight = chunk.cert_gap_count as f64 / chunk.cert_gap_samples.len() as f64;
+            cert_gap_samples.extend(chunk.cert_gap_samples.iter().map(|&v| (v, weight)));
+        }
+        let cert_gap_median = if cert_gap_count == 0 || cert_gap_samples.is_empty() {
+            f64::NAN
+        } else {
+            cert_gap_samples.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+            let target = cert_gap_count as f64 * 0.5;
+            let mut accum = 0.0f64;
+            let mut median = cert_gap_samples.last().map(|v| v.0).unwrap_or(f64::NAN);
+            for (value, weight) in cert_gap_samples {
+                accum += weight;
+                if accum >= target {
+                    median = value;
+                    break;
+                }
+            }
+            median
+        };
+        // Aggregate failed vertex indices with global offsets
+        let mut cert_failed_vertex_indices: Vec<(u32, u8)> = Vec::new();
+        for chunk in &self.chunks {
+            let offset = chunk.vertex_offset;
+            cert_failed_vertex_indices.extend(
+                chunk.cert_failed_vertex_indices.iter()
+                    .map(|&(idx, reason)| (idx + offset, reason))
+            );
+        }
         let n = self.num_cells.max(1) as f64;
         VoronoiStats {
             avg_neighbors_processed: total_neighbors as f64 / n,
             termination_rate: terminated as f64 / n,
             fallback_unterminated,
+            support_cert_checked: cert_checked_cells,
+            support_cert_failed: cert_failed_cells,
+            support_cert_checked_vertices: cert_checked_vertices,
+            support_cert_failed_vertices: cert_failed_vertices,
+            support_cert_failed_ill_vertices: cert_failed_ill_vertices,
+            support_cert_failed_gap_vertices: cert_failed_gap_vertices,
+            support_cert_gap_count: cert_gap_count,
+            support_cert_gap_min: cert_gap_min,
+            support_cert_gap_median: cert_gap_median,
+            support_cert_failed_vertex_indices: cert_failed_vertex_indices,
         }
     }
 
@@ -133,6 +216,27 @@ pub struct VoronoiStats {
     pub termination_rate: f64,
     /// Number of cells that used fallback but still did not terminate.
     pub fallback_unterminated: usize,
+    /// Number of cells where support certification was evaluated.
+    pub support_cert_checked: usize,
+    /// Number of cells where support certification failed.
+    pub support_cert_failed: usize,
+    /// Number of vertices where support certification was evaluated.
+    pub support_cert_checked_vertices: usize,
+    /// Number of vertices where support certification failed.
+    pub support_cert_failed_vertices: usize,
+    /// Number of vertices that failed due to ill-conditioned intersections.
+    pub support_cert_failed_ill_vertices: usize,
+    /// Number of vertices that failed due to a small gap to the next best generator.
+    pub support_cert_failed_gap_vertices: usize,
+    /// Number of gap samples recorded.
+    pub support_cert_gap_count: usize,
+    /// Minimum observed support gap.
+    pub support_cert_gap_min: f64,
+    /// Median observed support gap (approximate).
+    pub support_cert_gap_median: f64,
+    /// Failed vertex indices with reason codes (1=ill_cond, 2=gap, 3=both).
+    /// Global vertex indices across all chunks.
+    pub support_cert_failed_vertex_indices: Vec<(u32, u8)>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -263,6 +367,8 @@ pub fn build_cells_data_flat_adaptive(
         };
     }
 
+    let support_eps = SUPPORT_EPS_ABS;
+
     let threads = rayon::current_num_threads().max(1);
     let chunk_size = (n / (threads * 8)).clamp(256, 4096).max(1);
     let mut ranges = Vec::with_capacity((n + chunk_size - 1) / chunk_size);
@@ -277,7 +383,7 @@ pub fn build_cells_data_flat_adaptive(
     let use_resumable = adaptive.step_k > 0 && adaptive.track_limit > adaptive.initial_k;
     let max_capacity = adaptive.track_limit.max(adaptive.fallback_k);
 
-    let chunks: Vec<FlatChunk> = ranges
+    let mut chunks: Vec<FlatChunk> = ranges
         .par_iter()
         .map(|&(start, end)| {
             let mut scratch = knn.make_scratch();
@@ -287,9 +393,21 @@ pub fn build_cells_data_flat_adaptive(
             let estimated_vertices = (end - start) * 6;
             let mut vertices = Vec::with_capacity(estimated_vertices);
             let mut counts = Vec::with_capacity(end - start);
+            let mut support_data: Vec<u32> = Vec::with_capacity(estimated_vertices);
             let mut total_neighbors_processed = 0usize;
             let mut terminated_cells = 0usize;
             let mut fallback_unterminated = 0usize;
+            let mut cert_checked_cells = 0usize;
+            let mut cert_failed_cells = 0usize;
+            let mut cert_checked_vertices = 0usize;
+            let mut cert_failed_vertices = 0usize;
+            let mut cert_failed_ill_vertices = 0usize;
+            let mut cert_failed_gap_vertices = 0usize;
+            let mut cert_failed_vertex_indices: Vec<(u32, u8)> = Vec::new();
+            let mut gap_sampler = GapSampler::new(
+                SUPPORT_GAP_SAMPLE_LIMIT,
+                (start as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15).wrapping_add(0xD1B5_4A32_D192_ED03),
+            );
 
             for i in start..end {
                 builder.reset(i, points[i]);
@@ -449,6 +567,7 @@ pub fn build_cells_data_flat_adaptive(
                                 let elapsed = recovery_start.elapsed().as_secs_f64() * 1000.0;
                                 eprintln!("[RECOVERY] cell {} full-scan recovery took {:.1}ms", i, elapsed);
                             }
+                            full_scan_done = true;
                         }
                         let recovered = if builder.is_dead() {
                             builder.try_reseed_best()
@@ -465,7 +584,34 @@ pub fn build_cells_data_flat_adaptive(
                     }
                 }
 
-                let count = builder.get_vertices_into(&mut vertices);
+                let candidates_complete = full_scan_done
+                    || (termination.enabled && terminated)
+                    || (termination.enabled
+                        && used_fallback
+                        && adaptive.fallback_k >= points.len().saturating_sub(1));
+                let mut cert_checked = false;
+                let mut cert_failed = false;
+                let count = builder.get_vertices_into(
+                    points,
+                    support_eps,
+                    candidates_complete,
+                    &mut support_data,
+                    &mut vertices,
+                    &mut cert_checked,
+                    &mut cert_failed,
+                    &mut cert_checked_vertices,
+                    &mut cert_failed_vertices,
+                    &mut cert_failed_ill_vertices,
+                    &mut cert_failed_gap_vertices,
+                    &mut gap_sampler,
+                    &mut cert_failed_vertex_indices,
+                );
+                if cert_checked {
+                    cert_checked_cells += 1;
+                    if cert_failed {
+                        cert_failed_cells += 1;
+                    }
+                }
                 debug_assert!(count <= u8::MAX as usize, "vertex count exceeds u8");
                 counts.push(count as u8);
             }
@@ -473,12 +619,31 @@ pub fn build_cells_data_flat_adaptive(
             FlatChunk {
                 vertices,
                 counts,
+                support_data,
                 total_neighbors_processed,
                 terminated_cells,
                 fallback_unterminated,
+                cert_checked_cells,
+                cert_failed_cells,
+                cert_checked_vertices,
+                cert_failed_vertices,
+                cert_failed_ill_vertices,
+                cert_failed_gap_vertices,
+                cert_gap_count: gap_sampler.count(),
+                cert_gap_min: gap_sampler.min(),
+                cert_gap_samples: gap_sampler.sample().to_vec(),
+                cert_failed_vertex_indices,
+                vertex_offset: 0, // Computed below
             }
         })
         .collect();
+
+    // Compute vertex offsets for global indexing
+    let mut offset = 0u32;
+    for chunk in &mut chunks {
+        chunk.vertex_offset = offset;
+        offset += chunk.vertices.len() as u32;
+    }
 
     FlatCellsData {
         chunks,
@@ -652,7 +817,7 @@ fn compute_voronoi_gpu_style_core(
     let t2 = Instant::now();
 
     let (all_vertices, eff_cells, eff_cell_indices) =
-        dedup::dedup_vertices_hash_flat(flat_data, &effective_points, false);
+        dedup::dedup_vertices_hash_flat(flat_data, false);
     let t3 = Instant::now();
 
     // Remap cells back to original point indices if we merged
