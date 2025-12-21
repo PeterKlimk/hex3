@@ -30,7 +30,10 @@
       "Bash(STRICT_VALIDATE_DEBUG=1 cargo test:*)",
       "Bash(VORONOI_DEBUG_DEDUP=1 cargo test:*)",
       "Bash(VORONOI_DEBUG_FALLBACK=1 timeout 180 cargo run:*)",
-      "Bash(time cargo test:*)"
+      "Bash(time cargo test:*)",
+      "Bash(VORONOI_DEBUG_FALLBACK=1 timeout 30 cargo run:*)",
+      "Bash(cat:*)",
+      "Bash(RUST_BACKTRACE=1 cargo test:*)"
     ]
   }
 }

@@ -240,7 +240,9 @@ fn strict_small_counts() {
                 let max_generator_delta = (spacing_sq * 0.05).max(1e-6);
                 let max_edge_error = (spacing_sq * 0.05).max(1e-6);
 
-                let eps_lo = super::SUPPORT_EPS_ABS;
+                // Use f32-appropriate tolerance for validation (vertices are stored as f32)
+                // SUPPORT_EPS_ABS is for f64 internal computation, not f32 validation
+                let eps_lo = (f32::EPSILON * 64.0) as f64;  // ~7.6e-6
                 let eps_hi = eps_lo * 5.0;
 
                 let voronoi = super::compute_voronoi_gpu_style(&points, DEFAULT_K);
@@ -1344,3 +1346,769 @@ fn bench_knn_breakdown() {
     println!("Heap operations for k={}: up to {} push + {} pop", k, k, k);
 }
 
+
+/// Stress test for f64 slack-based certification.
+/// Tests that f64 can certify vertices across various point distributions.
+#[test]
+#[ignore] // Run with: cargo test test_f64_slack_stress -- --ignored --nocapture
+fn test_f64_slack_stress() {
+    use super::cell_builder::F64CellBuilder;
+    use crate::geometry::fibonacci_sphere_points_with_rng;
+    use rand::SeedableRng;
+    use rand_chacha::ChaCha8Rng;
+
+    println!("\n=== F64 Slack-Based Certification Stress Test ===\n");
+
+    // Test configurations: (size, jitter_scale, description)
+    let configs: &[(usize, f32, &str)] = &[
+        (5_000, 0.15, "mild jitter"),
+        (5_000, 0.35, "moderate jitter"),
+        (5_000, 0.50, "heavy jitter"),
+        (10_000, 0.25, "default jitter"),
+        (10_000, 0.45, "rough jitter"),
+        (25_000, 0.25, "large default"),
+        (25_000, 0.40, "large rough"),
+        (50_000, 0.25, "very large"),
+    ];
+
+    let seeds: Vec<u64> = (0..10).map(|i| 12345 + i * 7919).collect();
+
+    let mut total_tests = 0usize;
+    let mut total_cells = 0usize;
+    let mut total_vertices = 0usize;
+
+    for &(n, jitter_scale, desc) in configs {
+        let mean_spacing = (4.0 * std::f32::consts::PI / n as f32).sqrt();
+        let jitter = mean_spacing * jitter_scale;
+
+        for &seed in &seeds {
+            let mut rng = ChaCha8Rng::seed_from_u64(seed);
+            let points = fibonacci_sphere_points_with_rng(n, jitter, &mut rng);
+            let knn = CubeMapGridKnn::new(&points);
+
+            let mut cells_built = 0usize;
+            let mut vertices_certified = 0usize;
+
+            for cell_idx in 0..n {
+                // Build f64 cell
+                let mut f64_builder = F64CellBuilder::new(cell_idx, points[cell_idx]);
+                let mut scratch = knn.make_scratch();
+                let mut neighbors = Vec::with_capacity(DEFAULT_K);
+                knn.knn_into(points[cell_idx], cell_idx, DEFAULT_K, &mut scratch, &mut neighbors);
+
+                for &neighbor_idx in &neighbors {
+                    f64_builder.clip(neighbor_idx, points[neighbor_idx]);
+                }
+
+                if f64_builder.vertex_count() < 3 {
+                    continue;
+                }
+
+                cells_built += 1;
+
+                // This will panic if certification fails
+                let mut support_data: Vec<u32> = Vec::new();
+                let vertex_data = f64_builder.into_vertex_data(&points, &mut support_data);
+                vertices_certified += vertex_data.len();
+            }
+
+            total_tests += 1;
+            total_cells += cells_built;
+            total_vertices += vertices_certified;
+
+            println!(
+                "[ok] n={:5}, seed={:5}, {}: cells={:5}, vertices={}",
+                n, seed, desc, cells_built, vertices_certified
+            );
+        }
+    }
+
+    println!("\n=== Summary ===");
+    println!("Total test cases: {}", total_tests);
+    println!("Total cells built: {}", total_cells);
+    println!("Total vertices certified: {}", total_vertices);
+    println!("\nStress test passed!");
+}
+
+/// Verify our error calculations using arbitrary precision arithmetic.
+/// This test reproduces the failing certification case and computes the "true"
+/// vertex position and gaps using 256-bit precision to check if our f64 error
+/// model is correct.
+#[test]
+#[ignore] // Run with: cargo test test_verify_error_with_arb -- --ignored --nocapture
+fn test_verify_error_with_arb() {
+    use super::cell_builder::F64CellBuilder;
+    use super::constants::{SUPPORT_EPS_ABS, SUPPORT_VERTEX_ANGLE_EPS};
+    use crate::geometry::fibonacci_sphere_points_with_rng;
+    use astro_float::{BigFloat, RoundingMode};
+    use glam::DVec3;
+    use rand::SeedableRng;
+    use rand_chacha::ChaCha8Rng;
+
+    const PREC: usize = 256;
+    let rm = RoundingMode::None;
+
+    // Helper to convert BigFloat to f64 via string (inefficient but works)
+    fn bf_to_f64(bf: &BigFloat) -> f64 {
+        format!("{}", bf).parse().unwrap_or(f64::NAN)
+    }
+
+    println!("\n=== Verify Error Model with Arbitrary Precision ===\n");
+
+    // Reproduce the failing case: n=5000, seed=12345, jitter=0.15, cell=41
+    let n = 5000usize;
+    let seed = 12345u64;
+    let jitter_scale = 0.15f32;
+    let target_cell = 41usize;
+
+    let mean_spacing = (4.0 * std::f32::consts::PI / n as f32).sqrt();
+    let jitter = mean_spacing * jitter_scale;
+
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let points = fibonacci_sphere_points_with_rng(n, jitter, &mut rng);
+    let knn = CubeMapGridKnn::new(&points);
+
+    // Build f64 cell for target
+    let mut f64_builder = F64CellBuilder::new(target_cell, points[target_cell]);
+    let mut scratch = knn.make_scratch();
+    let mut neighbors = Vec::with_capacity(DEFAULT_K);
+    knn.knn_into(points[target_cell], target_cell, DEFAULT_K, &mut scratch, &mut neighbors);
+
+    for &neighbor_idx in &neighbors {
+        f64_builder.clip(neighbor_idx, points[neighbor_idx]);
+    }
+
+    println!("Cell {} has {} vertices", target_cell, f64_builder.vertex_count());
+    println!("Neighbors: {:?}", neighbors);
+
+    // Get generator position
+    let gen_f32 = points[target_cell];
+    let gen_f64 = DVec3::new(gen_f32.x as f64, gen_f32.y as f64, gen_f32.z as f64).normalize();
+
+    // For each vertex, compute gaps using f64 and arbitrary precision, compare
+    for (v_idx, v_pos_raw, plane_a, plane_b) in f64_builder.vertices_iter() {
+        let v_f64 = v_pos_raw.normalize();
+        let na_idx = f64_builder.neighbor_index(plane_a);
+        let nb_idx = f64_builder.neighbor_index(plane_b);
+
+        println!("\n--- Vertex {} (defining: {}, {}, {}) ---", v_idx, target_cell, na_idx, nb_idx);
+        println!("f64 vertex pos: ({:.15}, {:.15}, {:.15})", v_f64.x, v_f64.y, v_f64.z);
+
+        let g = points[target_cell];
+        let na = points[na_idx];
+        let nb = points[nb_idx];
+
+        // Helper to normalize a BigFloat vector
+        let normalize_bf = |x: &BigFloat, y: &BigFloat, z: &BigFloat| -> (BigFloat, BigFloat, BigFloat) {
+            let len_sq = x.mul(x, PREC, rm)
+                .add(&y.mul(y, PREC, rm), PREC, rm)
+                .add(&z.mul(z, PREC, rm), PREC, rm);
+            let len = len_sq.sqrt(PREC, rm);
+            (x.div(&len, PREC, rm), y.div(&len, PREC, rm), z.div(&len, PREC, rm))
+        };
+
+        // Convert to BigFloat and NORMALIZE (matching F64CellBuilder)
+        let gx = BigFloat::from_f32(g.x, PREC);
+        let gy = BigFloat::from_f32(g.y, PREC);
+        let gz = BigFloat::from_f32(g.z, PREC);
+        let (gx, gy, gz) = normalize_bf(&gx, &gy, &gz);
+
+        let nax = BigFloat::from_f32(na.x, PREC);
+        let nay = BigFloat::from_f32(na.y, PREC);
+        let naz = BigFloat::from_f32(na.z, PREC);
+        let (nax, nay, naz) = normalize_bf(&nax, &nay, &naz);
+
+        let nbx = BigFloat::from_f32(nb.x, PREC);
+        let nby = BigFloat::from_f32(nb.y, PREC);
+        let nbz = BigFloat::from_f32(nb.z, PREC);
+        let (nbx, nby, nbz) = normalize_bf(&nbx, &nby, &nbz);
+
+        // Bisector plane directions: da = g - na, db = g - nb
+        let da_x = gx.sub(&nax, PREC, rm);
+        let da_y = gy.sub(&nay, PREC, rm);
+        let da_z = gz.sub(&naz, PREC, rm);
+        // Normalize to get plane normal (matching F64GreatCircle::bisector)
+        let (pa_x, pa_y, pa_z) = normalize_bf(&da_x, &da_y, &da_z);
+
+        let db_x = gx.sub(&nbx, PREC, rm);
+        let db_y = gy.sub(&nby, PREC, rm);
+        let db_z = gz.sub(&nbz, PREC, rm);
+        let (pb_x, pb_y, pb_z) = normalize_bf(&db_x, &db_y, &db_z);
+
+        // Cross product: c = pa × pb (now using normalized plane normals)
+        let cx = pa_y.mul(&pb_z, PREC, rm).sub(&pa_z.mul(&pb_y, PREC, rm), PREC, rm);
+        let cy = pa_z.mul(&pb_x, PREC, rm).sub(&pa_x.mul(&pb_z, PREC, rm), PREC, rm);
+        let cz = pa_x.mul(&pb_y, PREC, rm).sub(&pa_y.mul(&pb_x, PREC, rm), PREC, rm);
+
+        // Length: |c|
+        let c_len_sq = cx.mul(&cx, PREC, rm)
+            .add(&cy.mul(&cy, PREC, rm), PREC, rm)
+            .add(&cz.mul(&cz, PREC, rm), PREC, rm);
+        let c_len = c_len_sq.sqrt(PREC, rm);
+
+        // Normalize: v = c / |c|
+        let vx_arb = cx.div(&c_len, PREC, rm);
+        let vy_arb = cy.div(&c_len, PREC, rm);
+        let vz_arb = cz.div(&c_len, PREC, rm);
+
+        // Check sign: pick the vertex that matches f64 direction (closer distance)
+        let vx_f_test = bf_to_f64(&vx_arb);
+        let vy_f_test = bf_to_f64(&vy_arb);
+        let vz_f_test = bf_to_f64(&vz_arb);
+
+        let dist_pos = (vx_f_test - v_f64.x).powi(2) + (vy_f_test - v_f64.y).powi(2) + (vz_f_test - v_f64.z).powi(2);
+        let dist_neg = (vx_f_test + v_f64.x).powi(2) + (vy_f_test + v_f64.y).powi(2) + (vz_f_test + v_f64.z).powi(2);
+
+        let (vx_arb, vy_arb, vz_arb) = if dist_neg < dist_pos {
+            (vx_arb.neg(), vy_arb.neg(), vz_arb.neg())
+        } else {
+            (vx_arb, vy_arb, vz_arb)
+        };
+
+        let vx_f = bf_to_f64(&vx_arb);
+        let vy_f = bf_to_f64(&vy_arb);
+        let vz_f = bf_to_f64(&vz_arb);
+
+        println!("ARB vertex pos: ({:.15}, {:.15}, {:.15})", vx_f, vy_f, vz_f);
+
+        // Position error
+        let pos_err = ((vx_f - v_f64.x).powi(2) + (vy_f - v_f64.y).powi(2) + (vz_f - v_f64.z).powi(2)).sqrt();
+        println!("Position error (f64 vs ARB): {:.2e}", pos_err);
+
+        // Normalize generator
+        let g_len_sq = gx.mul(&gx, PREC, rm)
+            .add(&gy.mul(&gy, PREC, rm), PREC, rm)
+            .add(&gz.mul(&gz, PREC, rm), PREC, rm);
+        let g_len = g_len_sq.sqrt(PREC, rm);
+        let gx_n = gx.div(&g_len, PREC, rm);
+        let gy_n = gy.div(&g_len, PREC, rm);
+        let gz_n = gz.div(&g_len, PREC, rm);
+
+        let dot_g_f64 = v_f64.dot(gen_f64);
+        let dot_g_arb = vx_arb.mul(&gx_n, PREC, rm)
+            .add(&vy_arb.mul(&gy_n, PREC, rm), PREC, rm)
+            .add(&vz_arb.mul(&gz_n, PREC, rm), PREC, rm);
+
+        println!("dot(V, G) f64: {:.15}", dot_g_f64);
+        println!("dot(V, G) ARB: {:.15}", bf_to_f64(&dot_g_arb));
+
+        // Analyze gaps with error model: gap_error ≤ pos_error * |G - C|
+        //
+        // For certification we need:
+        // - OUT generators: true_gap > SUPPORT_EPS_ABS (can't enter support set)
+        // - IN generators: true_gap ≤ SUPPORT_EPS_ABS (won't leave support set)
+        //
+        // Since true_gap ∈ [f64_gap - gap_error_bound, f64_gap + gap_error_bound]
+        // we check worst case for each direction.
+
+        println!("\nGap analysis (gap_error_bound = pos_err * |G-C|):");
+        println!("  pos_err = {:.2e}", pos_err);
+
+        let mut min_out_margin = f64::MAX; // smallest (true_gap - EPS) for OUT generators
+        let mut max_in_gap = f64::MIN;     // largest true_gap for IN generators
+
+        for &neighbor_idx in &neighbors {
+            if neighbor_idx == na_idx || neighbor_idx == nb_idx {
+                continue;
+            }
+
+            let c = points[neighbor_idx];
+            let c_f64 = DVec3::new(c.x as f64, c.y as f64, c.z as f64).normalize();
+
+            // |G - C| (distance between normalized generators)
+            let g_minus_c = (gen_f64 - c_f64).length();
+
+            // Predicted gap error bound
+            let gap_error_bound = pos_err * g_minus_c;
+
+            // f64 gap
+            let dot_c_f64 = v_f64.dot(c_f64);
+            let gap_f64 = dot_g_f64 - dot_c_f64;
+
+            // ARB gap (true gap)
+            let cx_raw = BigFloat::from_f32(c.x, PREC);
+            let cy_raw = BigFloat::from_f32(c.y, PREC);
+            let cz_raw = BigFloat::from_f32(c.z, PREC);
+            let c_len_sq = cx_raw.mul(&cx_raw, PREC, rm)
+                .add(&cy_raw.mul(&cy_raw, PREC, rm), PREC, rm)
+                .add(&cz_raw.mul(&cz_raw, PREC, rm), PREC, rm);
+            let c_len = c_len_sq.sqrt(PREC, rm);
+            let cx_n = cx_raw.div(&c_len, PREC, rm);
+            let cy_n = cy_raw.div(&c_len, PREC, rm);
+            let cz_n = cz_raw.div(&c_len, PREC, rm);
+
+            let dot_c_arb = vx_arb.mul(&cx_n, PREC, rm)
+                .add(&vy_arb.mul(&cy_n, PREC, rm), PREC, rm)
+                .add(&vz_arb.mul(&cz_n, PREC, rm), PREC, rm);
+
+            let gap_arb = dot_g_arb.sub(&dot_c_arb, PREC, rm);
+            let gap_arb_f = bf_to_f64(&gap_arb);
+
+            let actual_gap_err = (gap_f64 - gap_arb_f).abs();
+
+            // Classification based on f64 gap
+            let in_support = gap_f64 <= SUPPORT_EPS_ABS;
+
+            // Worst-case true gap for membership decision
+            // If OUT: could it enter? Check if gap_f64 - gap_error_bound <= EPS
+            // If IN: could it leave? Check if gap_f64 + gap_error_bound > EPS
+            let could_change = if in_support {
+                gap_f64 + gap_error_bound > SUPPORT_EPS_ABS
+            } else {
+                gap_f64 - gap_error_bound <= SUPPORT_EPS_ABS
+            };
+
+            // Track margins
+            if !in_support {
+                let margin = gap_arb_f - SUPPORT_EPS_ABS;
+                if margin < min_out_margin {
+                    min_out_margin = margin;
+                }
+            } else {
+                if gap_arb_f > max_in_gap {
+                    max_in_gap = gap_arb_f;
+                }
+            }
+
+            // Print interesting cases (small gaps or potential membership changes)
+            if gap_f64.abs() < 2e-5 || could_change {
+                println!(
+                    "  neighbor {:3}: |G-C|={:.4e} gap_f64={:.6e} gap_true={:.6e} err_bound={:.2e} actual_err={:.2e} {} {}",
+                    neighbor_idx, g_minus_c, gap_f64, gap_arb_f, gap_error_bound, actual_gap_err,
+                    if in_support { "[IN]" } else { "[OUT]" },
+                    if could_change { "*** COULD CHANGE ***" } else { "" }
+                );
+            }
+        }
+
+        println!("\nCertification check:");
+        println!("  SUPPORT_EPS_ABS = {:.6e}", SUPPORT_EPS_ABS);
+        println!("  Min margin for OUT generators (true_gap - EPS): {:.6e}", min_out_margin);
+        if max_in_gap > f64::MIN {
+            println!("  Max gap for IN generators: {:.6e}", max_in_gap);
+        }
+
+        let could_certify = min_out_margin > 0.0;
+        println!("  Could certify (all OUT generators have true_gap > EPS): {}", could_certify);
+
+        println!("\nOur current threshold model:");
+        let our_margin = 2.0 * (SUPPORT_VERTEX_ANGLE_EPS + f64::EPSILON * 16.0).sin();
+        println!("  f64_error_margin (2*sin(eps_angle)) = {:.6e}", our_margin);
+        println!("  cert_threshold = EPS + margin = {:.6e}", SUPPORT_EPS_ABS + our_margin);
+    }
+}
+
+/// Test whether recomputing vertex positions from planes improves accuracy.
+#[test]
+#[ignore] // Run with: cargo test test_recompute_vertex_accuracy -- --ignored --nocapture
+fn test_recompute_vertex_accuracy() {
+    use super::cell_builder::F64CellBuilder;
+    use super::knn::CubeMapGridKnn;
+    use crate::geometry::fibonacci_sphere_points_with_rng;
+    use rand::SeedableRng;
+    use rand_chacha::ChaCha8Rng;
+
+    const DEFAULT_K: usize = 24;
+
+    println!("\n=== Recompute Vertex Accuracy Test ===\n");
+
+    let n = 5000usize;
+    let seed = 12345u64;
+    let jitter_scale = 0.15f32;
+
+    let mean_spacing = (4.0 * std::f32::consts::PI / n as f32).sqrt();
+    let jitter = mean_spacing * jitter_scale;
+
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let points = fibonacci_sphere_points_with_rng(n, jitter, &mut rng);
+    let knn = CubeMapGridKnn::new(&points);
+
+    let mut total_vertices = 0usize;
+    let mut max_diff = 0.0f64;
+    let mut sum_diff = 0.0f64;
+    let mut max_diff_cell = 0usize;
+    let mut max_diff_vertex = 0usize;
+
+    for cell_idx in 0..n {
+        let mut builder = F64CellBuilder::new(cell_idx, points[cell_idx]);
+        let mut scratch = knn.make_scratch();
+        let mut neighbors = Vec::with_capacity(DEFAULT_K);
+        knn.knn_into(points[cell_idx], cell_idx, DEFAULT_K, &mut scratch, &mut neighbors);
+
+        for &neighbor_idx in &neighbors {
+            builder.clip(neighbor_idx, points[neighbor_idx]);
+        }
+
+        if builder.is_dead() || builder.vertex_count() < 3 {
+            continue;
+        }
+
+        // Compare stored positions vs recomputed from planes
+        for (v_idx, stored_pos, plane_a, plane_b) in builder.vertices_iter() {
+            let stored = stored_pos.normalize();
+
+            // Recompute from plane normals
+            let n_a = builder.plane_normal(plane_a);
+            let n_b = builder.plane_normal(plane_b);
+            let cross = n_a.cross(n_b);
+            let len = cross.length();
+            if len < 1e-10 {
+                continue; // Skip degenerate
+            }
+            let recomputed = cross / len;
+            // Pick sign matching stored
+            let recomputed = if recomputed.dot(stored) >= 0.0 { recomputed } else { -recomputed };
+
+            let diff = (stored - recomputed).length();
+            total_vertices += 1;
+            sum_diff += diff;
+            if diff > max_diff {
+                max_diff = diff;
+                max_diff_cell = cell_idx;
+                max_diff_vertex = v_idx;
+            }
+        }
+    }
+
+    let avg_diff = sum_diff / total_vertices as f64;
+    println!("Total vertices: {}", total_vertices);
+    println!("Max stored vs recomputed diff: {:.2e} at cell {} vertex {}", max_diff, max_diff_cell, max_diff_vertex);
+    println!("Avg stored vs recomputed diff: {:.2e}", avg_diff);
+
+    // If max_diff is very small (< eps), stored == recomputed and there's no point recomputing
+    // If max_diff is significant, recomputing could help
+    if max_diff < 1e-14 {
+        println!("\nConclusion: Stored positions ARE recomputed from planes. No benefit to recomputing.");
+    } else {
+        println!("\nConclusion: Stored positions differ from plane-based. Recomputing could help!");
+    }
+}
+
+/// Test that extremely poorly conditioned cases correctly fail certification.
+///
+/// We create synthetic point configurations with nearly-parallel bisector planes
+/// to verify that certification correctly rejects these ill-conditioned cases.
+#[test]
+#[ignore] // Run with: cargo test test_extreme_conditioning_fails -- --ignored --nocapture
+fn test_extreme_conditioning_fails() {
+    use super::cell_builder::F64CellBuilder;
+    use super::constants::SUPPORT_EPS_ABS;
+    use glam::Vec3;
+    use std::panic;
+
+    println!("\n=== Extreme Conditioning Certification Test ===\n");
+
+    // Create a configuration where two neighbors create nearly-parallel bisector planes.
+    // This happens when neighbors are nearly collinear with the generator.
+    //
+    // Generator at north pole, two neighbors very close together near equator
+    // Their bisector planes will be nearly parallel.
+
+    let generator = Vec3::new(0.0, 0.0, 1.0); // North pole
+
+    // Two neighbors that are very close to each other (nearly collinear from generator's view)
+    // This creates nearly-parallel bisector planes
+    let angle1 = 0.5f32; // radians from equator
+    let angle2 = 0.5f32 + 1e-6; // tiny angular difference
+
+    let neighbor1 = Vec3::new(angle1.cos(), 0.0, angle1.sin()).normalize();
+    let neighbor2 = Vec3::new(angle2.cos(), 1e-7, angle2.sin()).normalize();
+
+    // A third neighbor to complete a valid cell
+    let neighbor3 = Vec3::new(-0.5, 0.5, 0.5).normalize();
+
+    let points = vec![generator, neighbor1, neighbor2, neighbor3];
+
+    println!("Generator: {:?}", generator);
+    println!("Neighbor1: {:?}", neighbor1);
+    println!("Neighbor2: {:?}", neighbor2);
+    println!("Neighbor3: {:?}", neighbor3);
+
+    // Check the conditioning between neighbor1 and neighbor2's bisector planes
+    let dir1 = (generator - neighbor1).normalize();
+    let dir2 = (generator - neighbor2).normalize();
+    let conditioning = dir1.cross(dir2).length();
+    println!("\nConditioning (sin angle between planes 1&2): {:.2e}", conditioning);
+
+    // Build the cell
+    let mut builder = F64CellBuilder::new(0, generator);
+    builder.clip(1, neighbor1);
+    builder.clip(2, neighbor2);
+    builder.clip(3, neighbor3);
+
+    println!("Cell has {} vertices", builder.vertex_count());
+
+    if builder.is_dead() || builder.vertex_count() < 3 {
+        println!("Cell is dead or degenerate - extreme case handled by clipping");
+        return;
+    }
+
+    // Try to certify - this should panic for ill-conditioned vertices
+    let mut support_data = Vec::new();
+    let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
+        builder.clone().into_vertex_data(&points, &mut support_data)
+    }));
+
+    match result {
+        Ok(vertices) => {
+            println!("\nCertification PASSED ({} vertices)", vertices.len());
+            // Check the actual conditioning of each vertex
+            for (i, _) in vertices.iter().enumerate() {
+                let cond = builder.vertex_conditioning_by_index(i);
+                println!("  Vertex {}: conditioning = {:.2e}", i, cond);
+            }
+            // This is OK if conditioning isn't actually bad
+            if conditioning > 1e-4 {
+                println!("\nNote: Conditioning wasn't extreme enough to fail.");
+            }
+        }
+        Err(e) => {
+            println!("\nCertification correctly FAILED (panicked)");
+            if let Some(msg) = e.downcast_ref::<String>() {
+                println!("  Message: {}", msg);
+            } else if let Some(msg) = e.downcast_ref::<&str>() {
+                println!("  Message: {}", msg);
+            }
+        }
+    }
+
+    // Now try an even more extreme case: neighbors almost exactly collinear
+    println!("\n--- Even more extreme case ---");
+
+    let neighbor1_extreme = Vec3::new(1.0, 0.0, 0.0).normalize();
+    let neighbor2_extreme = Vec3::new(1.0, 1e-8, 0.0).normalize(); // Tiny offset
+
+    let dir1 = (generator - neighbor1_extreme).normalize();
+    let dir2 = (generator - neighbor2_extreme).normalize();
+    let conditioning_extreme = dir1.cross(dir2).length();
+    println!("Extreme conditioning: {:.2e}", conditioning_extreme);
+
+    let points_extreme = vec![generator, neighbor1_extreme, neighbor2_extreme, neighbor3];
+
+    let mut builder2 = F64CellBuilder::new(0, generator);
+    builder2.clip(1, neighbor1_extreme);
+    builder2.clip(2, neighbor2_extreme);
+    builder2.clip(3, neighbor3);
+
+    if builder2.is_dead() || builder2.vertex_count() < 3 {
+        println!("Extreme cell is dead or degenerate - handled by clipping");
+        return;
+    }
+
+    let mut support_data2 = Vec::new();
+    let result2 = panic::catch_unwind(panic::AssertUnwindSafe(|| {
+        builder2.clone().into_vertex_data(&points_extreme, &mut support_data2)
+    }));
+
+    match result2 {
+        Ok(vertices) => {
+            println!("Extreme case: Certification PASSED ({} vertices)", vertices.len());
+            for (i, _) in vertices.iter().enumerate() {
+                let cond = builder2.vertex_conditioning_by_index(i);
+                println!("  Vertex {}: conditioning = {:.2e}", i, cond);
+            }
+        }
+        Err(_) => {
+            println!("Extreme case: Certification correctly FAILED");
+        }
+    }
+}
+
+/// Test certification rate with conditioning-based error thresholds.
+///
+/// This test measures what percentage of vertices would certify if we use
+/// conditioning-aware error bounds instead of a fixed threshold.
+#[test]
+#[ignore] // Run with: cargo test test_conditioning_certification_rate -- --ignored --nocapture
+fn test_conditioning_certification_rate() {
+    use super::cell_builder::F64CellBuilder;
+    use super::constants::SUPPORT_EPS_ABS;
+    use super::knn::CubeMapGridKnn;
+    use crate::geometry::fibonacci_sphere_points_with_rng;
+    use rand::SeedableRng;
+    use rand_chacha::ChaCha8Rng;
+
+    const DEFAULT_K: usize = 24;
+
+    println!("\n=== Conditioning-Based Certification Rate Test ===\n");
+
+    let n = 5000usize;
+    let seed = 12345u64;
+    let jitter_scale = 0.15f32;
+
+    let mean_spacing = (4.0 * std::f32::consts::PI / n as f32).sqrt();
+    let jitter = mean_spacing * jitter_scale;
+
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let points = fibonacci_sphere_points_with_rng(n, jitter, &mut rng);
+    let knn = CubeMapGridKnn::new(&points);
+
+    // Stats
+    let mut total_vertices = 0usize;
+    let mut certified_fixed = 0usize;    // Current fixed threshold
+    let mut certified_cond = 0usize;     // Conditioning-based threshold
+    let mut worst_conditioning = f64::MAX;
+    let mut worst_conditioning_cell = 0usize;
+    let mut worst_conditioning_vertex = 0usize;
+
+    // Histogram of conditioning values
+    let mut conditioning_buckets = [0usize; 10]; // [0-0.1, 0.1-0.2, ..., 0.9-1.0]
+    let mut failed_by_bucket = [0usize; 10];
+
+    // Fixed threshold (current approach)
+    let fixed_margin = 2.0 * (super::constants::SUPPORT_VERTEX_ANGLE_EPS + f64::EPSILON * 16.0).sin();
+    let fixed_threshold = SUPPORT_EPS_ABS + fixed_margin;
+
+    // Base error for conditioning model: accumulated clipping error
+    // Empirically, we observed ~1.5e-6 error for conditioning ~0.65
+    // So base_error ≈ 1.5e-6 * 0.65 ≈ 1e-6
+    // Use a conservative multiplier
+    let base_accumulated_error = 1e-5; // Conservative estimate for num_clips * f64 arithmetic
+
+    for cell_idx in 0..n {
+        let mut builder = F64CellBuilder::new(cell_idx, points[cell_idx]);
+        let mut scratch = knn.make_scratch();
+        let mut neighbors = Vec::with_capacity(DEFAULT_K);
+        knn.knn_into(points[cell_idx], cell_idx, DEFAULT_K, &mut scratch, &mut neighbors);
+
+        for &neighbor_idx in &neighbors {
+            builder.clip(neighbor_idx, points[neighbor_idx]);
+        }
+
+        if builder.is_dead() || builder.vertex_count() < 3 {
+            continue;
+        }
+
+        // Compute gaps for all vertices
+        let vertex_gaps = builder.compute_vertex_gaps(&points, SUPPORT_EPS_ABS);
+
+        for (v_idx, gap_info) in vertex_gaps.iter().enumerate() {
+            total_vertices += 1;
+            let (min_gap, _support_set) = gap_info;
+
+            // Get vertex conditioning
+            let conditioning = builder.vertex_conditioning_by_index(v_idx);
+
+            // Bucket
+            let bucket = ((conditioning * 10.0) as usize).min(9);
+            conditioning_buckets[bucket] += 1;
+
+            // Track worst
+            if conditioning < worst_conditioning {
+                worst_conditioning = conditioning;
+                worst_conditioning_cell = cell_idx;
+                worst_conditioning_vertex = v_idx;
+            }
+
+            // Check fixed threshold
+            if *min_gap > fixed_threshold {
+                certified_fixed += 1;
+            }
+
+            // Conditioning-based threshold:
+            // pos_error ≈ base_accumulated_error / conditioning
+            // gap_error ≈ pos_error * max_generator_distance
+            // For now, use a simplified model: threshold = EPS + base_error / conditioning
+            let cond_pos_error = base_accumulated_error / conditioning.max(0.01);
+            // Multiply by typical generator distance (~mean_spacing)
+            let cond_gap_error = cond_pos_error * (mean_spacing as f64);
+            let cond_threshold = SUPPORT_EPS_ABS + cond_gap_error;
+
+            if *min_gap > cond_threshold {
+                certified_cond += 1;
+            } else {
+                failed_by_bucket[bucket] += 1;
+            }
+        }
+
+    }
+
+    println!("Configuration:");
+    println!("  n = {}, seed = {}, jitter = {:.2}", n, seed, jitter_scale);
+    println!("  base_accumulated_error = {:.2e}", base_accumulated_error);
+    println!("  fixed_threshold = {:.6e}", fixed_threshold);
+    println!();
+    println!("Results:");
+    println!("  Total vertices: {}", total_vertices);
+    println!("  Certified (fixed threshold): {} ({:.2}%)",
+             certified_fixed, 100.0 * certified_fixed as f64 / total_vertices as f64);
+    println!("  Certified (conditioning-based): {} ({:.2}%)",
+             certified_cond, 100.0 * certified_cond as f64 / total_vertices as f64);
+    println!();
+    println!("Worst conditioning: {:.6} at cell {} vertex {}",
+             worst_conditioning, worst_conditioning_cell, worst_conditioning_vertex);
+    println!();
+    println!("Conditioning distribution:");
+    for (i, &count) in conditioning_buckets.iter().enumerate() {
+        let failed = failed_by_bucket[i];
+        let range_start = i as f64 * 0.1;
+        let range_end = (i + 1) as f64 * 0.1;
+        println!("  [{:.1}-{:.1}]: {:5} vertices, {:5} failed ({:.2}%)",
+                 range_start, range_end, count, failed,
+                 if count > 0 { 100.0 * failed as f64 / count as f64 } else { 0.0 });
+    }
+}
+
+#[test]
+fn test_gpu_voronoi_10k_timing() {
+    use crate::geometry::random_sphere_points;
+    use super::compute_voronoi_gpu_style_with_stats;
+    use std::time::Instant;
+
+    let points = random_sphere_points(10_000);
+    
+    println!("\nTesting 10k cells with GPU voronoi...");
+    let t0 = Instant::now();
+    let (voronoi, stats) = compute_voronoi_gpu_style_with_stats(&points, 24);
+    let elapsed = t0.elapsed().as_secs_f64() * 1000.0;
+    
+    println!("Time: {:.1}ms", elapsed);
+    println!("Vertices: {}", voronoi.vertices.len());
+    println!("F64 fallback cells: {}", stats.f64_fallback_cells);
+    println!("Cert failed cells: {}", stats.support_cert_failed);
+}
+
+#[test]
+#[ignore]
+fn test_gpu_voronoi_50k_timing() {
+    use crate::geometry::random_sphere_points;
+    use super::compute_voronoi_gpu_style_with_stats;
+    use std::time::Instant;
+
+    let points = random_sphere_points(50_000);
+    
+    println!("\nTesting 50k cells with GPU voronoi...");
+    let t0 = Instant::now();
+    let (voronoi, stats) = compute_voronoi_gpu_style_with_stats(&points, 24);
+    let elapsed = t0.elapsed().as_secs_f64() * 1000.0;
+    
+    println!("Time: {:.1}ms", elapsed);
+    println!("Vertices: {}", voronoi.vertices.len());
+    println!("F64 fallback cells: {}", stats.f64_fallback_cells);
+    println!("Cert failed cells: {}", stats.support_cert_failed);
+}
+
+#[test]
+#[ignore]
+fn test_gpu_voronoi_100k_validation() {
+    use crate::geometry::random_sphere_points;
+    use crate::geometry::validation::validate_voronoi;
+    use super::compute_voronoi_gpu_style_with_stats;
+    use std::time::Instant;
+
+    let points = random_sphere_points(100_000);
+    
+    println!("\nTesting 100k cells with GPU voronoi...");
+    let t0 = Instant::now();
+    let (voronoi, stats) = compute_voronoi_gpu_style_with_stats(&points, 24);
+    let elapsed = t0.elapsed().as_secs_f64() * 1000.0;
+    
+    println!("Time: {:.1}ms", elapsed);
+    println!("Vertices: {}", voronoi.vertices.len());
+    println!("F64 fallback cells: {}", stats.f64_fallback_cells);
+    println!("Cert failed cells: {}", stats.support_cert_failed);
+    
+    // Validate
+    let result = validate_voronoi(&voronoi, 1e-6);
+    result.print_summary();
+}

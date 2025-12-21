@@ -10,9 +10,17 @@ pub const MIN_BISECTOR_DISTANCE: f32 = 1e-4;
 /// Fraction of mean generator spacing used for near-duplicate thresholds in tests.
 pub const VERTEX_WELD_FRACTION: f32 = 0.01;
 
-/// Support-set epsilon in dot space (absolute, based on f32 numeric precision).
-/// 64 ulps leaves headroom for accumulated error from f32 plane intersections.
-pub const SUPPORT_EPS_ABS: f64 = (f32::EPSILON as f64) * 64.0;
+/// Support-set epsilon in dot space (absolute).
+///
+/// This defines the ambiguity zone for support set membership:
+/// a generator C is in the support set if dot(V,G) - dot(V,C) ≤ SUPPORT_EPS_ABS.
+///
+/// For f64 vertex computation with ~2e-15 position error:
+/// - Gap error ≈ 2e-15 × |G-C| ≤ 4e-15
+/// - Two cells computing "same" vertex may get gaps differing by ~8e-15
+///
+/// We use 1e-12 for ~100x safety margin over f64 arithmetic error.
+pub const SUPPORT_EPS_ABS: f64 = 1e-12;
 
 /// Additional margin when certifying a bounded support cluster.
 ///

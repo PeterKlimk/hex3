@@ -52,6 +52,7 @@ pub fn dedup_vertices_hash_flat(
     let mut heads: Vec<u32> = vec![NIL; num_points];
     let mut nodes: Vec<TripletNode> = Vec::with_capacity(expected_vertices);
     let mut support_map: FxHashMap<Vec<u32>, usize> = FxHashMap::default();
+    let mut quant_map: FxHashMap<u64, usize> = FxHashMap::default();
 
     let t1 = Instant::now();
 
@@ -113,6 +114,16 @@ pub fn dedup_vertices_hash_flat(
                             let idx = all_vertices.len();
                             all_vertices.push(pos);
                             support_map.insert(support.to_vec(), idx);
+                            idx
+                        }
+                    }
+                    VertexKey::Quantized(h) => {
+                        if let Some(&idx) = quant_map.get(&h) {
+                            idx
+                        } else {
+                            let idx = all_vertices.len();
+                            all_vertices.push(pos);
+                            quant_map.insert(h, idx);
                             idx
                         }
                     }

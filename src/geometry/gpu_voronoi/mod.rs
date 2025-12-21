@@ -17,7 +17,7 @@ use rustc_hash::FxHashSet;
 
 // Re-exports
 pub use cell_builder::{
-    GreatCircle, IncrementalCellBuilder, DEFAULT_K, MAX_PLANES, MAX_VERTICES,
+    GreatCircle, IncrementalCellBuilder, F64CellBuilder, DEFAULT_K, MAX_PLANES, MAX_VERTICES,
     VertexKey,
     VertexData, VertexList,
     geodesic_distance, order_vertices_ccw_indices,
@@ -93,6 +93,8 @@ pub(crate) struct FlatChunk {
     pub(crate) cert_failed_vertex_indices: Vec<(u32, u8)>,
     /// Starting global vertex index for this chunk (set during assembly).
     pub(crate) vertex_offset: u32,
+    /// Number of cells that used f64 fallback.
+    pub(crate) f64_fallback_cells: usize,
 }
 
 #[derive(Debug)]
@@ -153,6 +155,7 @@ impl FlatCellsData {
             }
             median
         };
+        let f64_fallback_cells: usize = self.chunks.iter().map(|c| c.f64_fallback_cells).sum();
         // Aggregate failed vertex indices with global offsets
         let mut cert_failed_vertex_indices: Vec<(u32, u8)> = Vec::new();
         for chunk in &self.chunks {
@@ -177,6 +180,7 @@ impl FlatCellsData {
             support_cert_gap_min: cert_gap_min,
             support_cert_gap_median: cert_gap_median,
             support_cert_failed_vertex_indices: cert_failed_vertex_indices,
+            f64_fallback_cells,
         }
     }
 
@@ -250,6 +254,8 @@ pub struct VoronoiStats {
     /// Failed vertex indices with reason codes (1=ill_cond, 2=gap, 3=both).
     /// Global vertex indices across all chunks.
     pub support_cert_failed_vertex_indices: Vec<(u32, u8)>,
+    /// Number of cells that used f64 fallback.
+    pub f64_fallback_cells: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -305,6 +311,12 @@ pub fn build_cells_data_flat(
     }
 
     let support_eps = SUPPORT_EPS_ABS;
+    // Position weld threshold (chord length) used for deferred keying of uncertified vertices.
+    // Matches the scale used by strict validation / near-duplicate thresholds in tests.
+    let pos_weld_chord: f64 = {
+        let spacing = mean_generator_spacing_chord(n) as f64;
+        (spacing * VERTEX_WELD_FRACTION as f64).max(MIN_BISECTOR_DISTANCE as f64 * 0.25)
+    };
 
     let threads = rayon::current_num_threads().max(1);
     let chunk_size = (n / (threads * 8)).clamp(256, 4096).max(1);
@@ -334,17 +346,21 @@ pub fn build_cells_data_flat(
             let mut total_neighbors_processed = 0usize;
             let mut terminated_cells = 0usize;
             let mut fallback_unterminated = 0usize;
-            let mut cert_checked_cells = 0usize;
-            let mut cert_failed_cells = 0usize;
+            let cert_checked_cells = 0usize;
+            let cert_failed_cells = 0usize;
             let mut cert_checked_vertices = 0usize;
             let mut cert_failed_vertices = 0usize;
             let mut cert_failed_ill_vertices = 0usize;
             let mut cert_failed_gap_vertices = 0usize;
             let mut cert_failed_vertex_indices: Vec<(u32, u8)> = Vec::new();
+            let mut f64_fallback_cells = 0usize;
             let mut gap_sampler = GapSampler::new(
                 SUPPORT_GAP_SAMPLE_LIMIT,
                 (start as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15).wrapping_add(0xD1B5_4A32_D192_ED03),
             );
+
+            // Note: F64CellBuilder is now the default path; VORONOI_FORCE_F64 is no longer needed.
+            let _force_f64 = std::env::var("VORONOI_FORCE_F64").is_ok();
 
             for i in start..end {
                 builder.reset(i, points[i]);
@@ -492,108 +508,56 @@ pub fn build_cells_data_flat(
                 cell_candidates_complete.push(candidates_complete as u8);
                 let mut cert_checked = false;
                 let mut cert_failed = false;
-                let vertices_start = vertices.len();
-                let support_start = support_data.len();
-                let failed_idx_start = cert_failed_vertex_indices.len();
-                let cert_checked_vertices_start = cert_checked_vertices;
-                let cert_failed_vertices_start = cert_failed_vertices;
-                let cert_failed_ill_vertices_start = cert_failed_ill_vertices;
-                let cert_failed_gap_vertices_start = cert_failed_gap_vertices;
+                // Rollback positions (unused in f64-primary path, kept for potential fallback)
+                let _vertices_start = vertices.len();
+                let _support_start = support_data.len();
+                let _failed_idx_start = cert_failed_vertex_indices.len();
+                let _cert_checked_vertices_start = cert_checked_vertices;
+                let _cert_failed_vertices_start = cert_failed_vertices;
+                let _cert_failed_ill_vertices_start = cert_failed_ill_vertices;
+                let _cert_failed_gap_vertices_start = cert_failed_gap_vertices;
 
-                let mut count = builder.get_vertices_into(
-                    points,
-                    support_eps,
-                    candidates_complete,
-                    &mut support_data,
-                    &mut vertices,
-                    &mut cert_checked,
-                    &mut cert_failed,
-                    &mut cert_checked_vertices,
-                    &mut cert_failed_vertices,
-                    &mut cert_failed_ill_vertices,
-                    &mut cert_failed_gap_vertices,
-                    &mut gap_sampler,
-                    &mut cert_failed_vertex_indices,
-                );
-
-                // Defer resolution of uncertified vertices: rebuild the cell against the full
-                // generator set and re-emit vertices/keys with a complete candidate set.
-                //
-                // This keeps topology coherent even when the initial local candidate set
-                // (k-NN + termination) is insufficient to stabilize support membership.
-                if cert_failed && !full_scan_done {
-                    if std::env::var("VORONOI_DEBUG_FALLBACK").is_ok() {
-                        eprintln!(
-                            "[CERT-DEFER] cell {} rebuilding with full-scan due to uncertified vertices",
-                            i
-                        );
-                    }
-
-                    // Roll back provisional outputs and counters for this cell.
-                    vertices.truncate(vertices_start);
-                    support_data.truncate(support_start);
-                    cert_failed_vertex_indices.truncate(failed_idx_start);
-                    cert_checked_vertices = cert_checked_vertices_start;
-                    cert_failed_vertices = cert_failed_vertices_start;
-                    cert_failed_ill_vertices = cert_failed_ill_vertices_start;
-                    cert_failed_gap_vertices = cert_failed_gap_vertices_start;
-
-                    // Full-scan rebuild.
-                    builder.reset(i, points[i]);
-                    for (p_idx, &p) in points.iter().enumerate() {
-                        if p_idx == i {
-                            continue;
-                        }
-                        builder.clip(p_idx, p);
-                        if builder.is_dead() {
+                // Build cell with f64 precision (default path).
+                // IncrementalCellBuilder is used for neighbor collection and termination,
+                // F64CellBuilder provides the actual geometry with proper error bounds.
+                {
+                    use cell_builder::F64CellBuilder;
+                    let mut f64_builder = F64CellBuilder::new(i, points[i]);
+                    for neighbor_idx in builder.neighbor_indices_iter() {
+                        f64_builder.clip(neighbor_idx, points[neighbor_idx]);
+                        if f64_builder.is_dead() {
                             break;
                         }
                     }
-                    if builder.is_dead() {
-                        let recovered = builder.try_reseed_best();
-                        if !recovered {
-                            panic!(
-                                "TODO: full-scan certification rebuild failed for cell {} (planes={})",
-                                i,
-                                builder.planes_count()
-                            );
-                        }
-                    }
 
-                    if let Some(v) = cell_full_scan_done.last_mut() {
-                        *v = 1;
-                    }
-                    if let Some(v) = cell_candidates_complete.last_mut() {
-                        *v = 1;
-                    }
+                    let count = if !f64_builder.is_dead() && f64_builder.vertex_count() >= 3 {
+                        let f64_vertices = f64_builder.into_vertex_data(points, &mut support_data);
+                        let c = f64_vertices.len();
+                        vertices.extend(f64_vertices);
+                        c
+                    } else {
+                        // F64 failed (degenerate cell), use f32 with Quantized keys as fallback
+                        f64_fallback_cells += 1;
+                        builder.get_vertices_into(
+                            points,
+                            support_eps,
+                            pos_weld_chord,
+                            candidates_complete,
+                            &mut support_data,
+                            &mut vertices,
+                            &mut cert_checked,
+                            &mut cert_failed,
+                            &mut cert_checked_vertices,
+                            &mut cert_failed_vertices,
+                            &mut cert_failed_ill_vertices,
+                            &mut cert_failed_gap_vertices,
+                            &mut gap_sampler,
+                            &mut cert_failed_vertex_indices,
+                        )
+                    };
+                    counts.push(count as u8);
+                }
 
-                    // Re-emit vertices with a complete candidate set.
-                    cert_checked = false;
-                    cert_failed = false;
-                    count = builder.get_vertices_into(
-                        points,
-                        support_eps,
-                        true,
-                        &mut support_data,
-                        &mut vertices,
-                        &mut cert_checked,
-                        &mut cert_failed,
-                        &mut cert_checked_vertices,
-                        &mut cert_failed_vertices,
-                        &mut cert_failed_ill_vertices,
-                        &mut cert_failed_gap_vertices,
-                        &mut gap_sampler,
-                        &mut cert_failed_vertex_indices,
-                    );
-                }
-                if cert_checked {
-                    cert_checked_cells += 1;
-                    if cert_failed {
-                        cert_failed_cells += 1;
-                    }
-                }
-                debug_assert!(count <= u8::MAX as usize, "vertex count exceeds u8");
-                counts.push(count as u8);
             }
 
             FlatChunk {
@@ -618,6 +582,7 @@ pub fn build_cells_data_flat(
                 cert_gap_samples: gap_sampler.sample().to_vec(),
                 cert_failed_vertex_indices,
                 vertex_offset: 0, // Computed below
+                f64_fallback_cells,
             }
         })
         .collect();

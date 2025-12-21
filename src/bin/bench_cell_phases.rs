@@ -243,8 +243,9 @@ fn build_cells_instrumented(
         let mut gap_sampler = hex3::geometry::gpu_voronoi::GapSampler::new(0, 1);
         builder.get_vertices_into(
             points,
-            0.0,
-            false,
+            0.0, // support_eps
+            0.0, // pos_weld_chord (unused when candidates_complete=false)
+            false, // candidates_complete
             &mut support_data,
             &mut vertices_out,
             &mut cert_checked,
