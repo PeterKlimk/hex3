@@ -48,7 +48,7 @@ pub(crate) struct FlatChunk {
     /// Per-cell flag: whether the cell terminated early.
     #[allow(dead_code)]
     pub(crate) cell_terminated: Vec<u8>,
-    /// Per-cell flag: whether the cell used the fallback k-NN query.
+    /// Per-cell flag: whether the cell needed expanded k-NN or a full scan.
     #[allow(dead_code)]
     pub(crate) cell_used_fallback: Vec<u8>,
     /// Per-cell flag: whether the cell performed a full scan over all generators.
@@ -270,23 +270,27 @@ pub struct TerminationConfig {
     /// Enables adaptive k-NN + early termination checks.
     ///
     /// When disabled, the builder will still run the initial k-NN pass but will not
-    /// attempt to terminate early or expand to larger k (so this should generally
-    /// remain enabled for correct results).
+    /// attempt to terminate early; the k-NN schedule still runs to ensure
+    /// correctness (so this should generally remain enabled for performance).
     pub enabled: bool,
     pub check_start: usize,
     pub check_step: usize,
 }
 
-// Keep the adaptive-k schedule and the default termination cadence in one place.
-// If you change the k schedule, the default termination values should update with it.
-pub(super) const ADAPTIVE_K_INITIAL: usize = 10;
-pub(super) const ADAPTIVE_K_RESUME: usize = 18;
-pub(super) const ADAPTIVE_K_RARE: usize = 48;
+// Keep the k-NN schedule and the default termination cadence in one place.
+// Resume: 12 -> 24 (same query, higher k). Restart: 48 -> 96 (fresh queries).
+pub(super) const KNN_K12: usize = 12;
+pub(super) const KNN_K24: usize = 24;
+pub(super) const KNN_K48: usize = 48;
+pub(super) const KNN_K96: usize = 96;
+pub(super) const KNN_RESUME_KS: [usize; 2] = [KNN_K12, KNN_K24];
+pub(super) const KNN_RESTART_KS: [usize; 2] = [KNN_K48, KNN_K96];
+pub(super) const KNN_RESTART_MAX: usize = KNN_K96;
 
 // Default termination cadence:
 // - start near the end of the initial k pass
 // - then check roughly twice per initial-k window
-const DEFAULT_TERMINATION_CHECK_START: usize = 6;
+const DEFAULT_TERMINATION_CHECK_START: usize = 8;
 const DEFAULT_TERMINATION_CHECK_STEP: usize = 1;
 
 impl Default for TerminationConfig {
@@ -320,6 +324,7 @@ pub fn build_cells_data_flat(
     knn: &CubeMapGridKnn,
     termination: TerminationConfig,
 ) -> (FlatCellsData, timing::CellSubAccum) {
+    #[cfg(not(feature = "single-threaded"))]
     use rayon::prelude::*;
 
     let n = points.len();
@@ -333,7 +338,10 @@ pub fn build_cells_data_flat(
         );
     }
 
+    #[cfg(not(feature = "single-threaded"))]
     let threads = rayon::current_num_threads().max(1);
+    #[cfg(feature = "single-threaded")]
+    let threads = 1usize;
     let chunk_size = (n / (threads * 8)).clamp(256, 4096).max(1);
     let mut ranges = Vec::with_capacity((n + chunk_size - 1) / chunk_size);
     let mut start = 0;
@@ -343,8 +351,12 @@ pub fn build_cells_data_flat(
         start = end;
     }
 
-    let chunks: Vec<(FlatChunk, timing::CellSubAccum)> = ranges
-        .par_iter()
+    #[cfg(not(feature = "single-threaded"))]
+    let iter = ranges.par_iter();
+    #[cfg(feature = "single-threaded")]
+    let iter = ranges.iter();
+
+    let chunks: Vec<(FlatChunk, timing::CellSubAccum)> = iter
         .map(|&(start, end)| {
             use cell_builder::F64CellBuilder;
             use timing::{Timer, CellSubAccum};
@@ -381,29 +393,33 @@ pub fn build_cells_data_flat(
                 let mut cell_neighbors_processed = 0usize;
                 let mut terminated = false;
                 let mut knn_exhausted = false;
-                let mut did_reach_track_limit = false;
                 let mut full_scan_done = false;
                 let mut did_full_scan_fallback = false;
                 let mut did_full_scan_recovery = false;
 
                 let mut worst_cos = 1.0f32;
-                let mut neighbors: Vec<usize> = Vec::with_capacity(ADAPTIVE_K_RARE);
+                let max_neighbors = points.len().saturating_sub(1);
+                let mut neighbors: Vec<usize> = Vec::with_capacity(KNN_RESTART_MAX);
                 let mut processed = 0usize;
-                let track_limit = ADAPTIVE_K_RARE.min(points.len().saturating_sub(1));
+                let mut max_k_requested = 0usize;
+                let mut used_expanded_knn = false;
+                let mut knn_stage = timing::KnnCellStage::K12;
+                let mut did_reach_knn_limit = false;
 
-                let stages = [ADAPTIVE_K_INITIAL, ADAPTIVE_K_RESUME, ADAPTIVE_K_RARE];
-                for (stage_idx, &k_stage) in stages.iter().enumerate() {
-                    let k = k_stage.min(track_limit);
+                let resume_track_limit = KNN_K24.min(max_neighbors);
+                for (stage_idx, &k_stage) in KNN_RESUME_KS.iter().enumerate() {
+                    let k = k_stage.min(resume_track_limit);
                     if k == 0 || k <= processed {
                         continue;
                     }
+                    max_k_requested = max_k_requested.max(k);
                     let t_knn = Timer::start();
                     let status = if stage_idx == 0 {
                         knn.knn_resumable_into(
                             points[i],
                             i,
                             k,
-                            track_limit,
+                            resume_track_limit,
                             &mut scratch,
                             &mut neighbors,
                         )
@@ -411,6 +427,11 @@ pub fn build_cells_data_flat(
                         knn.knn_resume_into(points[i], i, k, &mut scratch, &mut neighbors)
                     };
                     sub_accum.add_knn(t_knn.elapsed());
+
+                    if stage_idx > 0 {
+                        knn_stage = timing::KnnCellStage::K24;
+                        used_expanded_knn = true;
+                    }
 
                     let t_clip = Timer::start();
                     for &neighbor_idx in &neighbors[processed..] {
@@ -441,9 +462,72 @@ pub fn build_cells_data_flat(
                         knn_exhausted = true;
                         break;
                     }
-                    if processed >= track_limit {
-                        did_reach_track_limit = true;
+                }
+
+                if !terminated && !knn_exhausted && !builder.is_dead() {
+                    for (restart_idx, &k_stage) in KNN_RESTART_KS.iter().enumerate() {
+                        let k = k_stage.min(max_neighbors);
+                        if k == 0 || k <= max_k_requested {
+                            continue;
+                        }
+                        max_k_requested = k;
+                        neighbors.clear();
+
+                        let t_knn = Timer::start();
+                        let status = knn.knn_resumable_into(
+                            points[i],
+                            i,
+                            k,
+                            k,
+                            &mut scratch,
+                            &mut neighbors,
+                        );
+                        sub_accum.add_knn(t_knn.elapsed());
+
+                        knn_stage = if restart_idx + 1 == KNN_RESTART_KS.len() {
+                            timing::KnnCellStage::K96
+                        } else {
+                            timing::KnnCellStage::K48
+                        };
+                        used_expanded_knn = true;
+
+                        let t_clip = Timer::start();
+                        for &neighbor_idx in &neighbors {
+                            if builder.has_neighbor(neighbor_idx) {
+                                continue;
+                            }
+                            let neighbor = points[neighbor_idx];
+                            builder.clip(neighbor_idx, neighbor);
+                            cell_neighbors_processed += 1;
+                            let dot = points[i].dot(neighbor);
+                            worst_cos = worst_cos.min(dot);
+
+                            if termination.enabled && builder.vertex_count() >= 3 {
+                                if termination.should_check(cell_neighbors_processed)
+                                    && builder.can_terminate(worst_cos)
+                                {
+                                    terminated = true;
+                                    break;
+                                }
+                            }
+                        }
+                        sub_accum.add_clip(t_clip.elapsed());
+
+                        if terminated {
+                            break;
+                        }
+
+                        knn_exhausted =
+                            status == crate::geometry::cube_grid::KnnStatus::Exhausted;
+                        if knn_exhausted {
+                            break;
+                        }
                     }
+                }
+
+                let max_knn_target = KNN_RESTART_MAX.min(max_neighbors);
+                if !terminated && !knn_exhausted && max_k_requested >= max_knn_target {
+                    did_reach_knn_limit = true;
                 }
 
                 // Final termination check at the end
@@ -453,10 +537,10 @@ pub fn build_cells_data_flat(
                     }
                 }
 
-                // Full scan fallback if KNN is exhausted or we hit the track limit and still not terminated.
+                // Full scan fallback if KNN is exhausted or we hit the schedule limit and still not terminated.
                 if termination.enabled
                     && !terminated
-                    && (knn_exhausted || did_reach_track_limit)
+                    && (knn_exhausted || did_reach_knn_limit)
                     && !builder.is_dead()
                     && builder.vertex_count() >= 3
                 {
@@ -486,9 +570,6 @@ pub fn build_cells_data_flat(
 
                 total_neighbors_processed += cell_neighbors_processed;
                 terminated_cells += terminated as usize;
-                if termination.enabled && !terminated && cell_neighbors_processed > ADAPTIVE_K_INITIAL {
-                    fallback_unterminated += 1;
-                }
 
                 // Dead cell recovery
                 if builder.is_dead() {
@@ -529,22 +610,24 @@ pub fn build_cells_data_flat(
                     }
                 }
 
+                let used_fallback =
+                    used_expanded_knn || did_full_scan_fallback || did_full_scan_recovery;
+                if termination.enabled && !terminated && used_fallback {
+                    fallback_unterminated += 1;
+                }
+
                 let knn_stage = if did_full_scan_recovery {
                     timing::KnnCellStage::FullScanRecovery
                 } else if did_full_scan_fallback {
                     timing::KnnCellStage::FullScanFallback
-                } else if cell_neighbors_processed > ADAPTIVE_K_RESUME {
-                    timing::KnnCellStage::K48
-                } else if cell_neighbors_processed > ADAPTIVE_K_INITIAL {
-                    timing::KnnCellStage::K24
                 } else {
-                    timing::KnnCellStage::K12
+                    knn_stage
                 };
                 sub_accum.add_cell_stage(knn_stage, knn_exhausted);
 
                 let candidates_complete = full_scan_done || (termination.enabled && terminated);
                 cell_terminated.push(terminated as u8);
-                cell_used_fallback.push((cell_neighbors_processed > ADAPTIVE_K_INITIAL) as u8);
+                cell_used_fallback.push(used_fallback as u8);
                 cell_full_scan_done.push(full_scan_done as u8);
                 cell_candidates_complete.push(candidates_complete as u8);
 

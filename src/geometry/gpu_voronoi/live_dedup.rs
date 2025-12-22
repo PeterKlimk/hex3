@@ -6,6 +6,7 @@
 //! - Per-cell duplicate index removal after overflow resolution
 
 use glam::Vec3;
+#[cfg(not(feature = "single-threaded"))]
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 
@@ -236,8 +237,12 @@ pub(super) fn build_cells_sharded_live_dedup(
     let assignment = assign_bins(points);
     let num_bins = assignment.num_bins;
 
-    let per_bin: Vec<(ShardState, super::timing::CellSubAccum)> = (0..num_bins)
-        .into_par_iter()
+    #[cfg(not(feature = "single-threaded"))]
+    let iter = (0..num_bins).into_par_iter();
+    #[cfg(feature = "single-threaded")]
+    let iter = 0..num_bins;
+
+    let per_bin: Vec<(ShardState, super::timing::CellSubAccum)> = iter
         .map(|bin_usize| {
             use super::timing::{CellSubAccum, KnnCellStage, Timer};
 
@@ -271,33 +276,32 @@ pub(super) fn build_cells_sharded_live_dedup(
                 let mut cell_neighbors_processed = 0usize;
                 let mut terminated = false;
                 let mut knn_exhausted = false;
-                let mut did_reach_track_limit = false;
                 let mut full_scan_done = false;
                 let mut did_full_scan_fallback = false;
                 let mut did_full_scan_recovery = false;
 
                 let mut worst_cos = 1.0f32;
-                let mut neighbors: Vec<usize> = Vec::with_capacity(super::ADAPTIVE_K_RARE);
+                let max_neighbors = points.len().saturating_sub(1);
+                let mut neighbors: Vec<usize> = Vec::with_capacity(super::KNN_RESTART_MAX);
                 let mut processed = 0usize;
-                let track_limit = super::ADAPTIVE_K_RARE.min(points.len().saturating_sub(1));
+                let mut max_k_requested = 0usize;
+                let mut knn_stage = KnnCellStage::K12;
+                let mut did_reach_knn_limit = false;
 
-                let stages = [
-                    super::ADAPTIVE_K_INITIAL,
-                    super::ADAPTIVE_K_RESUME,
-                    super::ADAPTIVE_K_RARE,
-                ];
-                for (stage_idx, &k_stage) in stages.iter().enumerate() {
-                    let k = k_stage.min(track_limit);
+                let resume_track_limit = super::KNN_K24.min(max_neighbors);
+                for (stage_idx, &k_stage) in super::KNN_RESUME_KS.iter().enumerate() {
+                    let k = k_stage.min(resume_track_limit);
                     if k == 0 || k <= processed {
                         continue;
                     }
+                    max_k_requested = max_k_requested.max(k);
                     let t_knn = Timer::start();
                     let status = if stage_idx == 0 {
                         knn.knn_resumable_into(
                             points[i],
                             i,
                             k,
-                            track_limit,
+                            resume_track_limit,
                             &mut scratch,
                             &mut neighbors,
                         )
@@ -305,6 +309,10 @@ pub(super) fn build_cells_sharded_live_dedup(
                         knn.knn_resume_into(points[i], i, k, &mut scratch, &mut neighbors)
                     };
                     sub_accum.add_knn(t_knn.elapsed());
+
+                    if stage_idx > 0 {
+                        knn_stage = KnnCellStage::K24;
+                    }
 
                     let t_clip = Timer::start();
                     for &neighbor_idx in &neighbors[processed..] {
@@ -335,9 +343,71 @@ pub(super) fn build_cells_sharded_live_dedup(
                         knn_exhausted = true;
                         break;
                     }
-                    if processed >= track_limit {
-                        did_reach_track_limit = true;
+                }
+
+                if !terminated && !knn_exhausted && !builder.is_dead() {
+                    for (restart_idx, &k_stage) in super::KNN_RESTART_KS.iter().enumerate() {
+                        let k = k_stage.min(max_neighbors);
+                        if k == 0 || k <= max_k_requested {
+                            continue;
+                        }
+                        max_k_requested = k;
+                        neighbors.clear();
+
+                        let t_knn = Timer::start();
+                        let status = knn.knn_resumable_into(
+                            points[i],
+                            i,
+                            k,
+                            k,
+                            &mut scratch,
+                            &mut neighbors,
+                        );
+                        sub_accum.add_knn(t_knn.elapsed());
+
+                        knn_stage = if restart_idx + 1 == super::KNN_RESTART_KS.len() {
+                            KnnCellStage::K96
+                        } else {
+                            KnnCellStage::K48
+                        };
+
+                        let t_clip = Timer::start();
+                        for &neighbor_idx in &neighbors {
+                            if builder.has_neighbor(neighbor_idx) {
+                                continue;
+                            }
+                            let neighbor = points[neighbor_idx];
+                            builder.clip(neighbor_idx, neighbor);
+                            cell_neighbors_processed += 1;
+                            let dot = points[i].dot(neighbor);
+                            worst_cos = worst_cos.min(dot);
+
+                            if termination.enabled && builder.vertex_count() >= 3 {
+                                if termination.should_check(cell_neighbors_processed)
+                                    && builder.can_terminate(worst_cos)
+                                {
+                                    terminated = true;
+                                    break;
+                                }
+                            }
+                        }
+                        sub_accum.add_clip(t_clip.elapsed());
+
+                        if terminated {
+                            break;
+                        }
+
+                        knn_exhausted =
+                            status == crate::geometry::cube_grid::KnnStatus::Exhausted;
+                        if knn_exhausted {
+                            break;
+                        }
                     }
+                }
+
+                let max_knn_target = super::KNN_RESTART_MAX.min(max_neighbors);
+                if !terminated && !knn_exhausted && max_k_requested >= max_knn_target {
+                    did_reach_knn_limit = true;
                 }
 
                 // Final termination check at the end
@@ -347,10 +417,10 @@ pub(super) fn build_cells_sharded_live_dedup(
                     }
                 }
 
-                // Full scan fallback if KNN is exhausted or we hit the track limit and still not terminated
+                // Full scan fallback if KNN is exhausted or we hit the schedule limit and still not terminated
                 if termination.enabled
                     && !terminated
-                    && (knn_exhausted || did_reach_track_limit)
+                    && (knn_exhausted || did_reach_knn_limit)
                     && !builder.is_dead()
                     && builder.vertex_count() >= 3
                 {
@@ -404,12 +474,8 @@ pub(super) fn build_cells_sharded_live_dedup(
                     KnnCellStage::FullScanRecovery
                 } else if did_full_scan_fallback {
                     KnnCellStage::FullScanFallback
-                } else if cell_neighbors_processed > super::ADAPTIVE_K_RESUME {
-                    KnnCellStage::K48
-                } else if cell_neighbors_processed > super::ADAPTIVE_K_INITIAL {
-                    KnnCellStage::K24
                 } else {
-                    KnnCellStage::K12
+                    knn_stage
                 };
                 sub_accum.add_cell_stage(knn_stage, knn_exhausted);
 

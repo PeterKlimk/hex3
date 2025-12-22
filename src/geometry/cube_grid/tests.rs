@@ -291,7 +291,7 @@ fn cube_grid_cell_bounds_are_conservative() {
             let u = rng.gen_range(u0..u1);
             let v = rng.gen_range(v0..v1);
             let p = face_uv_to_3d(face, u, v);
-            let ang = center.dot(p).clamp(-1.0, 1.0).acos();
+            let ang = center.dot(Vec3A::from(p)).clamp(-1.0, 1.0).acos();
             assert!(
                 ang <= cap_angle,
                 "cell cap underestimates (ang={ang}, cap={cap_angle})"

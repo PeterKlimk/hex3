@@ -681,7 +681,7 @@ fn test_orphan_edge_certification() {
                     return Some(*result);
                 }
 
-                const MAX_K: usize = 48;
+                const MAX_K: usize = super::KNN_RESTART_MAX;
 
                 let mut scratch = knn.make_scratch();
                 let mut builder = super::F64CellBuilder::new(cell_idx, points[cell_idx]);
@@ -694,7 +694,7 @@ fn test_orphan_edge_certification() {
                 let mut processed = 0usize;
                 let mut idx = 0usize;
 
-                let stages = [super::ADAPTIVE_K_INITIAL, super::ADAPTIVE_K_RESUME, MAX_K];
+                let stages = [super::KNN_K12, super::KNN_K24, MAX_K];
                 for (stage_idx, &k_stage) in stages.iter().enumerate() {
                     let k = k_stage.min(points.len().saturating_sub(1));
                     if k == 0 || k <= processed {

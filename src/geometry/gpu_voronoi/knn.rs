@@ -17,7 +17,7 @@ pub struct CubeMapGridKnn<'a> {
 impl<'a> CubeMapGridKnn<'a> {
     pub fn new(points: &'a [Vec3]) -> Self {
         let n = points.len();
-        const TARGET_POINTS_PER_CELL: f64 = 8.0;
+        const TARGET_POINTS_PER_CELL: f64 = 16.0;
         let res = ((n as f64 / (6.0 * TARGET_POINTS_PER_CELL)).sqrt() as usize).max(4);
         let grid = crate::geometry::cube_grid::CubeMapGrid::new(points, res);
         let points_a: Vec<Vec3A> = points.iter().map(|&p| p.into()).collect();

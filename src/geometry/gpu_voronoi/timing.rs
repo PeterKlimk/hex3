@@ -22,6 +22,7 @@ pub struct CellSubPhases {
     pub cells_k12: u64,
     pub cells_k24: u64,
     pub cells_k48: u64,
+    pub cells_k96: u64,
     /// Cells that ran an O(n) full scan due to k-NN exhaustion.
     pub cells_full_scan_fallback: u64,
     /// Cells that ran an O(n) full scan due to dead-cell recovery.
@@ -154,18 +155,21 @@ impl PhaseTimings {
         let total_cells = (self.cell_sub.cells_k12
             + self.cell_sub.cells_k24
             + self.cell_sub.cells_k48
+            + self.cell_sub.cells_k96
             + self.cell_sub.cells_full_scan_fallback
             + self.cell_sub.cells_full_scan_recovery)
             .max(1u64);
         let pct_cells = |c: u64| c as f64 / total_cells as f64 * 100.0;
         eprintln!(
-            "    knn_stages: k12={} ({:.1}%) k24={} ({:.1}%) k48={} ({:.1}%) full_scan={} ({:.1}%) recovery_scan={} ({:.1}%) exhausted={} ({:.1}%)",
+            "    knn_stages: k12={} ({:.1}%) k24={} ({:.1}%) k48={} ({:.1}%) k96={} ({:.1}%) full_scan={} ({:.1}%) recovery_scan={} ({:.1}%) exhausted={} ({:.1}%)",
             self.cell_sub.cells_k12,
             pct_cells(self.cell_sub.cells_k12),
             self.cell_sub.cells_k24,
             pct_cells(self.cell_sub.cells_k24),
             self.cell_sub.cells_k48,
             pct_cells(self.cell_sub.cells_k48),
+            self.cell_sub.cells_k96,
+            pct_cells(self.cell_sub.cells_k96),
             self.cell_sub.cells_full_scan_fallback,
             pct_cells(self.cell_sub.cells_full_scan_fallback),
             self.cell_sub.cells_full_scan_recovery,
@@ -305,6 +309,7 @@ pub struct CellSubAccum {
     pub cells_k12: u64,
     pub cells_k24: u64,
     pub cells_k48: u64,
+    pub cells_k96: u64,
     pub cells_full_scan_fallback: u64,
     pub cells_full_scan_recovery: u64,
     pub cells_knn_exhausted: u64,
@@ -337,6 +342,7 @@ impl CellSubAccum {
             KnnCellStage::K12 => self.cells_k12 += 1,
             KnnCellStage::K24 => self.cells_k24 += 1,
             KnnCellStage::K48 => self.cells_k48 += 1,
+            KnnCellStage::K96 => self.cells_k96 += 1,
             KnnCellStage::FullScanFallback => self.cells_full_scan_fallback += 1,
             KnnCellStage::FullScanRecovery => self.cells_full_scan_recovery += 1,
         }
@@ -353,6 +359,7 @@ impl CellSubAccum {
         self.cells_k12 += other.cells_k12;
         self.cells_k24 += other.cells_k24;
         self.cells_k48 += other.cells_k48;
+        self.cells_k96 += other.cells_k96;
         self.cells_full_scan_fallback += other.cells_full_scan_fallback;
         self.cells_full_scan_recovery += other.cells_full_scan_recovery;
         self.cells_knn_exhausted += other.cells_knn_exhausted;
@@ -367,6 +374,7 @@ impl CellSubAccum {
             cells_k12: self.cells_k12,
             cells_k24: self.cells_k24,
             cells_k48: self.cells_k48,
+            cells_k96: self.cells_k96,
             cells_full_scan_fallback: self.cells_full_scan_fallback,
             cells_full_scan_recovery: self.cells_full_scan_recovery,
             cells_knn_exhausted: self.cells_knn_exhausted,
@@ -380,6 +388,7 @@ pub enum KnnCellStage {
     K12,
     K24,
     K48,
+    K96,
     FullScanFallback,
     FullScanRecovery,
 }
@@ -419,6 +428,7 @@ pub enum KnnCellStage {
     K12,
     K24,
     K48,
+    K96,
     FullScanFallback,
     FullScanRecovery,
 }
