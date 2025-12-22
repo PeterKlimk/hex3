@@ -37,8 +37,8 @@ fn assert_min_spacing(points: &[Vec3], label: &str) -> f32 {
 }
 
 #[test]
-fn test_incremental_builder_maintains_ccw_order() {
-    // Verify that IncrementalCellBuilder already produces CCW-ordered vertices,
+fn test_cell_builder_maintains_ccw_order() {
+    // Verify that F64CellBuilder already produces CCW-ordered vertices,
     // making the separate order_cells_ccw() pass redundant.
     let points = random_sphere_points(1000);
     let knn = CubeMapGridKnn::new(&points);
@@ -93,7 +93,7 @@ fn test_incremental_builder_maintains_ccw_order() {
     // If many are reversed, there's a winding issue
     assert_eq!(
         reversed, 0,
-        "IncrementalCellBuilder should maintain CCW winding (reversed={})",
+        "F64CellBuilder should maintain CCW winding (reversed={})",
         reversed
     );
 }
@@ -689,7 +689,7 @@ fn test_orphan_edge_certification() {
 
                 let mut scratch = knn.make_scratch();
                 let mut neighbors = Vec::with_capacity(TRACK_LIMIT);
-                let mut builder = super::IncrementalCellBuilder::new(cell_idx, points[cell_idx]);
+                let mut builder = super::F64CellBuilder::new(cell_idx, points[cell_idx]);
 
                 let mut terminated = false;
                 let mut knn_exhausted = false;
@@ -778,7 +778,7 @@ fn test_orphan_edge_certification() {
                 }
 
                 let _ = terminated;
-                let min_cos = builder.min_vertex_cos();
+                let min_cos = builder.min_vertex_cos() as f32;
                 if builder.vertex_count() < 3 {
                     return None;
                 }
@@ -1170,13 +1170,13 @@ fn test_coincident_points_handled_gracefully() {
 /// Test that the algorithm correctly skips neighbors below MIN_BISECTOR_DISTANCE.
 #[test]
 fn test_bisector_distance_threshold_applied() {
-    use super::cell_builder::IncrementalCellBuilder;
+    use super::cell_builder::F64CellBuilder;
 
     println!("\n=== Bisector Distance Threshold Test ===\n");
 
     // Create a generator and neighbors at various distances
     let generator = Vec3::new(1.0, 0.0, 0.0);
-    let mut builder = IncrementalCellBuilder::new(0, generator);
+    let mut builder = F64CellBuilder::new(0, generator);
 
     // Neighbor below threshold - should be skipped
     let too_close = generator + Vec3::new(super::MIN_BISECTOR_DISTANCE * 0.2, 0.0, 0.0);

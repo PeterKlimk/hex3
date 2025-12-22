@@ -65,6 +65,7 @@ pub fn dedup_vertices_hash_flat(
     #[cfg(feature = "timing")]
     let mut support_keys = 0u64;
 
+    #[allow(unused_variables)]
     let setup_time = t0.elapsed();
     let t1 = Timer::start();
 
@@ -157,12 +158,15 @@ pub fn dedup_vertices_hash_flat(
     debug_assert_eq!(cell_idx, num_points);
     debug_assert_eq!(write_idx, total_indices);
 
+    #[allow(unused_variables)]
     let lookup_time = t1.elapsed();
     let t2 = Timer::start();
 
     // Deduplicate cell indices (removes consecutive duplicates after remapping)
-    let (deduped_cells, deduped_indices) = deduplicate_cell_indices(&cells, &cell_indices);
+    let (deduped_cells, deduped_indices) =
+        deduplicate_cell_indices(&cells, &cell_indices, all_vertices.len());
 
+    #[allow(unused_variables)]
     let cell_dedup_time = t2.elapsed();
 
     // Build timing result
@@ -185,12 +189,15 @@ pub fn dedup_vertices_hash_flat(
 fn deduplicate_cell_indices(
     cells: &[VoronoiCell],
     cell_indices: &[usize],
+    num_vertices: usize,
 ) -> (Vec<VoronoiCell>, Vec<usize>) {
     let mut new_cells: Vec<VoronoiCell> = Vec::with_capacity(cells.len());
     let mut new_indices: Vec<usize> = Vec::with_capacity(cell_indices.len());
 
-    // Reuse a single buffer to avoid per-cell allocations at large scales.
-    let mut seen: Vec<usize> = Vec::with_capacity(8);
+    // Epoch-marking avoids O(k^2) `contains()` checks for each cell.
+    // This preserves first-occurrence order in the output indices.
+    let mut marks: Vec<u32> = vec![0u32; num_vertices];
+    let mut epoch: u32 = 1;
 
     for cell in cells {
         let start = cell.vertex_start();
@@ -198,12 +205,17 @@ fn deduplicate_cell_indices(
         let old_indices = &cell_indices[start..end];
 
         let new_start = new_indices.len();
-        seen.clear();
         for &idx in old_indices {
-            if !seen.contains(&idx) {
-                seen.push(idx);
+            debug_assert!(idx < num_vertices, "vertex index out of bounds");
+            if marks[idx] != epoch {
+                marks[idx] = epoch;
                 new_indices.push(idx);
             }
+        }
+        epoch = epoch.wrapping_add(1);
+        if epoch == 0 {
+            marks.fill(0);
+            epoch = 1;
         }
         let new_count = new_indices.len() - new_start;
 

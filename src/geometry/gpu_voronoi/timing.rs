@@ -252,41 +252,6 @@ impl Timer {
     }
 }
 
-/// Accumulator for timing multiple iterations of a phase.
-#[cfg(feature = "timing")]
-#[derive(Default)]
-pub struct PhaseAccum {
-    pub total: Duration,
-}
-
-#[cfg(feature = "timing")]
-impl PhaseAccum {
-    #[inline]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    #[inline]
-    pub fn add(&mut self, d: Duration) {
-        self.total += d;
-    }
-}
-
-/// Dummy accumulator when feature is disabled (zero-sized).
-#[cfg(not(feature = "timing"))]
-pub struct PhaseAccum;
-
-#[cfg(not(feature = "timing"))]
-impl PhaseAccum {
-    #[inline(always)]
-    pub fn new() -> Self {
-        Self
-    }
-
-    #[inline(always)]
-    pub fn add(&mut self, _d: Duration) {}
-}
-
 /// Accumulator for cell sub-phase timings (used per-chunk, then merged).
 #[cfg(feature = "timing")]
 #[derive(Default, Clone)]

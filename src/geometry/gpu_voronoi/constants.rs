@@ -32,8 +32,6 @@ pub const SUPPORT_CERT_MARGIN_ABS: f64 = SUPPORT_EPS_ABS;
 pub const SUPPORT_CLUSTER_RADIUS_ANGLE: f64 = 1e-7;
 /// Approximate angular error scale from f32 inputs, used for adaptive cluster bounds.
 pub const SUPPORT_VERTEX_ANGLE_EPS: f64 = f32::EPSILON as f64 * 8.0;
-/// Reservoir sample size for support gap statistics.
-pub const SUPPORT_GAP_SAMPLE_LIMIT: usize = 1024;
 
 #[inline]
 pub fn support_cluster_drift_dot() -> f64 {
@@ -42,8 +40,4 @@ pub fn support_cluster_drift_dot() -> f64 {
 
 // Epsilon values for numerical stability (f32 units).
 pub(crate) const EPS_PLANE_CONTAINS: f32 = 1e-7;
-pub(crate) const EPS_PLANE_CLIP: f32 = 1e-7;
-pub(crate) const EPS_PLANE_PARALLEL: f32 = 1e-6;
-// Ill-conditioning threshold used to defer certification (sin(angle) between plane normals).
-pub(crate) const EPS_PLANE_CONDITION: f32 = 1e-2;
 pub(crate) const EPS_TERMINATION_MARGIN: f32 = 1e-7;

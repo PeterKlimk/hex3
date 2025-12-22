@@ -8,8 +8,13 @@ default-run = "hex3"
 default = []
 timing = []  # Enable timing instrumentation in gpu_voronoi
 
+
 [profile.release]
 debug = true
+debug-assertions = true
+
+[profile.release.package."*"]
+debug-assertions = false
 
 [dependencies]
 # Graphics

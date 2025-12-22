@@ -17,21 +17,20 @@ use kiddo::ImmutableKdTree;
 use rustc_hash::FxHashSet;
 
 // Re-exports
-pub use cell_builder::GapSampler;
 pub use cell_builder::{
-    geodesic_distance, order_vertices_ccw_indices, F64CellBuilder, GreatCircle,
-    IncrementalCellBuilder, VertexData, VertexKey, VertexList, MAX_PLANES, MAX_VERTICES,
+    geodesic_distance, order_vertices_ccw_indices, F64CellBuilder, GreatCircle, VertexData,
+    VertexKey, VertexList, MAX_PLANES, MAX_VERTICES,
 };
 pub use constants::{
     support_cluster_drift_dot, MIN_BISECTOR_DISTANCE, SUPPORT_CERT_MARGIN_ABS,
-    SUPPORT_CLUSTER_RADIUS_ANGLE, SUPPORT_EPS_ABS, SUPPORT_GAP_SAMPLE_LIMIT,
-    SUPPORT_VERTEX_ANGLE_EPS, VERTEX_WELD_FRACTION,
+    SUPPORT_CLUSTER_RADIUS_ANGLE, SUPPORT_EPS_ABS, SUPPORT_VERTEX_ANGLE_EPS, VERTEX_WELD_FRACTION,
 };
 pub use dedup::dedup_vertices_hash_flat;
 pub use knn::{CubeMapGridKnn, KnnProvider};
 
 /// Approximate mean chord length between uniformly-distributed generators.
 /// Used to scale tolerances; assumes roughly even generator spacing.
+#[allow(dead_code)]
 pub(crate) fn mean_generator_spacing_chord(num_points: usize) -> f32 {
     if num_points == 0 {
         return 0.0;
@@ -337,12 +336,6 @@ pub fn build_cells_data_flat(
     }
 
     let _support_eps = SUPPORT_EPS_ABS; // Kept for potential future use
-                                        // Position weld threshold (chord length) used for deferred keying of uncertified vertices.
-                                        // Matches the scale used by strict validation / near-duplicate thresholds in tests.
-    let pos_weld_chord: f64 = {
-        let spacing = mean_generator_spacing_chord(n) as f64;
-        spacing * VERTEX_WELD_FRACTION as f64
-    };
 
     let threads = rayon::current_num_threads().max(1);
     let chunk_size = (n / (threads * 8)).clamp(256, 4096).max(1);
@@ -382,11 +375,7 @@ pub fn build_cells_data_flat(
             let cert_failed_ill_vertices = 0usize;
             let cert_failed_gap_vertices = 0usize;
             let cert_failed_vertex_indices: Vec<(u32, u8)> = Vec::new();
-            let mut f64_fallback_cells = 0usize;
-            let gap_sampler = GapSampler::new(
-                SUPPORT_GAP_SAMPLE_LIMIT,
-                (start as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15).wrapping_add(0xD1B5_4A32_D192_ED03),
-            );
+            let f64_fallback_cells = 0usize;
 
             // Sub-phase timing accumulators
             let mut sub_accum = CellSubAccum::new();
@@ -658,9 +647,9 @@ pub fn build_cells_data_flat(
                 cert_failed_vertices,
                 cert_failed_ill_vertices,
                 cert_failed_gap_vertices,
-                cert_gap_count: gap_sampler.count(),
-                cert_gap_min: gap_sampler.min(),
-                cert_gap_samples: gap_sampler.sample().to_vec(),
+                cert_gap_count: 0,
+                cert_gap_min: f64::INFINITY,
+                cert_gap_samples: Vec::new(),
                 cert_failed_vertex_indices,
                 vertex_offset: 0, // Computed below
                 f64_fallback_cells,
