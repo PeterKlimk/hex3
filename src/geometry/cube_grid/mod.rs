@@ -142,6 +142,14 @@ pub struct CubeMapGrid {
     /// Stored as cos/sin for fast per-query bounds.
     pub(super) cell_cos_radius: Vec<f32>,
     cell_sin_radius: Vec<f32>,
+
+    // === SoA layout: points stored contiguous by cell ===
+    /// X coordinates of points, ordered by cell (use cell_offsets for ranges).
+    cell_points_x: Vec<f32>,
+    /// Y coordinates of points, ordered by cell.
+    cell_points_y: Vec<f32>,
+    /// Z coordinates of points, ordered by cell.
+    cell_points_z: Vec<f32>,
 }
 
 /// Map a point on unit sphere to (face, u, v) where u,v ∈ [-1, 1].
@@ -643,6 +651,18 @@ impl CubeMapGrid {
         let neighbors = Self::compute_all_neighbors(res);
         let (cell_centers, cell_cos_radius, cell_sin_radius) = Self::compute_cell_bounds(res);
 
+        // Step 5: Build SoA layout - points stored contiguous by cell
+        let n = points.len();
+        let mut cell_points_x = Vec::with_capacity(n);
+        let mut cell_points_y = Vec::with_capacity(n);
+        let mut cell_points_z = Vec::with_capacity(n);
+        for &pidx in &point_indices {
+            let p = points[pidx as usize];
+            cell_points_x.push(p.x);
+            cell_points_y.push(p.y);
+            cell_points_z.push(p.z);
+        }
+
         CubeMapGrid {
             res,
             cell_offsets,
@@ -652,6 +672,9 @@ impl CubeMapGrid {
             cell_centers,
             cell_cos_radius,
             cell_sin_radius,
+            cell_points_x,
+            cell_points_y,
+            cell_points_z,
         }
     }
 
@@ -1072,62 +1095,85 @@ impl CubeMapGrid {
     #[inline]
     fn scan_cell_points_impl<P: UnitVec>(
         &self,
-        points: &[P],
+        _points: &[P],
         query: P,
         query_idx: usize,
         cell: usize,
         scratch: &mut CubeMapGridScratch,
     ) {
-    #[cfg(feature = "timing")]
-    let t_scan = Instant::now();
-    let mut scanned = 0u64;
+        #[cfg(feature = "timing")]
+        let t_scan = Instant::now();
+        let mut scanned = 0u64;
         let start = self.cell_offsets[cell] as usize;
         let end = self.cell_offsets[cell + 1] as usize;
-        for &pidx_u32 in &self.point_indices[start..end] {
-            let pidx = pidx_u32 as usize;
+
+        // Use SoA layout for contiguous memory access
+        let xs = &self.cell_points_x[start..end];
+        let ys = &self.cell_points_y[start..end];
+        let zs = &self.cell_points_z[start..end];
+        let indices = &self.point_indices[start..end];
+
+        let qv = query.to_vec3();
+        let (qx, qy, qz) = (qv.x, qv.y, qv.z);
+
+        for i in 0..xs.len() {
+            let pidx = indices[i] as usize;
             if pidx == query_idx {
                 continue;
             }
             scanned += 1;
-            let dist_sq = unit_vec_dist_sq_generic(points[pidx], query);
+            // Contiguous SoA access - should auto-vectorize well
+            let dot = xs[i] * qx + ys[i] * qy + zs[i] * qz;
+            let dist_sq = (2.0 - 2.0 * dot).max(0.0);
             scratch.try_add_neighbor(pidx, dist_sq);
         }
-    #[cfg(feature = "timing")]
-    {
-        scratch.knn_stats.scan_time += t_scan.elapsed();
-        scratch.knn_stats.scan_points += scanned;
-    }
+        #[cfg(feature = "timing")]
+        {
+            scratch.knn_stats.scan_time += t_scan.elapsed();
+            scratch.knn_stats.scan_points += scanned;
+        }
     }
 
     #[inline]
     fn scan_cell_points_dot_impl<P: UnitVec>(
         &self,
-        points: &[P],
+        _points: &[P],
         query: P,
         query_idx: usize,
         k: usize,
         cell: usize,
         scratch: &mut CubeMapGridScratch,
     ) {
-    #[cfg(feature = "timing")]
-    let t_scan = Instant::now();
-    let mut scanned = 0u64;
+        #[cfg(feature = "timing")]
+        let t_scan = Instant::now();
+        let mut scanned = 0u64;
         let start = self.cell_offsets[cell] as usize;
         let end = self.cell_offsets[cell + 1] as usize;
-        for &pidx_u32 in &self.point_indices[start..end] {
-            let pidx = pidx_u32 as usize;
+
+        // Use SoA layout for contiguous memory access
+        let xs = &self.cell_points_x[start..end];
+        let ys = &self.cell_points_y[start..end];
+        let zs = &self.cell_points_z[start..end];
+        let indices = &self.point_indices[start..end];
+
+        let qv = query.to_vec3();
+        let (qx, qy, qz) = (qv.x, qv.y, qv.z);
+
+        for i in 0..xs.len() {
+            let pidx = indices[i] as usize;
             if pidx == query_idx {
                 continue;
             }
             scanned += 1;
-            let dot = points[pidx].dot(query);
+            // Contiguous SoA access - should auto-vectorize well
+            let dot = xs[i] * qx + ys[i] * qy + zs[i] * qz;
             scratch.try_add_neighbor_dot(pidx, dot, k);
         }
-    #[cfg(feature = "timing")]
-    {
-        scratch.knn_stats.scan_time += t_scan.elapsed();
-        scratch.knn_stats.scan_points += scanned;
-    }
+        #[cfg(feature = "timing")]
+        {
+            scratch.knn_stats.scan_time += t_scan.elapsed();
+            scratch.knn_stats.scan_points += scanned;
+        }
     }
 
     fn find_k_nearest_with_scratch_into_impl<P: UnitVec>(
@@ -1718,12 +1764,22 @@ impl<'a, 'scratch, const MAX_K: usize> KnnQuery<'a, 'scratch, MAX_K> {
     fn scan_cell(&mut self, cell: usize, target_k: usize) {
         let start = self.grid.cell_offsets[cell] as usize;
         let end = self.grid.cell_offsets[cell + 1] as usize;
-        for &pidx_u32 in &self.grid.point_indices[start..end] {
-            let pidx = pidx_u32 as usize;
+
+        // Use SoA layout for contiguous memory access
+        let xs = &self.grid.cell_points_x[start..end];
+        let ys = &self.grid.cell_points_y[start..end];
+        let zs = &self.grid.cell_points_z[start..end];
+        let indices = &self.grid.point_indices[start..end];
+
+        let (qx, qy, qz) = (self.query.x, self.query.y, self.query.z);
+
+        for i in 0..xs.len() {
+            let pidx = indices[i] as usize;
             if pidx == self.query_idx {
                 continue;
             }
-            let dot = self.points[pidx].dot(self.query);
+            // Contiguous SoA access
+            let dot = xs[i] * qx + ys[i] * qy + zs[i] * qz;
             self.try_add_neighbor(pidx, dot, target_k);
         }
     }
