@@ -224,6 +224,49 @@ fn cube_grid_resume_beyond_track_limit_falls_back_to_exact() {
 }
 
 #[test]
+fn cube_grid_iterative_fetch_matches_bruteforce() {
+    let n = 8192;
+    let k = 48;
+    let points = gen_fibonacci(n, 12345, 0.1);
+    let grid = CubeMapGrid::new(&points, res_for_target(n, 24.0));
+    let mut scratch = grid.make_iter_scratch();
+
+    for qi in (0..n).step_by(257) {
+        let mut query = grid.knn_query::<48>(&points, points[qi], qi, &mut scratch);
+        let mut out = Vec::new();
+        let mut seen = HashSet::new();
+        let mut last_dist = -1.0f32;
+
+        loop {
+            match query.fetch() {
+                Some(batch) => {
+                    for &(_dot, idx_u32) in batch {
+                        let idx = idx_u32 as usize;
+                        assert!(seen.insert(idx), "duplicate neighbor in fetch output");
+                        let d = unit_vec_dist_sq(points[idx], points[qi]);
+                        assert!(d >= last_dist, "fetch output not globally ordered");
+                        last_dist = d;
+                        out.push(idx);
+                    }
+                }
+                None => {
+                    assert!(
+                        query.is_exhausted(),
+                        "fetch returned None before query exhaustion"
+                    );
+                    break;
+                }
+            }
+        }
+
+        let expected = brute_force_knn(&points, qi, k);
+        assert_knn_basic_invariants(n, qi, k, &out);
+        assert_sorted_by_distance(&points, qi, &out);
+        assert_set_eq(&out, &expected);
+    }
+}
+
+#[test]
 fn cube_grid_cell_bounds_are_conservative() {
     // Sanity check: random points inside a cell are within the precomputed cap.
     use rand::Rng;

@@ -683,30 +683,53 @@ fn test_orphan_edge_certification() {
 
                 const MAX_K: usize = 48;
 
-                let mut scratch = knn.make_iter_scratch();
+                let mut scratch = knn.make_scratch();
                 let mut builder = super::F64CellBuilder::new(cell_idx, points[cell_idx]);
 
                 let mut terminated = false;
                 let mut worst_cos = 1.0f32;
 
-                // Confidence-based k-NN with early termination
-                let mut query = knn.knn_query::<MAX_K>(points[cell_idx], cell_idx, &mut scratch);
+                // Resumable k-NN with early termination
+                let mut neighbors: Vec<usize> = Vec::with_capacity(MAX_K);
+                let mut processed = 0usize;
                 let mut idx = 0usize;
 
-                'knn: while let Some(batch) = query.fetch() {
-                    for &(dot, neighbor_idx) in batch {
-                        let neighbor_idx = neighbor_idx as usize;
+                let stages = [super::ADAPTIVE_K_INITIAL, super::ADAPTIVE_K_RESUME, MAX_K];
+                for (stage_idx, &k_stage) in stages.iter().enumerate() {
+                    let k = k_stage.min(points.len().saturating_sub(1));
+                    if k == 0 || k <= processed {
+                        continue;
+                    }
+                    let _status = if stage_idx == 0 {
+                        knn.knn_resumable_into(
+                            points[cell_idx],
+                            cell_idx,
+                            k,
+                            MAX_K,
+                            &mut scratch,
+                            &mut neighbors,
+                        )
+                    } else {
+                        knn.knn_resume_into(points[cell_idx], cell_idx, k, &mut scratch, &mut neighbors)
+                    };
+
+                    for &neighbor_idx in &neighbors[processed..] {
                         let neighbor = points[neighbor_idx];
                         builder.clip(neighbor_idx, neighbor);
+                        let dot = points[cell_idx].dot(neighbor);
                         worst_cos = worst_cos.min(dot);
                         idx += 1;
 
                         if termination.should_check(idx) && builder.vertex_count() >= 3 {
                             if builder.can_terminate(worst_cos) {
                                 terminated = true;
-                                break 'knn;
+                                break;
                             }
                         }
+                    }
+                    processed = neighbors.len();
+                    if terminated {
+                        break;
                     }
                 }
 

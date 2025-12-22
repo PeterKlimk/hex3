@@ -1,3 +1,6 @@
 /target
 scripts/.venv/
 analysis/
+
+perf.data
+perf.data.old
