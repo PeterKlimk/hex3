@@ -564,8 +564,7 @@ fn test_orphan_edge_certification() {
 
         // Apply merge to remove points that are too close
         let t0 = Instant::now();
-        let knn_for_merge = CubeMapGridKnn::new(&points);
-        let merge_result = merge_close_points(&points, MIN_BISECTOR_DISTANCE, &knn_for_merge);
+        let merge_result = merge_close_points(&points, MIN_BISECTOR_DISTANCE);
         let merge_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
         // Use effective points after merge
@@ -678,81 +677,37 @@ fn test_orphan_edge_certification() {
             };
 
             let mut analyze_candidate_coverage = |cell_idx: usize| -> Option<(usize, f32)> {
-                use super::knn::KnnStatus;
-
                 if let Some(result) = coverage_cache.get(&cell_idx) {
                     return Some(*result);
                 }
 
-                const K_STEPS: [usize; 3] = [12, 24, 48];
-                const TRACK_LIMIT: usize = 48;
+                const MAX_K: usize = 48;
 
-                let mut scratch = knn.make_scratch();
-                let mut neighbors = Vec::with_capacity(TRACK_LIMIT);
+                let mut scratch = knn.make_iter_scratch();
                 let mut builder = super::F64CellBuilder::new(cell_idx, points[cell_idx]);
 
                 let mut terminated = false;
-                let mut knn_exhausted = false;
+                let mut worst_cos = 1.0f32;
 
-                // Phase 1: Initial resumable k-NN query
-                neighbors.clear();
-                let status = knn.knn_resumable_into(
-                    points[cell_idx],
-                    cell_idx,
-                    K_STEPS[0],
-                    TRACK_LIMIT,
-                    &mut scratch,
-                    &mut neighbors,
-                );
-                knn_exhausted = status == KnnStatus::Exhausted;
+                // Confidence-based k-NN with early termination
+                let mut query = knn.knn_query::<MAX_K>(points[cell_idx], cell_idx, &mut scratch);
+                let mut idx = 0usize;
 
-                for (idx, &neighbor_idx) in neighbors.iter().enumerate() {
-                    let neighbor = points[neighbor_idx];
-                    builder.clip(neighbor_idx, neighbor);
-
-                    if termination.should_check(idx + 1) && builder.vertex_count() >= 3 {
-                        let neighbor_cos = points[cell_idx].dot(neighbor).clamp(-1.0, 1.0);
-                        if builder.can_terminate(neighbor_cos) {
-                            terminated = true;
-                            break;
-                        }
-                    }
-                }
-
-                // Phase 2+: Resume to get more neighbors if needed
-                let mut step_idx = 1;
-                while termination.enabled
-                    && !terminated
-                    && !knn_exhausted
-                    && step_idx < K_STEPS.len()
-                {
-                    let prev_count = neighbors.len();
-                    let status = knn.knn_resume_into(
-                        points[cell_idx],
-                        cell_idx,
-                        K_STEPS[step_idx],
-                        &mut scratch,
-                        &mut neighbors,
-                    );
-                    knn_exhausted = status == KnnStatus::Exhausted;
-
-                    for idx in prev_count..neighbors.len() {
-                        let neighbor_idx = neighbors[idx];
-                        if builder.has_neighbor(neighbor_idx) {
-                            continue;
-                        }
+                'knn: while let Some(batch) = query.fetch() {
+                    for &(dot, neighbor_idx) in batch {
+                        let neighbor_idx = neighbor_idx as usize;
                         let neighbor = points[neighbor_idx];
                         builder.clip(neighbor_idx, neighbor);
+                        worst_cos = worst_cos.min(dot);
+                        idx += 1;
 
-                        if builder.vertex_count() >= 3 {
-                            let neighbor_cos = points[cell_idx].dot(neighbor).clamp(-1.0, 1.0);
-                            if builder.can_terminate(neighbor_cos) {
+                        if termination.should_check(idx) && builder.vertex_count() >= 3 {
+                            if builder.can_terminate(worst_cos) {
                                 terminated = true;
-                                break;
+                                break 'knn;
                             }
                         }
                     }
-                    step_idx += 1;
                 }
 
                 // Dead cell recovery

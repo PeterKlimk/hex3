@@ -558,7 +558,7 @@ pub fn validate_voronoi_strict(
     eps_hi: f64,
     merge_threshold: Option<f32>,
 ) -> StrictValidationResult {
-    use crate::geometry::gpu_voronoi::{merge_close_points, CubeMapGridKnn, KnnProvider};
+    use crate::geometry::gpu_voronoi::{merge_close_points, CubeMapGridKnn};
 
     let num_cells = voronoi.num_cells();
     let num_vertices = voronoi.vertices.len();
@@ -568,8 +568,7 @@ pub fn validate_voronoi_strict(
     let merge_threshold = merge_threshold.unwrap_or(0.0);
 
     if merge_threshold > 0.0 {
-        let knn = CubeMapGridKnn::new(&voronoi.generators);
-        let merge_result = merge_close_points(&voronoi.generators, merge_threshold, &knn);
+        let merge_result = merge_close_points(&voronoi.generators, merge_threshold);
         if merge_result.num_merged > 0 {
             effective_generators = merge_result.effective_points;
             original_to_effective = merge_result.original_to_effective;
@@ -1440,7 +1439,7 @@ pub fn validate_voronoi_large(
     voronoi: &SphericalVoronoi,
     config: &LargeValidationConfig,
 ) -> LargeValidationResult {
-    use crate::geometry::gpu_voronoi::{CubeMapGridKnn, KnnProvider};
+    use crate::geometry::gpu_voronoi::CubeMapGridKnn;
     use rand::seq::SliceRandom;
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;

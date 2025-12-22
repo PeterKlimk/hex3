@@ -1,53 +1,13 @@
-//! K-nearest neighbor providers for Voronoi cell construction.
+//! K-nearest neighbor provider for Voronoi cell construction.
 
 use glam::Vec3;
 
-pub use crate::geometry::cube_grid::KnnStatus;
-
-/// Trait for k-nearest neighbor queries.
-pub trait KnnProvider: Sync {
-    type Scratch: Send;
-
-    fn make_scratch(&self) -> Self::Scratch;
-
-    /// Find the k nearest neighbors to the query point.
-    fn knn_into(
-        &self,
-        query: Vec3,
-        query_idx: usize,
-        k: usize,
-        scratch: &mut Self::Scratch,
-        out_indices: &mut Vec<usize>,
-    );
-
-    /// Start a resumable k-NN query.
-    ///
-    /// `track_limit` controls how many candidates are tracked internally.
-    /// Can resume up to k=track_limit; beyond that, a fresh query is needed.
-    fn knn_resumable_into(
-        &self,
-        query: Vec3,
-        query_idx: usize,
-        k: usize,
-        track_limit: usize,
-        scratch: &mut Self::Scratch,
-        out_indices: &mut Vec<usize>,
-    ) -> KnnStatus;
-
-    /// Resume a k-NN query to fetch additional neighbors.
-    ///
-    /// `new_k` should be larger than the previous k but within the original `track_limit`.
-    fn knn_resume_into(
-        &self,
-        query: Vec3,
-        query_idx: usize,
-        new_k: usize,
-        scratch: &mut Self::Scratch,
-        out_indices: &mut Vec<usize>,
-    ) -> KnnStatus;
-}
+pub use crate::geometry::cube_grid::{IterScratch, KnnQuery};
 
 /// K-NN provider using CubeMapGrid - O(n) build time, good for large point sets.
+///
+/// Wraps a CubeMapGrid and provides confidence-based k-NN queries with const-generic
+/// fixed buffers for zero per-query allocation.
 pub struct CubeMapGridKnn<'a> {
     grid: crate::geometry::cube_grid::CubeMapGrid,
     points: &'a [Vec3],
@@ -61,27 +21,75 @@ impl<'a> CubeMapGridKnn<'a> {
         let grid = crate::geometry::cube_grid::CubeMapGrid::new(points, res);
         Self { grid, points }
     }
-}
 
-impl<'a> KnnProvider for CubeMapGridKnn<'a> {
-    type Scratch = crate::geometry::cube_grid::CubeMapGridScratch;
-
+    /// Create a scratch buffer for k-NN queries.
     #[inline]
-    fn make_scratch(&self) -> Self::Scratch {
+    pub fn make_iter_scratch(&self) -> IterScratch {
+        self.grid.make_iter_scratch()
+    }
+
+    /// Create a k-NN query with confidence-based incremental fetching.
+    ///
+    /// Use `fetch()` to get batches of neighbors as they become confident.
+    /// Each batch is sorted by distance (closest first).
+    ///
+    /// Returns `(dot_product, neighbor_index)` pairs where higher dot = closer.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let mut scratch = knn.make_iter_scratch();
+    /// let mut query = knn.knn_query::<48>(pt, idx, &mut scratch);
+    ///
+    /// 'outer: while let Some(batch) = query.fetch() {
+    ///     for &(dot, neighbor_idx) in batch {
+    ///         builder.clip(neighbor_idx as usize, points[neighbor_idx as usize]);
+    ///         if builder.can_terminate(dot) {
+    ///             break 'outer;
+    ///         }
+    ///     }
+    /// }
+    /// ```
+    #[inline]
+    pub fn knn_query<'s, const MAX_K: usize>(
+        &'a self,
+        query: Vec3,
+        query_idx: usize,
+        scratch: &'s mut IterScratch,
+    ) -> KnnQuery<'a, 's, MAX_K> {
+        self.grid
+            .knn_query::<MAX_K>(self.points, query, query_idx, scratch)
+    }
+
+    /// Access the underlying points slice.
+    #[inline]
+    pub fn points(&self) -> &[Vec3] {
+        self.points
+    }
+
+    // =========================================================================
+    // Convenience methods for backward compatibility (used by validation code)
+    // =========================================================================
+
+    /// Create a legacy scratch buffer (for backward compatibility with old API).
+    #[inline]
+    pub fn make_scratch(&self) -> crate::geometry::cube_grid::CubeMapGridScratch {
         self.grid.make_scratch()
     }
 
+    /// Find the k nearest neighbors to the query point (backward compatibility).
+    ///
+    /// This uses the old non-incremental API. For new code, prefer `knn_query()`.
     #[inline]
-    fn knn_into(
+    pub fn knn_into(
         &self,
         query: Vec3,
         query_idx: usize,
         k: usize,
-        scratch: &mut Self::Scratch,
+        scratch: &mut crate::geometry::cube_grid::CubeMapGridScratch,
         out_indices: &mut Vec<usize>,
     ) {
+        out_indices.clear();
         if k == 0 {
-            out_indices.clear();
             return;
         }
         self.grid.find_k_nearest_with_scratch_into_dot_topk(
@@ -92,47 +100,5 @@ impl<'a> KnnProvider for CubeMapGridKnn<'a> {
             scratch,
             out_indices,
         );
-    }
-
-    #[inline]
-    fn knn_resumable_into(
-        &self,
-        query: Vec3,
-        query_idx: usize,
-        k: usize,
-        track_limit: usize,
-        scratch: &mut Self::Scratch,
-        out_indices: &mut Vec<usize>,
-    ) -> KnnStatus {
-        if k == 0 {
-            out_indices.clear();
-            return KnnStatus::Exhausted;
-        }
-        self.grid.find_k_nearest_resumable_into(
-            self.points,
-            query,
-            query_idx,
-            k,
-            track_limit,
-            scratch,
-            out_indices,
-        )
-    }
-
-    #[inline]
-    fn knn_resume_into(
-        &self,
-        query: Vec3,
-        query_idx: usize,
-        new_k: usize,
-        scratch: &mut Self::Scratch,
-        out_indices: &mut Vec<usize>,
-    ) -> KnnStatus {
-        if new_k == 0 {
-            out_indices.clear();
-            return KnnStatus::Exhausted;
-        }
-        self.grid
-            .resume_k_nearest_into(self.points, query, query_idx, new_k, scratch, out_indices)
     }
 }

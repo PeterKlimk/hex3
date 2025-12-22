@@ -175,8 +175,7 @@ impl F64CellBuilder {
 
     /// Create a new f64 cell builder for the given generator.
     pub fn new(generator_idx: usize, generator: Vec3) -> Self {
-        let gen64 = DVec3::new(generator.x as f64, generator.y as f64, generator.z as f64);
-        Self::debug_assert_unitish(gen64);
+        let gen64 = DVec3::new(generator.x as f64, generator.y as f64, generator.z as f64).normalize();
         let eps_cell = SUPPORT_VERTEX_ANGLE_EPS + SUPPORT_CLUSTER_RADIUS_ANGLE;
         let (sin_eps, cos_eps) = (eps_cell as f32).sin_cos();
         let termination_margin = EPS_TERMINATION_MARGIN
@@ -465,8 +464,7 @@ impl F64CellBuilder {
             return;
         }
 
-        let n64 = DVec3::new(neighbor.x as f64, neighbor.y as f64, neighbor.z as f64);
-        Self::debug_assert_unitish(n64);
+        let n64 = DVec3::new(neighbor.x as f64, neighbor.y as f64, neighbor.z as f64).normalize();
 
         // Skip degenerate bisectors
         let diff = self.generator - n64;
@@ -643,8 +641,7 @@ impl F64CellBuilder {
 
     /// Reset the builder for a new cell.
     pub fn reset(&mut self, generator_idx: usize, generator: Vec3) {
-        let gen64 = DVec3::new(generator.x as f64, generator.y as f64, generator.z as f64);
-        Self::debug_assert_unitish(gen64);
+        let gen64 = DVec3::new(generator.x as f64, generator.y as f64, generator.z as f64).normalize();
         self.generator_idx = generator_idx;
         self.generator = gen64;
         self.planes.clear();
@@ -701,13 +698,12 @@ impl F64CellBuilder {
         let gen_idx = self.generator_idx as u32;
 
         // Pre-load all neighbor positions once (instead of per-vertex).
-        // Inputs are expected to be ~unit; normalization is debug-asserted elsewhere.
         let neighbor_positions: Vec<DVec3> = self
             .neighbor_indices
             .iter()
             .map(|&idx| {
                 let p = points[idx];
-                DVec3::new(p.x as f64, p.y as f64, p.z as f64)
+                DVec3::new(p.x as f64, p.y as f64, p.z as f64).normalize()
             })
             .collect();
 

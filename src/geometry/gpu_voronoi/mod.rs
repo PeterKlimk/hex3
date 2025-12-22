@@ -27,7 +27,7 @@ pub use constants::{
     SUPPORT_CLUSTER_RADIUS_ANGLE, SUPPORT_EPS_ABS, SUPPORT_VERTEX_ANGLE_EPS, VERTEX_WELD_FRACTION,
 };
 pub use dedup::dedup_vertices_hash_flat;
-pub use knn::{CubeMapGridKnn, KnnProvider};
+pub use knn::CubeMapGridKnn;
 
 /// Approximate mean chord length between uniformly-distributed generators.
 /// Used to scale tolerances; assumes roughly even generator spacing.
@@ -314,13 +314,10 @@ impl TerminationConfig {
 /// - vertices: flat buffer of all vertex data
 /// - counts: vertex count per cell (counts[i] = number of vertices for cell i)
 ///
-/// Uses adaptive k-NN with early termination:
-/// 1. Fetch k=12 neighbors, clip, termination checks
-/// 2. If needed, re-query at k=24, then k=48
-/// 3. If still not terminated, full scan
+/// Uses iterator-based k-NN with early termination.
 pub fn build_cells_data_flat(
     points: &[Vec3],
-    knn: &impl KnnProvider,
+    knn: &CubeMapGridKnn,
     termination: TerminationConfig,
 ) -> (FlatCellsData, timing::CellSubAccum) {
     use rayon::prelude::*;
@@ -335,8 +332,6 @@ pub fn build_cells_data_flat(
             timing::CellSubAccum::new(),
         );
     }
-
-    let _support_eps = SUPPORT_EPS_ABS; // Kept for potential future use
 
     let threads = rayon::current_num_threads().max(1);
     let chunk_size = (n / (threads * 8)).clamp(256, 4096).max(1);
@@ -354,8 +349,7 @@ pub fn build_cells_data_flat(
             use cell_builder::F64CellBuilder;
             use timing::{Timer, CellSubAccum};
 
-            let mut scratch = knn.make_scratch();
-            let mut neighbors = Vec::with_capacity(64);
+            let mut scratch = knn.make_iter_scratch();
             let mut builder = F64CellBuilder::new(0, Vec3::ZERO);
 
             let estimated_vertices = (end - start) * 6;
@@ -386,143 +380,49 @@ pub fn build_cells_data_flat(
 
                 let mut cell_neighbors_processed = 0usize;
                 let mut terminated = false;
-                let mut used_fallback = false;
+                let knn_exhausted;
                 let mut full_scan_done = false;
-                let mut knn_exhausted_any = false;
-                let mut did_k24 = false;
-                let mut did_k48 = false;
                 let mut did_full_scan_fallback = false;
                 let mut did_full_scan_recovery = false;
 
-                // Phase 1: Initial k-NN query (k=12)
+                // Confidence-based k-NN with early termination
                 let t_knn = Timer::start();
-                neighbors.clear();
-                knn.knn_into(
-                    points[i],
-                    i,
-                    ADAPTIVE_K_INITIAL,
-                    &mut scratch,
-                    &mut neighbors,
-                );
-                let mut knn_exhausted = neighbors.len() < ADAPTIVE_K_INITIAL;
-                knn_exhausted_any |= knn_exhausted;
+                let mut query = knn.knn_query::<ADAPTIVE_K_RARE>(points[i], i, &mut scratch);
                 sub_accum.add_knn(t_knn.elapsed());
 
                 let t_clip = Timer::start();
+                let mut worst_cos = 1.0f32;
 
-                // Process initial neighbors
-                let mut last_neighbor_cos: Option<f32> = None;
-                for &neighbor_idx in &neighbors {
-                    let neighbor = points[neighbor_idx];
-                    builder.clip(neighbor_idx, neighbor);
-                    cell_neighbors_processed += 1;
+                'knn: while let Some(batch) = query.fetch() {
+                    for &(dot, neighbor_idx) in batch {
+                        let neighbor_idx = neighbor_idx as usize;
+                        let neighbor = points[neighbor_idx];
+                        builder.clip(neighbor_idx, neighbor);
+                        cell_neighbors_processed += 1;
+                        worst_cos = worst_cos.min(dot);
 
-                    if termination.enabled && builder.vertex_count() >= 3 {
-                        let neighbor_cos = points[i].dot(neighbor).clamp(-1.0, 1.0);
-                        last_neighbor_cos = Some(neighbor_cos);
-                        if termination.should_check(cell_neighbors_processed)
-                            && builder.can_terminate(neighbor_cos)
-                        {
-                            terminated = true;
-                            break;
+                        if termination.enabled && builder.vertex_count() >= 3 {
+                            if termination.should_check(cell_neighbors_processed)
+                                && builder.can_terminate(worst_cos)
+                            {
+                                terminated = true;
+                                break 'knn;
+                            }
                         }
                     }
                 }
-                // Always check once at the end of the stage so we don't "miss" termination
-                // due to a coarse check cadence.
+
+                // Final termination check at the end
                 if termination.enabled && !terminated && builder.vertex_count() >= 3 {
-                    if let Some(cos) = last_neighbor_cos {
-                        if builder.can_terminate(cos) {
-                            terminated = true;
-                        }
+                    if builder.can_terminate(worst_cos) {
+                        terminated = true;
                     }
                 }
 
-                // Phase 2: Re-query at k=24 if needed
-                if termination.enabled && !terminated && !knn_exhausted {
-                    used_fallback = true;
-                    did_k24 = true;
-                    let t_knn2 = Timer::start();
-                    knn.knn_into(points[i], i, ADAPTIVE_K_RESUME, &mut scratch, &mut neighbors);
-                    knn_exhausted = neighbors.len() < ADAPTIVE_K_RESUME;
-                    knn_exhausted_any |= knn_exhausted;
-                    sub_accum.add_knn(t_knn2.elapsed());
-
-                    // Process the additional neighbors only.
-                    // We assume k-NN results are prefix-stable: the k=12 results are the first 12
-                    // entries in the k=24 results.
-                    let mut last_neighbor_cos: Option<f32> = None;
-                    let start_idx = ADAPTIVE_K_INITIAL.min(neighbors.len());
-                    for &neighbor_idx in &neighbors[start_idx..] {
-                        let neighbor = points[neighbor_idx];
-                        builder.clip(neighbor_idx, neighbor);
-                        cell_neighbors_processed += 1;
-
-                        if builder.vertex_count() >= 3 {
-                            let neighbor_cos = points[i].dot(neighbor).clamp(-1.0, 1.0);
-                            last_neighbor_cos = Some(neighbor_cos);
-                            if termination.should_check(cell_neighbors_processed)
-                                && builder.can_terminate(neighbor_cos)
-                            {
-                                terminated = true;
-                                break;
-                            }
-                        }
-                    }
-                    if !terminated && builder.vertex_count() >= 3 {
-                        if let Some(cos) = last_neighbor_cos {
-                            if builder.can_terminate(cos) {
-                                terminated = true;
-                            }
-                        }
-                    }
-                }
-
-                // Phase 3: Fresh query at k=48 if still needed (rare)
-                if termination.enabled && !terminated && !knn_exhausted {
-                    used_fallback = true;
-                    did_k48 = true;
-                    let t_knn3 = Timer::start();
-                    knn.knn_into(
-                        points[i],
-                        i,
-                        ADAPTIVE_K_RARE,
-                        &mut scratch,
-                        &mut neighbors,
-                    );
-                    knn_exhausted = neighbors.len() < ADAPTIVE_K_RARE;
-                    knn_exhausted_any |= knn_exhausted;
-                    sub_accum.add_knn(t_knn3.elapsed());
-
-                    let mut last_neighbor_cos: Option<f32> = None;
-                    let start_idx = ADAPTIVE_K_RESUME.min(neighbors.len());
-                    for &neighbor_idx in &neighbors[start_idx..] {
-                        let neighbor = points[neighbor_idx];
-                        builder.clip(neighbor_idx, neighbor);
-                        cell_neighbors_processed += 1;
-
-                        if builder.vertex_count() >= 3 {
-                            let neighbor_cos = points[i].dot(neighbor).clamp(-1.0, 1.0);
-                            last_neighbor_cos = Some(neighbor_cos);
-                            if termination.should_check(cell_neighbors_processed)
-                                && builder.can_terminate(neighbor_cos)
-                            {
-                                terminated = true;
-                                break;
-                            }
-                        }
-                    }
-                    if !terminated && builder.vertex_count() >= 3 {
-                        if let Some(cos) = last_neighbor_cos {
-                            if builder.can_terminate(cos) {
-                                terminated = true;
-                            }
-                        }
-                    }
-                }
+                knn_exhausted = query.is_exhausted();
                 sub_accum.add_clip(t_clip.elapsed());
 
-                // Final fallback: full scan if knn exhausted and still not terminated
+                // Full scan fallback if iterator exhausted and still not terminated
                 if termination.enabled && !terminated && knn_exhausted && !builder.is_dead() && builder.vertex_count() >= 3 {
                     did_full_scan_fallback = true;
                     if std::env::var("VORONOI_DEBUG_FALLBACK").is_ok() {
@@ -550,7 +450,7 @@ pub fn build_cells_data_flat(
 
                 total_neighbors_processed += cell_neighbors_processed;
                 terminated_cells += terminated as usize;
-                if termination.enabled && used_fallback && !terminated {
+                if termination.enabled && !terminated && cell_neighbors_processed > ADAPTIVE_K_INITIAL {
                     fallback_unterminated += 1;
                 }
 
@@ -597,18 +497,18 @@ pub fn build_cells_data_flat(
                     timing::KnnCellStage::FullScanRecovery
                 } else if did_full_scan_fallback {
                     timing::KnnCellStage::FullScanFallback
-                } else if did_k48 {
+                } else if cell_neighbors_processed > ADAPTIVE_K_RESUME {
                     timing::KnnCellStage::K48
-                } else if did_k24 {
+                } else if cell_neighbors_processed > ADAPTIVE_K_INITIAL {
                     timing::KnnCellStage::K24
                 } else {
                     timing::KnnCellStage::K12
                 };
-                sub_accum.add_cell_stage(knn_stage, knn_exhausted_any);
+                sub_accum.add_cell_stage(knn_stage, knn_exhausted);
 
                 let candidates_complete = full_scan_done || (termination.enabled && terminated);
                 cell_terminated.push(terminated as u8);
-                cell_used_fallback.push(used_fallback as u8);
+                cell_used_fallback.push((cell_neighbors_processed > ADAPTIVE_K_INITIAL) as u8);
                 cell_full_scan_done.push(full_scan_done as u8);
                 cell_candidates_complete.push(candidates_complete as u8);
 
@@ -732,7 +632,7 @@ impl SimpleDsu {
 /// neighbors during cell construction and "borrow" the cell from the close neighbor
 /// when a cell dies. This would avoid the preprocessing pass but requires more complex
 /// recovery logic in the cell builder.
-pub fn merge_close_points(points: &[Vec3], threshold: f32, knn: &impl KnnProvider) -> MergeResult {
+pub fn merge_close_points(points: &[Vec3], threshold: f32) -> MergeResult {
     let n = points.len();
     if n == 0 {
         return MergeResult {
@@ -744,7 +644,6 @@ pub fn merge_close_points(points: &[Vec3], threshold: f32, knn: &impl KnnProvide
 
     let threshold_sq = threshold * threshold;
     let mut dsu = SimpleDsu::new(n);
-    let _ = knn; // Keep signature for now; strict merge doesn't use k-NN.
 
     // Strict radius-based merge: union all pairs within threshold.
     // Guarantees no remaining pair is closer than threshold (within precision).
@@ -821,8 +720,7 @@ fn compute_voronoi_gpu_style_core(
     let (effective_points, merge_result) = if skip_preprocess {
         (points.to_vec(), None)
     } else {
-        let knn_for_merge = CubeMapGridKnn::new(points);
-        let result = merge_close_points(points, MIN_BISECTOR_DISTANCE, &knn_for_merge);
+        let result = merge_close_points(points, MIN_BISECTOR_DISTANCE);
         let pts = if result.num_merged > 0 {
             result.effective_points.clone()
         } else {
