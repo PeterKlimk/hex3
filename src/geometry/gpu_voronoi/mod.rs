@@ -17,23 +17,16 @@ use kiddo::ImmutableKdTree;
 use rustc_hash::FxHashSet;
 
 // Re-exports
+pub use cell_builder::GapSampler;
 pub use cell_builder::{
-    GreatCircle, IncrementalCellBuilder, F64CellBuilder, MAX_PLANES, MAX_VERTICES,
-    VertexKey,
-    VertexData, VertexList,
-    geodesic_distance, order_vertices_ccw_indices,
+    geodesic_distance, order_vertices_ccw_indices, F64CellBuilder, GreatCircle,
+    IncrementalCellBuilder, VertexData, VertexKey, VertexList, MAX_PLANES, MAX_VERTICES,
 };
 pub use constants::{
-    MIN_BISECTOR_DISTANCE,
-    SUPPORT_CERT_MARGIN_ABS,
-    SUPPORT_CLUSTER_RADIUS_ANGLE,
-    SUPPORT_EPS_ABS,
-    SUPPORT_GAP_SAMPLE_LIMIT,
-    SUPPORT_VERTEX_ANGLE_EPS,
-    VERTEX_WELD_FRACTION,
-    support_cluster_drift_dot,
+    support_cluster_drift_dot, MIN_BISECTOR_DISTANCE, SUPPORT_CERT_MARGIN_ABS,
+    SUPPORT_CLUSTER_RADIUS_ANGLE, SUPPORT_EPS_ABS, SUPPORT_GAP_SAMPLE_LIMIT,
+    SUPPORT_VERTEX_ANGLE_EPS, VERTEX_WELD_FRACTION,
 };
-pub use cell_builder::GapSampler;
 pub use dedup::dedup_vertices_hash_flat;
 pub use knn::{CubeMapGridKnn, KnnProvider};
 
@@ -117,17 +110,27 @@ impl FlatCellsData {
 
     /// Compute VoronoiStats from chunk data.
     pub fn stats(&self) -> VoronoiStats {
-        let total_neighbors: usize = self.chunks.iter().map(|c| c.total_neighbors_processed).sum();
+        let total_neighbors: usize = self
+            .chunks
+            .iter()
+            .map(|c| c.total_neighbors_processed)
+            .sum();
         let terminated: usize = self.chunks.iter().map(|c| c.terminated_cells).sum();
-        let fallback_unterminated: usize = self.chunks.iter().map(|c| c.fallback_unterminated).sum();
+        let fallback_unterminated: usize =
+            self.chunks.iter().map(|c| c.fallback_unterminated).sum();
         let cert_checked_cells: usize = self.chunks.iter().map(|c| c.cert_checked_cells).sum();
         let cert_failed_cells: usize = self.chunks.iter().map(|c| c.cert_failed_cells).sum();
-        let cert_checked_vertices: usize = self.chunks.iter().map(|c| c.cert_checked_vertices).sum();
+        let cert_checked_vertices: usize =
+            self.chunks.iter().map(|c| c.cert_checked_vertices).sum();
         let cert_failed_vertices: usize = self.chunks.iter().map(|c| c.cert_failed_vertices).sum();
-        let cert_failed_ill_vertices: usize = self.chunks.iter().map(|c| c.cert_failed_ill_vertices).sum();
-        let cert_failed_gap_vertices: usize = self.chunks.iter().map(|c| c.cert_failed_gap_vertices).sum();
+        let cert_failed_ill_vertices: usize =
+            self.chunks.iter().map(|c| c.cert_failed_ill_vertices).sum();
+        let cert_failed_gap_vertices: usize =
+            self.chunks.iter().map(|c| c.cert_failed_gap_vertices).sum();
         let cert_gap_count: usize = self.chunks.iter().map(|c| c.cert_gap_count).sum();
-        let cert_gap_min = self.chunks.iter()
+        let cert_gap_min = self
+            .chunks
+            .iter()
             .filter(|c| c.cert_gap_count > 0)
             .map(|c| c.cert_gap_min)
             .fold(f64::INFINITY, f64::min);
@@ -143,7 +146,8 @@ impl FlatCellsData {
         let cert_gap_median = if cert_gap_count == 0 || cert_gap_samples.is_empty() {
             f64::NAN
         } else {
-            cert_gap_samples.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+            cert_gap_samples
+                .sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
             let target = cert_gap_count as f64 * 0.5;
             let mut accum = 0.0f64;
             let mut median = cert_gap_samples.last().map(|v| v.0).unwrap_or(f64::NAN);
@@ -162,8 +166,10 @@ impl FlatCellsData {
         for chunk in &self.chunks {
             let offset = chunk.vertex_offset;
             cert_failed_vertex_indices.extend(
-                chunk.cert_failed_vertex_indices.iter()
-                    .map(|&(idx, reason)| (idx + offset, reason))
+                chunk
+                    .cert_failed_vertex_indices
+                    .iter()
+                    .map(|&(idx, reason)| (idx + offset, reason)),
             );
         }
         let n = self.num_cells.max(1) as f64;
@@ -261,9 +267,44 @@ pub struct VoronoiStats {
 
 #[derive(Debug, Clone, Copy)]
 pub struct TerminationConfig {
+    /// Enables adaptive k-NN + early termination checks.
+    ///
+    /// When disabled, the builder will still run the initial k-NN pass but will not
+    /// attempt to terminate early or expand to larger k (so this should generally
+    /// remain enabled for correct results).
     pub enabled: bool,
     pub check_start: usize,
     pub check_step: usize,
+}
+
+// Keep the adaptive-k schedule and the default termination cadence in one place.
+// If you change the k schedule, the default termination values should update with it.
+const ADAPTIVE_K_INITIAL: usize = 12;
+const ADAPTIVE_K_RESUME: usize = 24;
+const ADAPTIVE_K_RARE: usize = 48;
+const ADAPTIVE_K_TRACK_LIMIT: usize = ADAPTIVE_K_RESUME;
+
+// Default termination cadence:
+// - start near the end of the initial k pass
+// - then check roughly twice per initial-k window
+const DEFAULT_TERMINATION_CHECK_START: usize = ADAPTIVE_K_INITIAL.saturating_sub(2);
+const DEFAULT_TERMINATION_CHECK_STEP: usize = {
+    let step = ADAPTIVE_K_INITIAL / 2;
+    if step == 0 {
+        1
+    } else {
+        step
+    }
+};
+
+impl Default for TerminationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            check_start: DEFAULT_TERMINATION_CHECK_START,
+            check_step: DEFAULT_TERMINATION_CHECK_STEP,
+        }
+    }
 }
 
 impl TerminationConfig {
@@ -282,7 +323,7 @@ impl TerminationConfig {
 /// - counts: vertex count per cell (counts[i] = number of vertices for cell i)
 ///
 /// Uses adaptive k-NN with early termination:
-/// 1. Fetch k=12 neighbors, clip, check termination
+/// 1. Fetch k=12 neighbors, clip, termination checks
 /// 2. If needed, resume to k=24, then k=48
 /// 3. If still not terminated, full scan
 pub fn build_cells_data_flat(
@@ -290,20 +331,22 @@ pub fn build_cells_data_flat(
     knn: &impl KnnProvider,
     termination: TerminationConfig,
 ) -> (FlatCellsData, timing::CellSubAccum) {
-    use constants::EPS_TERMINATION_MARGIN;
     use rayon::prelude::*;
 
     let n = points.len();
     if n == 0 {
-        return (FlatCellsData {
-            chunks: Vec::new(),
-            num_cells: 0,
-        }, timing::CellSubAccum::new());
+        return (
+            FlatCellsData {
+                chunks: Vec::new(),
+                num_cells: 0,
+            },
+            timing::CellSubAccum::new(),
+        );
     }
 
     let _support_eps = SUPPORT_EPS_ABS; // Kept for potential future use
-    // Position weld threshold (chord length) used for deferred keying of uncertified vertices.
-    // Matches the scale used by strict validation / near-duplicate thresholds in tests.
+                                        // Position weld threshold (chord length) used for deferred keying of uncertified vertices.
+                                        // Matches the scale used by strict validation / near-duplicate thresholds in tests.
     let pos_weld_chord: f64 = {
         let spacing = mean_generator_spacing_chord(n) as f64;
         (spacing * VERTEX_WELD_FRACTION as f64).max(MIN_BISECTOR_DISTANCE as f64 * 0.25)
@@ -319,7 +362,7 @@ pub fn build_cells_data_flat(
         start = end;
     }
 
-    let mut chunks: Vec<(FlatChunk, timing::CellSubAccum)> = ranges
+    let chunks: Vec<(FlatChunk, timing::CellSubAccum)> = ranges
         .par_iter()
         .map(|&(start, end)| {
             use cell_builder::F64CellBuilder;
@@ -356,12 +399,6 @@ pub fn build_cells_data_flat(
             // Sub-phase timing accumulators
             let mut sub_accum = CellSubAccum::new();
 
-            // Adaptive k-NN: start small, resume to larger k if needed
-            // Track more than we initially need so resume is cheap
-            const K_INITIAL: usize = 12;
-            const K_EXPAND: usize = 24;
-            const TRACK_LIMIT: usize = 24;
-
             for i in start..end {
                 builder.reset(i, points[i]);
 
@@ -369,31 +406,54 @@ pub fn build_cells_data_flat(
                 let mut terminated = false;
                 let mut used_fallback = false;
                 let mut full_scan_done = false;
-                let mut knn_exhausted = false;
+                let mut knn_exhausted_any = false;
+                let mut did_k24 = false;
+                let mut did_k48 = false;
+                let mut did_full_scan_fallback = false;
+                let mut did_full_scan_recovery = false;
 
                 // Phase 1: Initial resumable k-NN query (k=12, track up to 24)
                 let t_knn = Timer::start();
                 neighbors.clear();
                 let status = knn.knn_resumable_into(
-                    points[i], i, K_INITIAL, TRACK_LIMIT, &mut scratch, &mut neighbors
+                    points[i],
+                    i,
+                    ADAPTIVE_K_INITIAL,
+                    ADAPTIVE_K_TRACK_LIMIT,
+                    &mut scratch,
+                    &mut neighbors,
                 );
-                knn_exhausted = status == knn::KnnStatus::Exhausted;
+                let mut knn_exhausted = status == knn::KnnStatus::Exhausted;
+                knn_exhausted_any |= knn_exhausted;
                 sub_accum.add_knn(t_knn.elapsed());
 
                 let t_clip = Timer::start();
 
                 // Process initial neighbors
+                let mut last_neighbor_cos: Option<f32> = None;
                 for idx in 0..neighbors.len() {
                     let neighbor_idx = neighbors[idx];
                     let neighbor = points[neighbor_idx];
                     builder.clip(neighbor_idx, neighbor);
                     cell_neighbors_processed = idx + 1;
 
-                    if termination.should_check(cell_neighbors_processed) && builder.vertex_count() >= 3 {
+                    if termination.enabled && builder.vertex_count() >= 3 {
                         let neighbor_cos = points[i].dot(neighbor).clamp(-1.0, 1.0);
-                        if builder.can_terminate(neighbor_cos) {
+                        last_neighbor_cos = Some(neighbor_cos);
+                        if termination.should_check(cell_neighbors_processed)
+                            && builder.can_terminate(neighbor_cos)
+                        {
                             terminated = true;
                             break;
+                        }
+                    }
+                }
+                // Always check once at the end of the stage so we don't "miss" termination
+                // due to a coarse check cadence.
+                if termination.enabled && !terminated && builder.vertex_count() >= 3 {
+                    if let Some(cos) = last_neighbor_cos {
+                        if builder.can_terminate(cos) {
+                            terminated = true;
                         }
                     }
                 }
@@ -401,15 +461,22 @@ pub fn build_cells_data_flat(
                 // Phase 2: Resume to k=24 if needed (cheap - just slices buffer)
                 if termination.enabled && !terminated && !knn_exhausted {
                     used_fallback = true;
+                    did_k24 = true;
                     let t_knn2 = Timer::start();
                     let prev_count = neighbors.len();
                     let status = knn.knn_resume_into(
-                        points[i], i, K_EXPAND, &mut scratch, &mut neighbors
+                        points[i],
+                        i,
+                        ADAPTIVE_K_RESUME,
+                        &mut scratch,
+                        &mut neighbors,
                     );
                     knn_exhausted = status == knn::KnnStatus::Exhausted;
+                    knn_exhausted_any |= knn_exhausted;
                     sub_accum.add_knn(t_knn2.elapsed());
 
                     // Process new neighbors
+                    let mut last_neighbor_cos: Option<f32> = None;
                     for idx in prev_count..neighbors.len() {
                         let neighbor_idx = neighbors[idx];
                         if builder.has_neighbor(neighbor_idx) {
@@ -421,9 +488,19 @@ pub fn build_cells_data_flat(
 
                         if builder.vertex_count() >= 3 {
                             let neighbor_cos = points[i].dot(neighbor).clamp(-1.0, 1.0);
-                            if builder.can_terminate(neighbor_cos) {
+                            last_neighbor_cos = Some(neighbor_cos);
+                            if termination.should_check(cell_neighbors_processed)
+                                && builder.can_terminate(neighbor_cos)
+                            {
                                 terminated = true;
                                 break;
+                            }
+                        }
+                    }
+                    if !terminated && builder.vertex_count() >= 3 {
+                        if let Some(cos) = last_neighbor_cos {
+                            if builder.can_terminate(cos) {
+                                terminated = true;
                             }
                         }
                     }
@@ -431,11 +508,21 @@ pub fn build_cells_data_flat(
 
                 // Phase 3: Fresh query at k=48 if still needed (rare)
                 if termination.enabled && !terminated && !knn_exhausted {
+                    used_fallback = true;
+                    did_k48 = true;
                     let t_knn3 = Timer::start();
-                    knn.knn_into(points[i], i, 48, &mut scratch, &mut neighbors);
-                    knn_exhausted = neighbors.len() < 48;
+                    knn.knn_into(
+                        points[i],
+                        i,
+                        ADAPTIVE_K_RARE,
+                        &mut scratch,
+                        &mut neighbors,
+                    );
+                    knn_exhausted = neighbors.len() < ADAPTIVE_K_RARE;
+                    knn_exhausted_any |= knn_exhausted;
                     sub_accum.add_knn(t_knn3.elapsed());
 
+                    let mut last_neighbor_cos: Option<f32> = None;
                     for &neighbor_idx in &neighbors {
                         if builder.has_neighbor(neighbor_idx) {
                             continue;
@@ -446,9 +533,19 @@ pub fn build_cells_data_flat(
 
                         if builder.vertex_count() >= 3 {
                             let neighbor_cos = points[i].dot(neighbor).clamp(-1.0, 1.0);
-                            if builder.can_terminate(neighbor_cos) {
+                            last_neighbor_cos = Some(neighbor_cos);
+                            if termination.should_check(cell_neighbors_processed)
+                                && builder.can_terminate(neighbor_cos)
+                            {
                                 terminated = true;
                                 break;
+                            }
+                        }
+                    }
+                    if !terminated && builder.vertex_count() >= 3 {
+                        if let Some(cos) = last_neighbor_cos {
+                            if builder.can_terminate(cos) {
+                                terminated = true;
                             }
                         }
                     }
@@ -457,6 +554,7 @@ pub fn build_cells_data_flat(
 
                 // Final fallback: full scan if knn exhausted and still not terminated
                 if termination.enabled && !terminated && knn_exhausted && !builder.is_dead() && builder.vertex_count() >= 3 {
+                    did_full_scan_fallback = true;
                     if std::env::var("VORONOI_DEBUG_FALLBACK").is_ok() {
                         eprintln!("[FALLBACK] cell {} entering full-scan fallback ({} neighbors so far)",
                             i, builder.planes_count());
@@ -491,6 +589,7 @@ pub fn build_cells_data_flat(
                     let recovered = builder.try_reseed_best();
                     if !recovered {
                         if !full_scan_done {
+                            did_full_scan_recovery = true;
                             if std::env::var("VORONOI_DEBUG_FALLBACK").is_ok() {
                                 eprintln!("[RECOVERY] cell {} entering full-scan recovery (was dead after {} planes)",
                                     i, builder.planes_count());
@@ -523,6 +622,19 @@ pub fn build_cells_data_flat(
                         }
                     }
                 }
+
+                let knn_stage = if did_full_scan_recovery {
+                    timing::KnnCellStage::FullScanRecovery
+                } else if did_full_scan_fallback {
+                    timing::KnnCellStage::FullScanFallback
+                } else if did_k48 {
+                    timing::KnnCellStage::K48
+                } else if did_k24 {
+                    timing::KnnCellStage::K24
+                } else {
+                    timing::KnnCellStage::K12
+                };
+                sub_accum.add_cell_stage(knn_stage, knn_exhausted_any);
 
                 let candidates_complete = full_scan_done || (termination.enabled && terminated);
                 cell_terminated.push(terminated as u8);
@@ -576,7 +688,7 @@ pub fn build_cells_data_flat(
     // Separate chunks and timing, merge timing from all chunks
     let mut merged_timing = timing::CellSubAccum::new();
     let mut flat_chunks: Vec<FlatChunk> = Vec::with_capacity(chunks.len());
-    for (mut chunk, sub_timing) in chunks {
+    for (chunk, sub_timing) in chunks {
         merged_timing.merge(&sub_timing);
         flat_chunks.push(chunk);
     }
@@ -588,10 +700,13 @@ pub fn build_cells_data_flat(
         offset += chunk.vertices.len() as u32;
     }
 
-    (FlatCellsData {
-        chunks: flat_chunks,
-        num_cells: n,
-    }, merged_timing)
+    (
+        FlatCellsData {
+            chunks: flat_chunks,
+            num_cells: n,
+        },
+        merged_timing,
+    )
 }
 
 struct CoreResult {
@@ -617,7 +732,9 @@ struct SimpleDsu {
 
 impl SimpleDsu {
     fn new(n: usize) -> Self {
-        Self { parent: (0..n).collect() }
+        Self {
+            parent: (0..n).collect(),
+        }
     }
 
     fn find(&mut self, x: usize) -> usize {
@@ -693,9 +810,7 @@ pub fn merge_close_points(points: &[Vec3], threshold: f32, knn: &impl KnnProvide
             }
         }
 
-        grid.entry((cx, cy, cz))
-            .or_insert_with(Vec::new)
-            .push(i);
+        grid.entry((cx, cy, cz)).or_insert_with(Vec::new).push(i);
     }
 
     // Count how many unique representatives we have
@@ -748,7 +863,11 @@ fn compute_voronoi_gpu_style_core(
 
     let t = Timer::start();
     let (flat_data, cell_sub_timing) = build_cells_data_flat(&effective_points, &knn, termination);
-    let stats = if collect_stats { Some(flat_data.stats()) } else { None };
+    let stats = if collect_stats {
+        Some(flat_data.stats())
+    } else {
+        None
+    };
     tb.set_cell_construction(t.elapsed(), cell_sub_timing.into_sub_phases());
 
     let t = Timer::start();
@@ -805,11 +924,7 @@ fn compute_voronoi_gpu_style_core(
 /// cargo run --release --features timing
 /// ```
 pub fn compute_voronoi_gpu_style(points: &[Vec3]) -> crate::geometry::SphericalVoronoi {
-    let termination = TerminationConfig {
-        enabled: true,
-        check_start: 10,
-        check_step: 6,
-    };
+    let termination = TerminationConfig::default();
     compute_voronoi_gpu_style_core(points, termination, false).voronoi
 }
 
@@ -817,11 +932,7 @@ pub fn compute_voronoi_gpu_style(points: &[Vec3]) -> crate::geometry::SphericalV
 pub fn compute_voronoi_gpu_style_with_stats(
     points: &[Vec3],
 ) -> (crate::geometry::SphericalVoronoi, VoronoiStats) {
-    let termination = TerminationConfig {
-        enabled: true,
-        check_start: 10,
-        check_step: 6,
-    };
+    let termination = TerminationConfig::default();
     let result = compute_voronoi_gpu_style_core(points, termination, true);
     (result.voronoi, result.stats.expect("stats requested"))
 }

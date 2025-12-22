@@ -18,10 +18,22 @@ fn spherical_polygon_area(vertices: &[Vec3]) -> f64 {
     // Use the signed solid angle formula
     // Sum over triangles formed with first vertex (works for convex and simple polygons)
     let mut total = 0.0f64;
-    let v0 = glam::DVec3::new(vertices[0].x as f64, vertices[0].y as f64, vertices[0].z as f64);
+    let v0 = glam::DVec3::new(
+        vertices[0].x as f64,
+        vertices[0].y as f64,
+        vertices[0].z as f64,
+    );
     for i in 1..(n - 1) {
-        let v1 = glam::DVec3::new(vertices[i].x as f64, vertices[i].y as f64, vertices[i].z as f64);
-        let v2 = glam::DVec3::new(vertices[i + 1].x as f64, vertices[i + 1].y as f64, vertices[i + 1].z as f64);
+        let v1 = glam::DVec3::new(
+            vertices[i].x as f64,
+            vertices[i].y as f64,
+            vertices[i].z as f64,
+        );
+        let v2 = glam::DVec3::new(
+            vertices[i + 1].x as f64,
+            vertices[i + 1].y as f64,
+            vertices[i + 1].z as f64,
+        );
         // Signed area of spherical triangle using the formula:
         // tan(E/2) = v0·(v1×v2) / (1 + v0·v1 + v1·v2 + v2·v0)
         // where E is the spherical excess (= area for unit sphere)
@@ -145,7 +157,10 @@ impl ValidationResult {
             );
         }
         if !self.orphan_edges.is_empty() {
-            println!("  Orphan edges (in only 1 cell): {}", self.orphan_edges.len());
+            println!(
+                "  Orphan edges (in only 1 cell): {}",
+                self.orphan_edges.len()
+            );
         }
         if !self.overcounted_edges.is_empty() {
             println!(
@@ -160,10 +175,7 @@ impl ValidationResult {
             );
         }
         if !self.wrong_winding_cells.is_empty() {
-            println!(
-                "  Wrong winding cells: {}",
-                self.wrong_winding_cells.len()
-            );
+            println!("  Wrong winding cells: {}", self.wrong_winding_cells.len());
         }
         if !self.negative_area_cells.is_empty() {
             println!(
@@ -178,7 +190,10 @@ impl ValidationResult {
 ///
 /// `near_duplicate_threshold` is the distance below which two vertices
 /// are considered duplicates (e.g., 1e-6 for strict, 1e-4 for lenient).
-pub fn validate_voronoi(voronoi: &SphericalVoronoi, near_duplicate_threshold: f32) -> ValidationResult {
+pub fn validate_voronoi(
+    voronoi: &SphericalVoronoi,
+    near_duplicate_threshold: f32,
+) -> ValidationResult {
     let mut result = ValidationResult {
         num_cells: voronoi.num_cells(),
         ..Default::default()
@@ -403,7 +418,8 @@ pub fn validate_voronoi_sampling<R: rand::Rng>(
                     result.correct += 1;
                 } else {
                     // Check if this is within tolerance
-                    let cell_gen_dist = (point - voronoi.generators[cell.generator_index]).length() as f64;
+                    let cell_gen_dist =
+                        (point - voronoi.generators[cell.generator_index]).length() as f64;
                     let error = cell_gen_dist - nearest_dist;
                     if error > tolerance {
                         result.incorrect += 1;
@@ -503,9 +519,7 @@ impl StrictValidationResult {
         println!("Strict Validation Results:");
         println!(
             "  merged_generators={} (effective={}), merge_threshold={:.2e}",
-            self.num_merged_generators,
-            self.num_effective_generators,
-            self.merge_threshold
+            self.num_merged_generators, self.num_effective_generators, self.merge_threshold
         );
         println!(
             "  V/E/F = {}/{}/{} (Euler ok: {})",
@@ -544,7 +558,7 @@ pub fn validate_voronoi_strict(
     eps_hi: f64,
     merge_threshold: Option<f32>,
 ) -> StrictValidationResult {
-    use crate::geometry::gpu_voronoi::{CubeMapGridKnn, KnnProvider, merge_close_points};
+    use crate::geometry::gpu_voronoi::{merge_close_points, CubeMapGridKnn, KnnProvider};
 
     let num_cells = voronoi.num_cells();
     let num_vertices = voronoi.vertices.len();
@@ -641,7 +655,13 @@ pub fn validate_voronoi_strict(
 
         // Use KNN to find candidate generators instead of scanning all
         neighbor_buf.clear();
-        gen_knn.knn_into(v, usize::MAX, support_knn_k, &mut gen_scratch, &mut neighbor_buf);
+        gen_knn.knn_into(
+            v,
+            usize::MAX,
+            support_knn_k,
+            &mut gen_scratch,
+            &mut neighbor_buf,
+        );
 
         // Also include generators from vertex_to_cells (they must be in support)
         for &eff_idx in &vertex_to_cells[v_idx] {
@@ -837,8 +857,10 @@ pub fn validate_voronoi_strict(
                 vertex_to_cells.get(dup)
             );
             if let Some(key) = key {
-                let rep64 = glam::DVec3::new(pos_rep.x as f64, pos_rep.y as f64, pos_rep.z as f64).normalize();
-                let dup64 = glam::DVec3::new(pos_dup.x as f64, pos_dup.y as f64, pos_dup.z as f64).normalize();
+                let rep64 = glam::DVec3::new(pos_rep.x as f64, pos_rep.y as f64, pos_rep.z as f64)
+                    .normalize();
+                let dup64 = glam::DVec3::new(pos_dup.x as f64, pos_dup.y as f64, pos_dup.z as f64)
+                    .normalize();
                 let mut rep_max = f64::NEG_INFINITY;
                 let mut dup_max = f64::NEG_INFINITY;
                 for g64 in &effective_gens_d {
@@ -871,8 +893,13 @@ pub fn validate_voronoi_strict(
 
             for &(rep, _dup) in result.duplicate_support_vertices.iter().take(3) {
                 let key_id = vertex_key_id.get(rep).copied().unwrap_or(usize::MAX);
-                let Some(key) = support_keys.get(key_id) else { continue };
-                eprintln!("[strict] support key {:?} neighbor coverage (k={})", key, DEBUG_K);
+                let Some(key) = support_keys.get(key_id) else {
+                    continue;
+                };
+                eprintln!(
+                    "[strict] support key {:?} neighbor coverage (k={})",
+                    key, DEBUG_K
+                );
 
                 for &gi in key {
                     neighbors.clear();
@@ -1039,18 +1066,25 @@ pub fn analyze_orphan_edges(voronoi: &SphericalVoronoi, tolerance: f32) -> Orpha
         let mut found_positional_match = false;
         for cell_idx in 0..voronoi.num_cells() {
             let cell = voronoi.cell(cell_idx);
-            let cell_has_edge = cell.vertex_indices.windows(2)
+            let cell_has_edge = cell
+                .vertex_indices
+                .windows(2)
                 .any(|w| (w[0] == v1 && w[1] == v2) || (w[0] == v2 && w[1] == v1))
-                || (cell.vertex_indices.first() == Some(&v1) && cell.vertex_indices.last() == Some(&v2))
-                || (cell.vertex_indices.first() == Some(&v2) && cell.vertex_indices.last() == Some(&v1));
+                || (cell.vertex_indices.first() == Some(&v1)
+                    && cell.vertex_indices.last() == Some(&v2))
+                || (cell.vertex_indices.first() == Some(&v2)
+                    && cell.vertex_indices.last() == Some(&v1));
 
             if cell_has_edge {
                 continue;
             }
 
             // Check if cell has vertices at same positions but different indices
-            let positions: Vec<Vec3> = cell.vertex_indices.iter()
-                .map(|&vi| voronoi.vertices[vi]).collect();
+            let positions: Vec<Vec3> = cell
+                .vertex_indices
+                .iter()
+                .map(|&vi| voronoi.vertices[vi])
+                .collect();
 
             let has_pos1 = positions.iter().any(|p| (*p - pos1).length() < tolerance);
             let has_pos2 = positions.iter().any(|p| (*p - pos2).length() < tolerance);
@@ -1083,11 +1117,8 @@ pub struct OrphanEdgeAnalysis {
 
 /// Analyze why k=16 fails for specific orphan edges.
 /// Returns details about which generators are missing from k-NN.
-pub fn analyze_knn_coverage(
-    points: &[glam::Vec3],
-    k: usize,
-) -> KnnCoverageAnalysis {
-    use super::gpu_voronoi::{build_kdtree, find_k_nearest, compute_voronoi_gpu_style};
+pub fn analyze_knn_coverage(points: &[glam::Vec3], k: usize) -> KnnCoverageAnalysis {
+    use super::gpu_voronoi::{build_kdtree, compute_voronoi_gpu_style, find_k_nearest};
 
     let voronoi = compute_voronoi_gpu_style(points);
     let result = validate_voronoi(&voronoi, 1e-6);
@@ -1109,7 +1140,8 @@ pub fn analyze_knn_coverage(
     let mut examples: Vec<OrphanEdgeExample> = Vec::new();
 
     // Build edge-to-cells map
-    let mut edge_to_cells: std::collections::HashMap<(usize, usize), Vec<usize>> = std::collections::HashMap::new();
+    let mut edge_to_cells: std::collections::HashMap<(usize, usize), Vec<usize>> =
+        std::collections::HashMap::new();
     for cell_idx in 0..voronoi.num_cells() {
         let cell = voronoi.cell(cell_idx);
         let n = cell.vertex_indices.len();
@@ -1167,7 +1199,8 @@ pub fn analyze_knn_coverage(
         // For the edge A-B, we need the two vertex triplets.
         // Find which third generators complete the triplets.
         // These should be the next closest to the edge midpoint after A and B.
-        let third_gens: Vec<usize> = candidates.iter()
+        let third_gens: Vec<usize> = candidates
+            .iter()
             .filter(|(i, _)| *i != cell_a && *i != cell_b)
             .take(4)
             .map(|(i, _)| *i)
@@ -1329,7 +1362,10 @@ pub struct LargeValidationResult {
 impl LargeValidationResult {
     /// Check if topological structure is valid.
     pub fn topology_valid(&self) -> bool {
-        self.euler_ok && self.degenerate_cells == 0 && self.orphan_edges == 0 && self.overcounted_edges == 0
+        self.euler_ok
+            && self.degenerate_cells == 0
+            && self.orphan_edges == 0
+            && self.overcounted_edges == 0
     }
 
     /// Check if geometric accuracy is acceptable.
@@ -1349,7 +1385,10 @@ impl LargeValidationResult {
 
     pub fn print_summary(&self) {
         println!("Large-Count Validation Results:");
-        println!("  Cells: {}, Vertices: {}", self.num_cells, self.num_vertices);
+        println!(
+            "  Cells: {}, Vertices: {}",
+            self.num_cells, self.num_vertices
+        );
         println!(
             "  Euler: V={} E={} F={} (V-E+F={}, ok={})",
             self.euler_v,
@@ -1494,7 +1533,8 @@ pub fn validate_voronoi_large(
 
     // Sample vertices
     let mut rng = ChaCha8Rng::seed_from_u64(config.seed);
-    let sample_size = ((referenced_vertices.len() as f64 * config.vertex_sample_rate).ceil() as usize)
+    let sample_size = ((referenced_vertices.len() as f64 * config.vertex_sample_rate).ceil()
+        as usize)
         .max(1)
         .min(referenced_vertices.len());
 
@@ -1533,7 +1573,13 @@ pub fn validate_voronoi_large(
         };
 
         neighbors.clear();
-        knn.knn_into(query_gen, usize::MAX, config.knn_k, &mut scratch, &mut neighbors);
+        knn.knn_into(
+            query_gen,
+            usize::MAX,
+            config.knn_k,
+            &mut scratch,
+            &mut neighbors,
+        );
 
         // Find max dot product among k-NN neighbors
         let mut max_dot = f64::NEG_INFINITY;
@@ -1603,7 +1649,10 @@ pub fn validate_voronoi_large_quick(voronoi: &SphericalVoronoi) -> (bool, String
     let result = validate_voronoi_large(voronoi, &config);
 
     if result.is_valid() {
-        (true, format!("Valid (sampled {:.1}%)", result.sample_rate * 100.0))
+        (
+            true,
+            format!("Valid (sampled {:.1}%)", result.sample_rate * 100.0),
+        )
     } else {
         let mut issues = Vec::new();
         if !result.euler_ok {
@@ -1701,8 +1750,14 @@ mod tests {
         let deduped = deduplicate_voronoi(&voronoi, 1e-4);
         let after = validate_voronoi(&deduped, 1e-4);
 
-        println!("Before dedup: {} near-dup cells", before.near_duplicate_cells.len());
-        println!("After dedup: {} near-dup cells", after.near_duplicate_cells.len());
+        println!(
+            "Before dedup: {} near-dup cells",
+            before.near_duplicate_cells.len()
+        );
+        println!(
+            "After dedup: {} near-dup cells",
+            after.near_duplicate_cells.len()
+        );
 
         assert!(
             after.near_duplicate_cells.len() <= before.near_duplicate_cells.len(),
@@ -1769,8 +1824,14 @@ mod tests {
             if analysis.total_orphan_edges > 0 {
                 println!("GPU:");
                 println!("  Total orphan edges: {}", analysis.total_orphan_edges);
-                println!("  Position mismatch (same pos, diff idx): {}", analysis.position_mismatch_edges);
-                println!("  True orphans (no adjacent cell): {}", analysis.true_orphan_edges);
+                println!(
+                    "  Position mismatch (same pos, diff idx): {}",
+                    analysis.position_mismatch_edges
+                );
+                println!(
+                    "  True orphans (no adjacent cell): {}",
+                    analysis.true_orphan_edges
+                );
             } else {
                 println!("GPU: No orphan edges");
             }
@@ -1808,7 +1869,10 @@ mod tests {
                     let a = indices[i];
                     let b = indices[(i + 1) % n];
                     if (a == v1 && b == v2) || (a == v2 && b == v1) {
-                        println!("  Cell {} has this edge (gen: {:?})", cell_idx, gpu.generators[cell_idx]);
+                        println!(
+                            "  Cell {} has this edge (gen: {:?})",
+                            cell_idx, gpu.generators[cell_idx]
+                        );
                     }
                 }
             }
@@ -1828,11 +1892,13 @@ mod tests {
         let (voronoi, stats) = compute_voronoi_gpu_style_with_stats(&points);
         let (valid, msg) = validate_voronoi_quick(&voronoi);
 
-        println!("avg neighbors processed: {:.1}, termination rate: {:.1}%, valid: {} ({})",
+        println!(
+            "avg neighbors processed: {:.1}, termination rate: {:.1}%, valid: {} ({})",
             stats.avg_neighbors_processed,
             stats.termination_rate * 100.0,
             valid,
-            msg);
+            msg
+        );
 
         println!("\nWith adaptive k (12→24→48) and early termination, most cells terminate early.");
     }
@@ -1853,7 +1919,7 @@ mod tests {
 
         println!("n={}, {} iterations each\n", n, iterations);
 
-        // Compare old default (8,2) with new (10,6)
+        // Compare legacy (8,2) with current default (k_initial=12 -> 10,6).
         for (start, step) in [(8, 2), (10, 6)] {
             let mut times = Vec::new();
             for _ in 0..iterations {
@@ -1868,8 +1934,14 @@ mod tests {
             }
             let avg = times.iter().sum::<f64>() / times.len() as f64;
             let min = times.iter().cloned().fold(f64::INFINITY, f64::min);
-            println!("({:2}, {:1}): avg={:.0}ms, min={:.0}ms, runs={:?}",
-                start, step, avg, min, times.iter().map(|t| *t as u32).collect::<Vec<_>>());
+            println!(
+                "({:2}, {:1}): avg={:.0}ms, min={:.0}ms, runs={:?}",
+                start,
+                step,
+                avg,
+                min,
+                times.iter().map(|t| *t as u32).collect::<Vec<_>>()
+            );
         }
     }
 
@@ -1877,8 +1949,8 @@ mod tests {
     #[ignore] // Run with: cargo test test_incremental_voronoi_validation -- --ignored --nocapture
     fn test_incremental_voronoi_validation() {
         use crate::geometry::gpu_voronoi::{
-            build_cells_data_flat, CubeMapGridKnn, TerminationConfig,
-            dedup::dedup_vertices_hash_flat,
+            build_cells_data_flat, dedup::dedup_vertices_hash_flat, CubeMapGridKnn,
+            TerminationConfig,
         };
 
         println!("\n=== Incremental Voronoi Full Validation ===\n");
@@ -1887,11 +1959,7 @@ mod tests {
         let points = generate_test_points(n, 12345);
         let knn = CubeMapGridKnn::new(&points);
 
-        let termination = TerminationConfig {
-            enabled: true,
-            check_start: 10,
-            check_step: 6,
-        };
+        let termination = TerminationConfig::default();
 
         // Build with flat buffers (already produces CCW-ordered vertices)
         let (flat_data, _timing) = build_cells_data_flat(&points, &knn, termination);
@@ -1909,11 +1977,24 @@ mod tests {
 
         // Validate
         let result = validate_voronoi(&voronoi, 1e-5);
-        println!("Validation result: {}", if result.is_valid() { "VALID" } else { "INVALID" });
+        println!(
+            "Validation result: {}",
+            if result.is_valid() {
+                "VALID"
+            } else {
+                "INVALID"
+            }
+        );
         println!("  Degenerate cells: {}", result.degenerate_cells.len());
         println!("  Orphan edges: {}", result.orphan_edges.len());
-        println!("  Duplicate index cells: {}", result.duplicate_index_cells.len());
-        println!("  Near-duplicate cells: {}", result.near_duplicate_cells.len());
+        println!(
+            "  Duplicate index cells: {}",
+            result.duplicate_index_cells.len()
+        );
+        println!(
+            "  Near-duplicate cells: {}",
+            result.near_duplicate_cells.len()
+        );
     }
 
     #[test]
@@ -1929,15 +2010,23 @@ mod tests {
             println!("k={}: {} orphan edges", k, analysis.orphan_edges);
 
             if analysis.orphan_edges > 0 {
-                println!("  Missing second-order neighbors: {}/{} analyzed",
+                println!(
+                    "  Missing second-order neighbors: {}/{} analyzed",
                     analysis.missing_second_order_neighbors,
-                    analysis.orphan_edges.min(20));
+                    analysis.orphan_edges.min(20)
+                );
 
                 for (i, ex) in analysis.examples.iter().enumerate() {
                     println!("\n  Example {}:", i + 1);
                     println!("    Cell A={}, Cell B={}", ex.cell_a, ex.cell_b);
-                    println!("    B in A's k-NN: {}, A in B's k-NN: {}", ex.b_in_a_knn, ex.a_in_b_knn);
-                    println!("    Third generators (edge vertices): {:?}", ex.third_generators);
+                    println!(
+                        "    B in A's k-NN: {}, A in B's k-NN: {}",
+                        ex.b_in_a_knn, ex.a_in_b_knn
+                    );
+                    println!(
+                        "    Third generators (edge vertices): {:?}",
+                        ex.third_generators
+                    );
                     println!("    Missing from A's k-NN: {:?}", ex.missing_from_a);
                     println!("    Missing from B's k-NN: {:?}", ex.missing_from_b);
                 }
@@ -1973,8 +2062,16 @@ mod tests {
             edges.len()
         };
 
-        println!("Hull: {} unique edges, {} vertices", count_edges(&hull), hull.vertices.len());
-        println!("GPU:  {} unique edges, {} vertices", count_edges(&gpu), gpu.vertices.len());
+        println!(
+            "Hull: {} unique edges, {} vertices",
+            count_edges(&hull),
+            hull.vertices.len()
+        );
+        println!(
+            "GPU:  {} unique edges, {} vertices",
+            count_edges(&gpu),
+            gpu.vertices.len()
+        );
 
         // The issue might be that GPU creates duplicate vertices at the same position
         // with different indices, so edges aren't properly shared

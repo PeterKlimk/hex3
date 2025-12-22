@@ -127,8 +127,17 @@ fn validate_against_hull(points: &[Vec3]) {
     let match_pct = exact_match as f64 / points.len() as f64 * 100.0;
 
     println!("  Convex hull time: {:>8.1}ms", hull_time);
-    println!("  GPU Voronoi time: {:>8.1}ms ({:.1}x faster)", gpu_time, hull_time / gpu_time);
-    println!("  Exact matches:    {:>8} / {} ({:.2}%)", exact_match, points.len(), match_pct);
+    println!(
+        "  GPU Voronoi time: {:>8.1}ms ({:.1}x faster)",
+        gpu_time,
+        hull_time / gpu_time
+    );
+    println!(
+        "  Exact matches:    {:>8} / {} ({:.2}%)",
+        exact_match,
+        points.len(),
+        match_pct
+    );
     if bad_cells > 0 {
         println!("  Invalid cells:    {:>8} (< 3 vertices)", bad_cells);
     }
@@ -168,11 +177,18 @@ fn main() {
         args.sizes
     };
 
-    let point_type = if args.lloyd { "Lloyd-relaxed" } else { "fibonacci+jitter" };
+    let point_type = if args.lloyd {
+        "Lloyd-relaxed"
+    } else {
+        "fibonacci+jitter"
+    };
     println!("Configuration:");
     println!("  seed = {}", args.seed);
     println!("  point type = {}", point_type);
-    println!("  sizes = {:?}", sizes.iter().map(|&n| format_num(n)).collect::<Vec<_>>());
+    println!(
+        "  sizes = {:?}",
+        sizes.iter().map(|&n| format_num(n)).collect::<Vec<_>>()
+    );
 
     #[cfg(feature = "timing")]
     println!("  timing = enabled (detailed sub-phase timing will be printed)");
@@ -193,10 +209,16 @@ fn main() {
 
         println!("\nResults:");
         println!("  Total time:    {:>8.1}ms", result.time_ms);
-        println!("  Throughput:    {:>8}", format_rate(result.n, result.time_ms));
+        println!(
+            "  Throughput:    {:>8}",
+            format_rate(result.n, result.time_ms)
+        );
         println!("  Vertices:      {:>8}", format_num(result.num_vertices));
         println!("  Cells:         {:>8}", format_num(result.num_cells));
-        println!("  Avg verts/cell:{:>8.2}", result.num_vertices as f64 * 2.0 / result.num_cells as f64);
+        println!(
+            "  Avg verts/cell:{:>8.2}",
+            result.num_vertices as f64 * 2.0 / result.num_cells as f64
+        );
 
         if args.validate && *n <= 100_000 {
             validate_against_hull(&points);
@@ -212,16 +234,20 @@ fn main() {
         println!("\n\n{}", "=".repeat(60));
         println!("SUMMARY");
         println!("{}", "=".repeat(60));
-        println!("{:>10} | {:>10} | {:>12} | {:>10}",
-            "n", "time", "throughput", "verts");
+        println!(
+            "{:>10} | {:>10} | {:>12} | {:>10}",
+            "n", "time", "throughput", "verts"
+        );
         println!("{:-<10}-+-{:-<10}-+-{:-<12}-+-{:-<10}", "", "", "", "");
 
         for r in &results {
-            println!("{:>10} | {:>9.1}ms | {:>12} | {:>10}",
+            println!(
+                "{:>10} | {:>9.1}ms | {:>12} | {:>10}",
                 format_num(r.n),
                 r.time_ms,
                 format_rate(r.n, r.time_ms),
-                format_num(r.num_vertices));
+                format_num(r.num_vertices)
+            );
         }
     }
 

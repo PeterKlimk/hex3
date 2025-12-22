@@ -6,8 +6,8 @@ use glam::Vec3;
 use rand::Rng;
 
 use crate::geometry::{
-    compute_voronoi_gpu_style, fibonacci_sphere_points_with_rng,
-    lloyd_relax_kmeans, SphericalVoronoi,
+    compute_voronoi_gpu_style, fibonacci_sphere_points_with_rng, lloyd_relax_kmeans,
+    SphericalVoronoi,
 };
 
 /// A spherical tessellation with Voronoi cells and cell adjacency.

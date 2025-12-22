@@ -24,9 +24,7 @@ fn assert_min_spacing(points: &[Vec3], label: &str) -> f32 {
     let threshold = min_spacing_threshold();
     println!(
         "{} min point distance = {:.2e} (threshold: {:.2e})",
-        label,
-        min_dist,
-        threshold
+        label, min_dist, threshold
     );
     assert!(
         min_dist >= threshold,
@@ -44,17 +42,13 @@ fn test_incremental_builder_maintains_ccw_order() {
     // making the separate order_cells_ccw() pass redundant.
     let points = random_sphere_points(1000);
     let knn = CubeMapGridKnn::new(&points);
-    let termination = TerminationConfig {
-        enabled: true,
-        check_start: 10,
-        check_step: 6,
-    };
+    let termination = TerminationConfig::default();
 
     let (flat_data, _timing) = build_cells_data_flat(&points, &knn, termination);
 
     let mut already_ordered = 0;
-    let mut rotated_ccw = 0;  // CCW but starting from different vertex
-    let mut reversed = 0;     // CW order (needs reversal)
+    let mut rotated_ccw = 0; // CCW but starting from different vertex
+    let mut reversed = 0; // CW order (needs reversal)
 
     for (i, keyed_verts) in flat_data.iter_cells().enumerate() {
         let n = keyed_verts.len();
@@ -66,7 +60,10 @@ fn test_incremental_builder_maintains_ccw_order() {
         let ordered_indices = order_vertices_ccw_indices(points[i], &verts);
 
         // Check if indices are identity [0,1,2,...]
-        let is_identity = ordered_indices.iter().enumerate().all(|(idx, &val)| idx == val);
+        let is_identity = ordered_indices
+            .iter()
+            .enumerate()
+            .all(|(idx, &val)| idx == val);
 
         if is_identity {
             already_ordered += 1;
@@ -96,7 +93,8 @@ fn test_incremental_builder_maintains_ccw_order() {
     // If many are reversed, there's a winding issue
     assert_eq!(
         reversed, 0,
-        "IncrementalCellBuilder should maintain CCW winding (reversed={})", reversed
+        "IncrementalCellBuilder should maintain CCW winding (reversed={})",
+        reversed
     );
 }
 
@@ -147,13 +145,14 @@ fn test_kdtree_knn() {
     assert!(!neighbors.contains(&0)); // Shouldn't include self
 }
 
-
 /// Test soundness with non-coincident (Lloyd-relaxed) input.
 /// These points are guaranteed to be well-spaced, so the algorithm should produce
 /// valid Voronoi diagrams with no degenerate cells or orphan edges.
 #[test]
 fn test_soundness_lloyd_relaxed_points() {
-    use crate::geometry::{fibonacci_sphere_points_with_rng, lloyd_relax_voronoi, validation::validate_voronoi};
+    use crate::geometry::{
+        fibonacci_sphere_points_with_rng, lloyd_relax_voronoi, validation::validate_voronoi,
+    };
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
 
@@ -178,12 +177,22 @@ fn test_soundness_lloyd_relaxed_points() {
 
         println!("  Degenerate cells: {}", result.degenerate_cells.len());
         println!("  Orphan edges: {}", result.orphan_edges.len());
-        println!("  Near-duplicate cells: {}", result.near_duplicate_cells.len());
+        println!(
+            "  Near-duplicate cells: {}",
+            result.near_duplicate_cells.len()
+        );
 
-        assert!(result.degenerate_cells.is_empty(),
-            "n={}: Lloyd-relaxed points should produce no degenerate cells", n);
-        assert!(result.orphan_edges.len() <= 10,
-            "n={}: Lloyd-relaxed points should have minimal orphan edges, got {}", n, result.orphan_edges.len());
+        assert!(
+            result.degenerate_cells.is_empty(),
+            "n={}: Lloyd-relaxed points should produce no degenerate cells",
+            n
+        );
+        assert!(
+            result.orphan_edges.len() <= 10,
+            "n={}: Lloyd-relaxed points should have minimal orphan edges, got {}",
+            n,
+            result.orphan_edges.len()
+        );
     }
 }
 
@@ -201,11 +210,7 @@ fn strict_small_counts() {
 
     let sizes = [500usize, 1_000, 2_000, 5_000, 10_000];
     let repeats = 5u64;
-    let cases = [
-        ("mild", 0.15f32),
-        ("default", 0.25f32),
-        ("rough", 0.45f32),
-    ];
+    let cases = [("mild", 0.15f32), ("default", 0.25f32), ("rough", 0.45f32)];
     const SUPPORT_LT3_SOFT_FRAC: f64 = 0.02;
     const SUPPORT_LT3_HARD_FRAC: f64 = 0.05;
 
@@ -242,7 +247,7 @@ fn strict_small_counts() {
 
                 // Use f32-appropriate tolerance for validation (vertices are stored as f32)
                 // SUPPORT_EPS_ABS is for f64 internal computation, not f32 validation
-                let eps_lo = (f32::EPSILON * 64.0) as f64;  // ~7.6e-6
+                let eps_lo = (f32::EPSILON * 64.0) as f64; // ~7.6e-6
                 let eps_hi = eps_lo * 5.0;
 
                 let voronoi = super::compute_voronoi_gpu_style(&points);
@@ -268,8 +273,7 @@ fn strict_small_counts() {
                 }
                 println!(
                     " | max_gen_delta={:.2e}, max_edge_err={:.2e}",
-                    strict.max_generator_delta,
-                    strict.max_edge_bisector_error
+                    strict.max_generator_delta, strict.max_edge_bisector_error
                 );
 
                 // Print details if there are any issues
@@ -343,8 +347,7 @@ fn strict_small_counts() {
 #[ignore]
 fn strict_large_counts() {
     use crate::geometry::{
-        fibonacci_sphere_points_with_rng,
-        lloyd_relax_kmeans,
+        fibonacci_sphere_points_with_rng, lloyd_relax_kmeans,
         validation::{validate_voronoi_large, LargeValidationConfig},
     };
     use rand::SeedableRng;
@@ -445,7 +448,8 @@ fn strict_large_counts() {
             if result.topology_valid() {
                 print!("TOPO_OK");
             } else {
-                print!("TOPO_FAIL(euler={} orphan={} degen={})",
+                print!(
+                    "TOPO_FAIL(euler={} orphan={} degen={})",
                     if result.euler_ok { "ok" } else { "FAIL" },
                     result.orphan_edges,
                     result.degenerate_cells
@@ -516,12 +520,17 @@ fn strict_large_counts() {
 #[test]
 #[ignore]
 fn test_orphan_edge_certification() {
-    use crate::geometry::{fibonacci_sphere_points_with_rng, lloyd_relax_kmeans, validation::validate_voronoi_strict};
+    use super::{
+        build_cells_data_flat, merge_close_points, CubeMapGridKnn, TerminationConfig,
+        MIN_BISECTOR_DISTANCE,
+    };
+    use crate::geometry::{
+        fibonacci_sphere_points_with_rng, lloyd_relax_kmeans, validation::validate_voronoi_strict,
+    };
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
     use std::collections::HashSet;
     use std::time::Instant;
-    use super::{build_cells_data_flat, CubeMapGridKnn, TerminationConfig, merge_close_points, MIN_BISECTOR_DISTANCE};
 
     println!("\n=== Orphan Edge vs Certification Correlation ===\n");
 
@@ -571,15 +580,17 @@ fn test_orphan_edge_certification() {
         let min_dist = check_min_point_distance(&points);
         let min_spacing = min_spacing_threshold();
         println!("\n--- {} (n={}, seed={}) ---", desc, n, seed);
-        println!("  points: {} -> {} (merged {}), min_dist={:.2e} (threshold={:.2e})",
-                 n, n_effective, merge_result.num_merged, min_dist, min_spacing);
+        println!(
+            "  points: {} -> {} (merged {}), min_dist={:.2e} (threshold={:.2e})",
+            n, n_effective, merge_result.num_merged, min_dist, min_spacing
+        );
         if min_dist < min_spacing {
             println!("  SKIP (min_dist below threshold)");
             continue;
         }
 
         let knn = CubeMapGridKnn::new(&points);
-        let termination = TerminationConfig { enabled: true, check_start: 10, check_step: 6 };
+        let termination = TerminationConfig::default();
         let (flat_data, _timing) = build_cells_data_flat(&points, &knn, termination);
         let flat_stats = flat_data.stats();
 
@@ -605,8 +616,10 @@ fn test_orphan_edge_certification() {
         let strict = validate_voronoi_strict(&voronoi, eps_lo, eps_hi, None);
         let validate_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
-        println!("  timing: lloyd={:.0}ms merge={:.0}ms voronoi={:.0}ms validate={:.0}ms",
-                 lloyd_ms, merge_ms, voronoi_ms, validate_ms);
+        println!(
+            "  timing: lloyd={:.0}ms merge={:.0}ms voronoi={:.0}ms validate={:.0}ms",
+            lloyd_ms, merge_ms, voronoi_ms, validate_ms
+        );
         print!("  result: orphan_edges={} cert_failed={} cert_checked_cells={} cert_failed_cells={} cert_checked_vertices={} cert_failed_vertices={} ",
             strict.orphan_edges.len(),
             cert_failed_positions.len(),
@@ -643,7 +656,8 @@ fn test_orphan_edge_certification() {
                 }
             }
 
-            let mismatch_vertices: HashSet<usize> = strict.generator_mismatch_vertices.iter().copied().collect();
+            let mismatch_vertices: HashSet<usize> =
+                strict.generator_mismatch_vertices.iter().copied().collect();
             let support_lt3_vertices: HashSet<usize> = strict.support_lt3.iter().copied().collect();
             let mut coverage_cache: std::collections::HashMap<usize, (usize, f32)> =
                 std::collections::HashMap::new();
@@ -683,7 +697,12 @@ fn test_orphan_edge_certification() {
                 // Phase 1: Initial resumable k-NN query
                 neighbors.clear();
                 let status = knn.knn_resumable_into(
-                    points[cell_idx], cell_idx, K_STEPS[0], TRACK_LIMIT, &mut scratch, &mut neighbors
+                    points[cell_idx],
+                    cell_idx,
+                    K_STEPS[0],
+                    TRACK_LIMIT,
+                    &mut scratch,
+                    &mut neighbors,
                 );
                 knn_exhausted = status == KnnStatus::Exhausted;
 
@@ -702,10 +721,18 @@ fn test_orphan_edge_certification() {
 
                 // Phase 2+: Resume to get more neighbors if needed
                 let mut step_idx = 1;
-                while termination.enabled && !terminated && !knn_exhausted && step_idx < K_STEPS.len() {
+                while termination.enabled
+                    && !terminated
+                    && !knn_exhausted
+                    && step_idx < K_STEPS.len()
+                {
                     let prev_count = neighbors.len();
                     let status = knn.knn_resume_into(
-                        points[cell_idx], cell_idx, K_STEPS[step_idx], &mut scratch, &mut neighbors
+                        points[cell_idx],
+                        cell_idx,
+                        K_STEPS[step_idx],
+                        &mut scratch,
+                        &mut neighbors,
                     );
                     knn_exhausted = status == KnnStatus::Exhausted;
 
@@ -755,7 +782,8 @@ fn test_orphan_edge_certification() {
                 if builder.vertex_count() < 3 {
                     return None;
                 }
-                let eps_cell = super::SUPPORT_VERTEX_ANGLE_EPS + super::SUPPORT_CLUSTER_RADIUS_ANGLE;
+                let eps_cell =
+                    super::SUPPORT_VERTEX_ANGLE_EPS + super::SUPPORT_CLUSTER_RADIUS_ANGLE;
                 let sin_theta = (1.0f32 - min_cos * min_cos).max(0.0).sqrt();
                 let (sin_eps, cos_eps) = (eps_cell as f32).sin_cos();
                 let cos_theta_eps = min_cos * cos_eps - sin_theta * sin_eps;
@@ -802,27 +830,28 @@ fn test_orphan_edge_certification() {
                 (best_idx, best_dist)
             };
 
-            let find_positional_edge_match = |v1: usize, v2: usize| -> Option<((usize, usize), f32)> {
-                let p1 = voronoi.vertices[v1];
-                let p2 = voronoi.vertices[v2];
-                let mut best: Option<((usize, usize), f32)> = None;
-                for (&(a, b), _) in &edge_to_cells {
-                    if (a == v1 && b == v2) || (a == v2 && b == v1) {
-                        continue;
-                    }
-                    let pa = voronoi.vertices[a];
-                    let pb = voronoi.vertices[b];
-                    let d_direct = (pa - p1).length().max((pb - p2).length());
-                    let d_swap = (pa - p2).length().max((pb - p1).length());
-                    let d = d_direct.min(d_swap);
-                    if d <= tol {
-                        if best.map(|(_, bd)| d < bd).unwrap_or(true) {
-                            best = Some(((a, b), d));
+            let find_positional_edge_match =
+                |v1: usize, v2: usize| -> Option<((usize, usize), f32)> {
+                    let p1 = voronoi.vertices[v1];
+                    let p2 = voronoi.vertices[v2];
+                    let mut best: Option<((usize, usize), f32)> = None;
+                    for (&(a, b), _) in &edge_to_cells {
+                        if (a == v1 && b == v2) || (a == v2 && b == v1) {
+                            continue;
+                        }
+                        let pa = voronoi.vertices[a];
+                        let pb = voronoi.vertices[b];
+                        let d_direct = (pa - p1).length().max((pb - p2).length());
+                        let d_swap = (pa - p2).length().max((pb - p1).length());
+                        let d = d_direct.min(d_swap);
+                        if d <= tol {
+                            if best.map(|(_, bd)| d < bd).unwrap_or(true) {
+                                best = Some(((a, b), d));
+                            }
                         }
                     }
-                }
-                best
-            };
+                    best
+                };
 
             let cell_flags = |cell_idx: usize| -> Option<(u8, u8, u8, u8)> {
                 let mut base = 0usize;
@@ -866,7 +895,8 @@ fn test_orphan_edge_certification() {
                 let pos_b = voronoi.vertices[v2];
                 let owner_cell = find_owner_cell(v1, v2);
                 let flags = owner_cell.and_then(|c| cell_flags(c));
-                let (terminated, used_fallback, full_scan, candidates_complete) = flags.unwrap_or((0, 0, 0, 0));
+                let (terminated, used_fallback, full_scan, candidates_complete) =
+                    flags.unwrap_or((0, 0, 0, 0));
 
                 let (dist_a, reason_a) = find_nearest_cert_fail(pos_a);
                 let (dist_b, reason_b) = find_nearest_cert_fail(pos_b);
@@ -887,15 +917,21 @@ fn test_orphan_edge_certification() {
 
                 if min_dist < 1e-6 {
                     matches += 1;
-                    println!("    edge({},{}): MATCH via v{} (dist={:.2e}, reason={})",
-                        v1, v2, closer_v, min_dist, reason_str);
+                    println!(
+                        "    edge({},{}): MATCH via v{} (dist={:.2e}, reason={})",
+                        v1, v2, closer_v, min_dist, reason_str
+                    );
                 } else if min_dist < 1e-3 {
                     near_misses += 1;
-                    println!("    edge({},{}): NEAR via v{} (dist={:.2e}, reason={})",
-                        v1, v2, closer_v, min_dist, reason_str);
+                    println!(
+                        "    edge({},{}): NEAR via v{} (dist={:.2e}, reason={})",
+                        v1, v2, closer_v, min_dist, reason_str
+                    );
                 } else {
-                    println!("    edge({},{}): NO MATCH (closer v{} dist={:.2e})",
-                        v1, v2, closer_v, min_dist);
+                    println!(
+                        "    edge({},{}): NO MATCH (closer v{} dist={:.2e})",
+                        v1, v2, closer_v, min_dist
+                    );
                 }
 
                 let v1_mismatch = mismatch_vertices.contains(&v1);
@@ -922,14 +958,17 @@ fn test_orphan_edge_certification() {
                 );
                 println!(
                     "      nearest_other(v1)=(v{} dist={:.2e}) nearest_other(v2)=(v{} dist={:.2e})",
-                    near1,
-                    near1_d,
-                    near2,
-                    near2_d,
+                    near1, near1_d, near2, near2_d,
                 );
                 if let Some(((a, b), d)) = positional_edge_match {
-                    let cells = edge_to_cells.get(&(a.min(b), a.max(b))).map(|v| v.len()).unwrap_or(0);
-                    println!("      positional_edge_match=edge({},{}) dist={:.2e} shared_by_cells={}", a, b, d, cells);
+                    let cells = edge_to_cells
+                        .get(&(a.min(b), a.max(b)))
+                        .map(|v| v.len())
+                        .unwrap_or(0);
+                    println!(
+                        "      positional_edge_match=edge({},{}) dist={:.2e} shared_by_cells={}",
+                        a, b, d, cells
+                    );
                 } else {
                     println!("      positional_edge_match=none (tol={:.2e})", tol);
                 }
@@ -959,7 +998,9 @@ fn test_orphan_edge_certification() {
 #[test]
 #[ignore]
 fn test_soundness_large_scale() {
-    use crate::geometry::{fibonacci_sphere_points_with_rng, lloyd_relax_kmeans, validation::validate_voronoi};
+    use crate::geometry::{
+        fibonacci_sphere_points_with_rng, lloyd_relax_kmeans, validation::validate_voronoi,
+    };
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
     use std::time::Instant;
@@ -976,12 +1017,18 @@ fn test_soundness_large_scale() {
         // Use k-means Lloyd (faster for large n)
         let t0 = Instant::now();
         lloyd_relax_kmeans(&mut points, 2, 20, &mut rng);
-        println!("  Lloyd relaxation: {:.1}ms", t0.elapsed().as_secs_f64() * 1000.0);
+        println!(
+            "  Lloyd relaxation: {:.1}ms",
+            t0.elapsed().as_secs_f64() * 1000.0
+        );
 
         // Verify min spacing requirement
         let min_dist = check_min_point_distance(&points);
         let threshold = min_spacing_threshold();
-        println!("  Min point distance: {:.2e} (threshold: {:.2e})", min_dist, threshold);
+        println!(
+            "  Min point distance: {:.2e} (threshold: {:.2e})",
+            min_dist, threshold
+        );
         assert!(
             min_dist >= threshold,
             "Lloyd-relaxed points should meet min spacing"
@@ -990,7 +1037,10 @@ fn test_soundness_large_scale() {
         // Build Voronoi and validate
         let t0 = Instant::now();
         let voronoi = compute_voronoi_gpu_style(&points);
-        println!("  Voronoi build: {:.1}ms", t0.elapsed().as_secs_f64() * 1000.0);
+        println!(
+            "  Voronoi build: {:.1}ms",
+            t0.elapsed().as_secs_f64() * 1000.0
+        );
 
         let t0 = Instant::now();
         let result = validate_voronoi(&voronoi, near_duplicate_threshold(points.len()));
@@ -998,17 +1048,28 @@ fn test_soundness_large_scale() {
 
         println!("  Degenerate cells: {}", result.degenerate_cells.len());
         println!("  Orphan edges: {}", result.orphan_edges.len());
-        println!("  Near-duplicate cells: {}", result.near_duplicate_cells.len());
+        println!(
+            "  Near-duplicate cells: {}",
+            result.near_duplicate_cells.len()
+        );
         println!();
 
         // With spacing-constrained inputs, we should have 0 degenerate cells
-        assert!(result.degenerate_cells.is_empty(),
-            "n={}: Should have 0 degenerate cells, got {}", n, result.degenerate_cells.len());
+        assert!(
+            result.degenerate_cells.is_empty(),
+            "n={}: Should have 0 degenerate cells, got {}",
+            n,
+            result.degenerate_cells.len()
+        );
 
         // Orphan edges should be minimal (<0.01%)
         let orphan_rate = result.orphan_edges.len() as f64 / n as f64;
-        assert!(orphan_rate < 0.0001,
-            "n={}: Orphan rate {:.4}% exceeds 0.01% threshold", n, orphan_rate * 100.0);
+        assert!(
+            orphan_rate < 0.0001,
+            "n={}: Orphan rate {:.4}% exceeds 0.01% threshold",
+            n,
+            orphan_rate * 100.0
+        );
     }
 }
 
@@ -1051,7 +1112,10 @@ fn test_coincident_points_handled_gracefully() {
         }
     }
 
-    println!("Injected {} exact duplicates and 20 near-duplicates", num_duplicates);
+    println!(
+        "Injected {} exact duplicates and 20 near-duplicates",
+        num_duplicates
+    );
 
     // Check minimum distance - should show the coincident points
     let min_dist = check_min_point_distance(&points);
@@ -1095,9 +1159,12 @@ fn test_coincident_points_handled_gracefully() {
     // 4. The number of issues should be bounded by the number of bad input points
     // We injected ~70 problem points, so we shouldn't have catastrophic failure
     let total_issues = result.degenerate_cells.len();
-    assert!(total_issues <= num_duplicates + 20,
+    assert!(
+        total_issues <= num_duplicates + 20,
         "Degenerate cells ({}) should be bounded by coincident point count ({})",
-        total_issues, num_duplicates + 20);
+        total_issues,
+        num_duplicates + 20
+    );
 }
 
 /// Test that the algorithm correctly skips neighbors below MIN_BISECTOR_DISTANCE.
@@ -1133,8 +1200,10 @@ fn test_bisector_distance_threshold_applied() {
 
     // We need at least 3 valid planes to form a cell
     // With 3 valid planes (far_enough, far_enough2, far_enough3), we should get vertices
-    assert!(builder.vertex_count() >= 3,
-        "Should form a cell from the 3 valid neighbors");
+    assert!(
+        builder.vertex_count() >= 3,
+        "Should form a cell from the 3 valid neighbors"
+    );
 }
 
 /// Helper: compute minimum distance between any two points
@@ -1283,13 +1352,23 @@ fn test_verify_error_with_arb() {
     let mut f64_builder = F64CellBuilder::new(target_cell, points[target_cell]);
     let mut scratch = knn.make_scratch();
     let mut neighbors = Vec::with_capacity(24);
-    knn.knn_into(points[target_cell], target_cell, 24, &mut scratch, &mut neighbors);
+    knn.knn_into(
+        points[target_cell],
+        target_cell,
+        24,
+        &mut scratch,
+        &mut neighbors,
+    );
 
     for &neighbor_idx in &neighbors {
         f64_builder.clip(neighbor_idx, points[neighbor_idx]);
     }
 
-    println!("Cell {} has {} vertices", target_cell, f64_builder.vertex_count());
+    println!(
+        "Cell {} has {} vertices",
+        target_cell,
+        f64_builder.vertex_count()
+    );
     println!("Neighbors: {:?}", neighbors);
 
     // Get generator position
@@ -1302,21 +1381,34 @@ fn test_verify_error_with_arb() {
         let na_idx = f64_builder.neighbor_index(plane_a);
         let nb_idx = f64_builder.neighbor_index(plane_b);
 
-        println!("\n--- Vertex {} (defining: {}, {}, {}) ---", v_idx, target_cell, na_idx, nb_idx);
-        println!("f64 vertex pos: ({:.15}, {:.15}, {:.15})", v_f64.x, v_f64.y, v_f64.z);
+        println!(
+            "\n--- Vertex {} (defining: {}, {}, {}) ---",
+            v_idx, target_cell, na_idx, nb_idx
+        );
+        println!(
+            "f64 vertex pos: ({:.15}, {:.15}, {:.15})",
+            v_f64.x, v_f64.y, v_f64.z
+        );
 
         let g = points[target_cell];
         let na = points[na_idx];
         let nb = points[nb_idx];
 
         // Helper to normalize a BigFloat vector
-        let normalize_bf = |x: &BigFloat, y: &BigFloat, z: &BigFloat| -> (BigFloat, BigFloat, BigFloat) {
-            let len_sq = x.mul(x, PREC, rm)
-                .add(&y.mul(y, PREC, rm), PREC, rm)
-                .add(&z.mul(z, PREC, rm), PREC, rm);
-            let len = len_sq.sqrt(PREC, rm);
-            (x.div(&len, PREC, rm), y.div(&len, PREC, rm), z.div(&len, PREC, rm))
-        };
+        let normalize_bf =
+            |x: &BigFloat, y: &BigFloat, z: &BigFloat| -> (BigFloat, BigFloat, BigFloat) {
+                let len_sq = x.mul(x, PREC, rm).add(&y.mul(y, PREC, rm), PREC, rm).add(
+                    &z.mul(z, PREC, rm),
+                    PREC,
+                    rm,
+                );
+                let len = len_sq.sqrt(PREC, rm);
+                (
+                    x.div(&len, PREC, rm),
+                    y.div(&len, PREC, rm),
+                    z.div(&len, PREC, rm),
+                )
+            };
 
         // Convert to BigFloat and NORMALIZE (matching F64CellBuilder)
         let gx = BigFloat::from_f32(g.x, PREC);
@@ -1347,12 +1439,19 @@ fn test_verify_error_with_arb() {
         let (pb_x, pb_y, pb_z) = normalize_bf(&db_x, &db_y, &db_z);
 
         // Cross product: c = pa × pb (now using normalized plane normals)
-        let cx = pa_y.mul(&pb_z, PREC, rm).sub(&pa_z.mul(&pb_y, PREC, rm), PREC, rm);
-        let cy = pa_z.mul(&pb_x, PREC, rm).sub(&pa_x.mul(&pb_z, PREC, rm), PREC, rm);
-        let cz = pa_x.mul(&pb_y, PREC, rm).sub(&pa_y.mul(&pb_x, PREC, rm), PREC, rm);
+        let cx = pa_y
+            .mul(&pb_z, PREC, rm)
+            .sub(&pa_z.mul(&pb_y, PREC, rm), PREC, rm);
+        let cy = pa_z
+            .mul(&pb_x, PREC, rm)
+            .sub(&pa_x.mul(&pb_z, PREC, rm), PREC, rm);
+        let cz = pa_x
+            .mul(&pb_y, PREC, rm)
+            .sub(&pa_y.mul(&pb_x, PREC, rm), PREC, rm);
 
         // Length: |c|
-        let c_len_sq = cx.mul(&cx, PREC, rm)
+        let c_len_sq = cx
+            .mul(&cx, PREC, rm)
             .add(&cy.mul(&cy, PREC, rm), PREC, rm)
             .add(&cz.mul(&cz, PREC, rm), PREC, rm);
         let c_len = c_len_sq.sqrt(PREC, rm);
@@ -1367,8 +1466,12 @@ fn test_verify_error_with_arb() {
         let vy_f_test = bf_to_f64(&vy_arb);
         let vz_f_test = bf_to_f64(&vz_arb);
 
-        let dist_pos = (vx_f_test - v_f64.x).powi(2) + (vy_f_test - v_f64.y).powi(2) + (vz_f_test - v_f64.z).powi(2);
-        let dist_neg = (vx_f_test + v_f64.x).powi(2) + (vy_f_test + v_f64.y).powi(2) + (vz_f_test + v_f64.z).powi(2);
+        let dist_pos = (vx_f_test - v_f64.x).powi(2)
+            + (vy_f_test - v_f64.y).powi(2)
+            + (vz_f_test - v_f64.z).powi(2);
+        let dist_neg = (vx_f_test + v_f64.x).powi(2)
+            + (vy_f_test + v_f64.y).powi(2)
+            + (vz_f_test + v_f64.z).powi(2);
 
         let (vx_arb, vy_arb, vz_arb) = if dist_neg < dist_pos {
             (vx_arb.neg(), vy_arb.neg(), vz_arb.neg())
@@ -1383,11 +1486,13 @@ fn test_verify_error_with_arb() {
         println!("ARB vertex pos: ({:.15}, {:.15}, {:.15})", vx_f, vy_f, vz_f);
 
         // Position error
-        let pos_err = ((vx_f - v_f64.x).powi(2) + (vy_f - v_f64.y).powi(2) + (vz_f - v_f64.z).powi(2)).sqrt();
+        let pos_err =
+            ((vx_f - v_f64.x).powi(2) + (vy_f - v_f64.y).powi(2) + (vz_f - v_f64.z).powi(2)).sqrt();
         println!("Position error (f64 vs ARB): {:.2e}", pos_err);
 
         // Normalize generator
-        let g_len_sq = gx.mul(&gx, PREC, rm)
+        let g_len_sq = gx
+            .mul(&gx, PREC, rm)
             .add(&gy.mul(&gy, PREC, rm), PREC, rm)
             .add(&gz.mul(&gz, PREC, rm), PREC, rm);
         let g_len = g_len_sq.sqrt(PREC, rm);
@@ -1396,7 +1501,8 @@ fn test_verify_error_with_arb() {
         let gz_n = gz.div(&g_len, PREC, rm);
 
         let dot_g_f64 = v_f64.dot(gen_f64);
-        let dot_g_arb = vx_arb.mul(&gx_n, PREC, rm)
+        let dot_g_arb = vx_arb
+            .mul(&gx_n, PREC, rm)
             .add(&vy_arb.mul(&gy_n, PREC, rm), PREC, rm)
             .add(&vz_arb.mul(&gz_n, PREC, rm), PREC, rm);
 
@@ -1416,7 +1522,7 @@ fn test_verify_error_with_arb() {
         println!("  pos_err = {:.2e}", pos_err);
 
         let mut min_out_margin = f64::MAX; // smallest (true_gap - EPS) for OUT generators
-        let mut max_in_gap = f64::MIN;     // largest true_gap for IN generators
+        let mut max_in_gap = f64::MIN; // largest true_gap for IN generators
 
         for &neighbor_idx in &neighbors {
             if neighbor_idx == na_idx || neighbor_idx == nb_idx {
@@ -1440,7 +1546,8 @@ fn test_verify_error_with_arb() {
             let cx_raw = BigFloat::from_f32(c.x, PREC);
             let cy_raw = BigFloat::from_f32(c.y, PREC);
             let cz_raw = BigFloat::from_f32(c.z, PREC);
-            let c_len_sq = cx_raw.mul(&cx_raw, PREC, rm)
+            let c_len_sq = cx_raw
+                .mul(&cx_raw, PREC, rm)
                 .add(&cy_raw.mul(&cy_raw, PREC, rm), PREC, rm)
                 .add(&cz_raw.mul(&cz_raw, PREC, rm), PREC, rm);
             let c_len = c_len_sq.sqrt(PREC, rm);
@@ -1448,7 +1555,8 @@ fn test_verify_error_with_arb() {
             let cy_n = cy_raw.div(&c_len, PREC, rm);
             let cz_n = cz_raw.div(&c_len, PREC, rm);
 
-            let dot_c_arb = vx_arb.mul(&cx_n, PREC, rm)
+            let dot_c_arb = vx_arb
+                .mul(&cx_n, PREC, rm)
                 .add(&vy_arb.mul(&cy_n, PREC, rm), PREC, rm)
                 .add(&vz_arb.mul(&cz_n, PREC, rm), PREC, rm);
 
@@ -1494,34 +1602,43 @@ fn test_verify_error_with_arb() {
 
         println!("\nCertification check:");
         println!("  SUPPORT_EPS_ABS = {:.6e}", SUPPORT_EPS_ABS);
-        println!("  Min margin for OUT generators (true_gap - EPS): {:.6e}", min_out_margin);
+        println!(
+            "  Min margin for OUT generators (true_gap - EPS): {:.6e}",
+            min_out_margin
+        );
         if max_in_gap > f64::MIN {
             println!("  Max gap for IN generators: {:.6e}", max_in_gap);
         }
 
         let could_certify = min_out_margin > 0.0;
-        println!("  Could certify (all OUT generators have true_gap > EPS): {}", could_certify);
+        println!(
+            "  Could certify (all OUT generators have true_gap > EPS): {}",
+            could_certify
+        );
 
         println!("\nOur current threshold model:");
         let our_margin = 2.0 * (SUPPORT_VERTEX_ANGLE_EPS + f64::EPSILON * 16.0).sin();
         println!("  f64_error_margin (2*sin(eps_angle)) = {:.6e}", our_margin);
-        println!("  cert_threshold = EPS + margin = {:.6e}", SUPPORT_EPS_ABS + our_margin);
+        println!(
+            "  cert_threshold = EPS + margin = {:.6e}",
+            SUPPORT_EPS_ABS + our_margin
+        );
     }
 }
 
 #[test]
 fn test_gpu_voronoi_10k_timing() {
-    use crate::geometry::random_sphere_points;
     use super::compute_voronoi_gpu_style_with_stats;
+    use crate::geometry::random_sphere_points;
     use std::time::Instant;
 
     let points = random_sphere_points(10_000);
-    
+
     println!("\nTesting 10k cells with GPU voronoi...");
     let t0 = Instant::now();
     let (voronoi, stats) = compute_voronoi_gpu_style_with_stats(&points);
     let elapsed = t0.elapsed().as_secs_f64() * 1000.0;
-    
+
     println!("Time: {:.1}ms", elapsed);
     println!("Vertices: {}", voronoi.vertices.len());
     println!("F64 fallback cells: {}", stats.f64_fallback_cells);
@@ -1531,17 +1648,17 @@ fn test_gpu_voronoi_10k_timing() {
 #[test]
 #[ignore]
 fn test_gpu_voronoi_50k_timing() {
-    use crate::geometry::random_sphere_points;
     use super::compute_voronoi_gpu_style_with_stats;
+    use crate::geometry::random_sphere_points;
     use std::time::Instant;
 
     let points = random_sphere_points(50_000);
-    
+
     println!("\nTesting 50k cells with GPU voronoi...");
     let t0 = Instant::now();
     let (voronoi, stats) = compute_voronoi_gpu_style_with_stats(&points);
     let elapsed = t0.elapsed().as_secs_f64() * 1000.0;
-    
+
     println!("Time: {:.1}ms", elapsed);
     println!("Vertices: {}", voronoi.vertices.len());
     println!("F64 fallback cells: {}", stats.f64_fallback_cells);
@@ -1551,23 +1668,23 @@ fn test_gpu_voronoi_50k_timing() {
 #[test]
 #[ignore]
 fn test_gpu_voronoi_100k_validation() {
+    use super::compute_voronoi_gpu_style_with_stats;
     use crate::geometry::random_sphere_points;
     use crate::geometry::validation::validate_voronoi;
-    use super::compute_voronoi_gpu_style_with_stats;
     use std::time::Instant;
 
     let points = random_sphere_points(100_000);
-    
+
     println!("\nTesting 100k cells with GPU voronoi...");
     let t0 = Instant::now();
     let (voronoi, stats) = compute_voronoi_gpu_style_with_stats(&points);
     let elapsed = t0.elapsed().as_secs_f64() * 1000.0;
-    
+
     println!("Time: {:.1}ms", elapsed);
     println!("Vertices: {}", voronoi.vertices.len());
     println!("F64 fallback cells: {}", stats.f64_fallback_cells);
     println!("Cert failed cells: {}", stats.support_cert_failed);
-    
+
     // Validate
     let result = validate_voronoi(&voronoi, 1e-6);
     result.print_summary();

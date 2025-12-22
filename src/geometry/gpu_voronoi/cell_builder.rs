@@ -3,24 +3,19 @@
 use glam::{DVec3, Vec3};
 
 use super::constants::{
-    EPS_PLANE_CLIP,
-    EPS_PLANE_CONDITION,
-    EPS_PLANE_CONTAINS,
-    EPS_PLANE_PARALLEL,
-    EPS_TERMINATION_MARGIN,
-    MIN_BISECTOR_DISTANCE,
-    SUPPORT_CERT_MARGIN_ABS,
-    SUPPORT_CLUSTER_RADIUS_ANGLE,
-    SUPPORT_EPS_ABS,
-    SUPPORT_VERTEX_ANGLE_EPS,
-    support_cluster_drift_dot,
+    support_cluster_drift_dot, EPS_PLANE_CLIP, EPS_PLANE_CONDITION, EPS_PLANE_CONTAINS,
+    EPS_PLANE_PARALLEL, EPS_TERMINATION_MARGIN, MIN_BISECTOR_DISTANCE, SUPPORT_CERT_MARGIN_ABS,
+    SUPPORT_CLUSTER_RADIUS_ANGLE, SUPPORT_EPS_ABS, SUPPORT_VERTEX_ANGLE_EPS,
 };
 
 /// Vertex key for deduplication (fast triplet or full support set).
 #[derive(Debug, Clone, Copy)]
 pub enum VertexKey {
     Triplet([u32; 3]),
-    Support { start: u32, len: u8 },
+    Support {
+        start: u32,
+        len: u8,
+    },
     /// Deferred keying for uncertified vertices: quantized position hash.
     /// Used to maintain topology coherence when the support set is not provably stable.
     Quantized(u64),
@@ -43,7 +38,11 @@ pub struct GapSampler {
 
 impl GapSampler {
     pub fn new(limit: usize, seed: u64) -> Self {
-        let seed = if seed == 0 { 0x9E37_79B9_7F4A_7C15 } else { seed };
+        let seed = if seed == 0 {
+            0x9E37_79B9_7F4A_7C15
+        } else {
+            seed
+        };
         Self {
             count: 0,
             min: f64::INFINITY,
@@ -321,16 +320,46 @@ impl IncrementalCellBuilder {
         self.edge_planes.clear();
 
         if normal.dot(self.generator) >= 0.0 {
-            self.vertices.push(CellVertex { pos: v0, plane_a: a, plane_b: b, ill_conditioned: v0_ill });
-            self.vertices.push(CellVertex { pos: v1, plane_a: b, plane_b: c, ill_conditioned: v1_ill });
-            self.vertices.push(CellVertex { pos: v2, plane_a: c, plane_b: a, ill_conditioned: v2_ill });
+            self.vertices.push(CellVertex {
+                pos: v0,
+                plane_a: a,
+                plane_b: b,
+                ill_conditioned: v0_ill,
+            });
+            self.vertices.push(CellVertex {
+                pos: v1,
+                plane_a: b,
+                plane_b: c,
+                ill_conditioned: v1_ill,
+            });
+            self.vertices.push(CellVertex {
+                pos: v2,
+                plane_a: c,
+                plane_b: a,
+                ill_conditioned: v2_ill,
+            });
             self.edge_planes.push(b);
             self.edge_planes.push(c);
             self.edge_planes.push(a);
         } else {
-            self.vertices.push(CellVertex { pos: v0, plane_a: a, plane_b: b, ill_conditioned: v0_ill });
-            self.vertices.push(CellVertex { pos: v2, plane_a: c, plane_b: a, ill_conditioned: v2_ill });
-            self.vertices.push(CellVertex { pos: v1, plane_a: b, plane_b: c, ill_conditioned: v1_ill });
+            self.vertices.push(CellVertex {
+                pos: v0,
+                plane_a: a,
+                plane_b: b,
+                ill_conditioned: v0_ill,
+            });
+            self.vertices.push(CellVertex {
+                pos: v2,
+                plane_a: c,
+                plane_b: a,
+                ill_conditioned: v2_ill,
+            });
+            self.vertices.push(CellVertex {
+                pos: v1,
+                plane_a: b,
+                plane_b: c,
+                ill_conditioned: v1_ill,
+            });
             self.edge_planes.push(a);
             self.edge_planes.push(c);
             self.edge_planes.push(b);
@@ -376,7 +405,9 @@ impl IncrementalCellBuilder {
             return;
         }
 
-        let inside: Vec<bool> = self.vertices.iter()
+        let inside: Vec<bool> = self
+            .vertices
+            .iter()
             .map(|v| new_plane.signed_distance(v.pos) >= -EPS_PLANE_CLIP)
             .collect();
 
@@ -417,11 +448,8 @@ impl IncrementalCellBuilder {
         let d_entry_end = new_plane.signed_distance(entry_end);
         let t_entry = d_entry_start / (d_entry_start - d_entry_end);
         let entry_hint = (entry_start * (1.0 - t_entry) + entry_end * t_entry).normalize();
-        let (entry_pos, entry_ill) = Self::intersect_two_planes(
-            &self.planes[entry_edge_plane],
-            &new_plane,
-            entry_hint,
-        );
+        let (entry_pos, entry_ill) =
+            Self::intersect_two_planes(&self.planes[entry_edge_plane], &new_plane, entry_hint);
         let entry_vertex = CellVertex {
             pos: entry_pos,
             plane_a: entry_edge_plane,
@@ -436,11 +464,8 @@ impl IncrementalCellBuilder {
         let d_exit_end = new_plane.signed_distance(exit_end);
         let t_exit = d_exit_start / (d_exit_start - d_exit_end);
         let exit_hint = (exit_start * (1.0 - t_exit) + exit_end * t_exit).normalize();
-        let (exit_pos, exit_ill) = Self::intersect_two_planes(
-            &self.planes[exit_edge_plane],
-            &new_plane,
-            exit_hint,
-        );
+        let (exit_pos, exit_ill) =
+            Self::intersect_two_planes(&self.planes[exit_edge_plane], &new_plane, exit_hint);
         let exit_vertex = CellVertex {
             pos: exit_pos,
             plane_a: exit_edge_plane,
@@ -512,7 +537,8 @@ impl IncrementalCellBuilder {
     /// Returns 1.0 if no vertices.
     #[inline]
     pub fn min_vertex_cos(&self) -> f32 {
-        self.vertices.iter()
+        self.vertices
+            .iter()
             .map(|v| self.generator.dot(v.pos).clamp(-1.0, 1.0))
             .fold(1.0f32, f32::min)
     }
@@ -618,11 +644,7 @@ impl IncrementalCellBuilder {
     /// This is only called when F64CellBuilder fails (~0.1% of cells).
     /// No certification is performed; vertices use position hashes for deduplication.
     #[inline]
-    pub fn get_vertices_fallback(
-        &self,
-        pos_weld_chord: f64,
-        out: &mut Vec<VertexData>,
-    ) -> usize {
+    pub fn get_vertices_fallback(&self, pos_weld_chord: f64, out: &mut Vec<VertexData>) -> usize {
         #[inline]
         fn splitmix64(mut x: u64) -> u64 {
             x = x.wrapping_add(0x9E37_79B9_7F4A_7C15);
@@ -635,7 +657,11 @@ impl IncrementalCellBuilder {
         #[inline]
         fn quantized_pos_key(pos: Vec3, step: f64) -> u64 {
             let v = DVec3::new(pos.x as f64, pos.y as f64, pos.z as f64);
-            let v = if v.length_squared() > 0.0 { v.normalize() } else { v };
+            let v = if v.length_squared() > 0.0 {
+                v.normalize()
+            } else {
+                v
+            };
             let s = (step * 2.0).max(1e-12);
             let qx = (v.x / s).round() as i64;
             let qy = (v.y / s).round() as i64;
@@ -762,7 +788,11 @@ impl F64CellBuilder {
     /// Create a new f64 cell builder for the given generator.
     pub fn new(generator_idx: usize, generator: Vec3) -> Self {
         let gen64 = DVec3::new(generator.x as f64, generator.y as f64, generator.z as f64);
-        let gen64 = if gen64.length_squared() > 0.0 { gen64.normalize() } else { gen64 };
+        let gen64 = if gen64.length_squared() > 0.0 {
+            gen64.normalize()
+        } else {
+            gen64
+        };
         Self {
             generator_idx,
             generator: gen64,
@@ -785,7 +815,11 @@ impl F64CellBuilder {
         }
         let dir = cross / len;
         // Choose sign based on hint
-        if dir.dot(hint) >= 0.0 { dir } else { -dir }
+        if dir.dot(hint) >= 0.0 {
+            dir
+        } else {
+            -dir
+        }
     }
 
     /// Try to seed from a specific triplet of planes.
@@ -834,17 +868,41 @@ impl F64CellBuilder {
 
         if normal.dot(self.generator) >= 0.0 {
             // CCW winding when viewed from generator
-            self.vertices.push(F64CellVertex { pos: v0, plane_a: a, plane_b: b });
-            self.vertices.push(F64CellVertex { pos: v1, plane_a: b, plane_b: c });
-            self.vertices.push(F64CellVertex { pos: v2, plane_a: c, plane_b: a });
+            self.vertices.push(F64CellVertex {
+                pos: v0,
+                plane_a: a,
+                plane_b: b,
+            });
+            self.vertices.push(F64CellVertex {
+                pos: v1,
+                plane_a: b,
+                plane_b: c,
+            });
+            self.vertices.push(F64CellVertex {
+                pos: v2,
+                plane_a: c,
+                plane_b: a,
+            });
             self.edge_planes.push(b);
             self.edge_planes.push(c);
             self.edge_planes.push(a);
         } else {
             // Reverse winding
-            self.vertices.push(F64CellVertex { pos: v0, plane_a: a, plane_b: b });
-            self.vertices.push(F64CellVertex { pos: v2, plane_a: c, plane_b: a });
-            self.vertices.push(F64CellVertex { pos: v1, plane_a: b, plane_b: c });
+            self.vertices.push(F64CellVertex {
+                pos: v0,
+                plane_a: a,
+                plane_b: b,
+            });
+            self.vertices.push(F64CellVertex {
+                pos: v2,
+                plane_a: c,
+                plane_b: a,
+            });
+            self.vertices.push(F64CellVertex {
+                pos: v1,
+                plane_a: b,
+                plane_b: c,
+            });
             self.edge_planes.push(a);
             self.edge_planes.push(c);
             self.edge_planes.push(b);
@@ -891,7 +949,9 @@ impl F64CellBuilder {
             return;
         }
 
-        let inside: Vec<bool> = self.vertices.iter()
+        let inside: Vec<bool> = self
+            .vertices
+            .iter()
             .map(|v| new_plane.signed_distance(v.pos) >= -F64_EPS_CLIP)
             .collect();
 
@@ -933,7 +993,8 @@ impl F64CellBuilder {
         let d_end = new_plane.signed_distance(entry_end);
         let t = d_start / (d_start - d_end);
         let entry_hint = (entry_start * (1.0 - t) + entry_end * t).normalize();
-        let entry_pos = Self::intersect_two_planes(&self.planes[entry_edge_plane], &new_plane, entry_hint);
+        let entry_pos =
+            Self::intersect_two_planes(&self.planes[entry_edge_plane], &new_plane, entry_hint);
         let entry_vertex = F64CellVertex {
             pos: entry_pos,
             plane_a: entry_edge_plane,
@@ -948,7 +1009,8 @@ impl F64CellBuilder {
         let d_end = new_plane.signed_distance(exit_end);
         let t = d_start / (d_start - d_end);
         let exit_hint = (exit_start * (1.0 - t) + exit_end * t).normalize();
-        let exit_pos = Self::intersect_two_planes(&self.planes[exit_edge_plane], &new_plane, exit_hint);
+        let exit_pos =
+            Self::intersect_two_planes(&self.planes[exit_edge_plane], &new_plane, exit_hint);
         let exit_vertex = F64CellVertex {
             pos: exit_pos,
             plane_a: exit_edge_plane,
@@ -983,7 +1045,11 @@ impl F64CellBuilder {
         }
 
         let n64 = DVec3::new(neighbor.x as f64, neighbor.y as f64, neighbor.z as f64);
-        let n64 = if n64.length_squared() > 0.0 { n64.normalize() } else { n64 };
+        let n64 = if n64.length_squared() > 0.0 {
+            n64.normalize()
+        } else {
+            n64
+        };
 
         // Skip degenerate bisectors
         let diff = self.generator - n64;
@@ -1003,7 +1069,10 @@ impl F64CellBuilder {
                     // Clip with all non-seed planes
                     for idx in 0..self.planes.len() {
                         // Skip planes that are part of current vertices
-                        let is_seed_plane = self.vertices.iter().any(|v| v.plane_a == idx || v.plane_b == idx);
+                        let is_seed_plane = self
+                            .vertices
+                            .iter()
+                            .any(|v| v.plane_a == idx || v.plane_b == idx);
                         if !is_seed_plane {
                             self.clip_with_plane(idx);
                             if self.dead {
@@ -1051,7 +1120,8 @@ impl F64CellBuilder {
     /// Returns 1.0 if no vertices.
     #[inline]
     pub fn min_vertex_cos(&self) -> f64 {
-        self.vertices.iter()
+        self.vertices
+            .iter()
             .map(|v| self.generator.dot(v.pos).clamp(-1.0, 1.0))
             .fold(1.0f64, f64::min)
     }
@@ -1156,7 +1226,11 @@ impl F64CellBuilder {
     /// Reset the builder for a new cell.
     pub fn reset(&mut self, generator_idx: usize, generator: Vec3) {
         let gen64 = DVec3::new(generator.x as f64, generator.y as f64, generator.z as f64);
-        let gen64 = if gen64.length_squared() > 0.0 { gen64.normalize() } else { gen64 };
+        let gen64 = if gen64.length_squared() > 0.0 {
+            gen64.normalize()
+        } else {
+            gen64
+        };
         self.generator_idx = generator_idx;
         self.generator = gen64;
         self.planes.clear();
@@ -1170,11 +1244,7 @@ impl F64CellBuilder {
     /// Fallback vertex extraction using position-based Quantized keys.
     /// This is only called when slack certification fails (~0.01% of cells).
     /// No certification is performed; vertices use position hashes for deduplication.
-    pub fn get_vertices_fallback(
-        &self,
-        pos_weld_chord: f64,
-        out: &mut Vec<VertexData>,
-    ) -> usize {
+    pub fn get_vertices_fallback(&self, pos_weld_chord: f64, out: &mut Vec<VertexData>) -> usize {
         #[inline]
         fn splitmix64(mut x: u64) -> u64 {
             x = x.wrapping_add(0x9E37_79B9_7F4A_7C15);
@@ -1186,7 +1256,11 @@ impl F64CellBuilder {
 
         #[inline]
         fn quantized_pos_key(pos: DVec3, step: f64) -> u64 {
-            let v = if pos.length_squared() > 0.0 { pos.normalize() } else { pos };
+            let v = if pos.length_squared() > 0.0 {
+                pos.normalize()
+            } else {
+                pos
+            };
             let s = (step * 2.0).max(1e-12);
             let qx = (v.x / s).round() as i64;
             let qy = (v.y / s).round() as i64;
@@ -1248,7 +1322,8 @@ impl F64CellBuilder {
         let gen_idx = self.generator_idx as u32;
 
         // Pre-normalize all neighbor positions once (instead of per-vertex)
-        let neighbor_positions: Vec<DVec3> = self.neighbor_indices
+        let neighbor_positions: Vec<DVec3> = self
+            .neighbor_indices
             .iter()
             .map(|&idx| {
                 let p = points[idx];
@@ -1339,7 +1414,11 @@ impl F64CellBuilder {
             .enumerate()
             .map(|(vertex_idx, (v, (min_gap, support_set)))| {
                 let vertex_dir = v.pos.normalize();
-                let pos = Vec3::new(vertex_dir.x as f32, vertex_dir.y as f32, vertex_dir.z as f32);
+                let pos = Vec3::new(
+                    vertex_dir.x as f32,
+                    vertex_dir.y as f32,
+                    vertex_dir.z as f32,
+                );
 
                 // Per-vertex conditioning-based error bound
                 let conditioning = self.vertex_conditioning(v).max(1e-6);

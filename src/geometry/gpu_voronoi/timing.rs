@@ -16,6 +16,16 @@ pub struct CellSubPhases {
     pub knn_query: Duration,
     pub clipping: Duration,
     pub certification: Duration,
+    /// Per-cell k-NN stage distribution (final stage used per cell).
+    pub cells_k12: u64,
+    pub cells_k24: u64,
+    pub cells_k48: u64,
+    /// Cells that ran an O(n) full scan due to k-NN exhaustion.
+    pub cells_full_scan_fallback: u64,
+    /// Cells that ran an O(n) full scan due to dead-cell recovery.
+    pub cells_full_scan_recovery: u64,
+    /// Cells where the k-NN search loop exhausted (typically means it hit brute force).
+    pub cells_knn_exhausted: u64,
 }
 
 /// Phase timings for the Voronoi algorithm.
@@ -55,13 +65,22 @@ impl PhaseTimings {
         );
 
         // Sub-phase breakdown: estimate wall time from CPU time using parent ratio
-        let cpu_total = self.cell_sub.knn_query + self.cell_sub.clipping + self.cell_sub.certification;
+        let cpu_total =
+            self.cell_sub.knn_query + self.cell_sub.clipping + self.cell_sub.certification;
         let cpu_total_secs = cpu_total.as_secs_f64();
         let wall_secs = self.cell_construction.as_secs_f64();
 
         // Ratio to convert CPU time to estimated wall time
-        let cpu_to_wall = if cpu_total_secs > 0.0 { wall_secs / cpu_total_secs } else { 1.0 };
-        let parallelism = if wall_secs > 0.0 { cpu_total_secs / wall_secs } else { 1.0 };
+        let cpu_to_wall = if cpu_total_secs > 0.0 {
+            wall_secs / cpu_total_secs
+        } else {
+            1.0
+        };
+        let parallelism = if wall_secs > 0.0 {
+            cpu_total_secs / wall_secs
+        } else {
+            1.0
+        };
 
         let sub_pct = |d: Duration| {
             if cpu_total.as_nanos() == 0 {
@@ -88,6 +107,29 @@ impl PhaseTimings {
             sub_pct(self.cell_sub.certification)
         );
         eprintln!("    ({:.1}x parallelism)", parallelism);
+
+        let total_cells = (self.cell_sub.cells_k12
+            + self.cell_sub.cells_k24
+            + self.cell_sub.cells_k48
+            + self.cell_sub.cells_full_scan_fallback
+            + self.cell_sub.cells_full_scan_recovery)
+            .max(1u64);
+        let pct_cells = |c: u64| c as f64 / total_cells as f64 * 100.0;
+        eprintln!(
+            "    knn_stages: k12={} ({:.1}%) k24={} ({:.1}%) k48={} ({:.1}%) full_scan={} ({:.1}%) recovery_scan={} ({:.1}%) exhausted={} ({:.1}%)",
+            self.cell_sub.cells_k12,
+            pct_cells(self.cell_sub.cells_k12),
+            self.cell_sub.cells_k24,
+            pct_cells(self.cell_sub.cells_k24),
+            self.cell_sub.cells_k48,
+            pct_cells(self.cell_sub.cells_k48),
+            self.cell_sub.cells_full_scan_fallback,
+            pct_cells(self.cell_sub.cells_full_scan_fallback),
+            self.cell_sub.cells_full_scan_recovery,
+            pct_cells(self.cell_sub.cells_full_scan_recovery),
+            self.cell_sub.cells_knn_exhausted,
+            pct_cells(self.cell_sub.cells_knn_exhausted),
+        );
 
         eprintln!(
             "  dedup:             {:7.1}ms ({:4.1}%)",
@@ -195,6 +237,12 @@ pub struct CellSubAccum {
     pub knn_query: Duration,
     pub clipping: Duration,
     pub certification: Duration,
+    pub cells_k12: u64,
+    pub cells_k24: u64,
+    pub cells_k48: u64,
+    pub cells_full_scan_fallback: u64,
+    pub cells_full_scan_recovery: u64,
+    pub cells_knn_exhausted: u64,
 }
 
 #[cfg(feature = "timing")]
@@ -215,10 +263,29 @@ impl CellSubAccum {
         self.certification += d;
     }
 
+    pub fn add_cell_stage(&mut self, stage: KnnCellStage, knn_exhausted: bool) {
+        match stage {
+            KnnCellStage::K12 => self.cells_k12 += 1,
+            KnnCellStage::K24 => self.cells_k24 += 1,
+            KnnCellStage::K48 => self.cells_k48 += 1,
+            KnnCellStage::FullScanFallback => self.cells_full_scan_fallback += 1,
+            KnnCellStage::FullScanRecovery => self.cells_full_scan_recovery += 1,
+        }
+        if knn_exhausted {
+            self.cells_knn_exhausted += 1;
+        }
+    }
+
     pub fn merge(&mut self, other: &CellSubAccum) {
         self.knn_query += other.knn_query;
         self.clipping += other.clipping;
         self.certification += other.certification;
+        self.cells_k12 += other.cells_k12;
+        self.cells_k24 += other.cells_k24;
+        self.cells_k48 += other.cells_k48;
+        self.cells_full_scan_fallback += other.cells_full_scan_fallback;
+        self.cells_full_scan_recovery += other.cells_full_scan_recovery;
+        self.cells_knn_exhausted += other.cells_knn_exhausted;
     }
 
     pub fn into_sub_phases(self) -> CellSubPhases {
@@ -226,8 +293,24 @@ impl CellSubAccum {
             knn_query: self.knn_query,
             clipping: self.clipping,
             certification: self.certification,
+            cells_k12: self.cells_k12,
+            cells_k24: self.cells_k24,
+            cells_k48: self.cells_k48,
+            cells_full_scan_fallback: self.cells_full_scan_fallback,
+            cells_full_scan_recovery: self.cells_full_scan_recovery,
+            cells_knn_exhausted: self.cells_knn_exhausted,
         }
     }
+}
+
+#[cfg(feature = "timing")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KnnCellStage {
+    K12,
+    K24,
+    K48,
+    FullScanFallback,
+    FullScanRecovery,
 }
 
 /// Dummy accumulator when feature is disabled.
@@ -238,7 +321,9 @@ pub struct CellSubAccum;
 #[cfg(not(feature = "timing"))]
 impl CellSubAccum {
     #[inline(always)]
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
     #[inline(always)]
     pub fn add_knn(&mut self, _d: Duration) {}
     #[inline(always)]
@@ -246,9 +331,23 @@ impl CellSubAccum {
     #[inline(always)]
     pub fn add_cert(&mut self, _d: Duration) {}
     #[inline(always)]
+    pub fn add_cell_stage(&mut self, _stage: KnnCellStage, _knn_exhausted: bool) {}
+    #[inline(always)]
     pub fn merge(&mut self, _other: &CellSubAccum) {}
     #[inline(always)]
-    pub fn into_sub_phases(self) -> CellSubPhases { CellSubPhases }
+    pub fn into_sub_phases(self) -> CellSubPhases {
+        CellSubPhases
+    }
+}
+
+#[cfg(not(feature = "timing"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KnnCellStage {
+    K12,
+    K24,
+    K48,
+    FullScanFallback,
+    FullScanRecovery,
 }
 
 /// Builder for collecting phase timings.

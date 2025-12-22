@@ -975,8 +975,7 @@ fn compute_influence_field(
     let mean_degree = (total_degree as f32 / num_cells as f32).max(1.0);
 
     let attenuation = 1.0 + lambda * mean_degree;
-    let reference =
-        (2.0 * MAX_ANGULAR_VELOCITY * mean_neighbor_dist / attenuation).max(1e-6);
+    let reference = (2.0 * MAX_ANGULAR_VELOCITY * mean_neighbor_dist / attenuation).max(1e-6);
     raw.iter()
         .map(|&x| (x / reference).clamp(0.0, 1.0))
         .collect()

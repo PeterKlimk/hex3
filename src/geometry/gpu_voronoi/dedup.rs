@@ -3,8 +3,8 @@
 use glam::Vec3;
 use rustc_hash::FxHashMap;
 
-use crate::geometry::VoronoiCell;
 use super::{FlatCellsData, VertexKey};
+use crate::geometry::VoronoiCell;
 
 #[inline]
 pub fn bits_for_indices(max_index: usize) -> u32 {
@@ -27,12 +27,18 @@ pub fn dedup_vertices_hash_flat(
     let t0 = Instant::now();
 
     let num_points = flat_data.num_cells();
-    let total_indices: usize = flat_data.chunks.iter()
+    let total_indices: usize = flat_data
+        .chunks
+        .iter()
         .map(|c| c.counts.iter().map(|&count| count as usize).sum::<usize>())
         .sum();
     debug_assert_eq!(
         total_indices,
-        flat_data.chunks.iter().map(|c| c.vertices.len()).sum::<usize>(),
+        flat_data
+            .chunks
+            .iter()
+            .map(|c| c.vertices.len())
+            .sum::<usize>(),
         "flat counts do not match vertex storage"
     );
 
@@ -97,7 +103,11 @@ pub fn dedup_vertices_hash_flat(
                                 let idx = all_vertices.len();
                                 all_vertices.push(pos);
                                 let new_id = nodes.len() as u32;
-                                nodes.push(TripletNode { bc, idx: idx as u32, next: heads[a] });
+                                nodes.push(TripletNode {
+                                    bc,
+                                    idx: idx as u32,
+                                    next: heads[a],
+                                });
                                 heads[a] = new_id;
                                 idx
                             }
@@ -106,7 +116,10 @@ pub fn dedup_vertices_hash_flat(
                     VertexKey::Support { start, len } => {
                         let start = start as usize;
                         let len = len as usize;
-                        debug_assert!(start + len <= chunk.support_data.len(), "support key out of bounds");
+                        debug_assert!(
+                            start + len <= chunk.support_data.len(),
+                            "support key out of bounds"
+                        );
                         let support = &chunk.support_data[start..start + len];
                         if let Some(&idx) = support_map.get(support) {
                             idx
@@ -172,9 +185,7 @@ pub fn dedup_vertices_hash_flat(
         );
         eprintln!(
             "  [dedup-flat] pre_lt3={}, post_lt3={}, over_merged={}",
-            pre_lt3,
-            post_lt3,
-            over_merged
+            pre_lt3, post_lt3, over_merged
         );
     }
 
@@ -207,11 +218,7 @@ fn deduplicate_cell_indices(
         }
         let new_count = new_indices.len() - new_start;
 
-        new_cells.push(VoronoiCell::new(
-            cell.generator_index,
-            new_start,
-            new_count,
-        ));
+        new_cells.push(VoronoiCell::new(cell.generator_index, new_start, new_count));
     }
 
     (new_cells, new_indices)

@@ -113,11 +113,10 @@ impl TerrainNoise {
         // Ridge layer: simple 3D noise, biased upward, modulated by convergence
         let ridge_contrib = {
             let ridge_pos = pos * RIDGE_FREQUENCY as f32;
-            let ridge_raw = self.ridge_fbm.get([
-                ridge_pos.x as f64,
-                ridge_pos.y as f64,
-                ridge_pos.z as f64,
-            ]) as f32;
+            let ridge_raw =
+                self.ridge_fbm
+                    .get([ridge_pos.x as f64, ridge_pos.y as f64, ridge_pos.z as f64])
+                    as f32;
 
             // Remap from observed range [-0.5, 0.5] to [0, 1]
             let ridge_biased = (ridge_raw + 0.5).clamp(0.0, 1.0);
@@ -412,13 +411,8 @@ fn generate_heightmap_with_noise(
         let is_underwater = structural_elevation < 0.0;
         let pos = tessellation.cell_center(i);
 
-        let (_visual_combined, macro_c, hills_c, ridge_c, micro_c) = noise.sample(
-            pos,
-            convergent,
-            divergent,
-            is_continental,
-            is_underwater,
-        );
+        let (_visual_combined, macro_c, hills_c, ridge_c, micro_c) =
+            noise.sample(pos, convergent, divergent, is_continental, is_underwater);
 
         // Simulation elevation excludes micro noise (micro is cosmetic only)
         let simulation_noise = macro_c + hills_c + ridge_c;

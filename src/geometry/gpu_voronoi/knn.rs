@@ -56,7 +56,8 @@ pub struct CubeMapGridKnn<'a> {
 impl<'a> CubeMapGridKnn<'a> {
     pub fn new(points: &'a [Vec3]) -> Self {
         let n = points.len();
-        let res = ((n as f64 / 300.0).sqrt() as usize).max(4);
+        const TARGET_POINTS_PER_CELL: f64 = 8.0;
+        let res = ((n as f64 / (6.0 * TARGET_POINTS_PER_CELL)).sqrt() as usize).max(4);
         let grid = crate::geometry::cube_grid::CubeMapGrid::new(points, res);
         Self { grid, points }
     }
@@ -131,13 +132,7 @@ impl<'a> KnnProvider for CubeMapGridKnn<'a> {
             out_indices.clear();
             return KnnStatus::Exhausted;
         }
-        self.grid.resume_k_nearest_into(
-            self.points,
-            query,
-            query_idx,
-            new_k,
-            scratch,
-            out_indices,
-        )
+        self.grid
+            .resume_k_nearest_into(self.points, query, query_idx, new_k, scratch, out_indices)
     }
 }
