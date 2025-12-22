@@ -163,7 +163,7 @@ pub fn dedup_vertices_hash_flat(
     let t2 = Timer::start();
 
     // Deduplicate cell indices (removes consecutive duplicates after remapping)
-    let (deduped_cells, deduped_indices) =
+    let (deduped_cells, deduped_indices, dupes_removed) =
         deduplicate_cell_indices(&cells, &cell_indices, all_vertices.len());
 
     #[allow(unused_variables)]
@@ -181,6 +181,7 @@ pub fn dedup_vertices_hash_flat(
         emit_cells: std::time::Duration::ZERO,
         triplet_keys,
         support_keys,
+        cell_dupes_removed: dupes_removed,
     };
 
     #[cfg(not(feature = "timing"))]
@@ -190,13 +191,15 @@ pub fn dedup_vertices_hash_flat(
 }
 
 /// Remove duplicate vertex indices within each cell.
+/// Returns (new_cells, new_indices, dupes_removed).
 pub(super) fn deduplicate_cell_indices(
     cells: &[VoronoiCell],
     cell_indices: &[usize],
     num_vertices: usize,
-) -> (Vec<VoronoiCell>, Vec<usize>) {
+) -> (Vec<VoronoiCell>, Vec<usize>, u64) {
     let mut new_cells: Vec<VoronoiCell> = Vec::with_capacity(cells.len());
     let mut new_indices: Vec<usize> = Vec::with_capacity(cell_indices.len());
+    let mut dupes_removed = 0u64;
 
     for cell in cells {
         let start = cell.vertex_start();
@@ -223,6 +226,8 @@ pub(super) fn deduplicate_cell_indices(
                 seen[seen_len] = idx;
                 seen_len += 1;
                 new_indices.push(idx);
+            } else {
+                dupes_removed += 1;
             }
         }
         let new_count = new_indices.len() - new_start;
@@ -230,5 +235,5 @@ pub(super) fn deduplicate_cell_indices(
         new_cells.push(VoronoiCell::new(cell.generator_index, new_start, new_count));
     }
 
-    (new_cells, new_indices)
+    (new_cells, new_indices, dupes_removed)
 }

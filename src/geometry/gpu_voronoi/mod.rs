@@ -411,6 +411,15 @@ pub fn build_cells_data_flat(
                         knn.knn_resume_into(points[i], i, k, &mut scratch, &mut neighbors)
                     };
                     sub_accum.add_knn(t_knn.elapsed());
+                    #[cfg(feature = "timing")]
+                    {
+                        let stats = scratch.take_knn_stats();
+                        sub_accum.add_knn_detail(
+                            stats.scan_time,
+                            stats.scan_points,
+                            stats.insert_attempts,
+                        );
+                    }
 
                     let t_clip = Timer::start();
                     for &neighbor_idx in &neighbors[processed..] {

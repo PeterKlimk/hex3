@@ -15,6 +15,8 @@
 mod tests;
 
 use glam::{Vec3, Vec3A};
+#[cfg(feature = "timing")]
+use std::time::{Duration, Instant};
 use std::cmp::{Ordering, Reverse};
 use std::collections::BinaryHeap;
 
@@ -220,10 +222,10 @@ pub enum KnnStatus {
 
 /// Reusable per-query scratch buffers.
 ///
-/// Uses a sorted vector for candidates (instead of a heap) for:
-/// - O(1) access to k-th distance for pruning
-/// - Cache-friendly linear scans for small k
-/// - Zero-cost resume (just slice the existing buffer)
+/// Uses a fixed-size sorted buffer for candidates when possible:
+/// - Avoids Vec growth and bounds checks
+/// - Keeps k-th distance O(1)
+/// - Resume remains cheap (slice the existing buffer)
 ///
 /// For performance (especially parallel queries), prefer `CubeMapGrid::make_scratch()`.
 pub struct CubeMapGridScratch {
@@ -236,7 +238,10 @@ pub struct CubeMapGridScratch {
     track_limit: usize,
     /// Candidate buffer (sorted ascending by distance).
     /// (dist_sq, point_idx)
-    candidates: Vec<(f32, u32)>,
+    candidates_fixed: [(f32, u32); Self::MAX_TRACK],
+    candidates_len: usize,
+    use_fixed: bool,
+    candidates_vec: Vec<(f32, u32)>,
 
     /// Dot-product top-k buffer for non-resumable queries (unsorted).
     /// Stored as (dot, point_idx), where larger dot = closer for unit vectors.
@@ -247,20 +252,37 @@ pub struct CubeMapGridScratch {
     /// If true, we've done a brute-force scan and have an exhaustive candidate set
     /// (up to `track_limit`).
     exhausted: bool,
+    #[cfg(feature = "timing")]
+    knn_stats: KnnStats,
+}
+
+#[cfg(feature = "timing")]
+#[derive(Default, Clone, Copy)]
+pub struct KnnStats {
+    pub scan_time: Duration,
+    pub scan_points: u64,
+    pub insert_attempts: u64,
 }
 
 impl CubeMapGridScratch {
+    const MAX_TRACK: usize = 128;
+
     pub fn new(num_cells: usize) -> Self {
         Self {
             visited_stamp: vec![0; num_cells],
             stamp: 0,
             cell_heap: BinaryHeap::new(),
             track_limit: 0,
-            candidates: Vec::new(),
+            candidates_fixed: [(f32::INFINITY, 0); Self::MAX_TRACK],
+            candidates_len: 0,
+            use_fixed: true,
+            candidates_vec: Vec::new(),
             candidates_dot: Vec::new(),
             worst_dot: f32::NEG_INFINITY,
             worst_dot_pos: 0,
             exhausted: false,
+            #[cfg(feature = "timing")]
+            knn_stats: KnnStats::default(),
         }
     }
 
@@ -269,12 +291,20 @@ impl CubeMapGridScratch {
         self.cell_heap.clear();
         self.exhausted = false;
         self.track_limit = track_limit;
-        self.candidates.clear();
+        self.candidates_len = 0;
+        self.use_fixed = track_limit <= Self::MAX_TRACK;
+        self.candidates_vec.clear();
         self.candidates_dot.clear();
-        let reserve = track_limit.max(k);
-        if self.candidates.capacity() < reserve {
-            self.candidates
-                .reserve(reserve - self.candidates.capacity());
+        #[cfg(feature = "timing")]
+        {
+            self.knn_stats = KnnStats::default();
+        }
+        if !self.use_fixed {
+            let reserve = track_limit.max(k);
+            if self.candidates_vec.capacity() < reserve {
+                self.candidates_vec
+                    .reserve(reserve - self.candidates_vec.capacity());
+            }
         }
 
         // Stamp 0 means "unvisited". Avoid ever using stamp 0 for a query.
@@ -290,8 +320,14 @@ impl CubeMapGridScratch {
         self.cell_heap.clear();
         self.exhausted = false;
         self.track_limit = 0;
-        self.candidates.clear();
+        self.candidates_len = 0;
+        self.use_fixed = true;
+        self.candidates_vec.clear();
         self.candidates_dot.clear();
+        #[cfg(feature = "timing")]
+        {
+            self.knn_stats = KnnStats::default();
+        }
         if self.candidates_dot.capacity() < k {
             self.candidates_dot
                 .reserve(k - self.candidates_dot.capacity());
@@ -315,6 +351,13 @@ impl CubeMapGridScratch {
         }
         self.visited_stamp[idx] = self.stamp;
         true
+    }
+
+    #[cfg(feature = "timing")]
+    pub fn take_knn_stats(&mut self) -> KnnStats {
+        let stats = self.knn_stats;
+        self.knn_stats = KnnStats::default();
+        stats
     }
 
     #[inline]
@@ -344,16 +387,26 @@ impl CubeMapGridScratch {
         if k == 0 {
             return f32::INFINITY;
         }
-        if k > self.candidates.len() {
+        if self.use_fixed {
+            if k > self.candidates_len {
+                f32::INFINITY
+            } else {
+                self.candidates_fixed[k - 1].0
+            }
+        } else if k > self.candidates_vec.len() {
             f32::INFINITY
         } else {
-            self.candidates[k - 1].0
+            self.candidates_vec[k - 1].0
         }
     }
 
     #[inline]
     fn have_k(&self, k: usize) -> bool {
-        self.candidates.len() >= k
+        if self.use_fixed {
+            self.candidates_len >= k
+        } else {
+            self.candidates_vec.len() >= k
+        }
     }
 
     #[inline]
@@ -379,31 +432,71 @@ impl CubeMapGridScratch {
             return;
         }
         let limit = self.track_limit;
-        let len = self.candidates.len();
-        if len >= limit && dist_sq >= self.candidates[limit - 1].0 {
-            return;
-        }
-
         let idx_u32 = idx as u32;
 
-        // Keep candidates sorted ascending by distance, but avoid Vec::insert/pop.
-        // This is a fixed-capacity buffer in practice (len is capped at `limit`).
-        if len < limit {
-            let insert_pos = self.candidates[..len].partition_point(|&(d, _)| d < dist_sq);
-            self.candidates.push((dist_sq, idx_u32)); // extend by one
-            if insert_pos < len {
-                self.candidates.copy_within(insert_pos..len, insert_pos + 1);
-                self.candidates[insert_pos] = (dist_sq, idx_u32);
-            }
-        } else {
-            let insert_pos = self.candidates[..limit].partition_point(|&(d, _)| d < dist_sq);
-            if insert_pos >= limit {
+        if self.use_fixed {
+            let len = self.candidates_len;
+            if len >= limit && dist_sq >= self.candidates_fixed[limit - 1].0 {
                 return;
             }
-            // Shift right within the fixed window [0, limit).
-            self.candidates
-                .copy_within(insert_pos..(limit - 1), insert_pos + 1);
-            self.candidates[insert_pos] = (dist_sq, idx_u32);
+            if len < limit {
+                #[cfg(feature = "timing")]
+                {
+                    self.knn_stats.insert_attempts += 1;
+                }
+                let insert_pos =
+                    self.candidates_fixed[..len].partition_point(|&(d, _)| d < dist_sq);
+                if insert_pos < len {
+                    self.candidates_fixed
+                        .copy_within(insert_pos..len, insert_pos + 1);
+                }
+                self.candidates_fixed[insert_pos] = (dist_sq, idx_u32);
+                self.candidates_len = len + 1;
+            } else {
+                #[cfg(feature = "timing")]
+                {
+                    self.knn_stats.insert_attempts += 1;
+                }
+                let insert_pos =
+                    self.candidates_fixed[..limit].partition_point(|&(d, _)| d < dist_sq);
+                if insert_pos >= limit {
+                    return;
+                }
+                self.candidates_fixed
+                    .copy_within(insert_pos..(limit - 1), insert_pos + 1);
+                self.candidates_fixed[insert_pos] = (dist_sq, idx_u32);
+            }
+        } else {
+            let len = self.candidates_vec.len();
+            if len >= limit && dist_sq >= self.candidates_vec[limit - 1].0 {
+                return;
+            }
+            if len < limit {
+                #[cfg(feature = "timing")]
+                {
+                    self.knn_stats.insert_attempts += 1;
+                }
+                let insert_pos =
+                    self.candidates_vec[..len].partition_point(|&(d, _)| d < dist_sq);
+                self.candidates_vec.push((dist_sq, idx_u32));
+                if insert_pos < len {
+                    self.candidates_vec.copy_within(insert_pos..len, insert_pos + 1);
+                    self.candidates_vec[insert_pos] = (dist_sq, idx_u32);
+                }
+            } else {
+                #[cfg(feature = "timing")]
+                {
+                    self.knn_stats.insert_attempts += 1;
+                }
+                let insert_pos =
+                    self.candidates_vec[..limit].partition_point(|&(d, _)| d < dist_sq);
+                if insert_pos >= limit {
+                    return;
+                }
+                self.candidates_vec
+                    .copy_within(insert_pos..(limit - 1), insert_pos + 1);
+                self.candidates_vec[insert_pos] = (dist_sq, idx_u32);
+            }
         }
     }
 
@@ -413,10 +506,19 @@ impl CubeMapGridScratch {
         if k == 0 {
             return;
         }
-        let count = k.min(self.candidates.len());
+        let count = if self.use_fixed {
+            k.min(self.candidates_len)
+        } else {
+            k.min(self.candidates_vec.len())
+        };
         out.reserve(count);
         for i in 0..count {
-            out.push(self.candidates[i].1 as usize);
+            let idx = if self.use_fixed {
+                self.candidates_fixed[i].1
+            } else {
+                self.candidates_vec[i].1
+            };
+            out.push(idx as usize);
         }
     }
 
@@ -450,6 +552,10 @@ impl CubeMapGridScratch {
 
         let len = self.candidates_dot.len();
         if len < k {
+            #[cfg(feature = "timing")]
+            {
+                self.knn_stats.insert_attempts += 1;
+            }
             self.candidates_dot.push((dot, idx_u32));
             if dot < self.worst_dot || len == 0 {
                 self.worst_dot = dot;
@@ -475,6 +581,10 @@ impl CubeMapGridScratch {
         }
 
         // Replace current worst, then rescan to find new worst (k is small: 12/24/48).
+        #[cfg(feature = "timing")]
+        {
+            self.knn_stats.insert_attempts += 1;
+        }
         self.candidates_dot[self.worst_dot_pos] = (dot, idx_u32);
         let mut worst_dot = self.candidates_dot[0].0;
         let mut worst_pos = 0usize;
@@ -903,15 +1013,28 @@ impl CubeMapGrid {
         query_idx: usize,
         scratch: &mut CubeMapGridScratch,
     ) {
-        scratch.candidates.clear();
+    #[cfg(feature = "timing")]
+    let t_scan = Instant::now();
+    let mut scanned = 0u64;
+        if scratch.use_fixed {
+            scratch.candidates_len = 0;
+        } else {
+            scratch.candidates_vec.clear();
+        }
 
         for (idx, p) in points.iter().enumerate() {
             if idx == query_idx {
                 continue;
             }
+            scanned += 1;
             let dist_sq = unit_vec_dist_sq_generic(*p, query);
             scratch.try_add_neighbor(idx, dist_sq);
         }
+    #[cfg(feature = "timing")]
+    {
+        scratch.knn_stats.scan_time += t_scan.elapsed();
+        scratch.knn_stats.scan_points += scanned;
+    }
         scratch.exhausted = true;
     }
 
@@ -923,6 +1046,9 @@ impl CubeMapGrid {
         k: usize,
         scratch: &mut CubeMapGridScratch,
     ) {
+    #[cfg(feature = "timing")]
+    let t_scan = Instant::now();
+    let mut scanned = 0u64;
         scratch.candidates_dot.clear();
         scratch.worst_dot = f32::NEG_INFINITY;
         scratch.worst_dot_pos = 0;
@@ -931,9 +1057,15 @@ impl CubeMapGrid {
             if idx == query_idx {
                 continue;
             }
+            scanned += 1;
             let dot = p.dot(query);
             scratch.try_add_neighbor_dot(idx, dot, k);
         }
+    #[cfg(feature = "timing")]
+    {
+        scratch.knn_stats.scan_time += t_scan.elapsed();
+        scratch.knn_stats.scan_points += scanned;
+    }
         scratch.exhausted = true;
     }
 
@@ -946,6 +1078,9 @@ impl CubeMapGrid {
         cell: usize,
         scratch: &mut CubeMapGridScratch,
     ) {
+    #[cfg(feature = "timing")]
+    let t_scan = Instant::now();
+    let mut scanned = 0u64;
         let start = self.cell_offsets[cell] as usize;
         let end = self.cell_offsets[cell + 1] as usize;
         for &pidx_u32 in &self.point_indices[start..end] {
@@ -953,9 +1088,15 @@ impl CubeMapGrid {
             if pidx == query_idx {
                 continue;
             }
+            scanned += 1;
             let dist_sq = unit_vec_dist_sq_generic(points[pidx], query);
             scratch.try_add_neighbor(pidx, dist_sq);
         }
+    #[cfg(feature = "timing")]
+    {
+        scratch.knn_stats.scan_time += t_scan.elapsed();
+        scratch.knn_stats.scan_points += scanned;
+    }
     }
 
     #[inline]
@@ -968,6 +1109,9 @@ impl CubeMapGrid {
         cell: usize,
         scratch: &mut CubeMapGridScratch,
     ) {
+    #[cfg(feature = "timing")]
+    let t_scan = Instant::now();
+    let mut scanned = 0u64;
         let start = self.cell_offsets[cell] as usize;
         let end = self.cell_offsets[cell + 1] as usize;
         for &pidx_u32 in &self.point_indices[start..end] {
@@ -975,9 +1119,15 @@ impl CubeMapGrid {
             if pidx == query_idx {
                 continue;
             }
+            scanned += 1;
             let dot = points[pidx].dot(query);
             scratch.try_add_neighbor_dot(pidx, dot, k);
         }
+    #[cfg(feature = "timing")]
+    {
+        scratch.knn_stats.scan_time += t_scan.elapsed();
+        scratch.knn_stats.scan_points += scanned;
+    }
     }
 
     fn find_k_nearest_with_scratch_into_impl<P: UnitVec>(

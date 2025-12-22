@@ -305,6 +305,15 @@ pub(super) fn build_cells_sharded_live_dedup(
                         knn.knn_resume_into(points[i], i, k, &mut scratch, &mut neighbors)
                     };
                     sub_accum.add_knn(t_knn.elapsed());
+                    #[cfg(feature = "timing")]
+                    {
+                        let stats = scratch.take_knn_stats();
+                        sub_accum.add_knn_detail(
+                            stats.scan_time,
+                            stats.scan_points,
+                            stats.insert_attempts,
+                        );
+                    }
 
                     let t_clip = Timer::start();
                     for &neighbor_idx in &neighbors[processed..] {
@@ -597,6 +606,8 @@ pub(super) fn assemble_sharded_live_dedup(
     // Cells are small (<= MAX_VERTICES), so a compact linear "seen" set is often faster than
     // hashing or random-access marks arrays.
     let mut seen: [usize; super::MAX_VERTICES] = [0usize; super::MAX_VERTICES];
+    #[allow(unused_mut)]
+    let mut dupes_removed = 0u64;
     for gen_idx in 0..num_cells {
         let bin = data.assignment.generator_bin[gen_idx] as usize;
         let local = data.assignment.global_to_local[gen_idx] as usize;
@@ -622,6 +633,8 @@ pub(super) fn assemble_sharded_live_dedup(
                 seen[seen_len] = global;
                 seen_len += 1;
                 cell_indices.push(global);
+            } else {
+                dupes_removed += 1;
             }
         }
         let new_count = cell_indices.len() - base;
@@ -641,6 +654,7 @@ pub(super) fn assemble_sharded_live_dedup(
         emit_cells: emit_cells_time,
         triplet_keys: data.shards.iter().map(|s| s.triplet_keys).sum(),
         support_keys: data.shards.iter().map(|s| s.support_keys).sum(),
+        cell_dupes_removed: dupes_removed,
     };
     #[cfg(not(feature = "timing"))]
     let sub_phases = DedupSubPhases;
