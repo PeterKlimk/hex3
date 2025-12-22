@@ -1,6 +1,6 @@
 use super::*;
-use crate::geometry::{fibonacci_sphere_points_with_rng, random_sphere_points_with_rng};
 use crate::geometry::gpu_voronoi::{build_kdtree, find_k_nearest as kiddo_find_k_nearest};
+use crate::geometry::{fibonacci_sphere_points_with_rng, random_sphere_points_with_rng};
 use glam::Vec3;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -185,7 +185,10 @@ fn cube_grid_resumable_matches_bruteforce() {
         assert_knn_basic_invariants(n, qi, 12, &out);
         assert_sorted_by_distance(&points, qi, &out);
         assert_set_eq(&out, &expected12);
-        assert!(matches!(status, KnnStatus::CanResume | KnnStatus::Exhausted));
+        assert!(matches!(
+            status,
+            KnnStatus::CanResume | KnnStatus::Exhausted
+        ));
 
         let _ = grid.resume_k_nearest_into(&points, points[qi], qi, 24, &mut scratch, &mut out);
         let expected24 = brute_force_knn(&points, qi, 24);
@@ -210,7 +213,8 @@ fn cube_grid_resume_beyond_track_limit_falls_back_to_exact() {
     let mut out = Vec::new();
 
     let qi = 1234;
-    let _ = grid.find_k_nearest_resumable_into(&points, points[qi], qi, 12, 12, &mut scratch, &mut out);
+    let _ =
+        grid.find_k_nearest_resumable_into(&points, points[qi], qi, 12, 12, &mut scratch, &mut out);
     let status = grid.resume_k_nearest_into(&points, points[qi], qi, 24, &mut scratch, &mut out);
     assert_eq!(status, KnnStatus::Exhausted);
     let expected24 = brute_force_knn(&points, qi, 24);
@@ -245,7 +249,10 @@ fn cube_grid_cell_bounds_are_conservative() {
             let v = rng.gen_range(v0..v1);
             let p = face_uv_to_3d(face, u, v);
             let ang = center.dot(p).clamp(-1.0, 1.0).acos();
-            assert!(ang <= cap_angle, "cell cap underestimates (ang={ang}, cap={cap_angle})");
+            assert!(
+                ang <= cap_angle,
+                "cell cap underestimates (ang={ang}, cap={cap_angle})"
+            );
         }
     }
 }
@@ -303,4 +310,3 @@ fn cube_grid_stress_vs_kiddo_1m() {
         assert_set_eq(&out, &kiddo);
     }
 }
-

@@ -250,12 +250,18 @@ pub(super) fn build_cells_sharded_live_dedup(
             let mut builder = F64CellBuilder::new(0, Vec3::ZERO);
             let mut sub_accum = CellSubAccum::new();
 
-            shard.vertices.reserve(my_generators.len().saturating_mul(4));
+            shard
+                .vertices
+                .reserve(my_generators.len().saturating_mul(4));
             shard.nodes.reserve(my_generators.len().saturating_mul(4));
             shard.cell_starts.reserve(my_generators.len());
             shard.cell_counts.reserve(my_generators.len());
-            shard.cell_indices.reserve(my_generators.len().saturating_mul(6));
-            shard.support_data.reserve(my_generators.len().saturating_mul(2));
+            shard
+                .cell_indices
+                .reserve(my_generators.len().saturating_mul(6));
+            shard
+                .support_data
+                .reserve(my_generators.len().saturating_mul(2));
 
             for &i in my_generators {
                 builder.reset(i, points[i]);
@@ -276,7 +282,13 @@ pub(super) fn build_cells_sharded_live_dedup(
                 // Phase 1: Initial k-NN query (k=12)
                 let t_knn = Timer::start();
                 neighbors.clear();
-                knn.knn_into(points[i], i, super::ADAPTIVE_K_INITIAL, &mut scratch, &mut neighbors);
+                knn.knn_into(
+                    points[i],
+                    i,
+                    super::ADAPTIVE_K_INITIAL,
+                    &mut scratch,
+                    &mut neighbors,
+                );
                 let mut knn_exhausted = neighbors.len() < super::ADAPTIVE_K_INITIAL;
                 knn_exhausted_any |= knn_exhausted;
                 sub_accum.add_knn(t_knn.elapsed());
@@ -317,17 +329,23 @@ pub(super) fn build_cells_sharded_live_dedup(
                     used_fallback = true;
                     did_k24 = true;
                     let t_knn2 = Timer::start();
-                    knn.knn_into(points[i], i, super::ADAPTIVE_K_RESUME, &mut scratch, &mut neighbors);
+                    knn.knn_into(
+                        points[i],
+                        i,
+                        super::ADAPTIVE_K_RESUME,
+                        &mut scratch,
+                        &mut neighbors,
+                    );
                     knn_exhausted = neighbors.len() < super::ADAPTIVE_K_RESUME;
                     knn_exhausted_any |= knn_exhausted;
                     sub_accum.add_knn(t_knn2.elapsed());
 
-                    // Process (potentially overlapping) neighbors; skip ones we've already clipped.
+                    // Process the additional neighbors only.
+                    // We assume k-NN results are prefix-stable: the k=12 results are the first 12
+                    // entries in the k=24 results.
                     let mut last_neighbor_cos: Option<f32> = None;
-                    for &neighbor_idx in &neighbors {
-                        if builder.has_neighbor(neighbor_idx) {
-                            continue;
-                        }
+                    let start_idx = super::ADAPTIVE_K_INITIAL.min(neighbors.len());
+                    for &neighbor_idx in &neighbors[start_idx..] {
                         let neighbor = points[neighbor_idx];
                         builder.clip(neighbor_idx, neighbor);
                         cell_neighbors_processed += 1;
@@ -369,10 +387,8 @@ pub(super) fn build_cells_sharded_live_dedup(
                     sub_accum.add_knn(t_knn3.elapsed());
 
                     let mut last_neighbor_cos: Option<f32> = None;
-                    for &neighbor_idx in &neighbors {
-                        if builder.has_neighbor(neighbor_idx) {
-                            continue;
-                        }
+                    let start_idx = super::ADAPTIVE_K_RESUME.min(neighbors.len());
+                    for &neighbor_idx in &neighbors[start_idx..] {
                         let neighbor = points[neighbor_idx];
                         builder.clip(neighbor_idx, neighbor);
                         cell_neighbors_processed += 1;
@@ -478,9 +494,9 @@ pub(super) fn build_cells_sharded_live_dedup(
                 sub_accum.add_cert(t_cert.elapsed());
 
                 let count = cell_vertices.len();
-                shard.cell_counts.push(
-                    u8::try_from(count).expect("cell vertex count exceeds u8 capacity"),
-                );
+                shard
+                    .cell_counts
+                    .push(u8::try_from(count).expect("cell vertex count exceeds u8 capacity"));
 
                 let t_keys = Timer::start();
                 for (key, pos) in cell_vertices {
@@ -512,10 +528,8 @@ pub(super) fn build_cells_sharded_live_dedup(
                             let start = start as usize;
                             let len = len as usize;
                             let support: Vec<u32> = shard.support_data[start..start + len].to_vec();
-                            let owner = *support
-                                .iter()
-                                .min()
-                                .expect("support set must be non-empty");
+                            let owner =
+                                *support.iter().min().expect("support set must be non-empty");
                             let owner_bin = assignment.generator_bin[owner as usize];
                             if owner_bin == bin {
                                 let idx = shard.dedup_support_owned(support, pos);

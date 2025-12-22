@@ -6,8 +6,8 @@
 mod cell_builder;
 mod constants;
 pub mod dedup;
-mod live_dedup;
 mod knn;
+mod live_dedup;
 mod timing;
 
 #[cfg(test)]
@@ -448,12 +448,12 @@ pub fn build_cells_data_flat(
                     knn_exhausted_any |= knn_exhausted;
                     sub_accum.add_knn(t_knn2.elapsed());
 
-                    // Process (potentially overlapping) neighbors; skip ones we've already clipped.
+                    // Process the additional neighbors only.
+                    // We assume k-NN results are prefix-stable: the k=12 results are the first 12
+                    // entries in the k=24 results.
                     let mut last_neighbor_cos: Option<f32> = None;
-                    for &neighbor_idx in &neighbors {
-                        if builder.has_neighbor(neighbor_idx) {
-                            continue;
-                        }
+                    let start_idx = ADAPTIVE_K_INITIAL.min(neighbors.len());
+                    for &neighbor_idx in &neighbors[start_idx..] {
                         let neighbor = points[neighbor_idx];
                         builder.clip(neighbor_idx, neighbor);
                         cell_neighbors_processed += 1;
@@ -495,10 +495,8 @@ pub fn build_cells_data_flat(
                     sub_accum.add_knn(t_knn3.elapsed());
 
                     let mut last_neighbor_cos: Option<f32> = None;
-                    for &neighbor_idx in &neighbors {
-                        if builder.has_neighbor(neighbor_idx) {
-                            continue;
-                        }
+                    let start_idx = ADAPTIVE_K_RESUME.min(neighbors.len());
+                    for &neighbor_idx in &neighbors[start_idx..] {
                         let neighbor = points[neighbor_idx];
                         builder.clip(neighbor_idx, neighbor);
                         cell_neighbors_processed += 1;
@@ -939,9 +937,22 @@ pub fn compute_voronoi_gpu_style_with_termination(
 
 /// Compute spherical Voronoi WITHOUT preprocessing (merge close points).
 /// For benchmarking only - assumes points are already well-spaced.
-pub fn compute_voronoi_gpu_style_no_preprocess(points: &[Vec3]) -> crate::geometry::SphericalVoronoi {
+pub fn compute_voronoi_gpu_style_no_preprocess(
+    points: &[Vec3],
+) -> crate::geometry::SphericalVoronoi {
     let termination = TerminationConfig::default();
     compute_voronoi_gpu_style_core(points, termination, false, true).voronoi
+}
+
+/// Compute spherical Voronoi with explicit dedup method choice.
+/// For benchmarking: `use_live_dedup=true` uses sharded live dedup, `false` uses hash-based post-dedup.
+pub fn compute_voronoi_gpu_style_bench(
+    points: &[Vec3],
+    use_live_dedup: bool,
+) -> crate::geometry::SphericalVoronoi {
+    let termination = TerminationConfig::default();
+    // collect_stats=true forces old dedup, collect_stats=false forces live dedup
+    compute_voronoi_gpu_style_core(points, termination, !use_live_dedup, true).voronoi
 }
 
 /// Benchmark result for comparing Voronoi methods.

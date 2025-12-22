@@ -97,11 +97,10 @@ impl PhaseTimings {
         );
 
         // Sub-phase breakdown: estimate wall time from CPU time using parent ratio
-        let cpu_total =
-            self.cell_sub.knn_query
-                + self.cell_sub.clipping
-                + self.cell_sub.certification
-                + self.cell_sub.key_dedup;
+        let cpu_total = self.cell_sub.knn_query
+            + self.cell_sub.clipping
+            + self.cell_sub.certification
+            + self.cell_sub.key_dedup;
         let cpu_total_secs = cpu_total.as_secs_f64();
         let wall_secs = self.cell_construction.as_secs_f64();
 
@@ -182,9 +181,7 @@ impl PhaseTimings {
         // Dedup sub-phase breakdown
         let dedup_total = self.dedup_sub.setup + self.dedup_sub.lookup + self.dedup_sub.cell_dedup;
         if dedup_total.as_nanos() > 0 {
-            let dedup_pct = |d: Duration| {
-                d.as_secs_f64() / dedup_total.as_secs_f64() * 100.0
-            };
+            let dedup_pct = |d: Duration| d.as_secs_f64() / dedup_total.as_secs_f64() * 100.0;
             eprintln!(
                 "    setup:           {:7.1}ms ({:4.1}%)",
                 self.dedup_sub.setup.as_secs_f64() * 1000.0,

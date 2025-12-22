@@ -259,7 +259,8 @@ impl CubeMapGridScratch {
         self.candidates.clear();
         self.candidates_dot.clear();
         if self.candidates_dot.capacity() < k {
-            self.candidates_dot.reserve(k - self.candidates_dot.capacity());
+            self.candidates_dot
+                .reserve(k - self.candidates_dot.capacity());
         }
         self.worst_dot = f32::NEG_INFINITY;
         self.worst_dot_pos = 0;
@@ -366,7 +367,8 @@ impl CubeMapGridScratch {
                 return;
             }
             // Shift right within the fixed window [0, limit).
-            self.candidates.copy_within(insert_pos..(limit - 1), insert_pos + 1);
+            self.candidates
+                .copy_within(insert_pos..(limit - 1), insert_pos + 1);
             self.candidates[insert_pos] = (dist_sq, idx_u32);
         }
     }
@@ -395,9 +397,8 @@ impl CubeMapGridScratch {
         }
 
         // Sort by dot descending (closest first), tie-break by index for determinism.
-        self.candidates_dot.sort_unstable_by(|(da, ia), (db, ib)| {
-            db.total_cmp(da).then_with(|| ia.cmp(ib))
-        });
+        self.candidates_dot
+            .sort_unstable_by(|(da, ia), (db, ib)| db.total_cmp(da).then_with(|| ia.cmp(ib)));
 
         out.reserve(count);
         for i in 0..count {
@@ -838,8 +839,15 @@ impl CubeMapGrid {
         let seeded_visited_cells =
             self.seed_start_cell(points, query, query_idx, start_cell, scratch);
 
-        let exhausted =
-            self.knn_search_loop(points, query, query_idx, k, num_cells, seeded_visited_cells, scratch);
+        let exhausted = self.knn_search_loop(
+            points,
+            query,
+            query_idx,
+            k,
+            num_cells,
+            seeded_visited_cells,
+            scratch,
+        );
 
         scratch.copy_k_indices_into(k, out_indices);
         if exhausted {

@@ -152,6 +152,19 @@ pub struct F64CellBuilder {
 
 impl F64CellBuilder {
     #[inline(always)]
+    fn debug_assert_unitish(v: DVec3) {
+        #[cfg(debug_assertions)]
+        {
+            let ls = v.length_squared();
+            debug_assert!(
+                ls.is_finite() && (ls - 1.0).abs() <= 1e-5,
+                "expected ~unit vector; len_sq={}",
+                ls
+            );
+        }
+    }
+
+    #[inline(always)]
     fn debug_assert_unit(v: DVec3) {
         debug_assert!(
             (v.length_squared() - 1.0).abs() <= 1e-10,
@@ -163,11 +176,7 @@ impl F64CellBuilder {
     /// Create a new f64 cell builder for the given generator.
     pub fn new(generator_idx: usize, generator: Vec3) -> Self {
         let gen64 = DVec3::new(generator.x as f64, generator.y as f64, generator.z as f64);
-        let gen64 = if gen64.length_squared() > 0.0 {
-            gen64.normalize()
-        } else {
-            gen64
-        };
+        Self::debug_assert_unitish(gen64);
         let eps_cell = SUPPORT_VERTEX_ANGLE_EPS + SUPPORT_CLUSTER_RADIUS_ANGLE;
         let (sin_eps, cos_eps) = (eps_cell as f32).sin_cos();
         let termination_margin = EPS_TERMINATION_MARGIN
@@ -429,10 +438,7 @@ impl F64CellBuilder {
         // Build new vertex list
         self.scratch_vertices.push(entry_vertex);
         self.scratch_edge_planes.push(entry_edge_plane);
-        let mut min_cos = self
-            .generator
-            .dot(entry_vertex.pos)
-            .clamp(-1.0, 1.0) as f32;
+        let mut min_cos = self.generator.dot(entry_vertex.pos).clamp(-1.0, 1.0) as f32;
 
         let mut i = (entry_idx + 1) % n;
         while i != (exit_idx + 1) % n {
@@ -460,11 +466,7 @@ impl F64CellBuilder {
         }
 
         let n64 = DVec3::new(neighbor.x as f64, neighbor.y as f64, neighbor.z as f64);
-        let n64 = if n64.length_squared() > 0.0 {
-            n64.normalize()
-        } else {
-            n64
-        };
+        Self::debug_assert_unitish(n64);
 
         // Skip degenerate bisectors
         let diff = self.generator - n64;
@@ -642,11 +644,7 @@ impl F64CellBuilder {
     /// Reset the builder for a new cell.
     pub fn reset(&mut self, generator_idx: usize, generator: Vec3) {
         let gen64 = DVec3::new(generator.x as f64, generator.y as f64, generator.z as f64);
-        let gen64 = if gen64.length_squared() > 0.0 {
-            gen64.normalize()
-        } else {
-            gen64
-        };
+        Self::debug_assert_unitish(gen64);
         self.generator_idx = generator_idx;
         self.generator = gen64;
         self.planes.clear();
@@ -699,16 +697,17 @@ impl F64CellBuilder {
         }
 
         let g = self.generator;
-        Self::debug_assert_unit(g);
+        Self::debug_assert_unitish(g);
         let gen_idx = self.generator_idx as u32;
 
-        // Pre-normalize all neighbor positions once (instead of per-vertex)
+        // Pre-load all neighbor positions once (instead of per-vertex).
+        // Inputs are expected to be ~unit; normalization is debug-asserted elsewhere.
         let neighbor_positions: Vec<DVec3> = self
             .neighbor_indices
             .iter()
             .map(|&idx| {
                 let p = points[idx];
-                DVec3::new(p.x as f64, p.y as f64, p.z as f64).normalize()
+                DVec3::new(p.x as f64, p.y as f64, p.z as f64)
             })
             .collect();
 
