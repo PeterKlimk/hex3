@@ -6,6 +6,7 @@
 //!   bench_voronoi              Run default size (100k)
 //!   bench_voronoi 100k 500k 1m Run multiple sizes
 //!   bench_voronoi --lloyd      Use Lloyd-relaxed points
+//!   bench_voronoi -n 10        Run 10 iterations (for profiling)
 //!
 //! For detailed sub-phase timing, build with: cargo run --release --features timing --bin bench_voronoi
 
@@ -72,6 +73,10 @@ struct Args {
     /// Compare both dedup methods side-by-side
     #[arg(long)]
     compare_dedup: bool,
+
+    /// Number of iterations to run (useful for profiling)
+    #[arg(short = 'n', long, default_value_t = 1)]
+    repeat: usize,
 }
 
 fn generate_points(n: usize, seed: u64, lloyd: bool) -> Vec<Vec3> {
@@ -219,6 +224,9 @@ fn main() {
         "  sizes = {:?}",
         sizes.iter().map(|&n| format_num(n)).collect::<Vec<_>>()
     );
+    if args.repeat > 1 {
+        println!("  repeat = {}", args.repeat);
+    }
 
     #[cfg(feature = "timing")]
     println!("  timing = enabled (detailed sub-phase timing will be printed)");
@@ -295,14 +303,48 @@ fn main() {
             results.push(old_result);
         } else {
             let use_live = !args.old_dedup;
-            let result = run_benchmark(&points, use_live);
+
+            // Run benchmark (with optional repeats for profiling)
+            let mut times: Vec<f64> = Vec::with_capacity(args.repeat);
+            let mut last_result: Option<BenchResult> = None;
+
+            for iter in 0..args.repeat {
+                if args.repeat > 1 {
+                    print!("  Iteration {}/{}... ", iter + 1, args.repeat);
+                    io::stdout().flush().unwrap();
+                }
+
+                let result = run_benchmark(&points, use_live);
+                times.push(result.time_ms);
+
+                if args.repeat > 1 {
+                    println!("{:.1}ms", result.time_ms);
+                }
+
+                last_result = Some(result);
+            }
+
+            let result = last_result.unwrap();
 
             println!("\nResults ({}):", result.method);
-            println!("  Total time:    {:>8.1}ms", result.time_ms);
-            println!(
-                "  Throughput:    {:>8}",
-                format_rate(result.n, result.time_ms)
-            );
+            if args.repeat > 1 {
+                let min = times.iter().cloned().fold(f64::INFINITY, f64::min);
+                let max = times.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                let avg = times.iter().sum::<f64>() / times.len() as f64;
+                println!("  Min time:      {:>8.1}ms", min);
+                println!("  Max time:      {:>8.1}ms", max);
+                println!("  Avg time:      {:>8.1}ms", avg);
+                println!(
+                    "  Throughput:    {:>8} (avg)",
+                    format_rate(result.n, avg)
+                );
+            } else {
+                println!("  Total time:    {:>8.1}ms", result.time_ms);
+                println!(
+                    "  Throughput:    {:>8}",
+                    format_rate(result.n, result.time_ms)
+                );
+            }
             println!("  Vertices:      {:>8}", format_num(result.num_vertices));
             println!("  Cells:         {:>8}", format_num(result.num_cells));
             println!(

@@ -14,9 +14,6 @@ use std::time::Duration;
 #[derive(Debug, Clone, Default)]
 pub struct CellSubPhases {
     pub knn_query: Duration,
-    pub knn_scan: Duration,
-    pub knn_scan_points: u64,
-    pub knn_insert_attempts: u64,
     pub clipping: Duration,
     pub certification: Duration,
     /// Live-dedup: per-vertex ownership checks and shard-local dedup work during cell build.
@@ -135,32 +132,6 @@ impl PhaseTimings {
             est_wall_ms(self.cell_sub.knn_query),
             sub_pct(self.cell_sub.knn_query)
         );
-        if self.cell_sub.knn_query.as_nanos() > 0 && self.cell_sub.knn_scan.as_nanos() > 0 {
-            let knn_pct = |d: Duration| {
-                if self.cell_sub.knn_query.as_nanos() == 0 {
-                    0.0
-                } else {
-                    d.as_secs_f64() / self.cell_sub.knn_query.as_secs_f64() * 100.0
-                }
-            };
-            eprintln!(
-                "      knn_scan:      {:7.1}ms ({:4.1}% of knn)",
-                est_wall_ms(self.cell_sub.knn_scan),
-                knn_pct(self.cell_sub.knn_scan)
-            );
-            if self.cell_sub.knn_scan_points > 0 {
-                eprintln!(
-                    "      knn_scan_pts:  {}",
-                    self.cell_sub.knn_scan_points
-                );
-            }
-            if self.cell_sub.knn_insert_attempts > 0 {
-                eprintln!(
-                    "      knn_inserts:   {}",
-                    self.cell_sub.knn_insert_attempts
-                );
-            }
-        }
         eprintln!(
             "    clipping:        {:7.1}ms ({:4.1}%)",
             est_wall_ms(self.cell_sub.clipping),
@@ -328,9 +299,6 @@ impl Timer {
 #[derive(Default, Clone)]
 pub struct CellSubAccum {
     pub knn_query: Duration,
-    pub knn_scan: Duration,
-    pub knn_scan_points: u64,
-    pub knn_insert_attempts: u64,
     pub clipping: Duration,
     pub certification: Duration,
     pub key_dedup: Duration,
@@ -350,17 +318,6 @@ impl CellSubAccum {
 
     pub fn add_knn(&mut self, d: Duration) {
         self.knn_query += d;
-    }
-
-    pub fn add_knn_detail(
-        &mut self,
-        scan: Duration,
-        scan_points: u64,
-        insert_attempts: u64,
-    ) {
-        self.knn_scan += scan;
-        self.knn_scan_points += scan_points;
-        self.knn_insert_attempts += insert_attempts;
     }
 
     pub fn add_clip(&mut self, d: Duration) {
@@ -390,9 +347,6 @@ impl CellSubAccum {
 
     pub fn merge(&mut self, other: &CellSubAccum) {
         self.knn_query += other.knn_query;
-        self.knn_scan += other.knn_scan;
-        self.knn_scan_points += other.knn_scan_points;
-        self.knn_insert_attempts += other.knn_insert_attempts;
         self.clipping += other.clipping;
         self.certification += other.certification;
         self.key_dedup += other.key_dedup;
@@ -407,9 +361,6 @@ impl CellSubAccum {
     pub fn into_sub_phases(self) -> CellSubPhases {
         CellSubPhases {
             knn_query: self.knn_query,
-            knn_scan: self.knn_scan,
-            knn_scan_points: self.knn_scan_points,
-            knn_insert_attempts: self.knn_insert_attempts,
             clipping: self.clipping,
             certification: self.certification,
             key_dedup: self.key_dedup,
@@ -446,14 +397,6 @@ impl CellSubAccum {
     }
     #[inline(always)]
     pub fn add_knn(&mut self, _d: Duration) {}
-    #[inline(always)]
-    pub fn add_knn_detail(
-        &mut self,
-        _scan: Duration,
-        _scan_points: u64,
-        _insert_attempts: u64,
-    ) {
-    }
     #[inline(always)]
     pub fn add_clip(&mut self, _d: Duration) {}
     #[inline(always)]

@@ -279,8 +279,8 @@ pub struct TerminationConfig {
 
 // Keep the adaptive-k schedule and the default termination cadence in one place.
 // If you change the k schedule, the default termination values should update with it.
-pub(super) const ADAPTIVE_K_INITIAL: usize = 12;
-pub(super) const ADAPTIVE_K_RESUME: usize = 24;
+pub(super) const ADAPTIVE_K_INITIAL: usize = 10;
+pub(super) const ADAPTIVE_K_RESUME: usize = 18;
 pub(super) const ADAPTIVE_K_RARE: usize = 48;
 
 // Default termination cadence:
@@ -411,15 +411,6 @@ pub fn build_cells_data_flat(
                         knn.knn_resume_into(points[i], i, k, &mut scratch, &mut neighbors)
                     };
                     sub_accum.add_knn(t_knn.elapsed());
-                    #[cfg(feature = "timing")]
-                    {
-                        let stats = scratch.take_knn_stats();
-                        sub_accum.add_knn_detail(
-                            stats.scan_time,
-                            stats.scan_points,
-                            stats.insert_attempts,
-                        );
-                    }
 
                     let t_clip = Timer::start();
                     for &neighbor_idx in &neighbors[processed..] {
