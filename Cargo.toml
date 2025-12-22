@@ -8,17 +8,6 @@ default-run = "hex3"
 default = []
 timing = []  # Enable timing instrumentation in gpu_voronoi
 
-
-[profile.release]
-debug = true
-debug-assertions = false
-
-[profile.release.package."*"]
-debug = false
-debug-assertions = false
-
-# Release-like profile with extra debug checks enabled for this crate only.
-# Use via: `cargo build --profile checked`
 [profile.checked]
 inherits = "release"
 opt-level = 3
