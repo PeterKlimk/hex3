@@ -175,6 +175,10 @@ pub fn dedup_vertices_hash_flat(
         setup: setup_time,
         lookup: lookup_time,
         cell_dedup: cell_dedup_time,
+        overflow_collect: std::time::Duration::ZERO,
+        overflow_flush: std::time::Duration::ZERO,
+        concat_vertices: std::time::Duration::ZERO,
+        emit_cells: std::time::Duration::ZERO,
         triplet_keys,
         support_keys,
     };
@@ -186,7 +190,7 @@ pub fn dedup_vertices_hash_flat(
 }
 
 /// Remove duplicate vertex indices within each cell.
-fn deduplicate_cell_indices(
+pub(super) fn deduplicate_cell_indices(
     cells: &[VoronoiCell],
     cell_indices: &[usize],
     num_vertices: usize,
@@ -194,28 +198,32 @@ fn deduplicate_cell_indices(
     let mut new_cells: Vec<VoronoiCell> = Vec::with_capacity(cells.len());
     let mut new_indices: Vec<usize> = Vec::with_capacity(cell_indices.len());
 
-    // Epoch-marking avoids O(k^2) `contains()` checks for each cell.
-    // This preserves first-occurrence order in the output indices.
-    let mut marks: Vec<u32> = vec![0u32; num_vertices];
-    let mut epoch: u32 = 1;
-
     for cell in cells {
         let start = cell.vertex_start();
         let end = cell.vertex_start() + cell.vertex_count();
         let old_indices = &cell_indices[start..end];
 
         let new_start = new_indices.len();
+        // Cells are small (<= MAX_VERTICES), so a cache-friendly linear "seen" set
+        // is typically faster than a giant random-access marks array.
+        let mut seen: [usize; super::MAX_VERTICES] = [0usize; super::MAX_VERTICES];
+        let mut seen_len = 0usize;
+
         for &idx in old_indices {
             debug_assert!(idx < num_vertices, "vertex index out of bounds");
-            if marks[idx] != epoch {
-                marks[idx] = epoch;
+            let mut duplicate = false;
+            for &v in &seen[..seen_len] {
+                if v == idx {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if !duplicate {
+                debug_assert!(seen_len < super::MAX_VERTICES);
+                seen[seen_len] = idx;
+                seen_len += 1;
                 new_indices.push(idx);
             }
-        }
-        epoch = epoch.wrapping_add(1);
-        if epoch == 0 {
-            marks.fill(0);
-            epoch = 1;
         }
         let new_count = new_indices.len() - new_start;
 

@@ -16,6 +16,8 @@ pub struct CellSubPhases {
     pub knn_query: Duration,
     pub clipping: Duration,
     pub certification: Duration,
+    /// Live-dedup: per-vertex ownership checks and shard-local dedup work during cell build.
+    pub key_dedup: Duration,
     /// Per-cell k-NN stage distribution (final stage used per cell).
     pub cells_k12: u64,
     pub cells_k24: u64,
@@ -38,6 +40,14 @@ pub struct DedupSubPhases {
     pub lookup: Duration,
     /// Per-cell index deduplication.
     pub cell_dedup: Duration,
+    /// Live-dedup: overflow bucketing before flush.
+    pub overflow_collect: Duration,
+    /// Live-dedup: overflow flush into owner shards.
+    pub overflow_flush: Duration,
+    /// Live-dedup: concatenating shard vertex buffers.
+    pub concat_vertices: Duration,
+    /// Live-dedup: emitting cells in generator order (includes per-cell index dedup).
+    pub emit_cells: Duration,
     /// Number of triplet keys processed.
     pub triplet_keys: u64,
     /// Number of support keys processed.
@@ -88,7 +98,10 @@ impl PhaseTimings {
 
         // Sub-phase breakdown: estimate wall time from CPU time using parent ratio
         let cpu_total =
-            self.cell_sub.knn_query + self.cell_sub.clipping + self.cell_sub.certification;
+            self.cell_sub.knn_query
+                + self.cell_sub.clipping
+                + self.cell_sub.certification
+                + self.cell_sub.key_dedup;
         let cpu_total_secs = cpu_total.as_secs_f64();
         let wall_secs = self.cell_construction.as_secs_f64();
 
@@ -128,6 +141,13 @@ impl PhaseTimings {
             est_wall_ms(self.cell_sub.certification),
             sub_pct(self.cell_sub.certification)
         );
+        if self.cell_sub.key_dedup.as_nanos() > 0 {
+            eprintln!(
+                "    key_dedup:       {:7.1}ms ({:4.1}%)",
+                est_wall_ms(self.cell_sub.key_dedup),
+                sub_pct(self.cell_sub.key_dedup)
+            );
+        }
         eprintln!("    ({:.1}x parallelism)", parallelism);
 
         let total_cells = (self.cell_sub.cells_k12
@@ -180,6 +200,21 @@ impl PhaseTimings {
                 self.dedup_sub.cell_dedup.as_secs_f64() * 1000.0,
                 dedup_pct(self.dedup_sub.cell_dedup)
             );
+
+            // Optional: live-dedup breakdown (when populated).
+            let live_total = self.dedup_sub.overflow_collect
+                + self.dedup_sub.overflow_flush
+                + self.dedup_sub.concat_vertices
+                + self.dedup_sub.emit_cells;
+            if live_total.as_nanos() > 0 {
+                eprintln!(
+                    "    live: overflow_collect={:7.1}ms overflow_flush={:7.1}ms concat_vertices={:7.1}ms emit_cells={:7.1}ms",
+                    self.dedup_sub.overflow_collect.as_secs_f64() * 1000.0,
+                    self.dedup_sub.overflow_flush.as_secs_f64() * 1000.0,
+                    self.dedup_sub.concat_vertices.as_secs_f64() * 1000.0,
+                    self.dedup_sub.emit_cells.as_secs_f64() * 1000.0,
+                );
+            }
             let total_keys = self.dedup_sub.triplet_keys + self.dedup_sub.support_keys;
             if total_keys > 0 {
                 let key_pct = |k: u64| k as f64 / total_keys as f64 * 100.0;
@@ -259,6 +294,7 @@ pub struct CellSubAccum {
     pub knn_query: Duration,
     pub clipping: Duration,
     pub certification: Duration,
+    pub key_dedup: Duration,
     pub cells_k12: u64,
     pub cells_k24: u64,
     pub cells_k48: u64,
@@ -285,6 +321,10 @@ impl CellSubAccum {
         self.certification += d;
     }
 
+    pub fn add_key_dedup(&mut self, d: Duration) {
+        self.key_dedup += d;
+    }
+
     pub fn add_cell_stage(&mut self, stage: KnnCellStage, knn_exhausted: bool) {
         match stage {
             KnnCellStage::K12 => self.cells_k12 += 1,
@@ -302,6 +342,7 @@ impl CellSubAccum {
         self.knn_query += other.knn_query;
         self.clipping += other.clipping;
         self.certification += other.certification;
+        self.key_dedup += other.key_dedup;
         self.cells_k12 += other.cells_k12;
         self.cells_k24 += other.cells_k24;
         self.cells_k48 += other.cells_k48;
@@ -315,6 +356,7 @@ impl CellSubAccum {
             knn_query: self.knn_query,
             clipping: self.clipping,
             certification: self.certification,
+            key_dedup: self.key_dedup,
             cells_k12: self.cells_k12,
             cells_k24: self.cells_k24,
             cells_k48: self.cells_k48,
@@ -352,6 +394,8 @@ impl CellSubAccum {
     pub fn add_clip(&mut self, _d: Duration) {}
     #[inline(always)]
     pub fn add_cert(&mut self, _d: Duration) {}
+    #[inline(always)]
+    pub fn add_key_dedup(&mut self, _d: Duration) {}
     #[inline(always)]
     pub fn add_cell_stage(&mut self, _stage: KnnCellStage, _knn_exhausted: bool) {}
     #[inline(always)]

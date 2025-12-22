@@ -6,6 +6,7 @@
 mod cell_builder;
 mod constants;
 pub mod dedup;
+mod live_dedup;
 mod knn;
 mod timing;
 
@@ -278,9 +279,9 @@ pub struct TerminationConfig {
 
 // Keep the adaptive-k schedule and the default termination cadence in one place.
 // If you change the k schedule, the default termination values should update with it.
-const ADAPTIVE_K_INITIAL: usize = 12;
-const ADAPTIVE_K_RESUME: usize = 24;
-const ADAPTIVE_K_RARE: usize = 48;
+pub(super) const ADAPTIVE_K_INITIAL: usize = 12;
+pub(super) const ADAPTIVE_K_RESUME: usize = 24;
+pub(super) const ADAPTIVE_K_RARE: usize = 48;
 
 // Default termination cadence:
 // - start near the end of the initial k pass
@@ -838,19 +839,32 @@ fn compute_voronoi_gpu_style_core(
     let knn = CubeMapGridKnn::new(&effective_points);
     tb.set_knn_build(t.elapsed());
 
-    let t = Timer::start();
-    let (flat_data, cell_sub_timing) = build_cells_data_flat(&effective_points, &knn, termination);
-    let stats = if collect_stats {
-        Some(flat_data.stats())
-    } else {
-        None
-    };
-    tb.set_cell_construction(t.elapsed(), cell_sub_timing.into_sub_phases());
+    let (all_vertices, eff_cells, eff_cell_indices, stats) = if collect_stats {
+        let t = Timer::start();
+        let (flat_data, cell_sub_timing) =
+            build_cells_data_flat(&effective_points, &knn, termination);
+        let stats = Some(flat_data.stats());
+        tb.set_cell_construction(t.elapsed(), cell_sub_timing.into_sub_phases());
 
-    let t = Timer::start();
-    let (all_vertices, eff_cells, eff_cell_indices, dedup_sub) =
-        dedup::dedup_vertices_hash_flat(flat_data, false);
-    tb.set_dedup(t.elapsed(), dedup_sub);
+        let t = Timer::start();
+        let (all_vertices, eff_cells, eff_cell_indices, dedup_sub) =
+            dedup::dedup_vertices_hash_flat(flat_data, false);
+        tb.set_dedup(t.elapsed(), dedup_sub);
+
+        (all_vertices, eff_cells, eff_cell_indices, stats)
+    } else {
+        let t = Timer::start();
+        let sharded =
+            live_dedup::build_cells_sharded_live_dedup(&effective_points, &knn, termination);
+        tb.set_cell_construction(t.elapsed(), sharded.cell_sub.clone().into_sub_phases());
+
+        let t = Timer::start();
+        let (all_vertices, eff_cells, eff_cell_indices, dedup_sub) =
+            live_dedup::assemble_sharded_live_dedup(sharded);
+        tb.set_dedup(t.elapsed(), dedup_sub);
+
+        (all_vertices, eff_cells, eff_cell_indices, None)
+    };
 
     // Remap cells back to original point indices if we merged
     let t = Timer::start();
