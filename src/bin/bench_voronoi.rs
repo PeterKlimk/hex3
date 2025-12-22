@@ -229,7 +229,7 @@ fn main() {
         println!("  Cells:         {:>8}", format_num(result.num_cells));
         println!(
             "  Avg verts/cell:{:>8.2}",
-            result.num_vertices as f64 * 2.0 / result.num_cells as f64
+            result.num_vertices as f64 * 3.0 / result.num_cells as f64
         );
 
         if args.validate && *n <= 100_000 {
