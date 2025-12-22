@@ -28,6 +28,27 @@ pub struct CellSubPhases {
     pub cells_knn_exhausted: u64,
 }
 
+/// Sub-phase timings within dedup.
+#[cfg(feature = "timing")]
+#[derive(Debug, Clone, Default)]
+pub struct DedupSubPhases {
+    /// Allocation and setup time.
+    pub setup: Duration,
+    /// Hash lookup and vertex deduplication.
+    pub lookup: Duration,
+    /// Per-cell index deduplication.
+    pub cell_dedup: Duration,
+    /// Number of triplet keys processed.
+    pub triplet_keys: u64,
+    /// Number of support keys processed.
+    pub support_keys: u64,
+}
+
+/// Dummy dedup sub-phases when feature is disabled.
+#[cfg(not(feature = "timing"))]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DedupSubPhases;
+
 /// Phase timings for the Voronoi algorithm.
 #[cfg(feature = "timing")]
 #[derive(Debug, Clone)]
@@ -37,6 +58,7 @@ pub struct PhaseTimings {
     pub cell_construction: Duration,
     pub cell_sub: CellSubPhases,
     pub dedup: Duration,
+    pub dedup_sub: DedupSubPhases,
     pub assemble: Duration,
 }
 
@@ -136,6 +158,41 @@ impl PhaseTimings {
             self.dedup.as_secs_f64() * 1000.0,
             pct(self.dedup)
         );
+
+        // Dedup sub-phase breakdown
+        let dedup_total = self.dedup_sub.setup + self.dedup_sub.lookup + self.dedup_sub.cell_dedup;
+        if dedup_total.as_nanos() > 0 {
+            let dedup_pct = |d: Duration| {
+                d.as_secs_f64() / dedup_total.as_secs_f64() * 100.0
+            };
+            eprintln!(
+                "    setup:           {:7.1}ms ({:4.1}%)",
+                self.dedup_sub.setup.as_secs_f64() * 1000.0,
+                dedup_pct(self.dedup_sub.setup)
+            );
+            eprintln!(
+                "    lookup:          {:7.1}ms ({:4.1}%)",
+                self.dedup_sub.lookup.as_secs_f64() * 1000.0,
+                dedup_pct(self.dedup_sub.lookup)
+            );
+            eprintln!(
+                "    cell_dedup:      {:7.1}ms ({:4.1}%)",
+                self.dedup_sub.cell_dedup.as_secs_f64() * 1000.0,
+                dedup_pct(self.dedup_sub.cell_dedup)
+            );
+            let total_keys = self.dedup_sub.triplet_keys + self.dedup_sub.support_keys;
+            if total_keys > 0 {
+                let key_pct = |k: u64| k as f64 / total_keys as f64 * 100.0;
+                eprintln!(
+                    "    keys: triplet={} ({:.1}%) support={} ({:.1}%)",
+                    self.dedup_sub.triplet_keys,
+                    key_pct(self.dedup_sub.triplet_keys),
+                    self.dedup_sub.support_keys,
+                    key_pct(self.dedup_sub.support_keys),
+                );
+            }
+        }
+
         eprintln!(
             "  assemble:          {:7.1}ms ({:4.1}%)",
             self.assemble.as_secs_f64() * 1000.0,
@@ -358,6 +415,7 @@ pub struct TimingBuilder {
     cell_construction: Duration,
     cell_sub: CellSubPhases,
     dedup: Duration,
+    dedup_sub: DedupSubPhases,
     assemble: Duration,
 }
 
@@ -370,6 +428,7 @@ impl TimingBuilder {
             cell_construction: Duration::ZERO,
             cell_sub: CellSubPhases::default(),
             dedup: Duration::ZERO,
+            dedup_sub: DedupSubPhases::default(),
             assemble: Duration::ZERO,
         }
     }
@@ -383,8 +442,9 @@ impl TimingBuilder {
         self.cell_sub = sub;
     }
 
-    pub fn set_dedup(&mut self, d: Duration) {
+    pub fn set_dedup(&mut self, d: Duration, sub: DedupSubPhases) {
         self.dedup = d;
+        self.dedup_sub = sub;
     }
 
     pub fn set_assemble(&mut self, d: Duration) {
@@ -398,6 +458,7 @@ impl TimingBuilder {
             cell_construction: self.cell_construction,
             cell_sub: self.cell_sub,
             dedup: self.dedup,
+            dedup_sub: self.dedup_sub,
             assemble: self.assemble,
         }
     }
@@ -421,7 +482,7 @@ impl TimingBuilder {
     pub fn set_cell_construction(&mut self, _d: Duration, _sub: CellSubPhases) {}
 
     #[inline(always)]
-    pub fn set_dedup(&mut self, _d: Duration) {}
+    pub fn set_dedup(&mut self, _d: Duration, _sub: DedupSubPhases) {}
 
     #[inline(always)]
     pub fn set_assemble(&mut self, _d: Duration) {}

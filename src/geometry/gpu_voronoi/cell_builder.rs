@@ -12,13 +12,7 @@ use super::constants::{
 #[derive(Debug, Clone, Copy)]
 pub enum VertexKey {
     Triplet([u32; 3]),
-    Support {
-        start: u32,
-        len: u8,
-    },
-    /// Deferred keying for uncertified vertices: quantized position hash.
-    /// Used to maintain topology coherence when the support set is not provably stable.
-    Quantized(u64),
+    Support { start: u32, len: u8 },
 }
 
 /// Vertex data: (key, position). Uses u32 indices to save space.
@@ -159,10 +153,21 @@ pub struct IncrementalCellBuilder {
     seeded: bool,
     /// True if clipping has already eliminated the cell (intersection empty).
     dead: bool,
+    cached_min_vertex_cos: f32,
+    cached_min_vertex_cos_valid: bool,
+    sin_eps: f32,
+    cos_eps: f32,
+    termination_margin: f32,
 }
 
 impl IncrementalCellBuilder {
     pub fn new(generator_idx: usize, generator: Vec3) -> Self {
+        let eps_cell = SUPPORT_VERTEX_ANGLE_EPS + SUPPORT_CLUSTER_RADIUS_ANGLE;
+        let (sin_eps, cos_eps) = (eps_cell as f32).sin_cos();
+        let termination_margin = EPS_TERMINATION_MARGIN
+            + SUPPORT_CERT_MARGIN_ABS as f32
+            + 2.0 * SUPPORT_EPS_ABS as f32
+            + 2.0 * support_cluster_drift_dot() as f32;
         Self {
             generator_idx,
             generator,
@@ -174,6 +179,11 @@ impl IncrementalCellBuilder {
             tmp_edge_planes: Vec::with_capacity(MAX_VERTICES),
             seeded: false,
             dead: false,
+            cached_min_vertex_cos: 1.0,
+            cached_min_vertex_cos_valid: false,
+            sin_eps,
+            cos_eps,
+            termination_margin,
         }
     }
 
@@ -188,6 +198,8 @@ impl IncrementalCellBuilder {
         self.tmp_edge_planes.clear();
         self.seeded = false;
         self.dead = false;
+        self.cached_min_vertex_cos = 1.0;
+        self.cached_min_vertex_cos_valid = false;
     }
 
     /// Returns true if this neighbor has already been clipped into the cell.
@@ -319,6 +331,7 @@ impl IncrementalCellBuilder {
         self.vertices.clear();
         self.edge_planes.clear();
 
+        let mut min_cos = 1.0f32;
         if normal.dot(self.generator) >= 0.0 {
             self.vertices.push(CellVertex {
                 pos: v0,
@@ -326,18 +339,21 @@ impl IncrementalCellBuilder {
                 plane_b: b,
                 ill_conditioned: v0_ill,
             });
+            min_cos = min_cos.min(self.generator.dot(v0).clamp(-1.0, 1.0));
             self.vertices.push(CellVertex {
                 pos: v1,
                 plane_a: b,
                 plane_b: c,
                 ill_conditioned: v1_ill,
             });
+            min_cos = min_cos.min(self.generator.dot(v1).clamp(-1.0, 1.0));
             self.vertices.push(CellVertex {
                 pos: v2,
                 plane_a: c,
                 plane_b: a,
                 ill_conditioned: v2_ill,
             });
+            min_cos = min_cos.min(self.generator.dot(v2).clamp(-1.0, 1.0));
             self.edge_planes.push(b);
             self.edge_planes.push(c);
             self.edge_planes.push(a);
@@ -348,23 +364,28 @@ impl IncrementalCellBuilder {
                 plane_b: b,
                 ill_conditioned: v0_ill,
             });
+            min_cos = min_cos.min(self.generator.dot(v0).clamp(-1.0, 1.0));
             self.vertices.push(CellVertex {
                 pos: v2,
                 plane_a: c,
                 plane_b: a,
                 ill_conditioned: v2_ill,
             });
+            min_cos = min_cos.min(self.generator.dot(v2).clamp(-1.0, 1.0));
             self.vertices.push(CellVertex {
                 pos: v1,
                 plane_a: b,
                 plane_b: c,
                 ill_conditioned: v1_ill,
             });
+            min_cos = min_cos.min(self.generator.dot(v1).clamp(-1.0, 1.0));
             self.edge_planes.push(a);
             self.edge_planes.push(c);
             self.edge_planes.push(b);
         }
 
+        self.cached_min_vertex_cos = min_cos;
+        self.cached_min_vertex_cos_valid = true;
         true
     }
 
@@ -419,6 +440,8 @@ impl IncrementalCellBuilder {
             self.vertices.clear();
             self.edge_planes.clear();
             self.dead = true;
+            self.cached_min_vertex_cos = 1.0;
+            self.cached_min_vertex_cos_valid = false;
             return;
         }
 
@@ -478,21 +501,28 @@ impl IncrementalCellBuilder {
         self.tmp_vertices.reserve(n);
         self.tmp_edge_planes.reserve(n);
 
+        let mut min_cos = 1.0f32;
         self.tmp_vertices.push(entry_vertex);
         self.tmp_edge_planes.push(entry_edge_plane);
+        min_cos = min_cos.min(self.generator.dot(entry_vertex.pos).clamp(-1.0, 1.0));
 
         let mut i = (entry_idx + 1) % n;
         while i != (exit_idx + 1) % n {
-            self.tmp_vertices.push(self.vertices[i]);
+            let v = self.vertices[i];
+            min_cos = min_cos.min(self.generator.dot(v.pos).clamp(-1.0, 1.0));
+            self.tmp_vertices.push(v);
             self.tmp_edge_planes.push(self.edge_planes[i]);
             i = (i + 1) % n;
         }
 
         self.tmp_vertices.push(exit_vertex);
         self.tmp_edge_planes.push(new_plane_idx);
+        min_cos = min_cos.min(self.generator.dot(exit_vertex.pos).clamp(-1.0, 1.0));
 
         std::mem::swap(&mut self.vertices, &mut self.tmp_vertices);
         std::mem::swap(&mut self.edge_planes, &mut self.tmp_edge_planes);
+        self.cached_min_vertex_cos = min_cos;
+        self.cached_min_vertex_cos_valid = true;
     }
 
     /// Add a new plane (neighbor's bisector) and clip the cell. O(n).
@@ -537,10 +567,14 @@ impl IncrementalCellBuilder {
     /// Returns 1.0 if no vertices.
     #[inline]
     pub fn min_vertex_cos(&self) -> f32 {
-        self.vertices
-            .iter()
-            .map(|v| self.generator.dot(v.pos).clamp(-1.0, 1.0))
-            .fold(1.0f32, f32::min)
+        if self.cached_min_vertex_cos_valid {
+            self.cached_min_vertex_cos
+        } else {
+            self.vertices
+                .iter()
+                .map(|v| self.generator.dot(v.pos).clamp(-1.0, 1.0))
+                .fold(1.0f32, f32::min)
+        }
     }
 
     /// Check if we can terminate early based on security radius.
@@ -559,17 +593,10 @@ impl IncrementalCellBuilder {
         // if a vertex is at angle theta from the generator, any generator within
         // (theta + 2*eps) of that vertex must be within (2*theta + 2*eps) of the generator.
         // Use eps_cell as a worst-case bound over vertices to ensure candidate completeness.
-        let eps_cell = SUPPORT_VERTEX_ANGLE_EPS + SUPPORT_CLUSTER_RADIUS_ANGLE;
         let sin_theta = (1.0 - min_cos * min_cos).max(0.0).sqrt();
-        let (sin_eps, cos_eps) = (eps_cell as f32).sin_cos();
-        let cos_theta_eps = min_cos * cos_eps - sin_theta * sin_eps;
+        let cos_theta_eps = min_cos * self.cos_eps - sin_theta * self.sin_eps;
         let cos_2max = 2.0 * cos_theta_eps * cos_theta_eps - 1.0;
-        // Conservatively include support/certification margins in dot space.
-        let termination_margin = EPS_TERMINATION_MARGIN
-            + SUPPORT_CERT_MARGIN_ABS as f32
-            + 2.0 * SUPPORT_EPS_ABS as f32
-            + 2.0 * support_cluster_drift_dot() as f32;
-        next_neighbor_cos < cos_2max - termination_margin
+        next_neighbor_cos < cos_2max - self.termination_margin
     }
 
     /// Attempt to reseed using the best-conditioned triplet among all planes.
@@ -602,6 +629,8 @@ impl IncrementalCellBuilder {
                     self.edge_planes.clear();
                     self.dead = false;
                     self.seeded = false;
+                    self.cached_min_vertex_cos = 1.0;
+                    self.cached_min_vertex_cos_valid = false;
 
                     if !self.seed_from_triplet(a, b, c) {
                         continue;
@@ -622,6 +651,8 @@ impl IncrementalCellBuilder {
         self.edge_planes.clear();
         self.dead = false;
         self.seeded = false;
+        self.cached_min_vertex_cos = 1.0;
+        self.cached_min_vertex_cos_valid = false;
         if !self.seed_from_triplet(a, b, c) {
             return false;
         }
@@ -638,48 +669,6 @@ impl IncrementalCellBuilder {
         }
 
         self.vertices.len() >= 3
-    }
-
-    /// Fallback vertex extraction using position-based Quantized keys.
-    /// This is only called when F64CellBuilder fails (~0.1% of cells).
-    /// No certification is performed; vertices use position hashes for deduplication.
-    #[inline]
-    pub fn get_vertices_fallback(&self, pos_weld_chord: f64, out: &mut Vec<VertexData>) -> usize {
-        #[inline]
-        fn splitmix64(mut x: u64) -> u64 {
-            x = x.wrapping_add(0x9E37_79B9_7F4A_7C15);
-            let mut z = x;
-            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-            z ^ (z >> 31)
-        }
-
-        #[inline]
-        fn quantized_pos_key(pos: Vec3, step: f64) -> u64 {
-            let v = DVec3::new(pos.x as f64, pos.y as f64, pos.z as f64);
-            let v = if v.length_squared() > 0.0 {
-                v.normalize()
-            } else {
-                v
-            };
-            let s = (step * 2.0).max(1e-12);
-            let qx = (v.x / s).round() as i64;
-            let qy = (v.y / s).round() as i64;
-            let qz = (v.z / s).round() as i64;
-            let mut h = splitmix64(qx as u64);
-            h ^= splitmix64((qy as u64).wrapping_add(0xD1B5_4A32_D192_ED03));
-            h ^= splitmix64((qz as u64).wrapping_add(0x94D0_49BB_1331_11EB));
-            h
-        }
-
-        out.reserve(self.vertices.len());
-        let count = self.vertices.len();
-
-        for v in &self.vertices {
-            let key = VertexKey::Quantized(quantized_pos_key(v.pos, pos_weld_chord));
-            out.push((key, v.pos));
-        }
-        count
     }
 
     #[inline]
@@ -782,6 +771,11 @@ pub struct F64CellBuilder {
     edge_planes: Vec<usize>,
     seeded: bool,
     dead: bool,
+    cached_min_vertex_cos: f32,
+    cached_min_vertex_cos_valid: bool,
+    sin_eps: f32,
+    cos_eps: f32,
+    termination_margin: f32,
 }
 
 impl F64CellBuilder {
@@ -793,6 +787,12 @@ impl F64CellBuilder {
         } else {
             gen64
         };
+        let eps_cell = SUPPORT_VERTEX_ANGLE_EPS + SUPPORT_CLUSTER_RADIUS_ANGLE;
+        let (sin_eps, cos_eps) = (eps_cell as f32).sin_cos();
+        let termination_margin = EPS_TERMINATION_MARGIN
+            + SUPPORT_CERT_MARGIN_ABS as f32
+            + 2.0 * SUPPORT_EPS_ABS as f32
+            + 2.0 * support_cluster_drift_dot() as f32;
         Self {
             generator_idx,
             generator: gen64,
@@ -802,6 +802,11 @@ impl F64CellBuilder {
             edge_planes: Vec::with_capacity(32),
             seeded: false,
             dead: false,
+            cached_min_vertex_cos: 1.0,
+            cached_min_vertex_cos_valid: false,
+            sin_eps,
+            cos_eps,
+            termination_margin,
         }
     }
 
@@ -866,6 +871,7 @@ impl F64CellBuilder {
         let edge2 = v2 - v0;
         let normal = edge1.cross(edge2);
 
+        let mut min_cos = 1.0f32;
         if normal.dot(self.generator) >= 0.0 {
             // CCW winding when viewed from generator
             self.vertices.push(F64CellVertex {
@@ -873,16 +879,19 @@ impl F64CellBuilder {
                 plane_a: a,
                 plane_b: b,
             });
+            min_cos = min_cos.min(self.generator.dot(v0).clamp(-1.0, 1.0) as f32);
             self.vertices.push(F64CellVertex {
                 pos: v1,
                 plane_a: b,
                 plane_b: c,
             });
+            min_cos = min_cos.min(self.generator.dot(v1).clamp(-1.0, 1.0) as f32);
             self.vertices.push(F64CellVertex {
                 pos: v2,
                 plane_a: c,
                 plane_b: a,
             });
+            min_cos = min_cos.min(self.generator.dot(v2).clamp(-1.0, 1.0) as f32);
             self.edge_planes.push(b);
             self.edge_planes.push(c);
             self.edge_planes.push(a);
@@ -893,21 +902,26 @@ impl F64CellBuilder {
                 plane_a: a,
                 plane_b: b,
             });
+            min_cos = min_cos.min(self.generator.dot(v0).clamp(-1.0, 1.0) as f32);
             self.vertices.push(F64CellVertex {
                 pos: v2,
                 plane_a: c,
                 plane_b: a,
             });
+            min_cos = min_cos.min(self.generator.dot(v2).clamp(-1.0, 1.0) as f32);
             self.vertices.push(F64CellVertex {
                 pos: v1,
                 plane_a: b,
                 plane_b: c,
             });
+            min_cos = min_cos.min(self.generator.dot(v1).clamp(-1.0, 1.0) as f32);
             self.edge_planes.push(a);
             self.edge_planes.push(c);
             self.edge_planes.push(b);
         }
 
+        self.cached_min_vertex_cos = min_cos;
+        self.cached_min_vertex_cos_valid = true;
         true
     }
 
@@ -963,6 +977,8 @@ impl F64CellBuilder {
             self.vertices.clear();
             self.edge_planes.clear();
             self.dead = true;
+            self.cached_min_vertex_cos = 1.0;
+            self.cached_min_vertex_cos_valid = false;
             return;
         }
 
@@ -1023,19 +1039,28 @@ impl F64CellBuilder {
 
         new_vertices.push(entry_vertex);
         new_edge_planes.push(entry_edge_plane);
+        let mut min_cos = self
+            .generator
+            .dot(entry_vertex.pos)
+            .clamp(-1.0, 1.0) as f32;
 
         let mut i = (entry_idx + 1) % n;
         while i != (exit_idx + 1) % n {
-            new_vertices.push(self.vertices[i]);
+            let v = self.vertices[i];
+            min_cos = min_cos.min(self.generator.dot(v.pos).clamp(-1.0, 1.0) as f32);
+            new_vertices.push(v);
             new_edge_planes.push(self.edge_planes[i]);
             i = (i + 1) % n;
         }
 
         new_vertices.push(exit_vertex);
         new_edge_planes.push(plane_idx);
+        min_cos = min_cos.min(self.generator.dot(exit_vertex.pos).clamp(-1.0, 1.0) as f32);
 
         self.vertices = new_vertices;
         self.edge_planes = new_edge_planes;
+        self.cached_min_vertex_cos = min_cos;
+        self.cached_min_vertex_cos_valid = true;
     }
 
     /// Add a neighbor and clip the cell.
@@ -1120,10 +1145,14 @@ impl F64CellBuilder {
     /// Returns 1.0 if no vertices.
     #[inline]
     pub fn min_vertex_cos(&self) -> f64 {
-        self.vertices
-            .iter()
-            .map(|v| self.generator.dot(v.pos).clamp(-1.0, 1.0))
-            .fold(1.0f64, f64::min)
+        if self.cached_min_vertex_cos_valid {
+            self.cached_min_vertex_cos as f64
+        } else {
+            self.vertices
+                .iter()
+                .map(|v| self.generator.dot(v.pos).clamp(-1.0, 1.0))
+                .fold(1.0f64, f64::min)
+        }
     }
 
     /// Check if we can terminate early based on security radius.
@@ -1142,17 +1171,10 @@ impl F64CellBuilder {
         // if a vertex is at angle theta from the generator, any generator within
         // (theta + 2*eps) of that vertex must be within (2*theta + 2*eps) of the generator.
         // Use eps_cell as a worst-case bound over vertices to ensure candidate completeness.
-        let eps_cell = SUPPORT_VERTEX_ANGLE_EPS + SUPPORT_CLUSTER_RADIUS_ANGLE;
         let sin_theta = (1.0 - min_cos * min_cos).max(0.0).sqrt();
-        let (sin_eps, cos_eps) = (eps_cell as f32).sin_cos();
-        let cos_theta_eps = min_cos * cos_eps - sin_theta * sin_eps;
+        let cos_theta_eps = min_cos * self.cos_eps - sin_theta * self.sin_eps;
         let cos_2max = 2.0 * cos_theta_eps * cos_theta_eps - 1.0;
-        // Conservatively include support/certification margins in dot space.
-        let termination_margin = EPS_TERMINATION_MARGIN
-            + SUPPORT_CERT_MARGIN_ABS as f32
-            + 2.0 * SUPPORT_EPS_ABS as f32
-            + 2.0 * support_cluster_drift_dot() as f32;
-        next_neighbor_cos < cos_2max - termination_margin
+        next_neighbor_cos < cos_2max - self.termination_margin
     }
 
     /// Attempt to reseed using the best-conditioned triplet among all planes.
@@ -1185,6 +1207,8 @@ impl F64CellBuilder {
                     self.edge_planes.clear();
                     self.dead = false;
                     self.seeded = false;
+                    self.cached_min_vertex_cos = 1.0;
+                    self.cached_min_vertex_cos_valid = false;
 
                     if !self.try_seed_from_triplet(a, b, c) {
                         continue;
@@ -1205,6 +1229,8 @@ impl F64CellBuilder {
         self.edge_planes.clear();
         self.dead = false;
         self.seeded = false;
+        self.cached_min_vertex_cos = 1.0;
+        self.cached_min_vertex_cos_valid = false;
         if !self.try_seed_from_triplet(a, b, c) {
             return false;
         }
@@ -1239,47 +1265,8 @@ impl F64CellBuilder {
         self.edge_planes.clear();
         self.seeded = false;
         self.dead = false;
-    }
-
-    /// Fallback vertex extraction using position-based Quantized keys.
-    /// This is only called when slack certification fails (~0.01% of cells).
-    /// No certification is performed; vertices use position hashes for deduplication.
-    pub fn get_vertices_fallback(&self, pos_weld_chord: f64, out: &mut Vec<VertexData>) -> usize {
-        #[inline]
-        fn splitmix64(mut x: u64) -> u64 {
-            x = x.wrapping_add(0x9E37_79B9_7F4A_7C15);
-            let mut z = x;
-            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-            z ^ (z >> 31)
-        }
-
-        #[inline]
-        fn quantized_pos_key(pos: DVec3, step: f64) -> u64 {
-            let v = if pos.length_squared() > 0.0 {
-                pos.normalize()
-            } else {
-                pos
-            };
-            let s = (step * 2.0).max(1e-12);
-            let qx = (v.x / s).round() as i64;
-            let qy = (v.y / s).round() as i64;
-            let qz = (v.z / s).round() as i64;
-            let mut h = splitmix64(qx as u64);
-            h ^= splitmix64((qy as u64).wrapping_add(0xD1B5_4A32_D192_ED03));
-            h ^= splitmix64((qz as u64).wrapping_add(0x94D0_49BB_1331_11EB));
-            h
-        }
-
-        out.reserve(self.vertices.len());
-        let count = self.vertices.len();
-
-        for v in &self.vertices {
-            let pos_f32 = Vec3::new(v.pos.x as f32, v.pos.y as f32, v.pos.z as f32).normalize();
-            let key = VertexKey::Quantized(quantized_pos_key(v.pos, pos_weld_chord));
-            out.push((key, pos_f32));
-        }
-        count
+        self.cached_min_vertex_cos = 1.0;
+        self.cached_min_vertex_cos_valid = false;
     }
 
     /// Iterator over vertices for testing/inspection.

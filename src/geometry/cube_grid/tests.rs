@@ -1,51 +1,235 @@
 use super::*;
-use crate::geometry::fibonacci_sphere_points_with_rng;
+use crate::geometry::{fibonacci_sphere_points_with_rng, random_sphere_points_with_rng};
 use crate::geometry::gpu_voronoi::{build_kdtree, find_k_nearest as kiddo_find_k_nearest};
 use glam::Vec3;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
+use std::collections::HashSet;
 
-const TARGET_POINTS_PER_CELL: f64 = 24.0;
-
-fn default_res(n: usize) -> usize {
-    ((n as f64 / (6.0 * TARGET_POINTS_PER_CELL)).sqrt() as usize).max(4)
+fn mean_spacing(num_points: usize) -> f32 {
+    if num_points == 0 {
+        return 0.0;
+    }
+    (4.0 * std::f32::consts::PI / num_points as f32).sqrt()
 }
 
-fn generate_test_points(n: usize, seed: u64) -> Vec<Vec3> {
+fn gen_fibonacci(n: usize, seed: u64, jitter_scale: f32) -> Vec<Vec3> {
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
-    let mean_spacing = (4.0 * std::f32::consts::PI / n as f32).sqrt();
-    let jitter = mean_spacing * 0.25;
+    let jitter = mean_spacing(n) * jitter_scale;
     fibonacci_sphere_points_with_rng(n, jitter, &mut rng)
 }
 
-#[test]
-fn test_cube_grid_basic() {
-    let points = generate_test_points(10_000, 12345);
-    let grid = CubeMapGrid::new(&points, 20);
+fn gen_random(n: usize, seed: u64) -> Vec<Vec3> {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    random_sphere_points_with_rng(n, &mut rng)
+}
 
-    let stats = grid.stats();
-    println!("Grid stats: {:?}", stats);
+fn res_for_target(n: usize, target_points_per_cell: f64) -> usize {
+    ((n as f64 / (6.0 * target_points_per_cell)).sqrt() as usize).max(4)
+}
 
-    // Check that all points are accounted for
-    assert_eq!(stats.num_points, 10_000);
+fn brute_force_knn(points: &[Vec3], query_idx: usize, k: usize) -> Vec<usize> {
+    if k == 0 || points.len() <= 1 {
+        return Vec::new();
+    }
+    let k = k.min(points.len() - 1);
+    let query = points[query_idx];
 
-    // Check reasonable distribution
-    assert!(stats.avg_points_per_cell > 1.0);
-    assert!(stats.max_points_per_cell < 500); // Not too uneven
+    let mut items: Vec<(f32, usize)> = Vec::with_capacity(points.len().saturating_sub(1));
+    for (i, &p) in points.iter().enumerate() {
+        if i == query_idx {
+            continue;
+        }
+        items.push((unit_vec_dist_sq(p, query), i));
+    }
+    items.sort_unstable_by(|(da, ia), (db, ib)| da.total_cmp(db).then_with(|| ia.cmp(ib)));
+    items.into_iter().take(k).map(|(_, i)| i).collect()
+}
+
+fn assert_knn_basic_invariants(points_len: usize, query_idx: usize, k: usize, out: &[usize]) {
+    assert!(query_idx < points_len);
+    let expected_len = if k == 0 || points_len <= 1 {
+        0
+    } else {
+        k.min(points_len - 1)
+    };
+    assert_eq!(out.len(), expected_len);
+    assert!(!out.iter().any(|&i| i == query_idx));
+    let set: HashSet<_> = out.iter().copied().collect();
+    assert_eq!(set.len(), out.len(), "duplicates in knn output");
+}
+
+fn assert_sorted_by_distance(points: &[Vec3], query_idx: usize, out: &[usize]) {
+    if out.is_empty() {
+        return;
+    }
+    let q = points[query_idx];
+    let mut prev = -1.0f32;
+    for &idx in out {
+        let d = unit_vec_dist_sq(points[idx], q);
+        assert!(d >= prev);
+        prev = d;
+    }
+}
+
+fn assert_set_eq(a: &[usize], b: &[usize]) {
+    let sa: HashSet<_> = a.iter().copied().collect();
+    let sb: HashSet<_> = b.iter().copied().collect();
+    assert_eq!(sa, sb);
 }
 
 #[test]
-fn test_cube_grid_cell_bounds_are_conservative() {
-    // Sanity check: random points inside some cells should be within the precomputed cap.
-    // This doesn't prove correctness but guards against gross underestimation.
+fn cube_grid_edge_cases_do_not_panic() {
+    let grid = CubeMapGrid::new(&[], 4);
+    let mut scratch = grid.make_scratch();
+    let mut out = Vec::new();
+    grid.find_k_nearest_with_scratch_into(&[], Vec3::X, 0, 0, &mut scratch, &mut out);
+    assert!(out.is_empty());
+
+    let points = vec![Vec3::X];
+    let grid = CubeMapGrid::new(&points, 4);
+    let mut scratch = grid.make_scratch();
+    grid.find_k_nearest_with_scratch_into(&points, points[0], 0, 12, &mut scratch, &mut out);
+    assert!(out.is_empty());
+
+    let points = vec![Vec3::X, Vec3::Y];
+    let grid = CubeMapGrid::new(&points, 4);
+    let mut scratch = grid.make_scratch();
+    grid.find_k_nearest_with_scratch_into(&points, points[0], 0, 12, &mut scratch, &mut out);
+    assert_eq!(out, vec![1]);
+}
+
+#[test]
+fn cube_grid_point_cell_map_matches_projection() {
+    let points = gen_fibonacci(50_000, 123, 0.05);
+    let grid = CubeMapGrid::new(&points, res_for_target(points.len(), 24.0));
+
+    for i in (0..points.len()).step_by(997) {
+        assert_eq!(grid.point_index_to_cell(i), grid.point_to_cell(points[i]));
+    }
+}
+
+#[test]
+fn cube_grid_matches_bruteforce_small_exact() {
+    let sizes = [32usize, 128, 2048];
+    let ks = [1usize, 3, 12, 24];
+    let res_targets = [8.0f64, 24.0, 50.0];
+
+    for &n in &sizes {
+        let points = gen_fibonacci(n, 12345, 0.1);
+        for &target in &res_targets {
+            let res = res_for_target(n, target);
+            let grid = CubeMapGrid::new(&points, res);
+            let mut scratch = grid.make_scratch();
+            let mut out = Vec::new();
+            let mut out_dot = Vec::new();
+
+            for &k in &ks {
+                let k = k.min(n.saturating_sub(1));
+                if k == 0 {
+                    continue;
+                }
+
+                for qi in (0..n).step_by((n / 16).max(1)) {
+                    let expected = brute_force_knn(&points, qi, k);
+
+                    grid.find_k_nearest_with_scratch_into(
+                        &points,
+                        points[qi],
+                        qi,
+                        k,
+                        &mut scratch,
+                        &mut out,
+                    );
+                    assert_knn_basic_invariants(n, qi, k, &out);
+                    assert_sorted_by_distance(&points, qi, &out);
+                    assert_set_eq(&out, &expected);
+
+                    grid.find_k_nearest_with_scratch_into_dot_topk(
+                        &points,
+                        points[qi],
+                        qi,
+                        k,
+                        &mut scratch,
+                        &mut out_dot,
+                    );
+                    assert_knn_basic_invariants(n, qi, k, &out_dot);
+                    assert_sorted_by_distance(&points, qi, &out_dot);
+                    assert_eq!(out_dot, expected, "dot-topk should match brute-force order");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn cube_grid_resumable_matches_bruteforce() {
+    let n = 20_000;
+    let points = gen_fibonacci(n, 12345, 0.1);
+    let grid = CubeMapGrid::new(&points, res_for_target(n, 24.0));
+    let mut scratch = grid.make_scratch();
+    let mut out = Vec::new();
+
+    for qi in (0..n).step_by(251) {
+        // Start at k=12, track up to 48 and resume.
+        let status = grid.find_k_nearest_resumable_into(
+            &points,
+            points[qi],
+            qi,
+            12,
+            48,
+            &mut scratch,
+            &mut out,
+        );
+        let expected12 = brute_force_knn(&points, qi, 12);
+        assert_knn_basic_invariants(n, qi, 12, &out);
+        assert_sorted_by_distance(&points, qi, &out);
+        assert_set_eq(&out, &expected12);
+        assert!(matches!(status, KnnStatus::CanResume | KnnStatus::Exhausted));
+
+        let _ = grid.resume_k_nearest_into(&points, points[qi], qi, 24, &mut scratch, &mut out);
+        let expected24 = brute_force_knn(&points, qi, 24);
+        assert_knn_basic_invariants(n, qi, 24, &out);
+        assert_sorted_by_distance(&points, qi, &out);
+        assert_set_eq(&out, &expected24);
+
+        let _ = grid.resume_k_nearest_into(&points, points[qi], qi, 48, &mut scratch, &mut out);
+        let expected48 = brute_force_knn(&points, qi, 48);
+        assert_knn_basic_invariants(n, qi, 48, &out);
+        assert_sorted_by_distance(&points, qi, &out);
+        assert_set_eq(&out, &expected48);
+    }
+}
+
+#[test]
+fn cube_grid_resume_beyond_track_limit_falls_back_to_exact() {
+    let n = 10_000;
+    let points = gen_random(n, 999);
+    let grid = CubeMapGrid::new(&points, res_for_target(n, 24.0));
+    let mut scratch = grid.make_scratch();
+    let mut out = Vec::new();
+
+    let qi = 1234;
+    let _ = grid.find_k_nearest_resumable_into(&points, points[qi], qi, 12, 12, &mut scratch, &mut out);
+    let status = grid.resume_k_nearest_into(&points, points[qi], qi, 24, &mut scratch, &mut out);
+    assert_eq!(status, KnnStatus::Exhausted);
+    let expected24 = brute_force_knn(&points, qi, 24);
+    assert_knn_basic_invariants(n, qi, 24, &out);
+    assert_sorted_by_distance(&points, qi, &out);
+    assert_set_eq(&out, &expected24);
+}
+
+#[test]
+fn cube_grid_cell_bounds_are_conservative() {
+    // Sanity check: random points inside a cell are within the precomputed cap.
     use rand::Rng;
 
-    let points = generate_test_points(10_000, 12345);
+    let points = gen_fibonacci(10_000, 12345, 0.1);
     let grid = CubeMapGrid::new(&points, 32);
     let mut rng = rand::thread_rng();
 
     let num_cells = 6 * grid.res * grid.res;
-    for _ in 0..100 {
+    for _ in 0..200 {
         let cell = rng.gen_range(0..num_cells);
         let (face, iu, iv) = cell_to_face_ij(cell, grid.res);
         let u0 = (iu as f32) / grid.res as f32 * 2.0 - 1.0;
@@ -56,450 +240,67 @@ fn test_cube_grid_cell_bounds_are_conservative() {
         let center = grid.cell_centers[cell];
         let cap_angle = grid.cell_cos_radius[cell].clamp(-1.0, 1.0).acos() + 1e-3;
 
-        for _ in 0..100 {
+        for _ in 0..50 {
             let u = rng.gen_range(u0..u1);
             let v = rng.gen_range(v0..v1);
             let p = face_uv_to_3d(face, u, v);
             let ang = center.dot(p).clamp(-1.0, 1.0).acos();
-            assert!(
-                ang <= cap_angle,
-                "cell cap underestimates (ang={ang}, cap={cap_angle})"
-            );
+            assert!(ang <= cap_angle, "cell cap underestimates (ang={ang}, cap={cap_angle})");
         }
     }
 }
 
 #[test]
-#[ignore] // Run with: cargo test test_cube_grid_exhaustive -- --ignored --nocapture
-fn test_cube_grid_exhaustive() {
-    use std::collections::HashSet;
+#[ignore] // Run with: cargo test cube_grid_stress_vs_kiddo_100k --release -- --ignored --nocapture
+fn cube_grid_stress_vs_kiddo_100k() {
+    let n = 100_000;
+    let k = 24;
+    let points = gen_fibonacci(n, 12345, 0.1);
+    let grid = CubeMapGrid::new(&points, res_for_target(n, 24.0));
+    let (tree, entries) = build_kdtree(&points);
 
-    println!("\n=== Exhaustive CubeMapGrid Correctness Test ===\n");
-
-    for &n in &[10_000usize, 50_000] {
-        // Skip small n where resolution is problematic
-        let points = generate_test_points(n, 12345);
-        let k = 24;
-        let res = default_res(n);
-
-        let grid = CubeMapGrid::new(&points, res);
-        let mut scratch = grid.make_scratch();
-        let (tree, entries) = build_kdtree(&points);
-
-        let mut exact_match = 0;
-        let mut missing_neighbors = 0;
-        let mut wrong_neighbors = 0;
-        let mut worst_overlap = k;
-
-        let mut first_failure_printed = false;
-        for i in 0..n {
-            let grid_knn = grid.find_k_nearest_with_scratch(&points, points[i], i, k, &mut scratch);
-            let kiddo_knn = kiddo_find_k_nearest(&tree, &entries, points[i], i, k);
-
-            let grid_set: HashSet<_> = grid_knn.iter().copied().collect();
-            let kiddo_set: HashSet<_> = kiddo_knn.iter().copied().collect();
-
-            let overlap = grid_set.intersection(&kiddo_set).count();
-            worst_overlap = worst_overlap.min(overlap);
-
-            if grid_set == kiddo_set {
-                exact_match += 1;
-            } else {
-                // Check if grid is missing valid neighbors
-                let missing: Vec<_> = kiddo_set.difference(&grid_set).copied().collect();
-                let extra: Vec<_> = grid_set.difference(&kiddo_set).copied().collect();
-
-                if !missing.is_empty() {
-                    missing_neighbors += 1;
-                    // Verify the missing ones are actually closer
-                    let query = points[i];
-                    for &m in &missing {
-                        let missing_dist = (points[m] - query).length_squared();
-                        // Check if any extra neighbor is farther
-                        for &e in &extra {
-                            let extra_dist = (points[e] - query).length_squared();
-                            if extra_dist > missing_dist + 1e-9 {
-                                wrong_neighbors += 1;
-                            }
-                        }
-                    }
-
-                    // Print first failure for debugging
-                    if !first_failure_printed {
-                        first_failure_printed = true;
-                        let cell = grid.point_to_cell(query);
-                        let neighbors = grid.cell_neighbors(cell);
-                        let valid_neighbors: Vec<_> =
-                            neighbors.iter().filter(|&&c| c != u32::MAX).collect();
-                        let total_candidates: usize = valid_neighbors
-                            .iter()
-                            .map(|&&c| grid.cell_points(c as usize).len())
-                            .sum();
-                        println!(
-                            "  First mismatch at i={}: cell={} neighbors={:?} candidates={}",
-                            i,
-                            cell,
-                            valid_neighbors.len(),
-                            total_candidates
-                        );
-                        println!(
-                            "    grid_knn.len()={} grid_set.len()={} (DUPLICATES={})",
-                            grid_knn.len(),
-                            grid_set.len(),
-                            grid_knn.len() - grid_set.len()
-                        );
-                        println!(
-                            "    overlap={}, missing={}, extra={}",
-                            overlap,
-                            missing.len(),
-                            extra.len()
-                        );
-                        // Print the neighbor cells to check for duplicates
-                        println!("    neighbor_cells: {:?}", neighbors);
-                    }
-                }
-            }
-        }
-
-        let match_pct = exact_match as f64 / n as f64 * 100.0;
-        println!(
-            "n={:>5} res={:>2}: exact={}/{} ({:.1}%) missing={} wrong={} worst_overlap={}/{}",
-            n, res, exact_match, n, match_pct, missing_neighbors, wrong_neighbors, worst_overlap, k
-        );
-
-        // Strict correctness requirement
-        assert_eq!(
-            wrong_neighbors, 0,
-            "Grid returned farther neighbors than kiddo!"
-        );
-    }
-
-    println!("\nAll tests passed - no incorrect neighbors returned.");
-}
-
-#[test]
-#[ignore] // Run with: cargo test bench_candidate_structures -- --ignored --nocapture
-fn bench_candidate_structures() {
-    use rand::Rng;
-    use smallvec::SmallVec;
-    use std::collections::BinaryHeap;
-    use std::time::Instant;
-
-    println!("\n=== Candidate Structure Microbench ===\n");
-    println!("Measures per-insert maintenance cost for keeping the best k distances.\n");
-
-    let mut rng = rand::thread_rng();
-    let ops = 200_000usize;
-    let ks = [8usize, 12, 24, 48, 96, 192];
-
-    // Generate (dist, idx) samples once so all strategies see the same inputs.
-    let mut samples: Vec<(f32, u32)> = Vec::with_capacity(ops);
-    for i in 0..ops {
-        // Distances in [0, 4] (unit-chord squared range is [0,4]).
-        let d = rng.gen::<f32>() * 4.0;
-        samples.push((d, i as u32));
-    }
-
-    fn vec_insert_best_k(buf: &mut Vec<(f32, u32)>, d: f32, idx: u32, k: usize) {
-        if k == 0 {
-            return;
-        }
-        if buf.len() == k && d >= buf[k - 1].0 {
-            return;
-        }
-        let pos = buf.partition_point(|&(bd, _)| bd < d);
-        buf.insert(pos, (d, idx));
-        if buf.len() > k {
-            buf.pop();
-        }
-    }
-
-    fn smallvec_insert_best_k(buf: &mut SmallVec<[(f32, u32); 48]>, d: f32, idx: u32, k: usize) {
-        if k == 0 {
-            return;
-        }
-        if buf.len() == k && d >= buf[k - 1].0 {
-            return;
-        }
-        let pos = buf.partition_point(|&(bd, _)| bd < d);
-        buf.insert(pos, (d, idx));
-        if buf.len() > k {
-            buf.pop();
-        }
-    }
-
-    fn heap_insert_best_k(heap: &mut BinaryHeap<(OrdF32, u32)>, d: f32, idx: u32, k: usize) {
-        if k == 0 || d.is_nan() {
-            return;
-        }
-        let d = OrdF32::new(d);
-        if heap.len() < k {
-            heap.push((d, idx));
-            return;
-        }
-        if let Some((worst_d, _)) = heap.peek() {
-            if d >= *worst_d {
-                return;
-            }
-        }
-        heap.pop();
-        heap.push((d, idx));
-    }
-
-    for &k in &ks {
-        println!("\n-- k={} --", k);
-
-        // Vec
-        let mut v: Vec<(f32, u32)> = Vec::with_capacity(k.min(256));
-        let t0 = Instant::now();
-        for &(d, idx) in &samples {
-            vec_insert_best_k(&mut v, d, idx, k);
-        }
-        let dt = t0.elapsed();
-        println!(
-            "Vec sorted insert:   {:>8.2} ns/op",
-            dt.as_secs_f64() * 1e9 / ops as f64
-        );
-
-        // SmallVec (inline up to 48, spills for larger)
-        let mut sv: SmallVec<[(f32, u32); 48]> = SmallVec::new();
-        sv.reserve(k.min(256));
-        let t0 = Instant::now();
-        for &(d, idx) in &samples {
-            smallvec_insert_best_k(&mut sv, d, idx, k);
-        }
-        let dt = t0.elapsed();
-        println!(
-            "SmallVec sorted ins: {:>8.2} ns/op",
-            dt.as_secs_f64() * 1e9 / ops as f64
-        );
-
-        // Heap (max-heap keeps best k)
-        let mut heap: BinaryHeap<(OrdF32, u32)> = BinaryHeap::new();
-        let t0 = Instant::now();
-        for &(d, idx) in &samples {
-            heap_insert_best_k(&mut heap, d, idx, k);
-        }
-        let dt = t0.elapsed();
-        println!(
-            "BinaryHeap top-k:    {:>8.2} ns/op",
-            dt.as_secs_f64() * 1e9 / ops as f64
-        );
-    }
-}
-
-#[test]
-#[ignore] // Run with: cargo test bench_cube_grid_knn -- --ignored --nocapture
-fn bench_cube_grid_knn() {
-    use std::time::Instant;
-
-    println!("\n=== CubeMapGrid k-NN Benchmark ===\n");
-
-    let n = 200_000;
-    let points = generate_test_points(n, 12345);
-    let res = default_res(n);
-    let grid = CubeMapGrid::new(&points, res);
     let mut scratch = grid.make_scratch();
-
-    let query_count = 20_000usize;
     let mut out = Vec::new();
 
-    // (k, track_limit) pairs to exercise small/large modes.
-    let configs: &[(usize, usize, &str)] = &[
-        (12, 12, "small (k=12)"),
-        (24, 24, "small (k=24)"),
-        (48, 48, "small (k=48)"),
-        (96, 96, "large (k=96)"),
-        (192, 192, "large (k=192)"),
-        (12, 256, "large track (k=12, track=256)"),
-    ];
-
-    for &(k, track, label) in configs {
-        let t0 = Instant::now();
-        let mut checksum = 0usize;
-
-        for i in 0..query_count {
-            let qi = (i * 97) % n;
-            let q = points[qi];
-            grid.find_k_nearest_resumable_into(&points, q, qi, k, track, &mut scratch, &mut out);
-            // Touch output to prevent optimizer eliminating the call.
-            checksum ^= out.get(0).copied().unwrap_or(0);
-        }
-
-        let dt = t0.elapsed();
-        let ns_per = dt.as_secs_f64() * 1e9 / query_count as f64;
-        println!(
-            "{:<22} {:>8.2} ns/query (checksum={})",
-            label, ns_per, checksum
+    for qi in (0..n).step_by(997) {
+        grid.find_k_nearest_with_scratch_into_dot_topk(
+            &points,
+            points[qi],
+            qi,
+            k,
+            &mut scratch,
+            &mut out,
         );
+        let kiddo = kiddo_find_k_nearest(&tree, &entries, points[qi], qi, k);
+        assert_knn_basic_invariants(n, qi, k, &out);
+        assert_set_eq(&out, &kiddo);
     }
 }
 
 #[test]
-#[ignore] // Run with: cargo test test_cube_grid_vs_kiddo -- --ignored --nocapture
-fn test_cube_grid_vs_kiddo() {
-    use std::time::Instant;
+#[ignore] // Run with: cargo test cube_grid_stress_vs_kiddo_1m --release -- --ignored --nocapture
+fn cube_grid_stress_vs_kiddo_1m() {
+    let n = 1_000_000;
+    let k = 24;
+    let points = gen_fibonacci(n, 12345, 0.0);
+    let grid = CubeMapGrid::new(&points, res_for_target(n, 8.0));
+    let (tree, entries) = build_kdtree(&points);
 
-    println!("\n=== CubeMapGrid vs Kiddo k-NN Comparison ===\n");
+    let mut scratch = grid.make_scratch();
+    let mut out = Vec::new();
 
-    for &n in &[10_000usize, 100_000, 500_000, 1_000_000, 2_000_000] {
-        let points = generate_test_points(n, 12345);
-        let k = 24;
-
-        // Target ~24 points per cell
-        let res = default_res(n);
-
-        // Build cube grid
-        let t0 = Instant::now();
-        let grid = CubeMapGrid::new(&points, res);
-        let grid_build = t0.elapsed().as_secs_f64() * 1000.0;
-
-        // Build kiddo tree
-        let t0 = Instant::now();
-        let (tree, entries) = build_kdtree(&points);
-        let kiddo_build = t0.elapsed().as_secs_f64() * 1000.0;
-
-        // Query timing - sample 1000 points
-        let sample_size = 1000.min(n);
-
-        let t0 = Instant::now();
-        let mut scratch = grid.make_scratch();
-        let mut grid_results: Vec<Vec<usize>> = Vec::with_capacity(sample_size);
-        for i in 0..sample_size {
-            grid_results.push(grid.find_k_nearest_with_scratch(
-                &points,
-                points[i],
-                i,
-                k,
-                &mut scratch,
-            ));
-        }
-        let grid_query = t0.elapsed().as_secs_f64() * 1000.0;
-
-        let t0 = Instant::now();
-        let kiddo_results: Vec<Vec<usize>> = (0..sample_size)
-            .map(|i| kiddo_find_k_nearest(&tree, &entries, points[i], i, k))
-            .collect();
-        let kiddo_query = t0.elapsed().as_secs_f64() * 1000.0;
-
-        // Compare results
-        let mut exact_matches = 0;
-        let mut partial_matches = 0;
-        let mut total_overlap = 0usize;
-
-        for (grid_knn, kiddo_knn) in grid_results.iter().zip(kiddo_results.iter()) {
-            let grid_set: std::collections::HashSet<_> = grid_knn.iter().collect();
-            let kiddo_set: std::collections::HashSet<_> = kiddo_knn.iter().collect();
-            let overlap = grid_set.intersection(&kiddo_set).count();
-
-            total_overlap += overlap;
-            if overlap == k {
-                exact_matches += 1;
-            } else if overlap >= k - 2 {
-                partial_matches += 1;
-            }
-        }
-
-        let stats = grid.stats();
-
-        println!(
-            "n={:>7} res={:>3} ({:.1} pts/cell, {} empty)",
-            n, res, stats.avg_points_per_cell, stats.empty_cells
+    for qi in (0..n).step_by(100_003) {
+        grid.find_k_nearest_with_scratch_into_dot_topk(
+            &points,
+            points[qi],
+            qi,
+            k,
+            &mut scratch,
+            &mut out,
         );
-        println!(
-            "  Build:  Grid={:>8.1}ms  Kiddo={:>8.1}ms  ({:.1}x)",
-            grid_build,
-            kiddo_build,
-            kiddo_build / grid_build
-        );
-        println!(
-            "  Query:  Grid={:>8.1}ms  Kiddo={:>8.1}ms  ({:.1}x) [{} samples]",
-            grid_query,
-            kiddo_query,
-            kiddo_query / grid_query,
-            sample_size
-        );
-        // Extrapolated total time for all n queries
-        let grid_total_est = grid_build + (grid_query / sample_size as f64) * n as f64;
-        let kiddo_total_est = kiddo_build + (kiddo_query / sample_size as f64) * n as f64;
-
-        println!(
-            "  Match:  exact={}/{} partial={} avg_overlap={:.1}/{}",
-            exact_matches,
-            sample_size,
-            partial_matches,
-            total_overlap as f64 / sample_size as f64,
-            k
-        );
-        println!(
-            "  Est total (build + all queries): Grid={:.0}ms  Kiddo={:.0}ms",
-            grid_total_est, kiddo_total_est
-        );
-        println!();
+        let kiddo = kiddo_find_k_nearest(&tree, &entries, points[qi], qi, k);
+        assert_knn_basic_invariants(n, qi, k, &out);
+        assert_set_eq(&out, &kiddo);
     }
 }
 
-#[test]
-#[ignore] // Run with: cargo test test_cube_grid_parallel -- --ignored --nocapture
-fn test_cube_grid_parallel() {
-    use rayon::prelude::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::time::Instant;
-
-    println!("\n=== Parallel k-NN: CubeMapGrid vs Kiddo ===\n");
-
-    // Test one size at a time to reduce memory pressure
-    for &n in &[100_000usize, 500_000, 1_000_000, 2_000_000] {
-        let points = generate_test_points(n, 12345);
-        let k = 24;
-        let res = default_res(n);
-
-        // Grid: build + query (don't store results, just count)
-        let t0 = Instant::now();
-        let grid = CubeMapGrid::new(&points, res);
-        let grid_build = t0.elapsed().as_secs_f64() * 1000.0;
-
-        let count = AtomicUsize::new(0);
-        let t0 = Instant::now();
-        (0..n).into_par_iter().for_each_init(
-            || grid.make_scratch(),
-            |scratch, i| {
-                let knn = grid.find_k_nearest_with_scratch(&points, points[i], i, k, scratch);
-                count.fetch_add(knn.len(), Ordering::Relaxed);
-            },
-        );
-        let grid_query = t0.elapsed().as_secs_f64() * 1000.0;
-        let _ = count.load(Ordering::Relaxed); // prevent optimization
-
-        drop(grid); // Free memory before kiddo
-
-        // Kiddo: build + query
-        let t0 = Instant::now();
-        let (tree, entries) = build_kdtree(&points);
-        let kiddo_build = t0.elapsed().as_secs_f64() * 1000.0;
-
-        let count = AtomicUsize::new(0);
-        let t0 = Instant::now();
-        (0..n).into_par_iter().for_each(|i| {
-            let knn = kiddo_find_k_nearest(&tree, &entries, points[i], i, k);
-            count.fetch_add(knn.len(), Ordering::Relaxed);
-        });
-        let kiddo_query = t0.elapsed().as_secs_f64() * 1000.0;
-        let _ = count.load(Ordering::Relaxed);
-
-        let grid_total = grid_build + grid_query;
-        let kiddo_total = kiddo_build + kiddo_query;
-
-        println!("n={:>7}:", n);
-        println!(
-            "  Grid:  build={:>7.1}ms  query={:>7.1}ms  total={:>7.1}ms",
-            grid_build, grid_query, grid_total
-        );
-        println!(
-            "  Kiddo: build={:>7.1}ms  query={:>7.1}ms  total={:>7.1}ms",
-            kiddo_build, kiddo_query, kiddo_total
-        );
-        println!("  Speedup: {:.2}x", kiddo_total / grid_total);
-        println!();
-    }
-}

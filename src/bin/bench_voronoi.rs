@@ -11,7 +11,7 @@
 
 use clap::Parser;
 use glam::Vec3;
-use hex3::geometry::gpu_voronoi::compute_voronoi_gpu_style;
+use hex3::geometry::gpu_voronoi::{compute_voronoi_gpu_style, compute_voronoi_gpu_style_no_preprocess};
 use hex3::geometry::{fibonacci_sphere_points_with_rng, lloyd_relax_kmeans};
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -59,6 +59,10 @@ struct Args {
     /// Compare against convex hull ground truth (slow, max 100k)
     #[arg(long)]
     validate: bool,
+
+    /// Skip preprocessing (merge close points) - for benchmarking
+    #[arg(long)]
+    no_preprocess: bool,
 }
 
 fn generate_points(n: usize, seed: u64, lloyd: bool) -> Vec<Vec3> {
@@ -150,11 +154,15 @@ struct BenchResult {
     num_cells: usize,
 }
 
-fn run_benchmark(points: &[Vec3]) -> BenchResult {
+fn run_benchmark(points: &[Vec3], no_preprocess: bool) -> BenchResult {
     let n = points.len();
 
     let t0 = Instant::now();
-    let voronoi = compute_voronoi_gpu_style(points);
+    let voronoi = if no_preprocess {
+        compute_voronoi_gpu_style_no_preprocess(points)
+    } else {
+        compute_voronoi_gpu_style(points)
+    };
     let time_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
     BenchResult {
@@ -193,6 +201,10 @@ fn main() {
     #[cfg(feature = "timing")]
     println!("  timing = enabled (detailed sub-phase timing will be printed)");
 
+    if args.no_preprocess {
+        println!("  preprocess = DISABLED (skipping merge close points)");
+    }
+
     let mut results: Vec<BenchResult> = Vec::new();
 
     for n in &sizes {
@@ -205,7 +217,7 @@ fn main() {
         let gen_time = t_gen.elapsed().as_secs_f64() * 1000.0;
         println!("Point generation: {:.1}ms", gen_time);
 
-        let result = run_benchmark(&points);
+        let result = run_benchmark(&points, args.no_preprocess);
 
         println!("\nResults:");
         println!("  Total time:    {:>8.1}ms", result.time_ms);

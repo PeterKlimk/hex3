@@ -5,7 +5,7 @@
 /// 1. Numerically unstable bisector planes
 /// 2. Multiple close neighbors collectively killing cells
 /// 3. Orphan edges from inconsistent cell topologies
-pub const MIN_BISECTOR_DISTANCE: f32 = 1e-4;
+pub const MIN_BISECTOR_DISTANCE: f32 = 1e-5;
 
 /// Fraction of mean generator spacing used for near-duplicate thresholds in tests.
 pub const VERTEX_WELD_FRACTION: f32 = 0.01;

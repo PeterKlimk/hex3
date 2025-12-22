@@ -1965,7 +1965,7 @@ mod tests {
         let (flat_data, _timing) = build_cells_data_flat(&points, &knn, termination);
 
         // Dedup vertices
-        let (vertices, cells, cell_indices) = dedup_vertices_hash_flat(flat_data, false);
+        let (vertices, cells, cell_indices, _dedup_timing) = dedup_vertices_hash_flat(flat_data, false);
 
         // Build SphericalVoronoi
         let voronoi = crate::geometry::SphericalVoronoi::from_raw_parts(

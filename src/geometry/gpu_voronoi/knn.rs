@@ -84,7 +84,7 @@ impl<'a> KnnProvider for CubeMapGridKnn<'a> {
             out_indices.clear();
             return;
         }
-        self.grid.find_k_nearest_with_scratch_into(
+        self.grid.find_k_nearest_with_scratch_into_dot_topk(
             self.points,
             query,
             query_idx,

@@ -3,6 +3,7 @@
 use glam::Vec3;
 use rustc_hash::FxHashMap;
 
+use super::timing::{DedupSubPhases, Timer};
 use super::{FlatCellsData, VertexKey};
 use crate::geometry::VoronoiCell;
 
@@ -21,10 +22,9 @@ pub fn pack_triplet_u128(triplet: [usize; 3], bits: u32) -> u128 {
 /// Uses triplet keys for the common case and a support-list hash map for degeneracies.
 pub fn dedup_vertices_hash_flat(
     flat_data: FlatCellsData,
-    print_timing: bool,
-) -> (Vec<Vec3>, Vec<VoronoiCell>, Vec<usize>) {
-    use std::time::Instant;
-    let t0 = Instant::now();
+    _print_timing: bool,
+) -> (Vec<Vec3>, Vec<VoronoiCell>, Vec<usize>, DedupSubPhases) {
+    let t0 = Timer::start();
 
     let num_points = flat_data.num_cells();
     let total_indices: usize = flat_data
@@ -58,9 +58,15 @@ pub fn dedup_vertices_hash_flat(
     let mut heads: Vec<u32> = vec![NIL; num_points];
     let mut nodes: Vec<TripletNode> = Vec::with_capacity(expected_vertices);
     let mut support_map: FxHashMap<Vec<u32>, usize> = FxHashMap::default();
-    let mut quant_map: FxHashMap<u64, usize> = FxHashMap::default();
 
-    let t1 = Instant::now();
+    // Key counters for timing
+    #[cfg(feature = "timing")]
+    let mut triplet_keys = 0u64;
+    #[cfg(feature = "timing")]
+    let mut support_keys = 0u64;
+
+    let setup_time = t0.elapsed();
+    let t1 = Timer::start();
 
     #[inline(always)]
     fn pack_bc(b: u32, c: u32) -> u64 {
@@ -83,6 +89,10 @@ pub fn dedup_vertices_hash_flat(
                 let (key, pos) = chunk.vertices[chunk_vert_idx + local_i];
                 let idx = match key {
                     VertexKey::Triplet(triplet) => {
+                        #[cfg(feature = "timing")]
+                        {
+                            triplet_keys += 1;
+                        }
                         let a = triplet[0] as usize;
                         let bc = pack_bc(triplet[1], triplet[2]);
                         // Linear scan through linked list for cell `a`
@@ -114,6 +124,10 @@ pub fn dedup_vertices_hash_flat(
                         }
                     }
                     VertexKey::Support { start, len } => {
+                        #[cfg(feature = "timing")]
+                        {
+                            support_keys += 1;
+                        }
                         let start = start as usize;
                         let len = len as usize;
                         debug_assert!(
@@ -130,16 +144,6 @@ pub fn dedup_vertices_hash_flat(
                             idx
                         }
                     }
-                    VertexKey::Quantized(h) => {
-                        if let Some(&idx) = quant_map.get(&h) {
-                            idx
-                        } else {
-                            let idx = all_vertices.len();
-                            all_vertices.push(pos);
-                            quant_map.insert(h, idx);
-                            idx
-                        }
-                    }
                 };
                 cell_indices[base + local_i] = idx;
             }
@@ -153,43 +157,28 @@ pub fn dedup_vertices_hash_flat(
     debug_assert_eq!(cell_idx, num_points);
     debug_assert_eq!(write_idx, total_indices);
 
-    let t2 = Instant::now();
+    let lookup_time = t1.elapsed();
+    let t2 = Timer::start();
 
     // Deduplicate cell indices (removes consecutive duplicates after remapping)
     let (deduped_cells, deduped_indices) = deduplicate_cell_indices(&cells, &cell_indices);
-    let t3 = Instant::now();
 
-    if print_timing {
-        let mut pre_lt3 = 0usize;
-        let mut post_lt3 = 0usize;
-        let mut over_merged = 0usize;
-        for (cell, deduped) in cells.iter().zip(deduped_cells.iter()) {
-            let pre = cell.vertex_count();
-            let post = deduped.vertex_count();
-            if pre < 3 {
-                pre_lt3 += 1;
-            }
-            if post < 3 {
-                post_lt3 += 1;
-            }
-            if pre >= 3 && post < 3 {
-                over_merged += 1;
-            }
-        }
-        eprintln!(
-            "  [dedup-flat] setup: {:.1}ms, lookup: {:.1}ms, dedup_cells: {:.1}ms (support_keys={})",
-            (t1 - t0).as_secs_f64() * 1000.0,
-            (t2 - t1).as_secs_f64() * 1000.0,
-            (t3 - t2).as_secs_f64() * 1000.0,
-            support_map.len()
-        );
-        eprintln!(
-            "  [dedup-flat] pre_lt3={}, post_lt3={}, over_merged={}",
-            pre_lt3, post_lt3, over_merged
-        );
-    }
+    let cell_dedup_time = t2.elapsed();
 
-    (all_vertices, deduped_cells, deduped_indices)
+    // Build timing result
+    #[cfg(feature = "timing")]
+    let sub_phases = DedupSubPhases {
+        setup: setup_time,
+        lookup: lookup_time,
+        cell_dedup: cell_dedup_time,
+        triplet_keys,
+        support_keys,
+    };
+
+    #[cfg(not(feature = "timing"))]
+    let sub_phases = DedupSubPhases;
+
+    (all_vertices, deduped_cells, deduped_indices, sub_phases)
 }
 
 /// Remove duplicate vertex indices within each cell.

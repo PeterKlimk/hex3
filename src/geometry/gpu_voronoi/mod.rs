@@ -282,20 +282,12 @@ pub struct TerminationConfig {
 const ADAPTIVE_K_INITIAL: usize = 12;
 const ADAPTIVE_K_RESUME: usize = 24;
 const ADAPTIVE_K_RARE: usize = 48;
-const ADAPTIVE_K_TRACK_LIMIT: usize = ADAPTIVE_K_RESUME;
 
 // Default termination cadence:
 // - start near the end of the initial k pass
 // - then check roughly twice per initial-k window
-const DEFAULT_TERMINATION_CHECK_START: usize = ADAPTIVE_K_INITIAL.saturating_sub(2);
-const DEFAULT_TERMINATION_CHECK_STEP: usize = {
-    let step = ADAPTIVE_K_INITIAL / 2;
-    if step == 0 {
-        1
-    } else {
-        step
-    }
-};
+const DEFAULT_TERMINATION_CHECK_START: usize = 6;
+const DEFAULT_TERMINATION_CHECK_STEP: usize = 1;
 
 impl Default for TerminationConfig {
     fn default() -> Self {
@@ -324,7 +316,7 @@ impl TerminationConfig {
 ///
 /// Uses adaptive k-NN with early termination:
 /// 1. Fetch k=12 neighbors, clip, termination checks
-/// 2. If needed, resume to k=24, then k=48
+/// 2. If needed, re-query at k=24, then k=48
 /// 3. If still not terminated, full scan
 pub fn build_cells_data_flat(
     points: &[Vec3],
@@ -349,7 +341,7 @@ pub fn build_cells_data_flat(
                                         // Matches the scale used by strict validation / near-duplicate thresholds in tests.
     let pos_weld_chord: f64 = {
         let spacing = mean_generator_spacing_chord(n) as f64;
-        (spacing * VERTEX_WELD_FRACTION as f64).max(MIN_BISECTOR_DISTANCE as f64 * 0.25)
+        spacing * VERTEX_WELD_FRACTION as f64
     };
 
     let threads = rayon::current_num_threads().max(1);
@@ -412,18 +404,17 @@ pub fn build_cells_data_flat(
                 let mut did_full_scan_fallback = false;
                 let mut did_full_scan_recovery = false;
 
-                // Phase 1: Initial resumable k-NN query (k=12, track up to 24)
+                // Phase 1: Initial k-NN query (k=12)
                 let t_knn = Timer::start();
                 neighbors.clear();
-                let status = knn.knn_resumable_into(
+                knn.knn_into(
                     points[i],
                     i,
                     ADAPTIVE_K_INITIAL,
-                    ADAPTIVE_K_TRACK_LIMIT,
                     &mut scratch,
                     &mut neighbors,
                 );
-                let mut knn_exhausted = status == knn::KnnStatus::Exhausted;
+                let mut knn_exhausted = neighbors.len() < ADAPTIVE_K_INITIAL;
                 knn_exhausted_any |= knn_exhausted;
                 sub_accum.add_knn(t_knn.elapsed());
 
@@ -431,11 +422,10 @@ pub fn build_cells_data_flat(
 
                 // Process initial neighbors
                 let mut last_neighbor_cos: Option<f32> = None;
-                for idx in 0..neighbors.len() {
-                    let neighbor_idx = neighbors[idx];
+                for &neighbor_idx in &neighbors {
                     let neighbor = points[neighbor_idx];
                     builder.clip(neighbor_idx, neighbor);
-                    cell_neighbors_processed = idx + 1;
+                    cell_neighbors_processed += 1;
 
                     if termination.enabled && builder.vertex_count() >= 3 {
                         let neighbor_cos = points[i].dot(neighbor).clamp(-1.0, 1.0);
@@ -458,27 +448,19 @@ pub fn build_cells_data_flat(
                     }
                 }
 
-                // Phase 2: Resume to k=24 if needed (cheap - just slices buffer)
+                // Phase 2: Re-query at k=24 if needed
                 if termination.enabled && !terminated && !knn_exhausted {
                     used_fallback = true;
                     did_k24 = true;
                     let t_knn2 = Timer::start();
-                    let prev_count = neighbors.len();
-                    let status = knn.knn_resume_into(
-                        points[i],
-                        i,
-                        ADAPTIVE_K_RESUME,
-                        &mut scratch,
-                        &mut neighbors,
-                    );
-                    knn_exhausted = status == knn::KnnStatus::Exhausted;
+                    knn.knn_into(points[i], i, ADAPTIVE_K_RESUME, &mut scratch, &mut neighbors);
+                    knn_exhausted = neighbors.len() < ADAPTIVE_K_RESUME;
                     knn_exhausted_any |= knn_exhausted;
                     sub_accum.add_knn(t_knn2.elapsed());
 
-                    // Process new neighbors
+                    // Process (potentially overlapping) neighbors; skip ones we've already clipped.
                     let mut last_neighbor_cos: Option<f32> = None;
-                    for idx in prev_count..neighbors.len() {
-                        let neighbor_idx = neighbors[idx];
+                    for &neighbor_idx in &neighbors {
                         if builder.has_neighbor(neighbor_idx) {
                             continue;
                         }
@@ -642,18 +624,19 @@ pub fn build_cells_data_flat(
                 cell_full_scan_done.push(full_scan_done as u8);
                 cell_candidates_complete.push(candidates_complete as u8);
 
-                // Extract vertices - use certified keys if possible, fallback to quantized
+                // Extract vertices with certified keys
                 let t_cert = Timer::start();
-                let count = if !builder.is_dead() && builder.vertex_count() >= 3 {
-                    let cell_vertices = builder.to_vertex_data(points, &mut support_data);
-                    let c = cell_vertices.len();
-                    vertices.extend(cell_vertices);
-                    c
-                } else {
-                    // Cell construction failed, use position-based keys as fallback
-                    f64_fallback_cells += 1;
-                    builder.get_vertices_fallback(pos_weld_chord, &mut vertices)
-                };
+                if builder.is_dead() || builder.vertex_count() < 3 {
+                    panic!(
+                        "Cell {} construction failed: is_dead={}, vertex_count={}",
+                        i,
+                        builder.is_dead(),
+                        builder.vertex_count()
+                    );
+                }
+                let cell_vertices = builder.to_vertex_data(points, &mut support_data);
+                let count = cell_vertices.len();
+                vertices.extend(cell_vertices);
                 sub_accum.add_cert(t_cert.elapsed());
                 counts.push(count as u8);
             }
@@ -840,21 +823,26 @@ fn compute_voronoi_gpu_style_core(
     points: &[Vec3],
     termination: TerminationConfig,
     collect_stats: bool,
+    skip_preprocess: bool,
 ) -> CoreResult {
     use timing::{Timer, TimingBuilder};
 
     let mut tb = TimingBuilder::new();
 
     // Preprocessing: merge close points (not timed - separate from Voronoi computation)
-    let knn_for_merge = CubeMapGridKnn::new(points);
-    let merge_result = merge_close_points(points, MIN_BISECTOR_DISTANCE, &knn_for_merge);
-    let needs_remap = merge_result.num_merged > 0;
-
-    let effective_points = if needs_remap {
-        merge_result.effective_points
+    let (effective_points, merge_result) = if skip_preprocess {
+        (points.to_vec(), None)
     } else {
-        points.to_vec()
+        let knn_for_merge = CubeMapGridKnn::new(points);
+        let result = merge_close_points(points, MIN_BISECTOR_DISTANCE, &knn_for_merge);
+        let pts = if result.num_merged > 0 {
+            result.effective_points.clone()
+        } else {
+            points.to_vec()
+        };
+        (pts, Some(result))
     };
+    let needs_remap = merge_result.as_ref().map_or(false, |r| r.num_merged > 0);
 
     // Build KNN on effective points (this is the timed grid build)
     let t = Timer::start();
@@ -871,14 +859,15 @@ fn compute_voronoi_gpu_style_core(
     tb.set_cell_construction(t.elapsed(), cell_sub_timing.into_sub_phases());
 
     let t = Timer::start();
-    let (all_vertices, eff_cells, eff_cell_indices) =
+    let (all_vertices, eff_cells, eff_cell_indices, dedup_sub) =
         dedup::dedup_vertices_hash_flat(flat_data, false);
-    tb.set_dedup(t.elapsed());
+    tb.set_dedup(t.elapsed(), dedup_sub);
 
     // Remap cells back to original point indices if we merged
     let t = Timer::start();
     let (cells, cell_indices) = if needs_remap {
         use crate::geometry::VoronoiCell;
+        let merge_result = merge_result.as_ref().unwrap();
 
         // Each original point maps to an effective point's cell
         let mut new_cells = Vec::with_capacity(points.len());
@@ -925,7 +914,7 @@ fn compute_voronoi_gpu_style_core(
 /// ```
 pub fn compute_voronoi_gpu_style(points: &[Vec3]) -> crate::geometry::SphericalVoronoi {
     let termination = TerminationConfig::default();
-    compute_voronoi_gpu_style_core(points, termination, false).voronoi
+    compute_voronoi_gpu_style_core(points, termination, false, false).voronoi
 }
 
 /// Compute spherical Voronoi with statistics.
@@ -933,7 +922,7 @@ pub fn compute_voronoi_gpu_style_with_stats(
     points: &[Vec3],
 ) -> (crate::geometry::SphericalVoronoi, VoronoiStats) {
     let termination = TerminationConfig::default();
-    let result = compute_voronoi_gpu_style_core(points, termination, true);
+    let result = compute_voronoi_gpu_style_core(points, termination, true, false);
     (result.voronoi, result.stats.expect("stats requested"))
 }
 
@@ -942,7 +931,14 @@ pub fn compute_voronoi_gpu_style_with_termination(
     points: &[Vec3],
     termination: TerminationConfig,
 ) -> crate::geometry::SphericalVoronoi {
-    compute_voronoi_gpu_style_core(points, termination, false).voronoi
+    compute_voronoi_gpu_style_core(points, termination, false, false).voronoi
+}
+
+/// Compute spherical Voronoi WITHOUT preprocessing (merge close points).
+/// For benchmarking only - assumes points are already well-spaced.
+pub fn compute_voronoi_gpu_style_no_preprocess(points: &[Vec3]) -> crate::geometry::SphericalVoronoi {
+    let termination = TerminationConfig::default();
+    compute_voronoi_gpu_style_core(points, termination, false, true).voronoi
 }
 
 /// Benchmark result for comparing Voronoi methods.
