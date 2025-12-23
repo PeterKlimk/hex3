@@ -65,9 +65,9 @@ pub struct TerminationConfig {
 }
 
 // Keep the k-NN schedule and the default termination cadence in one place.
-pub(super) const KNN_RESUME_KS: [usize; 2] = [14, 20];
+pub(super) const KNN_RESUME_KS: [usize; 1] = [18];
 pub(super) const KNN_RESTART_MAX: usize = 48;
-pub(super) const KNN_RESTART_KS: [usize; 2] = [32, KNN_RESTART_MAX];
+pub(super) const KNN_RESTART_KS: [usize; 2] = [24, KNN_RESTART_MAX];
 
 // Default termination cadence:
 // - start near the end of the initial k pass

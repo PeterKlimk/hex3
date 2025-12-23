@@ -23,10 +23,13 @@ pub type VertexList = Vec<VertexData>;
 // Epsilon values are defined in constants.rs.
 
 /// Maximum number of planes (great circle boundaries) per cell.
-pub const MAX_PLANES: usize = 24;
+pub const MAX_PLANES: usize = 48;
 
 /// Maximum number of vertices (plane triplet intersections) per cell.
-pub const MAX_VERTICES: usize = 32;
+pub const MAX_VERTICES: usize = 48;
+
+/// Maximum scratch buffer size (n+2 for clipping operations).
+const MAX_SCRATCH: usize = 50;
 
 /// Compute geodesic distance between two points on unit sphere.
 #[inline]
@@ -92,28 +95,42 @@ impl F64GreatCircle {
     }
 }
 
-/// A vertex in the f64 cell polygon.
-#[derive(Debug, Clone, Copy)]
-struct F64CellVertex {
-    pos: DVec3,
-    plane_a: usize,
-    plane_b: usize,
-}
-
 /// High-precision cell builder using f64 arithmetic throughout.
 /// Used as fallback when f32 certification fails.
+///
+/// Uses fixed-size stack arrays instead of Vec for better cache locality
+/// and to avoid heap allocations. Vertices are stored in SoA layout.
 #[derive(Debug, Clone)]
 pub struct F64CellBuilder {
     generator_idx: usize,
     generator: DVec3,
-    planes: Vec<F64GreatCircle>,
-    neighbor_indices: Vec<usize>,
-    vertices: Vec<F64CellVertex>,
-    edge_planes: Vec<usize>,
-    // Scratch buffers to avoid per-clip allocations.
-    scratch_inside: Vec<u8>,
-    scratch_vertices: Vec<F64CellVertex>,
-    scratch_edge_planes: Vec<usize>,
+
+    // Planes - stored as normals (DVec3 is simpler than SoA for 3 elements)
+    plane_normals: [DVec3; MAX_PLANES],
+    neighbor_indices: [usize; MAX_PLANES],
+    plane_count: usize,
+
+    // Vertices as SoA (Structure of Arrays) for cache-friendly access
+    vertex_x: [f64; MAX_VERTICES],
+    vertex_y: [f64; MAX_VERTICES],
+    vertex_z: [f64; MAX_VERTICES],
+    vertex_plane_a: [usize; MAX_VERTICES],
+    vertex_plane_b: [usize; MAX_VERTICES],
+    vertex_count: usize,
+
+    // Edge planes (parallel to vertices array)
+    edge_planes: [usize; MAX_VERTICES],
+
+    // Scratch buffers for clipping operations
+    scratch_inside: [bool; MAX_SCRATCH],
+    scratch_vertex_x: [f64; MAX_SCRATCH],
+    scratch_vertex_y: [f64; MAX_SCRATCH],
+    scratch_vertex_z: [f64; MAX_SCRATCH],
+    scratch_vertex_plane_a: [usize; MAX_SCRATCH],
+    scratch_vertex_plane_b: [usize; MAX_SCRATCH],
+    scratch_vertex_count: usize,
+    scratch_edge_planes: [usize; MAX_SCRATCH],
+
     seeded: bool,
     dead: bool,
     cached_min_vertex_cos: f32,
@@ -146,6 +163,77 @@ impl F64CellBuilder {
         );
     }
 
+    // =========================================================================
+    // Helper methods for SoA vertex access
+    // =========================================================================
+
+    /// Get vertex position as DVec3.
+    #[inline]
+    fn get_vertex_pos(&self, i: usize) -> DVec3 {
+        DVec3::new(self.vertex_x[i], self.vertex_y[i], self.vertex_z[i])
+    }
+
+    /// Get plane as F64GreatCircle.
+    #[inline]
+    fn get_plane(&self, i: usize) -> F64GreatCircle {
+        F64GreatCircle {
+            normal: self.plane_normals[i],
+        }
+    }
+
+    /// Set vertex at index.
+    #[inline]
+    fn set_vertex(&mut self, i: usize, pos: DVec3, plane_a: usize, plane_b: usize) {
+        self.vertex_x[i] = pos.x;
+        self.vertex_y[i] = pos.y;
+        self.vertex_z[i] = pos.z;
+        self.vertex_plane_a[i] = plane_a;
+        self.vertex_plane_b[i] = plane_b;
+    }
+
+    /// Push a new vertex, incrementing count.
+    #[inline]
+    fn push_vertex(&mut self, pos: DVec3, plane_a: usize, plane_b: usize) {
+        let i = self.vertex_count;
+        self.set_vertex(i, pos, plane_a, plane_b);
+        self.vertex_count += 1;
+    }
+
+    /// Push vertex to scratch buffer.
+    #[inline]
+    fn push_scratch_vertex(&mut self, pos: DVec3, plane_a: usize, plane_b: usize) {
+        let i = self.scratch_vertex_count;
+        self.scratch_vertex_x[i] = pos.x;
+        self.scratch_vertex_y[i] = pos.y;
+        self.scratch_vertex_z[i] = pos.z;
+        self.scratch_vertex_plane_a[i] = plane_a;
+        self.scratch_vertex_plane_b[i] = plane_b;
+        self.scratch_vertex_count += 1;
+    }
+
+    /// Get scratch vertex position.
+    #[inline]
+    fn get_scratch_vertex_pos(&self, i: usize) -> DVec3 {
+        DVec3::new(
+            self.scratch_vertex_x[i],
+            self.scratch_vertex_y[i],
+            self.scratch_vertex_z[i],
+        )
+    }
+
+    /// Copy scratch buffer to vertices (scratch may have more capacity).
+    #[inline]
+    fn copy_scratch_to_vertices(&mut self) {
+        let n = self.scratch_vertex_count;
+        self.vertex_x[..n].copy_from_slice(&self.scratch_vertex_x[..n]);
+        self.vertex_y[..n].copy_from_slice(&self.scratch_vertex_y[..n]);
+        self.vertex_z[..n].copy_from_slice(&self.scratch_vertex_z[..n]);
+        self.vertex_plane_a[..n].copy_from_slice(&self.scratch_vertex_plane_a[..n]);
+        self.vertex_plane_b[..n].copy_from_slice(&self.scratch_vertex_plane_b[..n]);
+        self.vertex_count = n;
+        self.edge_planes[..n].copy_from_slice(&self.scratch_edge_planes[..n]);
+    }
+
     /// Create a new f64 cell builder for the given generator.
     pub fn new(generator_idx: usize, generator: Vec3) -> Self {
         let gen64 = DVec3::new(generator.x as f64, generator.y as f64, generator.z as f64).normalize();
@@ -158,13 +246,33 @@ impl F64CellBuilder {
         Self {
             generator_idx,
             generator: gen64,
-            planes: Vec::with_capacity(32),
-            neighbor_indices: Vec::with_capacity(32),
-            vertices: Vec::with_capacity(32),
-            edge_planes: Vec::with_capacity(32),
-            scratch_inside: Vec::with_capacity(32),
-            scratch_vertices: Vec::with_capacity(32),
-            scratch_edge_planes: Vec::with_capacity(32),
+
+            // Planes
+            plane_normals: [DVec3::ZERO; MAX_PLANES],
+            neighbor_indices: [0; MAX_PLANES],
+            plane_count: 0,
+
+            // Vertices (SoA)
+            vertex_x: [0.0; MAX_VERTICES],
+            vertex_y: [0.0; MAX_VERTICES],
+            vertex_z: [0.0; MAX_VERTICES],
+            vertex_plane_a: [0; MAX_VERTICES],
+            vertex_plane_b: [0; MAX_VERTICES],
+            vertex_count: 0,
+
+            // Edge planes
+            edge_planes: [0; MAX_VERTICES],
+
+            // Scratch buffers
+            scratch_inside: [false; MAX_SCRATCH],
+            scratch_vertex_x: [0.0; MAX_SCRATCH],
+            scratch_vertex_y: [0.0; MAX_SCRATCH],
+            scratch_vertex_z: [0.0; MAX_SCRATCH],
+            scratch_vertex_plane_a: [0; MAX_SCRATCH],
+            scratch_vertex_plane_b: [0; MAX_SCRATCH],
+            scratch_vertex_count: 0,
+            scratch_edge_planes: [0; MAX_SCRATCH],
+
             seeded: false,
             dead: false,
             cached_min_vertex_cos: 1.0,
@@ -194,16 +302,20 @@ impl F64CellBuilder {
 
     /// Try to seed from a specific triplet of planes.
     fn try_seed_from_triplet(&mut self, a: usize, b: usize, c: usize) -> bool {
-        let v0 = Self::intersect_two_planes(&self.planes[a], &self.planes[b], self.generator);
-        let v1 = Self::intersect_two_planes(&self.planes[b], &self.planes[c], self.generator);
-        let v2 = Self::intersect_two_planes(&self.planes[c], &self.planes[a], self.generator);
+        let plane_a = self.get_plane(a);
+        let plane_b = self.get_plane(b);
+        let plane_c = self.get_plane(c);
+
+        let v0 = Self::intersect_two_planes(&plane_a, &plane_b, self.generator);
+        let v1 = Self::intersect_two_planes(&plane_b, &plane_c, self.generator);
+        let v2 = Self::intersect_two_planes(&plane_c, &plane_a, self.generator);
 
         // Check that all 3 vertices satisfy ALL accumulated half-spaces
-        for plane_idx in 0..self.planes.len() {
+        for plane_idx in 0..self.plane_count {
             if plane_idx == a || plane_idx == b || plane_idx == c {
                 continue;
             }
-            let plane = &self.planes[plane_idx];
+            let plane = self.get_plane(plane_idx);
             let d0 = plane.signed_distance(v0);
             let d1 = plane.signed_distance(v1);
             let d2 = plane.signed_distance(v2);
@@ -228,8 +340,8 @@ impl F64CellBuilder {
             return false;
         }
 
-        self.vertices.clear();
-        self.edge_planes.clear();
+        // Clear vertices
+        self.vertex_count = 0;
 
         // Check winding order - triangle normal should point towards generator
         let edge1 = v1 - v0;
@@ -239,50 +351,26 @@ impl F64CellBuilder {
         let mut min_cos = 1.0f32;
         if normal.dot(self.generator) >= 0.0 {
             // CCW winding when viewed from generator
-            self.vertices.push(F64CellVertex {
-                pos: v0,
-                plane_a: a,
-                plane_b: b,
-            });
+            self.push_vertex(v0, a, b);
             min_cos = min_cos.min(self.generator.dot(v0).clamp(-1.0, 1.0) as f32);
-            self.vertices.push(F64CellVertex {
-                pos: v1,
-                plane_a: b,
-                plane_b: c,
-            });
+            self.push_vertex(v1, b, c);
             min_cos = min_cos.min(self.generator.dot(v1).clamp(-1.0, 1.0) as f32);
-            self.vertices.push(F64CellVertex {
-                pos: v2,
-                plane_a: c,
-                plane_b: a,
-            });
+            self.push_vertex(v2, c, a);
             min_cos = min_cos.min(self.generator.dot(v2).clamp(-1.0, 1.0) as f32);
-            self.edge_planes.push(b);
-            self.edge_planes.push(c);
-            self.edge_planes.push(a);
+            self.edge_planes[0] = b;
+            self.edge_planes[1] = c;
+            self.edge_planes[2] = a;
         } else {
             // Reverse winding
-            self.vertices.push(F64CellVertex {
-                pos: v0,
-                plane_a: a,
-                plane_b: b,
-            });
+            self.push_vertex(v0, a, b);
             min_cos = min_cos.min(self.generator.dot(v0).clamp(-1.0, 1.0) as f32);
-            self.vertices.push(F64CellVertex {
-                pos: v2,
-                plane_a: c,
-                plane_b: a,
-            });
+            self.push_vertex(v2, c, a);
             min_cos = min_cos.min(self.generator.dot(v2).clamp(-1.0, 1.0) as f32);
-            self.vertices.push(F64CellVertex {
-                pos: v1,
-                plane_a: b,
-                plane_b: c,
-            });
+            self.push_vertex(v1, b, c);
             min_cos = min_cos.min(self.generator.dot(v1).clamp(-1.0, 1.0) as f32);
-            self.edge_planes.push(a);
-            self.edge_planes.push(c);
-            self.edge_planes.push(b);
+            self.edge_planes[0] = a;
+            self.edge_planes[1] = c;
+            self.edge_planes[2] = b;
         }
 
         self.cached_min_vertex_cos = min_cos;
@@ -292,7 +380,7 @@ impl F64CellBuilder {
 
     /// Try to seed the polygon by finding a valid triplet among accumulated planes.
     fn try_seed(&mut self) -> bool {
-        let n = self.planes.len();
+        let n = self.plane_count;
         if n < 3 {
             return false;
         }
@@ -322,26 +410,25 @@ impl F64CellBuilder {
 
     /// Clip the cell by a new plane.
     fn clip_with_plane(&mut self, plane_idx: usize) {
-        let new_plane = self.planes[plane_idx];
-        let n = self.vertices.len();
+        let new_plane = self.get_plane(plane_idx);
+        let n = self.vertex_count;
         if n < 3 {
             return;
         }
 
-        self.scratch_inside.clear();
-        self.scratch_inside.reserve(n);
+        // Classify vertices
         let mut inside_count = 0usize;
-        for v in &self.vertices {
-            let inside = new_plane.signed_distance(v.pos) >= -F64_EPS_CLIP;
+        for i in 0..n {
+            let v_pos = self.get_vertex_pos(i);
+            let inside = new_plane.signed_distance(v_pos) >= -F64_EPS_CLIP;
             inside_count += inside as usize;
-            self.scratch_inside.push(inside as u8);
+            self.scratch_inside[i] = inside;
         }
         if inside_count == n {
             return; // All inside, no clipping needed
         }
         if inside_count == 0 {
-            self.vertices.clear();
-            self.edge_planes.clear();
+            self.vertex_count = 0;
             self.dead = true;
             self.cached_min_vertex_cos = 1.0;
             self.cached_min_vertex_cos_valid = false;
@@ -354,8 +441,8 @@ impl F64CellBuilder {
 
         for i in 0..n {
             let next = (i + 1) % n;
-            let inside_i = self.scratch_inside[i] != 0;
-            let inside_next = self.scratch_inside[next] != 0;
+            let inside_i = self.scratch_inside[i];
+            let inside_next = self.scratch_inside[next];
             if inside_i && !inside_next {
                 exit_idx = Some(i);
             }
@@ -369,64 +456,54 @@ impl F64CellBuilder {
             _ => return,
         };
 
-        // Scratch output buffers.
-        self.scratch_vertices.clear();
-        self.scratch_edge_planes.clear();
-        self.scratch_vertices.reserve(n + 2);
-        self.scratch_edge_planes.reserve(n + 2);
+        // Clear scratch output buffers
+        self.scratch_vertex_count = 0;
+        let mut scratch_edge_count = 0usize;
 
         // Compute entry vertex
         let entry_edge_plane = self.edge_planes[entry_idx];
-        let entry_start = self.vertices[entry_idx].pos;
-        let entry_end = self.vertices[(entry_idx + 1) % n].pos;
+        let entry_start = self.get_vertex_pos(entry_idx);
+        let entry_end = self.get_vertex_pos((entry_idx + 1) % n);
         let d_start = new_plane.signed_distance(entry_start);
         let d_end = new_plane.signed_distance(entry_end);
         let t = d_start / (d_start - d_end);
         let entry_hint = (entry_start * (1.0 - t) + entry_end * t).normalize();
-        let entry_pos =
-            Self::intersect_two_planes(&self.planes[entry_edge_plane], &new_plane, entry_hint);
-        let entry_vertex = F64CellVertex {
-            pos: entry_pos,
-            plane_a: entry_edge_plane,
-            plane_b: plane_idx,
-        };
+        let entry_edge_gc = self.get_plane(entry_edge_plane);
+        let entry_pos = Self::intersect_two_planes(&entry_edge_gc, &new_plane, entry_hint);
 
         // Compute exit vertex
         let exit_edge_plane = self.edge_planes[exit_idx];
-        let exit_start = self.vertices[exit_idx].pos;
-        let exit_end = self.vertices[(exit_idx + 1) % n].pos;
-        let d_start = new_plane.signed_distance(exit_start);
-        let d_end = new_plane.signed_distance(exit_end);
-        let t = d_start / (d_start - d_end);
-        let exit_hint = (exit_start * (1.0 - t) + exit_end * t).normalize();
-        let exit_pos =
-            Self::intersect_two_planes(&self.planes[exit_edge_plane], &new_plane, exit_hint);
-        let exit_vertex = F64CellVertex {
-            pos: exit_pos,
-            plane_a: exit_edge_plane,
-            plane_b: plane_idx,
-        };
+        let exit_start = self.get_vertex_pos(exit_idx);
+        let exit_end = self.get_vertex_pos((exit_idx + 1) % n);
+        let d_start_exit = new_plane.signed_distance(exit_start);
+        let d_end_exit = new_plane.signed_distance(exit_end);
+        let t_exit = d_start_exit / (d_start_exit - d_end_exit);
+        let exit_hint = (exit_start * (1.0 - t_exit) + exit_end * t_exit).normalize();
+        let exit_edge_gc = self.get_plane(exit_edge_plane);
+        let exit_pos = Self::intersect_two_planes(&exit_edge_gc, &new_plane, exit_hint);
 
-        // Build new vertex list
-        self.scratch_vertices.push(entry_vertex);
-        self.scratch_edge_planes.push(entry_edge_plane);
-        let mut min_cos = self.generator.dot(entry_vertex.pos).clamp(-1.0, 1.0) as f32;
+        // Build new vertex list in scratch buffers
+        self.push_scratch_vertex(entry_pos, entry_edge_plane, plane_idx);
+        self.scratch_edge_planes[scratch_edge_count] = entry_edge_plane;
+        scratch_edge_count += 1;
+        let mut min_cos = self.generator.dot(entry_pos).clamp(-1.0, 1.0) as f32;
 
         let mut i = (entry_idx + 1) % n;
         while i != (exit_idx + 1) % n {
-            let v = self.vertices[i];
-            min_cos = min_cos.min(self.generator.dot(v.pos).clamp(-1.0, 1.0) as f32);
-            self.scratch_vertices.push(v);
-            self.scratch_edge_planes.push(self.edge_planes[i]);
+            let v_pos = self.get_vertex_pos(i);
+            min_cos = min_cos.min(self.generator.dot(v_pos).clamp(-1.0, 1.0) as f32);
+            self.push_scratch_vertex(v_pos, self.vertex_plane_a[i], self.vertex_plane_b[i]);
+            self.scratch_edge_planes[scratch_edge_count] = self.edge_planes[i];
+            scratch_edge_count += 1;
             i = (i + 1) % n;
         }
 
-        self.scratch_vertices.push(exit_vertex);
-        self.scratch_edge_planes.push(plane_idx);
-        min_cos = min_cos.min(self.generator.dot(exit_vertex.pos).clamp(-1.0, 1.0) as f32);
+        self.push_scratch_vertex(exit_pos, exit_edge_plane, plane_idx);
+        self.scratch_edge_planes[scratch_edge_count] = plane_idx;
+        min_cos = min_cos.min(self.generator.dot(exit_pos).clamp(-1.0, 1.0) as f32);
 
-        std::mem::swap(&mut self.vertices, &mut self.scratch_vertices);
-        std::mem::swap(&mut self.edge_planes, &mut self.scratch_edge_planes);
+        // Copy scratch to vertices
+        self.copy_scratch_to_vertices();
         self.cached_min_vertex_cos = min_cos;
         self.cached_min_vertex_cos_valid = true;
     }
@@ -434,6 +511,12 @@ impl F64CellBuilder {
     /// Add a neighbor and clip the cell.
     pub fn clip(&mut self, neighbor_idx: usize, neighbor: Vec3) {
         if self.dead {
+            return;
+        }
+
+        // Overflow bailout - if we exceed MAX_PLANES, mark cell as dead
+        if self.plane_count >= MAX_PLANES {
+            self.dead = true;
             return;
         }
 
@@ -446,21 +529,20 @@ impl F64CellBuilder {
         }
 
         let new_plane = F64GreatCircle::bisector(self.generator, n64);
-        let plane_idx = self.planes.len();
-        self.planes.push(new_plane);
-        self.neighbor_indices.push(neighbor_idx);
+        let plane_idx = self.plane_count;
+        self.plane_normals[plane_idx] = new_plane.normal;
+        self.neighbor_indices[plane_idx] = neighbor_idx;
+        self.plane_count += 1;
 
         if !self.seeded {
-            if self.planes.len() >= 3 {
+            if self.plane_count >= 3 {
                 if self.try_seed() {
                     self.seeded = true;
                     // Clip with all non-seed planes
-                    for idx in 0..self.planes.len() {
+                    for idx in 0..self.plane_count {
                         // Skip planes that are part of current vertices
-                        let is_seed_plane = self
-                            .vertices
-                            .iter()
-                            .any(|v| v.plane_a == idx || v.plane_b == idx);
+                        let is_seed_plane = (0..self.vertex_count)
+                            .any(|vi| self.vertex_plane_a[vi] == idx || self.vertex_plane_b[vi] == idx);
                         if !is_seed_plane {
                             self.clip_with_plane(idx);
                             if self.dead {
@@ -483,25 +565,25 @@ impl F64CellBuilder {
 
     /// Get vertex count.
     pub fn vertex_count(&self) -> usize {
-        self.vertices.len()
+        self.vertex_count
     }
 
     /// Get plane count (number of neighbors clipped).
     #[inline]
     pub fn planes_count(&self) -> usize {
-        self.planes.len()
+        self.plane_count
     }
 
     /// Returns true if this neighbor has already been clipped into the cell.
     #[inline]
     pub fn has_neighbor(&self, neighbor_idx: usize) -> bool {
-        self.neighbor_indices.contains(&neighbor_idx)
+        self.neighbor_indices[..self.plane_count].contains(&neighbor_idx)
     }
 
     /// Returns an iterator over the neighbor indices that have been clipped.
     #[inline]
     pub fn neighbor_indices_iter(&self) -> impl Iterator<Item = usize> + '_ {
-        self.neighbor_indices.iter().copied()
+        self.neighbor_indices[..self.plane_count].iter().copied()
     }
 
     /// Get the minimum cosine (furthest vertex angle) from generator.
@@ -511,16 +593,15 @@ impl F64CellBuilder {
         if self.cached_min_vertex_cos_valid {
             self.cached_min_vertex_cos as f64
         } else {
-            self.vertices
-                .iter()
-                .map(|v| self.generator.dot(v.pos).clamp(-1.0, 1.0))
+            (0..self.vertex_count)
+                .map(|i| self.generator.dot(self.get_vertex_pos(i)).clamp(-1.0, 1.0))
                 .fold(1.0f64, f64::min)
         }
     }
 
     /// Check if we can terminate early based on security radius.
     pub fn can_terminate(&self, next_neighbor_cos: f32) -> bool {
-        if self.vertices.len() < 3 {
+        if self.vertex_count < 3 {
             return false;
         }
 
@@ -543,7 +624,7 @@ impl F64CellBuilder {
     /// Attempt to reseed using the best-conditioned triplet among all planes.
     /// Returns true if a non-degenerate cell is recovered.
     pub fn try_reseed_best(&mut self) -> bool {
-        let plane_count = self.planes.len();
+        let plane_count = self.plane_count;
         if plane_count < 3 {
             return false;
         }
@@ -555,9 +636,9 @@ impl F64CellBuilder {
         for a in 0..plane_count {
             for b in (a + 1)..plane_count {
                 for c in (b + 1)..plane_count {
-                    let na = self.planes[a].normal;
-                    let nb = self.planes[b].normal;
-                    let nc = self.planes[c].normal;
+                    let na = self.plane_normals[a];
+                    let nb = self.plane_normals[b];
+                    let nc = self.plane_normals[c];
                     let ab = na.cross(nb).length_squared();
                     let bc = nb.cross(nc).length_squared();
                     let ca = nc.cross(na).length_squared();
@@ -566,8 +647,7 @@ impl F64CellBuilder {
                         continue;
                     }
 
-                    self.vertices.clear();
-                    self.edge_planes.clear();
+                    self.vertex_count = 0;
                     self.dead = false;
                     self.seeded = false;
                     self.cached_min_vertex_cos = 1.0;
@@ -588,8 +668,7 @@ impl F64CellBuilder {
             None => return false,
         };
 
-        self.vertices.clear();
-        self.edge_planes.clear();
+        self.vertex_count = 0;
         self.dead = false;
         self.seeded = false;
         self.cached_min_vertex_cos = 1.0;
@@ -609,7 +688,7 @@ impl F64CellBuilder {
             }
         }
 
-        self.vertices.len() >= 3
+        self.vertex_count >= 3
     }
 
     /// Reset the builder for a new cell.
@@ -617,13 +696,9 @@ impl F64CellBuilder {
         let gen64 = DVec3::new(generator.x as f64, generator.y as f64, generator.z as f64).normalize();
         self.generator_idx = generator_idx;
         self.generator = gen64;
-        self.planes.clear();
-        self.neighbor_indices.clear();
-        self.vertices.clear();
-        self.edge_planes.clear();
-        self.scratch_inside.clear();
-        self.scratch_vertices.clear();
-        self.scratch_edge_planes.clear();
+        self.plane_count = 0;
+        self.vertex_count = 0;
+        self.scratch_vertex_count = 0;
         self.seeded = false;
         self.dead = false;
         self.cached_min_vertex_cos = 1.0;
@@ -633,15 +708,19 @@ impl F64CellBuilder {
     /// Iterator over vertices for testing/inspection.
     /// Returns (vertex_index, position, plane_a, plane_b) for each vertex.
     pub fn vertices_iter(&self) -> impl Iterator<Item = (usize, DVec3, usize, usize)> + '_ {
-        self.vertices
-            .iter()
-            .enumerate()
-            .map(|(i, v)| (i, v.pos, v.plane_a, v.plane_b))
+        (0..self.vertex_count).map(move |i| {
+            (
+                i,
+                self.get_vertex_pos(i),
+                self.vertex_plane_a[i],
+                self.vertex_plane_b[i],
+            )
+        })
     }
 
     /// Get the plane normal for a given plane index.
     pub fn plane_normal(&self, plane_idx: usize) -> DVec3 {
-        self.planes[plane_idx].normal
+        self.plane_normals[plane_idx]
     }
 
     /// Get the neighbor index for a given plane index.
@@ -662,7 +741,7 @@ impl F64CellBuilder {
     /// - min_gap: smallest positive gap (closest excluded generator)
     /// - support_set: generators with gap <= eps_support (including defining generators)
     pub fn compute_vertex_gaps(&self, points: &[Vec3], eps_support: f64) -> Vec<(f64, Vec<u32>)> {
-        if self.dead || self.vertices.len() < 3 {
+        if self.dead || self.vertex_count < 3 {
             return Vec::new();
         }
 
@@ -671,8 +750,7 @@ impl F64CellBuilder {
         let gen_idx = self.generator_idx as u32;
 
         // Pre-load all neighbor positions once (instead of per-vertex).
-        let neighbor_positions: Vec<DVec3> = self
-            .neighbor_indices
+        let neighbor_positions: Vec<DVec3> = self.neighbor_indices[..self.plane_count]
             .iter()
             .map(|&idx| {
                 let p = points[idx];
@@ -680,16 +758,17 @@ impl F64CellBuilder {
             })
             .collect();
 
-        self.vertices
-            .iter()
-            .map(|v| {
-                let v_pos = v.pos;
+        (0..self.vertex_count)
+            .map(|vi| {
+                let v_pos = self.get_vertex_pos(vi);
+                let v_plane_a = self.vertex_plane_a[vi];
+                let v_plane_b = self.vertex_plane_b[vi];
                 Self::debug_assert_unit(v_pos);
                 let dot_g = v_pos.dot(g);
 
                 // Defining generators (always in support set)
-                let def_a = self.neighbor_indices[v.plane_a] as u32;
-                let def_b = self.neighbor_indices[v.plane_b] as u32;
+                let def_a = self.neighbor_indices[v_plane_a] as u32;
+                let def_b = self.neighbor_indices[v_plane_b] as u32;
 
                 let mut min_gap = f64::INFINITY;
                 let mut support_set = vec![gen_idx, def_a, def_b];
@@ -697,7 +776,7 @@ impl F64CellBuilder {
                 // Check all other generators
                 for (plane_idx, c) in neighbor_positions.iter().enumerate() {
                     // Skip defining planes
-                    if plane_idx == v.plane_a || plane_idx == v.plane_b {
+                    if plane_idx == v_plane_a || plane_idx == v_plane_b {
                         continue;
                     }
 
@@ -721,16 +800,16 @@ impl F64CellBuilder {
             .collect()
     }
 
-    /// Compute the conditioning (sin of angle between defining planes) for a vertex.
-    fn vertex_conditioning(&self, v: &F64CellVertex) -> f64 {
-        let n_a = self.planes[v.plane_a].normal;
-        let n_b = self.planes[v.plane_b].normal;
+    /// Compute the conditioning (sin of angle between defining planes) for a vertex by index.
+    fn vertex_conditioning_at(&self, vi: usize) -> f64 {
+        let n_a = self.plane_normals[self.vertex_plane_a[vi]];
+        let n_b = self.plane_normals[self.vertex_plane_b[vi]];
         n_a.cross(n_b).length()
     }
 
     /// Compute the conditioning for a vertex by index (for testing).
     pub fn vertex_conditioning_by_index(&self, idx: usize) -> f64 {
-        self.vertex_conditioning(&self.vertices[idx])
+        self.vertex_conditioning_at(idx)
     }
 
     /// Convert f64 vertices to f32 VertexData with certified support keys.
@@ -741,7 +820,7 @@ impl F64CellBuilder {
     ///
     /// Panics if certification fails, since f64 should be able to certify any vertex.
     pub fn to_vertex_data(&self, points: &[Vec3], support_data: &mut Vec<u32>) -> Vec<VertexData> {
-        if self.dead || self.vertices.len() < 3 {
+        if self.dead || self.vertex_count < 3 {
             return Vec::new();
         }
 
@@ -758,12 +837,10 @@ impl F64CellBuilder {
         // We use C = 16 to account for multiple f64 operations (normalize, cross, etc.)
         const F64_VERTEX_ERR_FACTOR: f64 = 16.0 * f64::EPSILON;
 
-        self.vertices
-            .iter()
+        (0..self.vertex_count)
             .zip(vertex_gaps.iter())
-            .enumerate()
-            .map(|(vertex_idx, (v, (min_gap, support_set)))| {
-                let vertex_dir = v.pos;
+            .map(|(vertex_idx, (min_gap, support_set))| {
+                let vertex_dir = self.get_vertex_pos(vertex_idx);
                 Self::debug_assert_unit(vertex_dir);
                 let pos = Vec3::new(
                     vertex_dir.x as f32,
@@ -772,7 +849,7 @@ impl F64CellBuilder {
                 );
 
                 // Per-vertex conditioning-based error bound
-                let conditioning = self.vertex_conditioning(v).max(1e-6);
+                let conditioning = self.vertex_conditioning_at(vertex_idx).max(1e-6);
                 let vertex_err = F64_VERTEX_ERR_FACTOR / conditioning;
                 // Gap error is vertex_err * max_generator_distance
                 // Conservative: use 2.0 as upper bound for |G - C| on unit sphere
@@ -784,7 +861,7 @@ impl F64CellBuilder {
                 let certified = *min_gap > cert_threshold;
 
                 if !certified {
-                    let plane_sin = self.vertex_conditioning(v);
+                    let plane_sin = self.vertex_conditioning_at(vertex_idx);
                     panic!(
                         "f64 slack certification failed for cell {} vertex {} \
                         (min_gap={:.2e}, threshold={:.2e}, plane_sin={:.2e}, support={:?})",
