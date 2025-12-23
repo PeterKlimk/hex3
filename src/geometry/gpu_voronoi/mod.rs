@@ -18,7 +18,7 @@ use kiddo::ImmutableKdTree;
 
 // Re-exports
 pub use cell_builder::{
-    geodesic_distance, order_vertices_ccw_indices, F64CellBuilder, VertexData,
+    geodesic_distance, order_vertices_ccw_indices, CellFailure, F64CellBuilder, VertexData,
     VertexKey, VertexList, MAX_PLANES, MAX_VERTICES,
 };
 pub use constants::{

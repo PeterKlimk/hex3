@@ -323,7 +323,9 @@ pub(super) fn build_cells_sharded_live_dedup(
                     let t_clip = Timer::start();
                     for &neighbor_idx in &neighbors[processed..] {
                         let neighbor = points[neighbor_idx];
-                        builder.clip(neighbor_idx, neighbor);
+                        if builder.clip(neighbor_idx, neighbor).is_err() {
+                            break;
+                        }
                         cell_neighbors_processed += 1;
                         let dot = points[i].dot(neighbor);
                         worst_cos = worst_cos.min(dot);
@@ -351,7 +353,7 @@ pub(super) fn build_cells_sharded_live_dedup(
                     }
                 }
 
-                if !terminated && !knn_exhausted && !builder.is_dead() {
+                if !terminated && !knn_exhausted && !builder.is_failed() {
                     for (restart_idx, &k_stage) in super::KNN_RESTART_KS.iter().enumerate() {
                         let k = k_stage.min(max_neighbors);
                         if k == 0 || k <= max_k_requested {
@@ -380,7 +382,9 @@ pub(super) fn build_cells_sharded_live_dedup(
                                 continue;
                             }
                             let neighbor = points[neighbor_idx];
-                            builder.clip(neighbor_idx, neighbor);
+                            if builder.clip(neighbor_idx, neighbor).is_err() {
+                                break;
+                            }
                             cell_neighbors_processed += 1;
                             let dot = points[i].dot(neighbor);
                             worst_cos = worst_cos.min(dot);
@@ -424,7 +428,7 @@ pub(super) fn build_cells_sharded_live_dedup(
                 if termination.enabled
                     && !terminated
                     && (knn_exhausted || did_reach_knn_limit)
-                    && !builder.is_dead()
+                    && !builder.is_failed()
                     && builder.vertex_count() >= 3
                 {
                     did_full_scan_fallback = true;
@@ -434,17 +438,16 @@ pub(super) fn build_cells_sharded_live_dedup(
                         if p_idx == i || already_clipped.contains(&p_idx) {
                             continue;
                         }
-                        builder.clip(p_idx, p);
-                        cell_neighbors_processed += 1;
-                        if builder.is_dead() {
+                        if builder.clip(p_idx, p).is_err() {
                             break;
                         }
+                        cell_neighbors_processed += 1;
                     }
                     full_scan_done = true;
                 }
 
-                // Dead cell recovery
-                if builder.is_dead() {
+                // Failed cell recovery
+                if builder.is_failed() {
                     let recovered = builder.try_reseed_best();
                     if !recovered {
                         if !full_scan_done {
@@ -454,11 +457,13 @@ pub(super) fn build_cells_sharded_live_dedup(
                                 if p_idx == i {
                                     continue;
                                 }
-                                builder.clip(p_idx, p);
+                                if builder.clip(p_idx, p).is_err() {
+                                    break;
+                                }
                             }
                             full_scan_done = true;
                         }
-                        let recovered = if builder.is_dead() {
+                        let recovered = if builder.is_failed() {
                             builder.try_reseed_best()
                         } else {
                             builder.vertex_count() >= 3
@@ -484,15 +489,16 @@ pub(super) fn build_cells_sharded_live_dedup(
 
                 // Phase 4: Extract vertices with certified keys
                 let t_cert = Timer::start();
-                if builder.is_dead() || builder.vertex_count() < 3 {
+                if builder.is_failed() || builder.vertex_count() < 3 {
                     panic!(
-                        "Cell {} construction failed: is_dead={}, vertex_count={}",
+                        "Cell {} construction failed: failure={:?}, vertex_count={}",
                         i,
-                        builder.is_dead(),
+                        builder.failure(),
                         builder.vertex_count()
                     );
                 }
-                let cell_vertices = builder.to_vertex_data(points, &mut shard.support_data);
+                let cell_vertices = builder.to_vertex_data(points, &mut shard.support_data)
+                    .unwrap_or_else(|e| panic!("Cell {} certification failed: {:?}", i, e));
                 sub_accum.add_cert(t_cert.elapsed());
 
                 let count = cell_vertices.len();

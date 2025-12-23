@@ -23,13 +23,28 @@ pub type VertexList = Vec<VertexData>;
 // Epsilon values are defined in constants.rs.
 
 /// Maximum number of planes (great circle boundaries) per cell.
-pub const MAX_PLANES: usize = 48;
+pub const MAX_PLANES: usize = 24;
 
 /// Maximum number of vertices (plane triplet intersections) per cell.
-pub const MAX_VERTICES: usize = 48;
+pub const MAX_VERTICES: usize = 24;
 
 /// Maximum scratch buffer size (n+2 for clipping operations).
-const MAX_SCRATCH: usize = 50;
+const MAX_SCRATCH: usize = MAX_VERTICES + 2;
+
+/// Reasons a cell build can fail, requiring fallback to a different algorithm.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CellFailure {
+    /// Exceeded MAX_PLANES during clipping.
+    TooManyPlanes,
+    /// Exceeded MAX_VERTICES during clipping.
+    TooManyVertices,
+    /// Cell was completely clipped away (all vertices outside a plane).
+    ClippedAway,
+    /// Failed to find valid seed triplet.
+    NoValidSeed,
+    /// Vertex certification failed (support set ambiguous).
+    CertificationFailed,
+}
 
 /// Compute geodesic distance between two points on unit sphere.
 #[inline]
@@ -132,7 +147,7 @@ pub struct F64CellBuilder {
     scratch_edge_planes: [usize; MAX_SCRATCH],
 
     seeded: bool,
-    dead: bool,
+    failed: Option<CellFailure>,
     cached_min_vertex_cos: f32,
     cached_min_vertex_cos_valid: bool,
     sin_eps: f32,
@@ -199,16 +214,21 @@ impl F64CellBuilder {
         self.vertex_count += 1;
     }
 
-    /// Push vertex to scratch buffer.
+    /// Push vertex to scratch buffer. Returns Err if scratch buffer is full.
     #[inline]
-    fn push_scratch_vertex(&mut self, pos: DVec3, plane_a: usize, plane_b: usize) {
+    fn push_scratch_vertex(&mut self, pos: DVec3, plane_a: usize, plane_b: usize) -> Result<(), CellFailure> {
         let i = self.scratch_vertex_count;
+        if i >= MAX_SCRATCH {
+            self.failed = Some(CellFailure::TooManyVertices);
+            return Err(CellFailure::TooManyVertices);
+        }
         self.scratch_vertex_x[i] = pos.x;
         self.scratch_vertex_y[i] = pos.y;
         self.scratch_vertex_z[i] = pos.z;
         self.scratch_vertex_plane_a[i] = plane_a;
         self.scratch_vertex_plane_b[i] = plane_b;
         self.scratch_vertex_count += 1;
+        Ok(())
     }
 
     /// Get scratch vertex position.
@@ -274,7 +294,7 @@ impl F64CellBuilder {
             scratch_edge_planes: [0; MAX_SCRATCH],
 
             seeded: false,
-            dead: false,
+            failed: None,
             cached_min_vertex_cos: 1.0,
             cached_min_vertex_cos_valid: false,
             sin_eps,
@@ -409,11 +429,11 @@ impl F64CellBuilder {
     }
 
     /// Clip the cell by a new plane.
-    fn clip_with_plane(&mut self, plane_idx: usize) {
+    fn clip_with_plane(&mut self, plane_idx: usize) -> Result<(), CellFailure> {
         let new_plane = self.get_plane(plane_idx);
         let n = self.vertex_count;
         if n < 3 {
-            return;
+            return Ok(());
         }
 
         // Classify vertices
@@ -425,14 +445,14 @@ impl F64CellBuilder {
             self.scratch_inside[i] = inside;
         }
         if inside_count == n {
-            return; // All inside, no clipping needed
+            return Ok(()); // All inside, no clipping needed
         }
         if inside_count == 0 {
             self.vertex_count = 0;
-            self.dead = true;
+            self.failed = Some(CellFailure::ClippedAway);
             self.cached_min_vertex_cos = 1.0;
             self.cached_min_vertex_cos_valid = false;
-            return;
+            return Err(CellFailure::ClippedAway);
         }
 
         // Find entry and exit points
@@ -453,7 +473,7 @@ impl F64CellBuilder {
 
         let (entry_idx, exit_idx) = match (entry_idx, exit_idx) {
             (Some(e), Some(x)) => (e, x),
-            _ => return,
+            _ => return Ok(()),
         };
 
         // Clear scratch output buffers
@@ -483,7 +503,7 @@ impl F64CellBuilder {
         let exit_pos = Self::intersect_two_planes(&exit_edge_gc, &new_plane, exit_hint);
 
         // Build new vertex list in scratch buffers
-        self.push_scratch_vertex(entry_pos, entry_edge_plane, plane_idx);
+        self.push_scratch_vertex(entry_pos, entry_edge_plane, plane_idx)?;
         self.scratch_edge_planes[scratch_edge_count] = entry_edge_plane;
         scratch_edge_count += 1;
         let mut min_cos = self.generator.dot(entry_pos).clamp(-1.0, 1.0) as f32;
@@ -492,13 +512,13 @@ impl F64CellBuilder {
         while i != (exit_idx + 1) % n {
             let v_pos = self.get_vertex_pos(i);
             min_cos = min_cos.min(self.generator.dot(v_pos).clamp(-1.0, 1.0) as f32);
-            self.push_scratch_vertex(v_pos, self.vertex_plane_a[i], self.vertex_plane_b[i]);
+            self.push_scratch_vertex(v_pos, self.vertex_plane_a[i], self.vertex_plane_b[i])?;
             self.scratch_edge_planes[scratch_edge_count] = self.edge_planes[i];
             scratch_edge_count += 1;
             i = (i + 1) % n;
         }
 
-        self.push_scratch_vertex(exit_pos, exit_edge_plane, plane_idx);
+        self.push_scratch_vertex(exit_pos, exit_edge_plane, plane_idx)?;
         self.scratch_edge_planes[scratch_edge_count] = plane_idx;
         min_cos = min_cos.min(self.generator.dot(exit_pos).clamp(-1.0, 1.0) as f32);
 
@@ -506,18 +526,19 @@ impl F64CellBuilder {
         self.copy_scratch_to_vertices();
         self.cached_min_vertex_cos = min_cos;
         self.cached_min_vertex_cos_valid = true;
+        Ok(())
     }
 
     /// Add a neighbor and clip the cell.
-    pub fn clip(&mut self, neighbor_idx: usize, neighbor: Vec3) {
-        if self.dead {
-            return;
+    pub fn clip(&mut self, neighbor_idx: usize, neighbor: Vec3) -> Result<(), CellFailure> {
+        if self.failed.is_some() {
+            return Err(self.failed.unwrap());
         }
 
-        // Overflow bailout - if we exceed MAX_PLANES, mark cell as dead
+        // Overflow bailout - if we exceed MAX_PLANES, fail
         if self.plane_count >= MAX_PLANES {
-            self.dead = true;
-            return;
+            self.failed = Some(CellFailure::TooManyPlanes);
+            return Err(CellFailure::TooManyPlanes);
         }
 
         let n64 = DVec3::new(neighbor.x as f64, neighbor.y as f64, neighbor.z as f64).normalize();
@@ -525,7 +546,7 @@ impl F64CellBuilder {
         // Skip degenerate bisectors
         let diff = self.generator - n64;
         if diff.length_squared() < (MIN_BISECTOR_DISTANCE as f64).powi(2) {
-            return;
+            return Ok(());
         }
 
         let new_plane = F64GreatCircle::bisector(self.generator, n64);
@@ -544,23 +565,25 @@ impl F64CellBuilder {
                         let is_seed_plane = (0..self.vertex_count)
                             .any(|vi| self.vertex_plane_a[vi] == idx || self.vertex_plane_b[vi] == idx);
                         if !is_seed_plane {
-                            self.clip_with_plane(idx);
-                            if self.dead {
-                                return;
-                            }
+                            self.clip_with_plane(idx)?;
                         }
                     }
                 }
             }
-            return;
+            return Ok(());
         }
 
-        self.clip_with_plane(plane_idx);
+        self.clip_with_plane(plane_idx)
     }
 
-    /// Check if the cell is dead (empty intersection).
-    pub fn is_dead(&self) -> bool {
-        self.dead
+    /// Check if the cell has failed.
+    pub fn is_failed(&self) -> bool {
+        self.failed.is_some()
+    }
+
+    /// Get the failure reason, if any.
+    pub fn failure(&self) -> Option<CellFailure> {
+        self.failed
     }
 
     /// Get vertex count.
@@ -648,7 +671,7 @@ impl F64CellBuilder {
                     }
 
                     self.vertex_count = 0;
-                    self.dead = false;
+                    self.failed = None;
                     self.seeded = false;
                     self.cached_min_vertex_cos = 1.0;
                     self.cached_min_vertex_cos_valid = false;
@@ -669,7 +692,7 @@ impl F64CellBuilder {
         };
 
         self.vertex_count = 0;
-        self.dead = false;
+        self.failed = None;
         self.seeded = false;
         self.cached_min_vertex_cos = 1.0;
         self.cached_min_vertex_cos_valid = false;
@@ -682,8 +705,7 @@ impl F64CellBuilder {
             if plane_idx == a || plane_idx == b || plane_idx == c {
                 continue;
             }
-            self.clip_with_plane(plane_idx);
-            if self.dead {
+            if self.clip_with_plane(plane_idx).is_err() {
                 return false;
             }
         }
@@ -700,7 +722,7 @@ impl F64CellBuilder {
         self.vertex_count = 0;
         self.scratch_vertex_count = 0;
         self.seeded = false;
-        self.dead = false;
+        self.failed = None;
         self.cached_min_vertex_cos = 1.0;
         self.cached_min_vertex_cos_valid = false;
     }
@@ -741,7 +763,7 @@ impl F64CellBuilder {
     /// - min_gap: smallest positive gap (closest excluded generator)
     /// - support_set: generators with gap <= eps_support (including defining generators)
     pub fn compute_vertex_gaps(&self, points: &[Vec3], eps_support: f64) -> Vec<(f64, Vec<u32>)> {
-        if self.dead || self.vertex_count < 3 {
+        if self.failed.is_some() || self.vertex_count < 3 {
             return Vec::new();
         }
 
@@ -818,10 +840,10 @@ impl F64CellBuilder {
     /// non-defining generators. The support set includes generators with gap <= eps_support.
     /// Certification passes if min_gap > eps_support + error_margin.
     ///
-    /// Panics if certification fails, since f64 should be able to certify any vertex.
-    pub fn to_vertex_data(&self, points: &[Vec3], support_data: &mut Vec<u32>) -> Vec<VertexData> {
-        if self.dead || self.vertex_count < 3 {
-            return Vec::new();
+    /// Returns Err if certification fails.
+    pub fn to_vertex_data(&self, points: &[Vec3], support_data: &mut Vec<u32>) -> Result<Vec<VertexData>, CellFailure> {
+        if self.failed.is_some() || self.vertex_count < 3 {
+            return Ok(Vec::new());
         }
 
         // Compute gaps and support sets for all vertices
@@ -837,61 +859,47 @@ impl F64CellBuilder {
         // We use C = 16 to account for multiple f64 operations (normalize, cross, etc.)
         const F64_VERTEX_ERR_FACTOR: f64 = 16.0 * f64::EPSILON;
 
-        (0..self.vertex_count)
-            .zip(vertex_gaps.iter())
-            .map(|(vertex_idx, (min_gap, support_set))| {
-                let vertex_dir = self.get_vertex_pos(vertex_idx);
-                Self::debug_assert_unit(vertex_dir);
-                let pos = Vec3::new(
-                    vertex_dir.x as f32,
-                    vertex_dir.y as f32,
-                    vertex_dir.z as f32,
-                );
+        let mut result = Vec::with_capacity(self.vertex_count);
 
-                // Per-vertex conditioning-based error bound
-                let conditioning = self.vertex_conditioning_at(vertex_idx).max(1e-6);
-                let vertex_err = F64_VERTEX_ERR_FACTOR / conditioning;
-                // Gap error is vertex_err * max_generator_distance
-                // Conservative: use 2.0 as upper bound for |G - C| on unit sphere
-                let gap_err_bound = vertex_err * 2.0;
-                let cert_threshold = SUPPORT_EPS_ABS + gap_err_bound;
+        for (vertex_idx, (min_gap, support_set)) in (0..self.vertex_count).zip(vertex_gaps.iter()) {
+            let vertex_dir = self.get_vertex_pos(vertex_idx);
+            Self::debug_assert_unit(vertex_dir);
+            let pos = Vec3::new(
+                vertex_dir.x as f32,
+                vertex_dir.y as f32,
+                vertex_dir.z as f32,
+            );
 
-                // Certification: min_gap must be larger than threshold
-                // This ensures no excluded generator could enter the support set under uncertainty
-                let certified = *min_gap > cert_threshold;
+            // Per-vertex conditioning-based error bound
+            let conditioning = self.vertex_conditioning_at(vertex_idx).max(1e-6);
+            let vertex_err = F64_VERTEX_ERR_FACTOR / conditioning;
+            // Gap error is vertex_err * max_generator_distance
+            // Conservative: use 2.0 as upper bound for |G - C| on unit sphere
+            let gap_err_bound = vertex_err * 2.0;
+            let cert_threshold = SUPPORT_EPS_ABS + gap_err_bound;
 
-                if !certified {
-                    let plane_sin = self.vertex_conditioning_at(vertex_idx);
-                    panic!(
-                        "f64 slack certification failed for cell {} vertex {} \
-                        (min_gap={:.2e}, threshold={:.2e}, plane_sin={:.2e}, support={:?})",
-                        self.generator_idx,
-                        vertex_idx,
-                        min_gap,
-                        cert_threshold,
-                        plane_sin,
-                        support_set
-                    );
-                }
+            // Certification: min_gap must be larger than threshold
+            // This ensures no excluded generator could enter the support set under uncertainty
+            let certified = *min_gap > cert_threshold;
 
-                let key = if support_set.len() == 3 {
-                    VertexKey::Triplet([support_set[0], support_set[1], support_set[2]])
-                } else if support_set.len() >= 4 {
-                    let start = support_data.len() as u32;
-                    support_data.extend(support_set.iter().copied());
-                    let len = support_set.len() as u8;
-                    VertexKey::Support { start, len }
-                } else {
-                    panic!(
-                        "f64 produced support set with {} elements for cell {} vertex {}",
-                        support_set.len(),
-                        self.generator_idx,
-                        vertex_idx
-                    );
-                };
+            if !certified {
+                return Err(CellFailure::CertificationFailed);
+            }
 
-                (key, pos)
-            })
-            .collect()
+            let key = if support_set.len() == 3 {
+                VertexKey::Triplet([support_set[0], support_set[1], support_set[2]])
+            } else if support_set.len() >= 4 {
+                let start = support_data.len() as u32;
+                support_data.extend(support_set.iter().copied());
+                let len = support_set.len() as u8;
+                VertexKey::Support { start, len }
+            } else {
+                return Err(CellFailure::CertificationFailed);
+            };
+
+            result.push((key, pos));
+        }
+
+        Ok(result)
     }
 }

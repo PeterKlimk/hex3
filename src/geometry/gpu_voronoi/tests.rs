@@ -756,7 +756,8 @@ fn test_f64_slack_stress() {
 
                 // This will panic if certification fails
                 let mut support_data: Vec<u32> = Vec::new();
-                let vertex_data = f64_builder.to_vertex_data(&points, &mut support_data);
+                let vertex_data = f64_builder.to_vertex_data(&points, &mut support_data)
+                    .expect("certification should not fail");
                 vertices_certified += vertex_data.len();
             }
 
