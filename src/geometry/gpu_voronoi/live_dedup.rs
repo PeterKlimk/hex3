@@ -484,7 +484,7 @@ pub(super) fn build_cells_sharded_live_dedup(
                 } else {
                     knn_stage
                 };
-                sub_accum.add_cell_stage(knn_stage, knn_exhausted);
+                sub_accum.add_cell_stage(knn_stage, knn_exhausted, cell_neighbors_processed);
 
                 // Phase 4: Extract vertices with certified keys
                 let t_cert = Timer::start();

@@ -9,9 +9,17 @@
 
 use std::time::Duration;
 
+/// Histogram of neighbors processed at termination.
+/// Buckets 0-47: exact counts for 1-48 neighbors (bucket i = i+1 neighbors)
+/// Bucket 48: 49-64 neighbors
+/// Bucket 49: 65-96 neighbors
+/// Bucket 50: 97+ neighbors
+#[cfg(feature = "timing")]
+pub const NEIGHBOR_HIST_BUCKETS: usize = 51;
+
 /// Sub-phase timings within cell construction.
 #[cfg(feature = "timing")]
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct CellSubPhases {
     pub knn_query: Duration,
     pub clipping: Duration,
@@ -29,6 +37,28 @@ pub struct CellSubPhases {
     pub cells_full_scan_recovery: u64,
     /// Cells where the k-NN search loop exhausted (typically means it hit brute force).
     pub cells_knn_exhausted: u64,
+    /// Histogram of neighbors processed at termination.
+    pub neighbors_histogram: [u64; NEIGHBOR_HIST_BUCKETS],
+}
+
+#[cfg(feature = "timing")]
+impl Default for CellSubPhases {
+    fn default() -> Self {
+        Self {
+            knn_query: Duration::ZERO,
+            clipping: Duration::ZERO,
+            certification: Duration::ZERO,
+            key_dedup: Duration::ZERO,
+            cells_k12: 0,
+            cells_k24: 0,
+            cells_k48: 0,
+            cells_k96: 0,
+            cells_full_scan_fallback: 0,
+            cells_full_scan_recovery: 0,
+            cells_knn_exhausted: 0,
+            neighbors_histogram: [0; NEIGHBOR_HIST_BUCKETS],
+        }
+    }
 }
 
 /// Sub-phase timings within dedup.
@@ -178,6 +208,55 @@ impl PhaseTimings {
             pct_cells(self.cell_sub.cells_knn_exhausted),
         );
 
+        // Neighbor histogram: compute percentiles
+        let hist = &self.cell_sub.neighbors_histogram;
+        let hist_total: u64 = hist.iter().sum();
+        if hist_total > 0 {
+            // Convert bucket index to neighbor count
+            let bucket_to_neighbors = |bucket: usize| -> usize {
+                if bucket < 48 {
+                    bucket + 1 // buckets 0-47 = 1-48 neighbors
+                } else if bucket == 48 {
+                    64 // 49-64 range, report upper bound
+                } else if bucket == 49 {
+                    96 // 65-96 range
+                } else {
+                    97 // 97+ range
+                }
+            };
+
+            // Find percentiles by scanning cumulative distribution
+            let find_percentile = |p: f64| -> usize {
+                let target = (hist_total as f64 * p) as u64;
+                let mut cumulative = 0u64;
+                for (bucket, &count) in hist.iter().enumerate() {
+                    cumulative += count;
+                    if cumulative >= target {
+                        return bucket_to_neighbors(bucket);
+                    }
+                }
+                bucket_to_neighbors(NEIGHBOR_HIST_BUCKETS - 1)
+            };
+
+            // Find max (last non-zero bucket)
+            let max_bucket = hist
+                .iter()
+                .enumerate()
+                .rev()
+                .find(|(_, &c)| c > 0)
+                .map(|(i, _)| i)
+                .unwrap_or(0);
+            let max_neighbors = bucket_to_neighbors(max_bucket);
+
+            eprintln!(
+                "    neighbors: p50={} p90={} p99={} max={}",
+                find_percentile(0.50),
+                find_percentile(0.90),
+                find_percentile(0.99),
+                max_neighbors,
+            );
+        }
+
         eprintln!(
             "  dedup:             {:7.1}ms ({:4.1}%)",
             self.dedup.as_secs_f64() * 1000.0,
@@ -300,7 +379,7 @@ impl Timer {
 
 /// Accumulator for cell sub-phase timings (used per-chunk, then merged).
 #[cfg(feature = "timing")]
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct CellSubAccum {
     pub knn_query: Duration,
     pub clipping: Duration,
@@ -313,6 +392,27 @@ pub struct CellSubAccum {
     pub cells_full_scan_fallback: u64,
     pub cells_full_scan_recovery: u64,
     pub cells_knn_exhausted: u64,
+    pub neighbors_histogram: [u64; NEIGHBOR_HIST_BUCKETS],
+}
+
+#[cfg(feature = "timing")]
+impl Default for CellSubAccum {
+    fn default() -> Self {
+        Self {
+            knn_query: Duration::ZERO,
+            clipping: Duration::ZERO,
+            certification: Duration::ZERO,
+            key_dedup: Duration::ZERO,
+            cells_k12: 0,
+            cells_k24: 0,
+            cells_k48: 0,
+            cells_k96: 0,
+            cells_full_scan_fallback: 0,
+            cells_full_scan_recovery: 0,
+            cells_knn_exhausted: 0,
+            neighbors_histogram: [0; NEIGHBOR_HIST_BUCKETS],
+        }
+    }
 }
 
 #[cfg(feature = "timing")]
@@ -337,7 +437,12 @@ impl CellSubAccum {
         self.key_dedup += d;
     }
 
-    pub fn add_cell_stage(&mut self, stage: KnnCellStage, knn_exhausted: bool) {
+    pub fn add_cell_stage(
+        &mut self,
+        stage: KnnCellStage,
+        knn_exhausted: bool,
+        neighbors_processed: usize,
+    ) {
         match stage {
             KnnCellStage::K12 => self.cells_k12 += 1,
             KnnCellStage::K24 => self.cells_k24 += 1,
@@ -349,6 +454,17 @@ impl CellSubAccum {
         if knn_exhausted {
             self.cells_knn_exhausted += 1;
         }
+        // Record histogram bucket
+        let bucket = if neighbors_processed <= 48 {
+            neighbors_processed.saturating_sub(1) // 1->0, 2->1, ..., 48->47
+        } else if neighbors_processed <= 64 {
+            48
+        } else if neighbors_processed <= 96 {
+            49
+        } else {
+            50
+        };
+        self.neighbors_histogram[bucket] += 1;
     }
 
     pub fn merge(&mut self, other: &CellSubAccum) {
@@ -363,6 +479,9 @@ impl CellSubAccum {
         self.cells_full_scan_fallback += other.cells_full_scan_fallback;
         self.cells_full_scan_recovery += other.cells_full_scan_recovery;
         self.cells_knn_exhausted += other.cells_knn_exhausted;
+        for (i, &count) in other.neighbors_histogram.iter().enumerate() {
+            self.neighbors_histogram[i] += count;
+        }
     }
 
     pub fn into_sub_phases(self) -> CellSubPhases {
@@ -378,6 +497,7 @@ impl CellSubAccum {
             cells_full_scan_fallback: self.cells_full_scan_fallback,
             cells_full_scan_recovery: self.cells_full_scan_recovery,
             cells_knn_exhausted: self.cells_knn_exhausted,
+            neighbors_histogram: self.neighbors_histogram,
         }
     }
 }
@@ -413,7 +533,13 @@ impl CellSubAccum {
     #[inline(always)]
     pub fn add_key_dedup(&mut self, _d: Duration) {}
     #[inline(always)]
-    pub fn add_cell_stage(&mut self, _stage: KnnCellStage, _knn_exhausted: bool) {}
+    pub fn add_cell_stage(
+        &mut self,
+        _stage: KnnCellStage,
+        _knn_exhausted: bool,
+        _neighbors_processed: usize,
+    ) {
+    }
     #[inline(always)]
     pub fn merge(&mut self, _other: &CellSubAccum) {}
     #[inline(always)]

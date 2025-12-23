@@ -12,7 +12,7 @@
 
 use clap::Parser;
 use glam::Vec3;
-use hex3::geometry::gpu_voronoi::{compute_voronoi_gpu_style, compute_voronoi_gpu_style_bench};
+use hex3::geometry::gpu_voronoi::{compute_voronoi_gpu_style, compute_voronoi_gpu_style_no_preprocess};
 use hex3::geometry::{fibonacci_sphere_points_with_rng, lloyd_relax_kmeans};
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -65,14 +65,6 @@ struct Args {
     /// Skip preprocessing (merge close points) - for benchmarking
     #[arg(long)]
     no_preprocess: bool,
-
-    /// Use old hash-based post-dedup instead of live sharded dedup
-    #[arg(long)]
-    old_dedup: bool,
-
-    /// Compare both dedup methods side-by-side
-    #[arg(long)]
-    compare_dedup: bool,
 
     /// Number of iterations to run (useful for profiling)
     #[arg(short = 'n', long, default_value_t = 1)]
@@ -166,19 +158,17 @@ struct BenchResult {
     time_ms: f64,
     num_vertices: usize,
     num_cells: usize,
-    method: &'static str,
 }
 
-fn run_benchmark(points: &[Vec3], use_live_dedup: bool) -> BenchResult {
+fn run_benchmark(points: &[Vec3], no_preprocess: bool) -> BenchResult {
     let n = points.len();
-    let method = if use_live_dedup {
-        "live_dedup"
-    } else {
-        "old_dedup"
-    };
 
     let t0 = Instant::now();
-    let voronoi = compute_voronoi_gpu_style_bench(points, use_live_dedup);
+    let voronoi = if no_preprocess {
+        compute_voronoi_gpu_style_no_preprocess(points)
+    } else {
+        compute_voronoi_gpu_style(points)
+    };
     let time_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
     BenchResult {
@@ -186,7 +176,6 @@ fn run_benchmark(points: &[Vec3], use_live_dedup: bool) -> BenchResult {
         time_ms,
         num_vertices: voronoi.vertices.len(),
         num_cells: voronoi.num_cells(),
-        method,
     }
 }
 
@@ -208,22 +197,16 @@ fn main() {
         "fibonacci+jitter"
     };
 
-    let dedup_mode = if args.compare_dedup {
-        "compare (both)"
-    } else if args.old_dedup {
-        "old (hash-based post-dedup)"
-    } else {
-        "live (sharded live dedup)"
-    };
-
     println!("Configuration:");
     println!("  seed = {}", args.seed);
     println!("  point type = {}", point_type);
-    println!("  dedup = {}", dedup_mode);
     println!(
         "  sizes = {:?}",
         sizes.iter().map(|&n| format_num(n)).collect::<Vec<_>>()
     );
+    if args.no_preprocess {
+        println!("  preprocess = disabled (no point merging)");
+    }
     if args.repeat > 1 {
         println!("  repeat = {}", args.repeat);
     }
@@ -243,127 +226,65 @@ fn main() {
         let gen_time = t_gen.elapsed().as_secs_f64() * 1000.0;
         println!("Point generation: {:.1}ms", gen_time);
 
-        if args.compare_dedup {
-            // Warmup run (discard results) to eliminate first-run bias
-            print!("Warmup run... ");
-            io::stdout().flush().unwrap();
-            let _ = run_benchmark(&points, true);
-            println!("done");
+        // Run benchmark (with optional repeats for profiling)
+        let mut times: Vec<f64> = Vec::with_capacity(args.repeat);
+        let mut last_result: Option<BenchResult> = None;
 
-            // Run both methods and compare
-            println!("\n--- LIVE DEDUP (sharded) ---");
-            let live_result = run_benchmark(&points, true);
-            println!("  Total time:    {:>8.1}ms", live_result.time_ms);
-            println!(
-                "  Throughput:    {:>8}",
-                format_rate(live_result.n, live_result.time_ms)
-            );
-            println!(
-                "  Vertices:      {:>8}",
-                format_num(live_result.num_vertices)
-            );
-
-            println!("\n--- OLD DEDUP (hash-based) ---");
-            let old_result = run_benchmark(&points, false);
-            println!("  Total time:    {:>8.1}ms", old_result.time_ms);
-            println!(
-                "  Throughput:    {:>8}",
-                format_rate(old_result.n, old_result.time_ms)
-            );
-            println!(
-                "  Vertices:      {:>8}",
-                format_num(old_result.num_vertices)
-            );
-
-            // Comparison
-            let speedup = old_result.time_ms / live_result.time_ms;
-            let diff_ms = old_result.time_ms - live_result.time_ms;
-            println!("\n--- COMPARISON ---");
-            if diff_ms > 0.0 {
-                println!(
-                    "  Live dedup is {:.1}ms FASTER ({:.2}x speedup)",
-                    diff_ms, speedup
-                );
-            } else {
-                println!(
-                    "  Live dedup is {:.1}ms SLOWER ({:.2}x slowdown)",
-                    -diff_ms,
-                    1.0 / speedup
-                );
-            }
-
-            if old_result.num_vertices != live_result.num_vertices {
-                println!(
-                    "  WARNING: vertex count differs! old={} live={}",
-                    old_result.num_vertices, live_result.num_vertices
-                );
-            }
-
-            results.push(live_result);
-            results.push(old_result);
-        } else {
-            let use_live = !args.old_dedup;
-
-            // Run benchmark (with optional repeats for profiling)
-            let mut times: Vec<f64> = Vec::with_capacity(args.repeat);
-            let mut last_result: Option<BenchResult> = None;
-
-            for iter in 0..args.repeat {
-                if args.repeat > 1 {
-                    print!("  Iteration {}/{}... ", iter + 1, args.repeat);
-                    io::stdout().flush().unwrap();
-                }
-
-                let result = run_benchmark(&points, use_live);
-                times.push(result.time_ms);
-
-                if args.repeat > 1 {
-                    println!("{:.1}ms", result.time_ms);
-                }
-
-                last_result = Some(result);
-            }
-
-            let result = last_result.unwrap();
-
-            println!("\nResults ({}):", result.method);
+        for iter in 0..args.repeat {
             if args.repeat > 1 {
-                let min = times.iter().cloned().fold(f64::INFINITY, f64::min);
-                let max = times.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-                let avg = times.iter().sum::<f64>() / times.len() as f64;
-                println!("  Min time:      {:>8.1}ms", min);
-                println!("  Max time:      {:>8.1}ms", max);
-                println!("  Avg time:      {:>8.1}ms", avg);
-                println!(
-                    "  Throughput:    {:>8} (avg)",
-                    format_rate(result.n, avg)
-                );
-            } else {
-                println!("  Total time:    {:>8.1}ms", result.time_ms);
-                println!(
-                    "  Throughput:    {:>8}",
-                    format_rate(result.n, result.time_ms)
-                );
-            }
-            println!("  Vertices:      {:>8}", format_num(result.num_vertices));
-            println!("  Cells:         {:>8}", format_num(result.num_cells));
-            println!(
-                "  Avg verts/cell:{:>8.2}",
-                result.num_vertices as f64 * 3.0 / result.num_cells as f64
-            );
-
-            if args.validate && *n <= 100_000 {
-                validate_against_hull(&points);
-            } else if args.validate && *n > 100_000 {
-                println!("\n  (skipping validation for n > 100k - convex hull is slow)");
+                print!("  Iteration {}/{}... ", iter + 1, args.repeat);
+                io::stdout().flush().unwrap();
             }
 
-            results.push(result);
+            let result = run_benchmark(&points, args.no_preprocess);
+            times.push(result.time_ms);
+
+            if args.repeat > 1 {
+                println!("{:.1}ms", result.time_ms);
+            }
+
+            last_result = Some(result);
         }
+
+        let result = last_result.unwrap();
+
+        println!("\nResults:");
+        if args.repeat > 1 {
+            let min = times.iter().cloned().fold(f64::INFINITY, f64::min);
+            let max = times.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            let avg = times.iter().sum::<f64>() / times.len() as f64;
+            println!("  Min time:      {:>8.1}ms", min);
+            println!("  Max time:      {:>8.1}ms", max);
+            println!("  Avg time:      {:>8.1}ms", avg);
+            println!(
+                "  Throughput:    {:>8} (avg)",
+                format_rate(result.n, avg)
+            );
+        } else {
+            println!("  Total time:    {:>8.1}ms", result.time_ms);
+            println!(
+                "  Throughput:    {:>8}",
+                format_rate(result.n, result.time_ms)
+            );
+        }
+        println!("  Vertices:      {:>8}", format_num(result.num_vertices));
+        println!("  Cells:         {:>8}", format_num(result.num_cells));
+        println!(
+            "  Avg verts/cell:{:>8.2}",
+            result.num_vertices as f64 * 3.0 / result.num_cells as f64
+        );
+
+        if args.validate && *n <= 100_000 {
+            validate_against_hull(&points);
+        } else if args.validate && *n > 100_000 {
+            println!("\n  (skipping validation for n > 100k - convex hull is slow)");
+        }
+
+        results.push(result);
     }
 
-    // Summary table if multiple sizes (and not compare mode)
-    if results.len() > 1 && !args.compare_dedup {
+    // Summary table if multiple sizes
+    if results.len() > 1 {
         println!("\n\n{}", "=".repeat(60));
         println!("SUMMARY");
         println!("{}", "=".repeat(60));

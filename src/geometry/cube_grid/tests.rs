@@ -1,10 +1,20 @@
 use super::*;
 use crate::geometry::gpu_voronoi::{build_kdtree, find_k_nearest as kiddo_find_k_nearest};
 use crate::geometry::{fibonacci_sphere_points_with_rng, random_sphere_points_with_rng};
-use glam::Vec3;
+use glam::{Vec3, Vec3A};
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use std::collections::HashSet;
+
+/// Squared Euclidean distance between two unit vectors.
+fn unit_vec_dist_sq(a: Vec3, b: Vec3) -> f32 {
+    (2.0 - 2.0 * a.dot(b)).max(0.0)
+}
+
+/// Convert Vec3 slice to Vec3A vec.
+fn to_vec3a(points: &[Vec3]) -> Vec<Vec3A> {
+    points.iter().map(|&p| p.into()).collect()
+}
 
 fn mean_spacing(num_points: usize) -> f32 {
     if num_points == 0 {
@@ -83,19 +93,21 @@ fn cube_grid_edge_cases_do_not_panic() {
     let grid = CubeMapGrid::new(&[], 4);
     let mut scratch = grid.make_scratch();
     let mut out = Vec::new();
-    grid.find_k_nearest_with_scratch_into(&[], Vec3::X, 0, 0, &mut scratch, &mut out);
+    grid.find_k_nearest_with_scratch_into(&[], Vec3A::X, 0, 0, &mut scratch, &mut out);
     assert!(out.is_empty());
 
     let points = vec![Vec3::X];
+    let points_a = to_vec3a(&points);
     let grid = CubeMapGrid::new(&points, 4);
     let mut scratch = grid.make_scratch();
-    grid.find_k_nearest_with_scratch_into(&points, points[0], 0, 12, &mut scratch, &mut out);
+    grid.find_k_nearest_with_scratch_into(&points_a, points_a[0], 0, 12, &mut scratch, &mut out);
     assert!(out.is_empty());
 
     let points = vec![Vec3::X, Vec3::Y];
+    let points_a = to_vec3a(&points);
     let grid = CubeMapGrid::new(&points, 4);
     let mut scratch = grid.make_scratch();
-    grid.find_k_nearest_with_scratch_into(&points, points[0], 0, 12, &mut scratch, &mut out);
+    grid.find_k_nearest_with_scratch_into(&points_a, points_a[0], 0, 12, &mut scratch, &mut out);
     assert_eq!(out, vec![1]);
 }
 
@@ -117,6 +129,7 @@ fn cube_grid_matches_bruteforce_small_exact() {
 
     for &n in &sizes {
         let points = gen_fibonacci(n, 12345, 0.1);
+        let points_a = to_vec3a(&points);
         for &target in &res_targets {
             let res = res_for_target(n, target);
             let grid = CubeMapGrid::new(&points, res);
@@ -134,8 +147,8 @@ fn cube_grid_matches_bruteforce_small_exact() {
                     let expected = brute_force_knn(&points, qi, k);
 
                     grid.find_k_nearest_with_scratch_into(
-                        &points,
-                        points[qi],
+                        &points_a,
+                        points_a[qi],
                         qi,
                         k,
                         &mut scratch,
@@ -146,8 +159,8 @@ fn cube_grid_matches_bruteforce_small_exact() {
                     assert_set_eq(&out, &expected);
 
                     grid.find_k_nearest_with_scratch_into_dot_topk(
-                        &points,
-                        points[qi],
+                        &points_a,
+                        points_a[qi],
                         qi,
                         k,
                         &mut scratch,
@@ -166,6 +179,7 @@ fn cube_grid_matches_bruteforce_small_exact() {
 fn cube_grid_resumable_matches_bruteforce() {
     let n = 20_000;
     let points = gen_fibonacci(n, 12345, 0.1);
+    let points_a = to_vec3a(&points);
     let grid = CubeMapGrid::new(&points, res_for_target(n, 24.0));
     let mut scratch = grid.make_scratch();
     let mut out = Vec::new();
@@ -173,8 +187,8 @@ fn cube_grid_resumable_matches_bruteforce() {
     for qi in (0..n).step_by(251) {
         // Start at k=12, track up to 48 and resume.
         let status = grid.find_k_nearest_resumable_into(
-            &points,
-            points[qi],
+            &points_a,
+            points_a[qi],
             qi,
             12,
             48,
@@ -190,13 +204,13 @@ fn cube_grid_resumable_matches_bruteforce() {
             KnnStatus::CanResume | KnnStatus::Exhausted
         ));
 
-        let _ = grid.resume_k_nearest_into(&points, points[qi], qi, 24, &mut scratch, &mut out);
+        let _ = grid.resume_k_nearest_into(&points_a, points_a[qi], qi, 24, &mut scratch, &mut out);
         let expected24 = brute_force_knn(&points, qi, 24);
         assert_knn_basic_invariants(n, qi, 24, &out);
         assert_sorted_by_distance(&points, qi, &out);
         assert_set_eq(&out, &expected24);
 
-        let _ = grid.resume_k_nearest_into(&points, points[qi], qi, 48, &mut scratch, &mut out);
+        let _ = grid.resume_k_nearest_into(&points_a, points_a[qi], qi, 48, &mut scratch, &mut out);
         let expected48 = brute_force_knn(&points, qi, 48);
         assert_knn_basic_invariants(n, qi, 48, &out);
         assert_sorted_by_distance(&points, qi, &out);
@@ -208,14 +222,15 @@ fn cube_grid_resumable_matches_bruteforce() {
 fn cube_grid_resumable_append_only_preserves_prefix() {
     let n = 20_000;
     let points = gen_fibonacci(n, 12345, 0.1);
+    let points_a = to_vec3a(&points);
     let grid = CubeMapGrid::new(&points, res_for_target(n, 24.0));
     let mut scratch = grid.make_scratch();
     let mut out = Vec::new();
 
     for qi in (0..n).step_by(251) {
         let _ = grid.find_k_nearest_resumable_into(
-            &points,
-            points[qi],
+            &points_a,
+            points_a[qi],
             qi,
             12,
             48,
@@ -229,8 +244,8 @@ fn cube_grid_resumable_append_only_preserves_prefix() {
         assert_set_eq(&out12, &expected12);
 
         let _ = grid.resume_k_nearest_append_into(
-            &points,
-            points[qi],
+            &points_a,
+            points_a[qi],
             qi,
             12,
             24,
@@ -245,8 +260,8 @@ fn cube_grid_resumable_append_only_preserves_prefix() {
 
         let out24 = out.clone();
         let _ = grid.resume_k_nearest_append_into(
-            &points,
-            points[qi],
+            &points_a,
+            points_a[qi],
             qi,
             24,
             48,
@@ -265,62 +280,20 @@ fn cube_grid_resumable_append_only_preserves_prefix() {
 fn cube_grid_resume_beyond_track_limit_falls_back_to_exact() {
     let n = 10_000;
     let points = gen_random(n, 999);
+    let points_a = to_vec3a(&points);
     let grid = CubeMapGrid::new(&points, res_for_target(n, 24.0));
     let mut scratch = grid.make_scratch();
     let mut out = Vec::new();
 
     let qi = 1234;
     let _ =
-        grid.find_k_nearest_resumable_into(&points, points[qi], qi, 12, 12, &mut scratch, &mut out);
-    let status = grid.resume_k_nearest_into(&points, points[qi], qi, 24, &mut scratch, &mut out);
+        grid.find_k_nearest_resumable_into(&points_a, points_a[qi], qi, 12, 12, &mut scratch, &mut out);
+    let status = grid.resume_k_nearest_into(&points_a, points_a[qi], qi, 24, &mut scratch, &mut out);
     assert_eq!(status, KnnStatus::Exhausted);
     let expected24 = brute_force_knn(&points, qi, 24);
     assert_knn_basic_invariants(n, qi, 24, &out);
     assert_sorted_by_distance(&points, qi, &out);
     assert_set_eq(&out, &expected24);
-}
-
-#[test]
-fn cube_grid_iterative_fetch_matches_bruteforce() {
-    let n = 8192;
-    let k = 48;
-    let points = gen_fibonacci(n, 12345, 0.1);
-    let grid = CubeMapGrid::new(&points, res_for_target(n, 24.0));
-    let mut scratch = grid.make_iter_scratch();
-
-    for qi in (0..n).step_by(257) {
-        let mut query = grid.knn_query::<48>(&points, points[qi], qi, &mut scratch);
-        let mut out = Vec::new();
-        let mut seen = HashSet::new();
-        let mut last_dist = -1.0f32;
-
-        loop {
-            match query.fetch() {
-                Some(batch) => {
-                    for &(_dot, idx_u32) in batch {
-                        let idx = idx_u32 as usize;
-                        assert!(seen.insert(idx), "duplicate neighbor in fetch output");
-                        let d = unit_vec_dist_sq(points[idx], points[qi]);
-                        assert!(d >= last_dist, "fetch output not globally ordered");
-                        last_dist = d;
-                        out.push(idx);
-                    }
-                }
-                None => {
-                    assert!(
-                        query.is_exhausted(),
-                        "fetch returned None before query exhaustion"
-                    );
-                    break;
-                }
-            }
-        }
-
-        let expected = brute_force_knn(&points, qi, k);
-        assert_knn_basic_invariants(n, qi, k, &out);
-        assert_sorted_by_distance(&points, qi, &out);
-        assert_set_eq(&out, &expected);
-    }
 }
 
 #[test]
@@ -363,6 +336,7 @@ fn cube_grid_stress_vs_kiddo_100k() {
     let n = 100_000;
     let k = 24;
     let points = gen_fibonacci(n, 12345, 0.1);
+    let points_a = to_vec3a(&points);
     let grid = CubeMapGrid::new(&points, res_for_target(n, 24.0));
     let (tree, entries) = build_kdtree(&points);
 
@@ -371,8 +345,8 @@ fn cube_grid_stress_vs_kiddo_100k() {
 
     for qi in (0..n).step_by(997) {
         grid.find_k_nearest_with_scratch_into_dot_topk(
-            &points,
-            points[qi],
+            &points_a,
+            points_a[qi],
             qi,
             k,
             &mut scratch,
@@ -390,6 +364,7 @@ fn cube_grid_stress_vs_kiddo_1m() {
     let n = 1_000_000;
     let k = 24;
     let points = gen_fibonacci(n, 12345, 0.0);
+    let points_a = to_vec3a(&points);
     let grid = CubeMapGrid::new(&points, res_for_target(n, 8.0));
     let (tree, entries) = build_kdtree(&points);
 
@@ -398,8 +373,8 @@ fn cube_grid_stress_vs_kiddo_1m() {
 
     for qi in (0..n).step_by(100_003) {
         grid.find_k_nearest_with_scratch_into_dot_topk(
-            &points,
-            points[qi],
+            &points_a,
+            points_a[qi],
             qi,
             k,
             &mut scratch,
