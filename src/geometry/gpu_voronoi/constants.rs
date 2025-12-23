@@ -12,14 +12,12 @@ pub const VERTEX_WELD_FRACTION: f32 = 0.01;
 
 /// Support-set epsilon in dot space (absolute).
 ///
-/// This defines the ambiguity zone for support set membership:
-/// a generator C is in the support set if dot(V,G) - dot(V,C) ≤ SUPPORT_EPS_ABS.
+/// This is a geometric/consistency tolerance that defines the ambiguity zone for
+/// support set membership: a generator C is in the support set if
+/// dot(V,G) - dot(V,C) <= SUPPORT_EPS_ABS.
 ///
-/// For f64 vertex computation with ~2e-15 position error:
-/// - Gap error ≈ 2e-15 × |G-C| ≤ 4e-15
-/// - Two cells computing "same" vertex may get gaps differing by ~8e-15
-///
-/// We use 1e-12 for ~100x safety margin over f64 arithmetic error.
+/// Numeric error is handled separately in certification by adding an error margin
+/// on top of this epsilon; do not interpret this value as an f64 error budget.
 pub const SUPPORT_EPS_ABS: f64 = 1e-12;
 
 /// Additional margin when certifying a bounded support cluster.

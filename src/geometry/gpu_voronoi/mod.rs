@@ -64,14 +64,9 @@ pub struct TerminationConfig {
 }
 
 // Keep the k-NN schedule and the default termination cadence in one place.
-// Resume: 12 -> 24 (same query, higher k). Restart: 48 -> 96 (fresh queries).
-pub(super) const KNN_K12: usize = 12;
-pub(super) const KNN_K24: usize = 24;
-pub(super) const KNN_K48: usize = 48;
-pub(super) const KNN_K96: usize = 96;
-pub(super) const KNN_RESUME_KS: [usize; 2] = [KNN_K12, KNN_K24];
-pub(super) const KNN_RESTART_KS: [usize; 2] = [KNN_K48, KNN_K96];
-pub(super) const KNN_RESTART_MAX: usize = KNN_K96;
+pub(super) const KNN_RESUME_KS: [usize; 1] = [20];
+pub(super) const KNN_RESTART_MAX: usize = 48;
+pub(super) const KNN_RESTART_KS: [usize; 2] = [32, KNN_RESTART_MAX];
 
 // Default termination cadence:
 // - start near the end of the initial k pass

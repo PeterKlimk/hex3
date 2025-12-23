@@ -9,6 +9,9 @@
 
 use std::time::Duration;
 
+#[cfg(feature = "timing")]
+use rustc_hash::FxHashMap;
+
 /// Histogram of neighbors processed at termination.
 /// Buckets 0-47: exact counts for 1-48 neighbors (bucket i = i+1 neighbors)
 /// Bucket 48: 49-64 neighbors
@@ -16,6 +19,20 @@ use std::time::Duration;
 /// Bucket 50: 97+ neighbors
 #[cfg(feature = "timing")]
 pub const NEIGHBOR_HIST_BUCKETS: usize = 51;
+
+/// K-NN stage that a cell terminated at.
+#[cfg(feature = "timing")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum KnnCellStage {
+    /// Terminated during resume stage with given K value
+    Resume(usize),
+    /// Terminated during restart stage with given K value
+    Restart(usize),
+    /// Ran full scan as fallback
+    FullScanFallback,
+    /// Ran full scan for dead-cell recovery
+    FullScanRecovery,
+}
 
 /// Sub-phase timings within cell construction.
 #[cfg(feature = "timing")]
@@ -27,14 +44,7 @@ pub struct CellSubPhases {
     /// Live-dedup: per-vertex ownership checks and shard-local dedup work during cell build.
     pub key_dedup: Duration,
     /// Per-cell k-NN stage distribution (final stage used per cell).
-    pub cells_k12: u64,
-    pub cells_k24: u64,
-    pub cells_k48: u64,
-    pub cells_k96: u64,
-    /// Cells that ran an O(n) full scan due to k-NN exhaustion.
-    pub cells_full_scan_fallback: u64,
-    /// Cells that ran an O(n) full scan due to dead-cell recovery.
-    pub cells_full_scan_recovery: u64,
+    pub stage_counts: FxHashMap<KnnCellStage, u64>,
     /// Cells where the k-NN search loop exhausted (typically means it hit brute force).
     pub cells_knn_exhausted: u64,
     /// Histogram of neighbors processed at termination.
@@ -49,12 +59,7 @@ impl Default for CellSubPhases {
             clipping: Duration::ZERO,
             certification: Duration::ZERO,
             key_dedup: Duration::ZERO,
-            cells_k12: 0,
-            cells_k24: 0,
-            cells_k48: 0,
-            cells_k96: 0,
-            cells_full_scan_fallback: 0,
-            cells_full_scan_recovery: 0,
+            stage_counts: FxHashMap::default(),
             cells_knn_exhausted: 0,
             neighbors_histogram: [0; NEIGHBOR_HIST_BUCKETS],
         }
@@ -182,31 +187,66 @@ impl PhaseTimings {
         }
         eprintln!("    ({:.1}x parallelism)", parallelism);
 
-        let total_cells = (self.cell_sub.cells_k12
-            + self.cell_sub.cells_k24
-            + self.cell_sub.cells_k48
-            + self.cell_sub.cells_k96
-            + self.cell_sub.cells_full_scan_fallback
-            + self.cell_sub.cells_full_scan_recovery)
-            .max(1u64);
+        // Collect and sort stage counts for display
+        let total_cells: u64 = self.cell_sub.stage_counts.values().sum::<u64>().max(1);
         let pct_cells = |c: u64| c as f64 / total_cells as f64 * 100.0;
-        eprintln!(
-            "    knn_stages: k12={} ({:.1}%) k24={} ({:.1}%) k48={} ({:.1}%) k96={} ({:.1}%) full_scan={} ({:.1}%) recovery_scan={} ({:.1}%) exhausted={} ({:.1}%)",
-            self.cell_sub.cells_k12,
-            pct_cells(self.cell_sub.cells_k12),
-            self.cell_sub.cells_k24,
-            pct_cells(self.cell_sub.cells_k24),
-            self.cell_sub.cells_k48,
-            pct_cells(self.cell_sub.cells_k48),
-            self.cell_sub.cells_k96,
-            pct_cells(self.cell_sub.cells_k96),
-            self.cell_sub.cells_full_scan_fallback,
-            pct_cells(self.cell_sub.cells_full_scan_fallback),
-            self.cell_sub.cells_full_scan_recovery,
-            pct_cells(self.cell_sub.cells_full_scan_recovery),
+
+        // Separate resume, restart, and special stages
+        let mut resume_stages: Vec<_> = self
+            .cell_sub
+            .stage_counts
+            .iter()
+            .filter_map(|(k, &v)| match k {
+                KnnCellStage::Resume(n) => Some((*n, v)),
+                _ => None,
+            })
+            .collect();
+        resume_stages.sort_by_key(|(k, _)| *k);
+
+        let mut restart_stages: Vec<_> = self
+            .cell_sub
+            .stage_counts
+            .iter()
+            .filter_map(|(k, &v)| match k {
+                KnnCellStage::Restart(n) => Some((*n, v)),
+                _ => None,
+            })
+            .collect();
+        restart_stages.sort_by_key(|(k, _)| *k);
+
+        let full_scan = self
+            .cell_sub
+            .stage_counts
+            .get(&KnnCellStage::FullScanFallback)
+            .copied()
+            .unwrap_or(0);
+        let recovery = self
+            .cell_sub
+            .stage_counts
+            .get(&KnnCellStage::FullScanRecovery)
+            .copied()
+            .unwrap_or(0);
+
+        // Build output string
+        let mut stages_str = String::from("    knn_stages:");
+        for (k, count) in &resume_stages {
+            stages_str.push_str(&format!(" k{}={} ({:.1}%)", k, count, pct_cells(*count)));
+        }
+        for (k, count) in &restart_stages {
+            stages_str.push_str(&format!(" K{}={} ({:.1}%)", k, count, pct_cells(*count)));
+        }
+        if full_scan > 0 {
+            stages_str.push_str(&format!(" full_scan={} ({:.1}%)", full_scan, pct_cells(full_scan)));
+        }
+        if recovery > 0 {
+            stages_str.push_str(&format!(" recovery={} ({:.1}%)", recovery, pct_cells(recovery)));
+        }
+        stages_str.push_str(&format!(
+            " exhausted={} ({:.1}%)",
             self.cell_sub.cells_knn_exhausted,
-            pct_cells(self.cell_sub.cells_knn_exhausted),
-        );
+            pct_cells(self.cell_sub.cells_knn_exhausted)
+        ));
+        eprintln!("{}", stages_str);
 
         // Neighbor histogram: compute percentiles
         let hist = &self.cell_sub.neighbors_histogram;
@@ -255,6 +295,17 @@ impl PhaseTimings {
                 find_percentile(0.99),
                 max_neighbors,
             );
+
+            // Dump non-zero buckets as: n=count (pct%)
+            let mut detail = String::from("    neighbors_detail:");
+            for (bucket, &count) in hist.iter().enumerate() {
+                if count > 0 {
+                    let n = bucket_to_neighbors(bucket);
+                    let pct = count as f64 / hist_total as f64 * 100.0;
+                    detail.push_str(&format!(" {}={:.1}%", n, pct));
+                }
+            }
+            eprintln!("{}", detail);
         }
 
         eprintln!(
@@ -385,12 +436,7 @@ pub struct CellSubAccum {
     pub clipping: Duration,
     pub certification: Duration,
     pub key_dedup: Duration,
-    pub cells_k12: u64,
-    pub cells_k24: u64,
-    pub cells_k48: u64,
-    pub cells_k96: u64,
-    pub cells_full_scan_fallback: u64,
-    pub cells_full_scan_recovery: u64,
+    pub stage_counts: FxHashMap<KnnCellStage, u64>,
     pub cells_knn_exhausted: u64,
     pub neighbors_histogram: [u64; NEIGHBOR_HIST_BUCKETS],
 }
@@ -403,12 +449,7 @@ impl Default for CellSubAccum {
             clipping: Duration::ZERO,
             certification: Duration::ZERO,
             key_dedup: Duration::ZERO,
-            cells_k12: 0,
-            cells_k24: 0,
-            cells_k48: 0,
-            cells_k96: 0,
-            cells_full_scan_fallback: 0,
-            cells_full_scan_recovery: 0,
+            stage_counts: FxHashMap::default(),
             cells_knn_exhausted: 0,
             neighbors_histogram: [0; NEIGHBOR_HIST_BUCKETS],
         }
@@ -443,14 +484,7 @@ impl CellSubAccum {
         knn_exhausted: bool,
         neighbors_processed: usize,
     ) {
-        match stage {
-            KnnCellStage::K12 => self.cells_k12 += 1,
-            KnnCellStage::K24 => self.cells_k24 += 1,
-            KnnCellStage::K48 => self.cells_k48 += 1,
-            KnnCellStage::K96 => self.cells_k96 += 1,
-            KnnCellStage::FullScanFallback => self.cells_full_scan_fallback += 1,
-            KnnCellStage::FullScanRecovery => self.cells_full_scan_recovery += 1,
-        }
+        *self.stage_counts.entry(stage).or_insert(0) += 1;
         if knn_exhausted {
             self.cells_knn_exhausted += 1;
         }
@@ -472,12 +506,9 @@ impl CellSubAccum {
         self.clipping += other.clipping;
         self.certification += other.certification;
         self.key_dedup += other.key_dedup;
-        self.cells_k12 += other.cells_k12;
-        self.cells_k24 += other.cells_k24;
-        self.cells_k48 += other.cells_k48;
-        self.cells_k96 += other.cells_k96;
-        self.cells_full_scan_fallback += other.cells_full_scan_fallback;
-        self.cells_full_scan_recovery += other.cells_full_scan_recovery;
+        for (&stage, &count) in &other.stage_counts {
+            *self.stage_counts.entry(stage).or_insert(0) += count;
+        }
         self.cells_knn_exhausted += other.cells_knn_exhausted;
         for (i, &count) in other.neighbors_histogram.iter().enumerate() {
             self.neighbors_histogram[i] += count;
@@ -490,27 +521,11 @@ impl CellSubAccum {
             clipping: self.clipping,
             certification: self.certification,
             key_dedup: self.key_dedup,
-            cells_k12: self.cells_k12,
-            cells_k24: self.cells_k24,
-            cells_k48: self.cells_k48,
-            cells_k96: self.cells_k96,
-            cells_full_scan_fallback: self.cells_full_scan_fallback,
-            cells_full_scan_recovery: self.cells_full_scan_recovery,
+            stage_counts: self.stage_counts,
             cells_knn_exhausted: self.cells_knn_exhausted,
             neighbors_histogram: self.neighbors_histogram,
         }
     }
-}
-
-#[cfg(feature = "timing")]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum KnnCellStage {
-    K12,
-    K24,
-    K48,
-    K96,
-    FullScanFallback,
-    FullScanRecovery,
 }
 
 /// Dummy accumulator when feature is disabled.
@@ -551,11 +566,13 @@ impl CellSubAccum {
 #[cfg(not(feature = "timing"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KnnCellStage {
-    K12,
-    K24,
-    K48,
-    K96,
+    /// Terminated during resume stage with given K value
+    Resume(usize),
+    /// Terminated during restart stage with given K value
+    Restart(usize),
+    /// Ran full scan as fallback
     FullScanFallback,
+    /// Ran full scan for dead-cell recovery
     FullScanRecovery,
 }
 

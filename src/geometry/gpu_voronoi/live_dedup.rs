@@ -285,10 +285,10 @@ pub(super) fn build_cells_sharded_live_dedup(
                 let mut neighbors: Vec<usize> = Vec::with_capacity(super::KNN_RESTART_MAX);
                 let mut processed = 0usize;
                 let mut max_k_requested = 0usize;
-                let mut knn_stage = KnnCellStage::K12;
+                let mut knn_stage = KnnCellStage::Resume(super::KNN_RESUME_KS[0]);
                 let mut did_reach_knn_limit = false;
 
-                let resume_track_limit = super::KNN_K24.min(max_neighbors);
+                let resume_track_limit = (*super::KNN_RESUME_KS.last().unwrap()).min(max_neighbors);
                 for (stage_idx, &k_stage) in super::KNN_RESUME_KS.iter().enumerate() {
                     let k = k_stage.min(resume_track_limit);
                     if k == 0 || k <= processed {
@@ -317,9 +317,8 @@ pub(super) fn build_cells_sharded_live_dedup(
                     };
                     sub_accum.add_knn(t_knn.elapsed());
 
-                    if stage_idx > 0 {
-                        knn_stage = KnnCellStage::K24;
-                    }
+                    // Track which resume stage we're at
+                    knn_stage = KnnCellStage::Resume(k_stage);
 
                     let t_clip = Timer::start();
                     for &neighbor_idx in &neighbors[processed..] {
@@ -372,11 +371,8 @@ pub(super) fn build_cells_sharded_live_dedup(
                         );
                         sub_accum.add_knn(t_knn.elapsed());
 
-                        knn_stage = if restart_idx + 1 == super::KNN_RESTART_KS.len() {
-                            KnnCellStage::K96
-                        } else {
-                            KnnCellStage::K48
-                        };
+                        // Track which restart stage we're at
+                        knn_stage = KnnCellStage::Restart(k_stage);
 
                         let t_clip = Timer::start();
                         for &neighbor_idx in &neighbors {
