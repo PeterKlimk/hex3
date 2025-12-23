@@ -23,13 +23,10 @@ pub type VertexList = Vec<VertexData>;
 // Epsilon values are defined in constants.rs.
 
 /// Maximum number of planes (great circle boundaries) per cell.
-pub const MAX_PLANES: usize = 24;
+pub const MAX_PLANES: usize = 32;
 
 /// Maximum number of vertices (plane triplet intersections) per cell.
-pub const MAX_VERTICES: usize = 24;
-
-/// Maximum scratch buffer size (n+2 for clipping operations).
-const MAX_SCRATCH: usize = MAX_VERTICES + 2;
+pub const MAX_VERTICES: usize = 16;
 
 /// Reasons a cell build can fail, requiring fallback to a different algorithm.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -137,14 +134,14 @@ pub struct F64CellBuilder {
     edge_planes: [usize; MAX_VERTICES],
 
     // Scratch buffers for clipping operations
-    scratch_inside: [bool; MAX_SCRATCH],
-    scratch_vertex_x: [f64; MAX_SCRATCH],
-    scratch_vertex_y: [f64; MAX_SCRATCH],
-    scratch_vertex_z: [f64; MAX_SCRATCH],
-    scratch_vertex_plane_a: [usize; MAX_SCRATCH],
-    scratch_vertex_plane_b: [usize; MAX_SCRATCH],
+    scratch_inside: [bool; MAX_VERTICES],
+    scratch_vertex_x: [f64; MAX_VERTICES],
+    scratch_vertex_y: [f64; MAX_VERTICES],
+    scratch_vertex_z: [f64; MAX_VERTICES],
+    scratch_vertex_plane_a: [usize; MAX_VERTICES],
+    scratch_vertex_plane_b: [usize; MAX_VERTICES],
     scratch_vertex_count: usize,
-    scratch_edge_planes: [usize; MAX_SCRATCH],
+    scratch_edge_planes: [usize; MAX_VERTICES],
 
     seeded: bool,
     failed: Option<CellFailure>,
@@ -218,7 +215,7 @@ impl F64CellBuilder {
     #[inline]
     fn push_scratch_vertex(&mut self, pos: DVec3, plane_a: usize, plane_b: usize) -> Result<(), CellFailure> {
         let i = self.scratch_vertex_count;
-        if i >= MAX_SCRATCH {
+        if i >= MAX_VERTICES {
             self.failed = Some(CellFailure::TooManyVertices);
             return Err(CellFailure::TooManyVertices);
         }
@@ -284,14 +281,14 @@ impl F64CellBuilder {
             edge_planes: [0; MAX_VERTICES],
 
             // Scratch buffers
-            scratch_inside: [false; MAX_SCRATCH],
-            scratch_vertex_x: [0.0; MAX_SCRATCH],
-            scratch_vertex_y: [0.0; MAX_SCRATCH],
-            scratch_vertex_z: [0.0; MAX_SCRATCH],
-            scratch_vertex_plane_a: [0; MAX_SCRATCH],
-            scratch_vertex_plane_b: [0; MAX_SCRATCH],
+            scratch_inside: [false; MAX_VERTICES],
+            scratch_vertex_x: [0.0; MAX_VERTICES],
+            scratch_vertex_y: [0.0; MAX_VERTICES],
+            scratch_vertex_z: [0.0; MAX_VERTICES],
+            scratch_vertex_plane_a: [0; MAX_VERTICES],
+            scratch_vertex_plane_b: [0; MAX_VERTICES],
             scratch_vertex_count: 0,
-            scratch_edge_planes: [0; MAX_SCRATCH],
+            scratch_edge_planes: [0; MAX_VERTICES],
 
             seeded: false,
             failed: None,
