@@ -28,33 +28,6 @@ pub const MAX_PLANES: usize = 24;
 /// Maximum number of vertices (plane triplet intersections) per cell.
 pub const MAX_VERTICES: usize = 32;
 
-/// A great circle on the unit sphere, represented by its normal vector.
-#[derive(Debug, Clone, Copy)]
-pub struct GreatCircle {
-    pub normal: Vec3,
-}
-
-impl GreatCircle {
-    /// Create the bisector great circle between two points on the unit sphere.
-    #[inline]
-    pub fn bisector(a: Vec3, b: Vec3) -> Self {
-        let normal = (a - b).normalize();
-        GreatCircle { normal }
-    }
-
-    /// Check if a point is in the positive hemisphere.
-    #[inline]
-    pub fn contains(&self, point: Vec3) -> bool {
-        self.normal.dot(point) >= -EPS_PLANE_CONTAINS
-    }
-
-    /// Signed distance from point to the great circle plane.
-    #[inline]
-    pub fn signed_distance(&self, point: Vec3) -> f32 {
-        self.normal.dot(point)
-    }
-}
-
 /// Compute geodesic distance between two points on unit sphere.
 #[inline]
 pub fn geodesic_distance(a: Vec3, b: Vec3) -> f32 {

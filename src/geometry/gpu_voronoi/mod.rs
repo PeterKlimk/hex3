@@ -5,6 +5,7 @@
 
 mod cell_builder;
 mod constants;
+mod f32_fast;
 mod knn;
 mod live_dedup;
 mod timing;
@@ -17,7 +18,7 @@ use kiddo::ImmutableKdTree;
 
 // Re-exports
 pub use cell_builder::{
-    geodesic_distance, order_vertices_ccw_indices, F64CellBuilder, GreatCircle, VertexData,
+    geodesic_distance, order_vertices_ccw_indices, F64CellBuilder, VertexData,
     VertexKey, VertexList, MAX_PLANES, MAX_VERTICES,
 };
 pub use constants::{
@@ -64,7 +65,7 @@ pub struct TerminationConfig {
 }
 
 // Keep the k-NN schedule and the default termination cadence in one place.
-pub(super) const KNN_RESUME_KS: [usize; 1] = [20];
+pub(super) const KNN_RESUME_KS: [usize; 2] = [14, 20];
 pub(super) const KNN_RESTART_MAX: usize = 48;
 pub(super) const KNN_RESTART_KS: [usize; 2] = [32, KNN_RESTART_MAX];
 
