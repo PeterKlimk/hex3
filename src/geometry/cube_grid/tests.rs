@@ -385,3 +385,132 @@ fn cube_grid_stress_vs_kiddo_1m() {
         assert_set_eq(&out, &kiddo);
     }
 }
+
+#[test]
+#[ignore] // Run with: cargo test cube_grid_distortion_analysis --release -- --ignored --nocapture
+fn cube_grid_distortion_analysis() {
+    let n = 100_000;
+    let res = 32; // 32x32 per face = 6144 total cells
+    let points = gen_fibonacci(n, 12345, 0.0);
+    let grid = CubeMapGrid::new(&points, res);
+
+    let num_cells = 6 * res * res;
+    let cells_per_face = res * res;
+
+    // Collect bin sizes
+    let mut bin_sizes: Vec<usize> = Vec::with_capacity(num_cells);
+    for cell in 0..num_cells {
+        let count = grid.cell_points(cell).len();
+        bin_sizes.push(count);
+    }
+
+    // Per-face statistics
+    let face_names = ["+X", "-X", "+Y", "-Y", "+Z", "-Z"];
+    println!("\n=== Cube Map Distortion Analysis ===");
+    println!("Points: {n}, Resolution: {res}x{res} per face, Total cells: {num_cells}");
+    println!("Expected points/cell: {:.1}\n", n as f64 / num_cells as f64);
+
+    println!("Per-face statistics:");
+    println!("{:>4} {:>8} {:>8} {:>8} {:>8} {:>8}", "Face", "Min", "Max", "Mean", "StdDev", "Empty");
+
+    for (face_idx, &face_name) in face_names.iter().enumerate() {
+        let start = face_idx * cells_per_face;
+        let end = start + cells_per_face;
+        let face_bins = &bin_sizes[start..end];
+
+        let min = *face_bins.iter().min().unwrap();
+        let max = *face_bins.iter().max().unwrap();
+        let sum: usize = face_bins.iter().sum();
+        let mean = sum as f64 / cells_per_face as f64;
+        let variance: f64 = face_bins
+            .iter()
+            .map(|&x| (x as f64 - mean).powi(2))
+            .sum::<f64>()
+            / cells_per_face as f64;
+        let stddev = variance.sqrt();
+        let empty = face_bins.iter().filter(|&&x| x == 0).count();
+
+        println!(
+            "{:>4} {:>8} {:>8} {:>8.1} {:>8.2} {:>8}",
+            face_name, min, max, mean, stddev, empty
+        );
+    }
+
+    // Overall statistics
+    let min = *bin_sizes.iter().min().unwrap();
+    let max = *bin_sizes.iter().max().unwrap();
+    let sum: usize = bin_sizes.iter().sum();
+    let mean = sum as f64 / num_cells as f64;
+    let variance: f64 = bin_sizes
+        .iter()
+        .map(|&x| (x as f64 - mean).powi(2))
+        .sum::<f64>()
+        / num_cells as f64;
+    let stddev = variance.sqrt();
+    let empty = bin_sizes.iter().filter(|&&x| x == 0).count();
+
+    println!("{:>4} {:>8} {:>8} {:>8.1} {:>8.2} {:>8}", "ALL", min, max, mean, stddev, empty);
+
+    // Coefficient of variation (lower = more uniform)
+    let cv = stddev / mean * 100.0;
+    println!("\nCoefficient of Variation: {cv:.1}% (lower = more uniform)");
+
+    // Histogram
+    println!("\nBin size distribution:");
+    let mut histogram: Vec<usize> = vec![0; max + 1];
+    for &size in &bin_sizes {
+        histogram[size] += 1;
+    }
+
+    // Find range with data
+    let first_nonzero = histogram.iter().position(|&x| x > 0).unwrap_or(0);
+    let last_nonzero = histogram.iter().rposition(|&x| x > 0).unwrap_or(0);
+
+    // Print histogram with buckets
+    let bucket_size = ((last_nonzero - first_nonzero) / 20).max(1);
+    let mut bucket_start = first_nonzero;
+    while bucket_start <= last_nonzero {
+        let bucket_end = (bucket_start + bucket_size).min(last_nonzero + 1);
+        let count: usize = histogram[bucket_start..bucket_end].iter().sum();
+        let bar_len = (count * 50 / num_cells.max(1)).min(50);
+        let bar: String = "█".repeat(bar_len);
+        println!("{:>3}-{:<3}: {:>5} {}", bucket_start, bucket_end - 1, count, bar);
+        bucket_start = bucket_end;
+    }
+
+    // Distortion ratio: max/min (excluding empty cells)
+    let non_empty_min = *bin_sizes.iter().filter(|&&x| x > 0).min().unwrap_or(&1);
+    let distortion_ratio = max as f64 / non_empty_min as f64;
+    println!("\nDistortion ratio (max/min non-empty): {distortion_ratio:.2}x");
+
+    // Check corners vs centers (corners have more distortion in cube projection)
+    println!("\nCorner vs Center analysis (per face):");
+    for (face_idx, &face_name) in face_names.iter().enumerate() {
+        let start = face_idx * cells_per_face;
+
+        // Corner cells (4 corners of each face)
+        let corners = [
+            start,                           // (0, 0)
+            start + res - 1,                 // (res-1, 0)
+            start + (res - 1) * res,         // (0, res-1)
+            start + (res - 1) * res + res - 1, // (res-1, res-1)
+        ];
+        let corner_avg: f64 = corners.iter().map(|&c| bin_sizes[c] as f64).sum::<f64>() / 4.0;
+
+        // Center cells (middle 2x2)
+        let mid = res / 2;
+        let centers = [
+            start + (mid - 1) * res + mid - 1,
+            start + (mid - 1) * res + mid,
+            start + mid * res + mid - 1,
+            start + mid * res + mid,
+        ];
+        let center_avg: f64 = centers.iter().map(|&c| bin_sizes[c] as f64).sum::<f64>() / 4.0;
+
+        let ratio = corner_avg / center_avg;
+        println!(
+            "{}: corners={:.1}, centers={:.1}, ratio={:.2}x",
+            face_name, corner_avg, center_avg, ratio
+        );
+    }
+}

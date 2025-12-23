@@ -52,6 +52,31 @@ fn unit_vec_dist_sq_generic<P: UnitVec>(a: P, b: P) -> f32 {
     (2.0 - 2.0 * a.dot(b)).max(0.0)
 }
 
+// S2-style quadratic projection to reduce cube map distortion.
+// Maps UV ∈ [-1, 1] to ST ∈ [0, 1] with area-equalizing transform.
+// Corners get compressed (larger solid angle → fewer cells),
+// centers get expanded (smaller solid angle → more cells).
+
+/// S2 quadratic transform: UV [-1, 1] → ST [0, 1]
+#[inline]
+fn uv_to_st(u: f32) -> f32 {
+    if u >= 0.0 {
+        0.5 * (1.0 + 3.0 * u).sqrt()
+    } else {
+        1.0 - 0.5 * (1.0 - 3.0 * u).sqrt()
+    }
+}
+
+/// S2 inverse transform: ST [0, 1] → UV [-1, 1]
+#[inline]
+fn st_to_uv(s: f32) -> f32 {
+    if s >= 0.5 {
+        (1.0 / 3.0) * (4.0 * s * s - 1.0)
+    } else {
+        (1.0 / 3.0) * (1.0 - 4.0 * (1.0 - s) * (1.0 - s))
+    }
+}
+
 /// A f32 wrapper that implements Ord using total_cmp.
 /// Unlike NotNan, this doesn't check for NaN - it just orders NaN consistently.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -150,9 +175,11 @@ fn point_to_face_uv(p: Vec3) -> (usize, f32, f32) {
 /// Convert (face, u, v) to cell index.
 #[inline]
 fn face_uv_to_cell(face: usize, u: f32, v: f32, res: usize) -> usize {
-    // Map [-1, 1] -> [0, res)
-    let fu = ((u + 1.0) * 0.5) * (res as f32);
-    let fv = ((v + 1.0) * 0.5) * (res as f32);
+    // Map UV [-1, 1] -> ST [0, 1] using the S2 quadratic transform.
+    let su = uv_to_st(u);
+    let sv = uv_to_st(v);
+    let fu = (su * res as f32).max(0.0);
+    let fv = (sv * res as f32).max(0.0);
     let iu = (fu as usize).min(res - 1);
     let iv = (fv as usize).min(res - 1);
     face * res * res + iv * res + iu
@@ -673,9 +700,11 @@ impl CubeMapGrid {
         let niu_clamped = niu.clamp(-1, res as i32);
         let niv_clamped = niv.clamp(-1, res as i32);
 
-        // Convert to UV coordinates (may be slightly outside [-1, 1])
-        let u = (niu_clamped as f32 + 0.5) / res as f32 * 2.0 - 1.0;
-        let v = (niv_clamped as f32 + 0.5) / res as f32 * 2.0 - 1.0;
+        // Convert to ST coordinates, then back to UV for the face projection.
+        let s = (niu_clamped as f32 + 0.5) / res as f32;
+        let t = (niv_clamped as f32 + 0.5) / res as f32;
+        let u = st_to_uv(s);
+        let v = st_to_uv(t);
 
         // Convert to 3D point on the cube face, then normalize to sphere
         let point_3d = face_uv_to_3d(face, u, v);
@@ -684,8 +713,8 @@ impl CubeMapGrid {
         let (new_face, new_u, new_v) = point_to_face_uv(point_3d);
 
         // Convert to cell coordinates
-        let new_iu = (((new_u + 1.0) * 0.5) * res as f32) as usize;
-        let new_iv = (((new_v + 1.0) * 0.5) * res as f32) as usize;
+        let new_iu = (uv_to_st(new_u) * res as f32) as usize;
+        let new_iv = (uv_to_st(new_v) * res as f32) as usize;
 
         // Clamp to valid range
         let new_iu = new_iu.min(res - 1);
@@ -1388,20 +1417,28 @@ impl CubeMapGrid {
         for cell in 0..num_cells {
             let (face, iu, iv) = cell_to_face_ij(cell, res);
 
-            let u0 = (iu as f32) / res as f32 * 2.0 - 1.0;
-            let u1 = ((iu + 1) as f32) / res as f32 * 2.0 - 1.0;
-            let v0 = (iv as f32) / res as f32 * 2.0 - 1.0;
-            let v1 = ((iv + 1) as f32) / res as f32 * 2.0 - 1.0;
+            let s0 = (iu as f32) / res as f32;
+            let s1 = ((iu + 1) as f32) / res as f32;
+            let t0 = (iv as f32) / res as f32;
+            let t1 = ((iv + 1) as f32) / res as f32;
+            let u0 = st_to_uv(s0);
+            let u1 = st_to_uv(s1);
+            let v0 = st_to_uv(t0);
+            let v1 = st_to_uv(t1);
 
-            let uc = (u0 + u1) * 0.5;
-            let vc = (v0 + v1) * 0.5;
+            let sc = (s0 + s1) * 0.5;
+            let tc = (t0 + t1) * 0.5;
+            let uc = st_to_uv(sc);
+            let vc = st_to_uv(tc);
             let center = face_uv_to_3d(face, uc, vc);
 
             let mut max_angle = 0.0f32;
             for &tv in &TS {
-                let v = v0 + (v1 - v0) * tv;
+                let t = t0 + (t1 - t0) * tv;
+                let v = st_to_uv(t);
                 for &tu in &TS {
-                    let u = u0 + (u1 - u0) * tu;
+                    let s = s0 + (s1 - s0) * tu;
+                    let u = st_to_uv(s);
                     let p = face_uv_to_3d(face, u, v);
                     let dot = center.dot(p).clamp(-1.0, 1.0);
                     let angle = dot.acos();
@@ -1455,4 +1492,3 @@ pub struct GridStats {
     pub empty_cells: usize,
     pub avg_points_per_cell: f64,
 }
-
