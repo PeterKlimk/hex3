@@ -424,7 +424,14 @@ pub fn build_cells_data_flat(
                             &mut neighbors,
                         )
                     } else {
-                        knn.knn_resume_into(points[i], i, k, &mut scratch, &mut neighbors)
+                        knn.knn_resume_append_into(
+                            points[i],
+                            i,
+                            processed,
+                            k,
+                            &mut scratch,
+                            &mut neighbors,
+                        )
                     };
                     sub_accum.add_knn(t_knn.elapsed());
 

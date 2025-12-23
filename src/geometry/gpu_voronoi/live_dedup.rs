@@ -306,7 +306,14 @@ pub(super) fn build_cells_sharded_live_dedup(
                             &mut neighbors,
                         )
                     } else {
-                        knn.knn_resume_into(points[i], i, k, &mut scratch, &mut neighbors)
+                        knn.knn_resume_append_into(
+                            points[i],
+                            i,
+                            processed,
+                            k,
+                            &mut scratch,
+                            &mut neighbors,
+                        )
                     };
                     sub_accum.add_knn(t_knn.elapsed());
 

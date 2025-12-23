@@ -205,6 +205,63 @@ fn cube_grid_resumable_matches_bruteforce() {
 }
 
 #[test]
+fn cube_grid_resumable_append_only_preserves_prefix() {
+    let n = 20_000;
+    let points = gen_fibonacci(n, 12345, 0.1);
+    let grid = CubeMapGrid::new(&points, res_for_target(n, 24.0));
+    let mut scratch = grid.make_scratch();
+    let mut out = Vec::new();
+
+    for qi in (0..n).step_by(251) {
+        let _ = grid.find_k_nearest_resumable_into(
+            &points,
+            points[qi],
+            qi,
+            12,
+            48,
+            &mut scratch,
+            &mut out,
+        );
+        let out12 = out.clone();
+        let expected12 = brute_force_knn(&points, qi, 12);
+        assert_knn_basic_invariants(n, qi, 12, &out12);
+        assert_sorted_by_distance(&points, qi, &out12);
+        assert_set_eq(&out12, &expected12);
+
+        let _ = grid.resume_k_nearest_append_into(
+            &points,
+            points[qi],
+            qi,
+            12,
+            24,
+            &mut scratch,
+            &mut out,
+        );
+        assert_eq!(&out[..12], &out12[..], "k=24 must preserve k=12 prefix");
+        let expected24 = brute_force_knn(&points, qi, 24);
+        assert_knn_basic_invariants(n, qi, 24, &out);
+        assert_sorted_by_distance(&points, qi, &out);
+        assert_set_eq(&out, &expected24);
+
+        let out24 = out.clone();
+        let _ = grid.resume_k_nearest_append_into(
+            &points,
+            points[qi],
+            qi,
+            24,
+            48,
+            &mut scratch,
+            &mut out,
+        );
+        assert_eq!(&out[..24], &out24[..], "k=48 must preserve k=24 prefix");
+        let expected48 = brute_force_knn(&points, qi, 48);
+        assert_knn_basic_invariants(n, qi, 48, &out);
+        assert_sorted_by_distance(&points, qi, &out);
+        assert_set_eq(&out, &expected48);
+    }
+}
+
+#[test]
 fn cube_grid_resume_beyond_track_limit_falls_back_to_exact() {
     let n = 10_000;
     let points = gen_random(n, 999);
@@ -291,7 +348,7 @@ fn cube_grid_cell_bounds_are_conservative() {
             let u = rng.gen_range(u0..u1);
             let v = rng.gen_range(v0..v1);
             let p = face_uv_to_3d(face, u, v);
-            let ang = center.dot(Vec3A::from(p)).clamp(-1.0, 1.0).acos();
+            let ang = center.dot(p).clamp(-1.0, 1.0).acos();
             assert!(
                 ang <= cap_angle,
                 "cell cap underestimates (ang={ang}, cap={cap_angle})"

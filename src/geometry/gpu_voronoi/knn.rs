@@ -107,6 +107,28 @@ impl<'a> CubeMapGridKnn<'a> {
         )
     }
 
+    /// Resume a resumable k-NN query, appending only the newly requested neighbors.
+    #[inline]
+    pub fn knn_resume_append_into(
+        &self,
+        query: Vec3,
+        query_idx: usize,
+        prev_k: usize,
+        new_k: usize,
+        scratch: &mut crate::geometry::cube_grid::CubeMapGridScratch,
+        out_indices: &mut Vec<usize>,
+    ) -> crate::geometry::cube_grid::KnnStatus {
+        self.grid.resume_k_nearest_append_into_vec3a(
+            &self.points_a,
+            query.into(),
+            query_idx,
+            prev_k,
+            new_k,
+            scratch,
+            out_indices,
+        )
+    }
+
     /// Find the k nearest neighbors to the query point (backward compatibility).
     ///
     /// This uses the old non-incremental API. For new code, prefer `knn_query()`.

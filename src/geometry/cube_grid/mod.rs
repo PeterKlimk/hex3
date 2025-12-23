@@ -485,6 +485,46 @@ impl CubeMapGridScratch {
         }
     }
 
+    /// Append indices for `prev_k..new_k` into `out`, preserving the existing prefix.
+    ///
+    /// This is useful for resumable queries where the previous results are known to be a prefix
+    /// of the new results (i.e. correctness was certified for the earlier k).
+    fn append_k_indices_into(&self, prev_k: usize, new_k: usize, out: &mut Vec<usize>) {
+        if new_k == 0 {
+            out.clear();
+            return;
+        }
+
+        let prev_k = prev_k.min(new_k);
+        if out.len() > prev_k {
+            out.truncate(prev_k);
+        }
+
+        if new_k <= prev_k {
+            return;
+        }
+
+        let available = if self.use_fixed {
+            self.candidates_len
+        } else {
+            self.candidates_vec.len()
+        };
+        let count = new_k.min(available);
+        if count <= prev_k {
+            return;
+        }
+
+        out.reserve(count - prev_k);
+        for i in prev_k..count {
+            let idx = if self.use_fixed {
+                self.candidates_fixed[i].1
+            } else {
+                self.candidates_vec[i].1
+            };
+            out.push(idx as usize);
+        }
+    }
+
     fn copy_k_indices_dot_into(&mut self, k: usize, out: &mut Vec<usize>) {
         out.clear();
         if k == 0 {
@@ -935,6 +975,45 @@ impl CubeMapGrid {
         )
     }
 
+    /// Resume a k-NN query and append only the new neighbors to `out_indices`.
+    ///
+    /// `prev_k` is the number of neighbors previously produced into `out_indices` for this
+    /// same scratch/query state. On success, this appends indices for the range
+    /// `prev_k..new_k` (or less if exhausted).
+    ///
+    /// This is an optimization over `resume_k_nearest_into` when the caller wants to process
+    /// only the newly discovered neighbors.
+    pub fn resume_k_nearest_append_into(
+        &self,
+        points: &[Vec3],
+        query: Vec3,
+        query_idx: usize,
+        prev_k: usize,
+        new_k: usize,
+        scratch: &mut CubeMapGridScratch,
+        out_indices: &mut Vec<usize>,
+    ) -> KnnStatus {
+        self.resume_k_nearest_append_into_impl(
+            points, query, query_idx, prev_k, new_k, scratch, out_indices,
+        )
+    }
+
+    /// Vec3A variant of `resume_k_nearest_append_into`.
+    pub fn resume_k_nearest_append_into_vec3a(
+        &self,
+        points: &[Vec3A],
+        query: Vec3A,
+        query_idx: usize,
+        prev_k: usize,
+        new_k: usize,
+        scratch: &mut CubeMapGridScratch,
+        out_indices: &mut Vec<usize>,
+    ) -> KnnStatus {
+        self.resume_k_nearest_append_into_impl(
+            points, query, query_idx, prev_k, new_k, scratch, out_indices,
+        )
+    }
+
     /// Scratch-based k-NN query (best-first over neighboring cells).
     ///
     /// Guarantees returning `min(k, n-1)` indices (excluding `query_idx`), falling back to brute
@@ -1334,6 +1413,72 @@ impl CubeMapGrid {
             self.knn_search_loop_impl(points, query, query_idx, new_k, num_cells, 0, scratch);
 
         scratch.copy_k_indices_into(new_k, out_indices);
+        if exhausted {
+            KnnStatus::Exhausted
+        } else {
+            KnnStatus::CanResume
+        }
+    }
+
+    fn resume_k_nearest_append_into_impl<P: UnitVec>(
+        &self,
+        points: &[P],
+        query: P,
+        query_idx: usize,
+        prev_k: usize,
+        new_k: usize,
+        scratch: &mut CubeMapGridScratch,
+        out_indices: &mut Vec<usize>,
+    ) -> KnnStatus {
+        let n = points.len();
+        if new_k == 0 || n <= 1 {
+            out_indices.clear();
+            return KnnStatus::Exhausted;
+        }
+
+        let new_k = new_k.min(n - 1);
+        let prev_k = prev_k.min(new_k);
+        out_indices.truncate(prev_k);
+
+        if new_k <= prev_k {
+            return if scratch.exhausted {
+                KnnStatus::Exhausted
+            } else {
+                KnnStatus::CanResume
+            };
+        }
+
+        if new_k > scratch.track_limit {
+            // Fallback: recompute exhaustively, but only append the missing suffix.
+            scratch.begin_query(new_k, new_k);
+            self.bruteforce_fill_impl(points, query, query_idx, scratch);
+            scratch.append_k_indices_into(prev_k, new_k, out_indices);
+            return KnnStatus::Exhausted;
+        }
+
+        if scratch.exhausted {
+            scratch.append_k_indices_into(prev_k, new_k, out_indices);
+            return KnnStatus::Exhausted;
+        }
+
+        if scratch.have_k(new_k) {
+            let kth_dist = scratch.kth_dist_sq(new_k);
+            if let Some((bound, _)) = scratch.peek_cell() {
+                if bound >= kth_dist {
+                    scratch.append_k_indices_into(prev_k, new_k, out_indices);
+                    return KnnStatus::CanResume;
+                }
+            } else {
+                scratch.append_k_indices_into(prev_k, new_k, out_indices);
+                return KnnStatus::Exhausted;
+            }
+        }
+
+        let num_cells = 6 * self.res * self.res;
+        let exhausted =
+            self.knn_search_loop_impl(points, query, query_idx, new_k, num_cells, 0, scratch);
+
+        scratch.append_k_indices_into(prev_k, new_k, out_indices);
         if exhausted {
             KnnStatus::Exhausted
         } else {

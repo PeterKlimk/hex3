@@ -710,7 +710,14 @@ fn test_orphan_edge_certification() {
                             &mut neighbors,
                         )
                     } else {
-                        knn.knn_resume_into(points[cell_idx], cell_idx, k, &mut scratch, &mut neighbors)
+                        knn.knn_resume_append_into(
+                            points[cell_idx],
+                            cell_idx,
+                            processed,
+                            k,
+                            &mut scratch,
+                            &mut neighbors,
+                        )
                     };
 
                     for &neighbor_idx in &neighbors[processed..] {
