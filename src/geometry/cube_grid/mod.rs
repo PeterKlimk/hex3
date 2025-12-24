@@ -14,6 +14,9 @@
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod knn_experiments;
+
 use glam::{Vec3, Vec3A};
 use std::cmp::{Ordering, Reverse};
 use std::collections::BinaryHeap;
@@ -59,7 +62,7 @@ fn unit_vec_dist_sq_generic<P: UnitVec>(a: P, b: P) -> f32 {
 
 /// S2 quadratic transform: UV [-1, 1] → ST [0, 1]
 #[inline]
-fn uv_to_st(u: f32) -> f32 {
+pub(crate) fn uv_to_st(u: f32) -> f32 {
     if u >= 0.0 {
         0.5 * (1.0 + 3.0 * u).sqrt()
     } else {
@@ -69,7 +72,7 @@ fn uv_to_st(u: f32) -> f32 {
 
 /// S2 inverse transform: ST [0, 1] → UV [-1, 1]
 #[inline]
-fn st_to_uv(s: f32) -> f32 {
+pub(crate) fn st_to_uv(s: f32) -> f32 {
     if s >= 0.5 {
         (1.0 / 3.0) * (4.0 * s * s - 1.0)
     } else {
@@ -187,7 +190,7 @@ fn face_uv_to_cell(face: usize, u: f32, v: f32, res: usize) -> usize {
 
 /// Convert (face, u, v) back to a 3D point (inverse of point_to_face_uv).
 #[inline]
-pub(super) fn face_uv_to_3d(face: usize, u: f32, v: f32) -> Vec3 {
+pub(crate) fn face_uv_to_3d(face: usize, u: f32, v: f32) -> Vec3 {
     // Project onto cube face, then normalize to sphere
     let p = match face {
         0 => Vec3::new(1.0, v, -u),  // +X: u = -z/x, v = y/x

@@ -1152,3 +1152,293 @@ fn test_gpu_voronoi_100k_validation() {
     let result = validate_voronoi(&voronoi, 1e-6);
     result.print_summary();
 }
+
+#[test]
+#[ignore] // cargo test rational_vs_f64_benchmark --release -- --ignored --nocapture
+fn rational_vs_f64_benchmark() {
+    use num_bigint::BigInt;
+    use num_rational::BigRational;
+    use std::time::Instant;
+
+    // Helper: f32 -> BigRational (exact conversion via integer representation)
+    fn f32_to_rational(x: f32) -> BigRational {
+        // f32 has 24 bits of mantissa, so we can represent it exactly
+        // as a rational with denominator 2^23
+        let bits = x.to_bits();
+        let sign = if bits >> 31 == 0 { 1i64 } else { -1i64 };
+        let exp = ((bits >> 23) & 0xff) as i32;
+        let mantissa = (bits & 0x7fffff) as i64;
+
+        if exp == 0 {
+            // Subnormal or zero
+            if mantissa == 0 {
+                return BigRational::from_integer(BigInt::from(0));
+            }
+            // Subnormal: value = sign * mantissa * 2^(-126-23)
+            let numer = BigInt::from(sign * mantissa);
+            let denom = BigInt::from(1i64) << 149u32;
+            return BigRational::new(numer, denom);
+        }
+
+        // Normal: value = sign * (1 + mantissa/2^23) * 2^(exp-127)
+        //              = sign * (2^23 + mantissa) * 2^(exp-127-23)
+        //              = sign * (2^23 + mantissa) * 2^(exp-150)
+        let full_mantissa = (1i64 << 23) + mantissa;
+        let exp_adj = exp - 150;
+
+        if exp_adj >= 0 {
+            let numer = BigInt::from(sign * full_mantissa) << (exp_adj as u32);
+            BigRational::from_integer(numer)
+        } else {
+            let numer = BigInt::from(sign * full_mantissa);
+            let denom = BigInt::from(1i64) << ((-exp_adj) as u32);
+            BigRational::new(numer, denom)
+        }
+    }
+
+    #[derive(Clone)]
+    struct RatVec3 {
+        x: BigRational,
+        y: BigRational,
+        z: BigRational,
+    }
+
+    impl RatVec3 {
+        fn from_vec3(v: Vec3) -> Self {
+            Self {
+                x: f32_to_rational(v.x),
+                y: f32_to_rational(v.y),
+                z: f32_to_rational(v.z),
+            }
+        }
+
+        fn dot(&self, other: &Self) -> BigRational {
+            &self.x * &other.x + &self.y * &other.y + &self.z * &other.z
+        }
+
+        fn cross(&self, other: &Self) -> Self {
+            Self {
+                x: &self.y * &other.z - &self.z * &other.y,
+                y: &self.z * &other.x - &self.x * &other.z,
+                z: &self.x * &other.y - &self.y * &other.x,
+            }
+        }
+
+        fn sub(&self, other: &Self) -> Self {
+            Self {
+                x: &self.x - &other.x,
+                y: &self.y - &other.y,
+                z: &self.z - &other.z,
+            }
+        }
+
+        fn to_f64_normalized(&self) -> glam::DVec3 {
+            let x = rational_to_f64(&self.x);
+            let y = rational_to_f64(&self.y);
+            let z = rational_to_f64(&self.z);
+            glam::DVec3::new(x, y, z).normalize()
+        }
+    }
+
+    fn rational_to_f64(r: &BigRational) -> f64 {
+        let (numer, denom) = (r.numer(), r.denom());
+        // Simple conversion - may lose precision for huge rationals
+        let n: f64 = numer.to_string().parse().unwrap_or(f64::MAX);
+        let d: f64 = denom.to_string().parse().unwrap_or(1.0);
+        n / d
+    }
+
+    // Generate test data
+    let points = random_sphere_points(1000);
+    let gen_idx = 0;
+    let gen = points[gen_idx];
+
+    // Get ~20 neighbors
+    let mut neighbors: Vec<(usize, Vec3)> = points.iter()
+        .enumerate()
+        .filter(|&(i, _)| i != gen_idx)
+        .map(|(i, &p)| (i, p))
+        .collect();
+    neighbors.sort_by(|(_, a), (_, b)| {
+        let da = (gen - *a).length_squared();
+        let db = (gen - *b).length_squared();
+        da.partial_cmp(&db).unwrap()
+    });
+    neighbors.truncate(24);
+
+    // Benchmark f64 operations
+    let iterations = 1000;
+
+    println!("\n=== Rational vs f64 Benchmark ===\n");
+
+    // f64 cell build
+    let t0 = Instant::now();
+    for _ in 0..iterations {
+        let mut builder = F64CellBuilder::new(gen_idx, gen);
+        for &(idx, pos) in &neighbors {
+            let _ = builder.clip(idx, pos);
+        }
+        std::hint::black_box(builder.vertex_count());
+    }
+    let f64_time = t0.elapsed();
+    println!("f64 cell build x{}: {:?} ({:.2}µs/cell)",
+        iterations, f64_time, f64_time.as_secs_f64() * 1e6 / iterations as f64);
+
+    // BigRational operations (simulating clipping without full impl)
+    let t0 = Instant::now();
+    for _ in 0..iterations {
+        let gen_r = RatVec3::from_vec3(gen);
+        let planes: Vec<RatVec3> = neighbors.iter()
+            .map(|(_, n)| RatVec3::from_vec3(*n).sub(&gen_r))
+            .collect();
+
+        // Simulate vertex computation: cross products and dot products
+        let mut vertex_count = 0;
+        for i in 0..planes.len().min(8) {
+            for j in (i+1)..planes.len().min(8) {
+                let v = planes[i].cross(&planes[j]);
+                let dot = v.dot(&gen_r);
+                if dot > BigRational::from_integer(BigInt::from(0)) {
+                    vertex_count += 1;
+                }
+            }
+        }
+        std::hint::black_box(vertex_count);
+    }
+    let rational_time = t0.elapsed();
+    println!("BigRational ops x{}: {:?} ({:.2}µs/cell)",
+        iterations, rational_time, rational_time.as_secs_f64() * 1e6 / iterations as f64);
+
+    let bigrational_slowdown = rational_time.as_secs_f64() / f64_time.as_secs_f64();
+
+    // Rational64 (fixed-size, can overflow but much faster)
+    use num_rational::Rational64;
+
+    fn f32_to_rational64(x: f32) -> Option<Rational64> {
+        // Simple conversion - may lose precision for values that don't fit
+        // For unit sphere coordinates in [-1, 1], this should work fine
+        let scaled = (x * 1e9) as i64;
+        Some(Rational64::new(scaled, 1_000_000_000))
+    }
+
+    #[derive(Clone)]
+    struct Rat64Vec3 {
+        x: Rational64,
+        y: Rational64,
+        z: Rational64,
+    }
+
+    impl Rat64Vec3 {
+        fn from_vec3(v: Vec3) -> Option<Self> {
+            Some(Self {
+                x: f32_to_rational64(v.x)?,
+                y: f32_to_rational64(v.y)?,
+                z: f32_to_rational64(v.z)?,
+            })
+        }
+
+        fn dot(&self, other: &Self) -> Rational64 {
+            self.x * other.x + self.y * other.y + self.z * other.z
+        }
+
+        fn cross(&self, other: &Self) -> Self {
+            Self {
+                x: self.y * other.z - self.z * other.y,
+                y: self.z * other.x - self.x * other.z,
+                z: self.x * other.y - self.y * other.x,
+            }
+        }
+
+        fn sub(&self, other: &Self) -> Self {
+            Self {
+                x: self.x - other.x,
+                y: self.y - other.y,
+                z: self.z - other.z,
+            }
+        }
+    }
+
+    let t0 = Instant::now();
+    for _ in 0..iterations {
+        let gen_r = Rat64Vec3::from_vec3(gen).unwrap();
+        let planes: Vec<Rat64Vec3> = neighbors.iter()
+            .map(|(_, n)| Rat64Vec3::from_vec3(*n).unwrap().sub(&gen_r))
+            .collect();
+
+        let mut vertex_count = 0;
+        for i in 0..planes.len().min(8) {
+            for j in (i+1)..planes.len().min(8) {
+                let v = planes[i].cross(&planes[j]);
+                let dot = v.dot(&gen_r);
+                if dot > Rational64::from_integer(0) {
+                    vertex_count += 1;
+                }
+            }
+        }
+        std::hint::black_box(vertex_count);
+    }
+    let rational64_time = t0.elapsed();
+    println!("Rational64 ops x{}: {:?} ({:.2}µs/cell)",
+        iterations, rational64_time, rational64_time.as_secs_f64() * 1e6 / iterations as f64);
+
+    // BigFloat (128-bit precision)
+    use astro_float::{BigFloat, RoundingMode, Consts};
+    const PREC: usize = 128;
+    let rm = RoundingMode::ToEven;
+
+    let t0 = Instant::now();
+    for _ in 0..iterations {
+        let gen_x = BigFloat::from_f32(gen.x, PREC);
+        let gen_y = BigFloat::from_f32(gen.y, PREC);
+        let gen_z = BigFloat::from_f32(gen.z, PREC);
+
+        let mut vertex_count = 0;
+        for i in 0..neighbors.len().min(8) {
+            let (_, ni) = neighbors[i];
+            let pi_x = BigFloat::from_f32(ni.x, PREC).sub(&gen_x, PREC, rm);
+            let pi_y = BigFloat::from_f32(ni.y, PREC).sub(&gen_y, PREC, rm);
+            let pi_z = BigFloat::from_f32(ni.z, PREC).sub(&gen_z, PREC, rm);
+
+            for j in (i+1)..neighbors.len().min(8) {
+                let (_, nj) = neighbors[j];
+                let pj_x = BigFloat::from_f32(nj.x, PREC).sub(&gen_x, PREC, rm);
+                let pj_y = BigFloat::from_f32(nj.y, PREC).sub(&gen_y, PREC, rm);
+                let pj_z = BigFloat::from_f32(nj.z, PREC).sub(&gen_z, PREC, rm);
+
+                // Cross product
+                let cx = pi_y.mul(&pj_z, PREC, rm).sub(&pi_z.mul(&pj_y, PREC, rm), PREC, rm);
+                let cy = pi_z.mul(&pj_x, PREC, rm).sub(&pi_x.mul(&pj_z, PREC, rm), PREC, rm);
+                let cz = pi_x.mul(&pj_y, PREC, rm).sub(&pi_y.mul(&pj_x, PREC, rm), PREC, rm);
+
+                // Dot with generator
+                let dot = cx.mul(&gen_x, PREC, rm)
+                    .add(&cy.mul(&gen_y, PREC, rm), PREC, rm)
+                    .add(&cz.mul(&gen_z, PREC, rm), PREC, rm);
+
+                if dot.is_positive() {
+                    vertex_count += 1;
+                }
+            }
+        }
+        std::hint::black_box(vertex_count);
+    }
+    let bigfloat_time = t0.elapsed();
+    println!("BigFloat(128) ops x{}: {:?} ({:.2}µs/cell)",
+        iterations, bigfloat_time, bigfloat_time.as_secs_f64() * 1e6 / iterations as f64);
+
+    let rational64_slowdown = rational64_time.as_secs_f64() / f64_time.as_secs_f64();
+    let bigfloat_slowdown = bigfloat_time.as_secs_f64() / f64_time.as_secs_f64();
+
+    println!("\n=== Summary ===");
+    println!("{:<20} {:>12} {:>10}", "Method", "Time/cell", "Slowdown");
+    println!("{:<20} {:>12} {:>10}", "------", "---------", "--------");
+    println!("{:<20} {:>10.2}µs {:>10}", "f64", f64_time.as_secs_f64() * 1e6 / iterations as f64, "1.0x");
+    println!("{:<20} {:>10.2}µs {:>10.1}x", "Rational64", rational64_time.as_secs_f64() * 1e6 / iterations as f64, rational64_slowdown);
+    println!("{:<20} {:>10.2}µs {:>10.1}x", "BigFloat(128)", bigfloat_time.as_secs_f64() * 1e6 / iterations as f64, bigfloat_slowdown);
+    println!("{:<20} {:>10.2}µs {:>10.1}x", "BigRational", rational_time.as_secs_f64() * 1e6 / iterations as f64, bigrational_slowdown);
+
+    println!("\nFor 10/million fallbacks at 1M points:");
+    println!("  Rational64:  {:.2}ms extra", 10.0 * rational64_time.as_secs_f64() * 1e3 / iterations as f64);
+    println!("  BigFloat:    {:.2}ms extra", 10.0 * bigfloat_time.as_secs_f64() * 1e3 / iterations as f64);
+    println!("  BigRational: {:.2}ms extra", 10.0 * rational_time.as_secs_f64() * 1e3 / iterations as f64);
+}
