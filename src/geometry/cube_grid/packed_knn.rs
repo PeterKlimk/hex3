@@ -8,6 +8,8 @@ use std::mem::MaybeUninit;
 use std::simd::f32x8;
 use std::simd::{cmp::SimdPartialOrd, Mask};
 
+const MAX_CANDIDATES_FAST: usize = 512;
+
 /// Result of packed k-NN: for each point, the indices of its k nearest neighbors.
 /// Layout: [p0_n0, p0_n1, ..., p0_n(k-1), p1_n0, ...]
 pub struct PackedKnnResult {
@@ -55,6 +57,368 @@ impl PackedKnnStats {
             self.filtered_out as f64 / self.total_candidates as f64
         }
     }
+}
+
+/// Precomputed plane-edge data for PackedV4 security thresholds.
+pub struct PackedV4Edges {
+    edges: Vec<[EdgeData; 4]>,
+}
+
+impl PackedV4Edges {
+    pub fn new(res: usize) -> Self {
+        Self {
+            edges: precompute_edges_all_cells(res),
+        }
+    }
+
+    #[inline]
+    fn get(&self, cell: usize) -> &[EdgeData; 4] {
+        &self.edges[cell]
+    }
+}
+
+/// Reusable scratch buffers for packed per-cell streaming queries.
+pub struct PackedKnnCellScratch {
+    candidate_indices: Vec<u32>,
+    cell_ranges: Vec<(usize, usize)>,
+    keys_slab: Vec<MaybeUninit<u64>>,
+    lens: Vec<usize>,
+    center_lens: Vec<usize>,
+    min_center_dot: Vec<f32>,
+    security_thresholds: Vec<f32>,
+    thresholds: Vec<f32>,
+    query_x: Vec<f32>,
+    query_y: Vec<f32>,
+    query_z: Vec<f32>,
+    neighbors: Vec<u32>,
+}
+
+impl PackedKnnCellScratch {
+    pub fn new() -> Self {
+        Self {
+            candidate_indices: Vec::with_capacity(MAX_CANDIDATES_FAST),
+            cell_ranges: Vec::with_capacity(9),
+            keys_slab: Vec::new(),
+            lens: Vec::new(),
+            center_lens: Vec::new(),
+            min_center_dot: Vec::new(),
+            security_thresholds: Vec::new(),
+            thresholds: Vec::new(),
+            query_x: Vec::new(),
+            query_y: Vec::new(),
+            query_z: Vec::new(),
+            neighbors: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PackedKnnCellStatus {
+    Ok,
+    SlowPath,
+}
+
+/// PackedV4 per-cell k-NN for a subset of queries, streaming results to a callback.
+///
+/// Queries are assumed to lie in the center cell (same as the full packed path),
+/// but may be a strict subset of that cell's points.
+pub fn packed_knn_cell_stream(
+    grid: &CubeMapGrid,
+    points: &[Vec3],
+    cell: usize,
+    queries: &[u32],
+    k: usize,
+    edges: &PackedV4Edges,
+    scratch: &mut PackedKnnCellScratch,
+    mut on_query: impl FnMut(usize, u32, &[u32], usize, f32),
+) -> PackedKnnCellStatus {
+    let num_queries = queries.len();
+    if num_queries == 0 || k == 0 {
+        return PackedKnnCellStatus::Ok;
+    }
+
+    let num_cells = 6 * grid.res * grid.res;
+    if cell >= num_cells {
+        return PackedKnnCellStatus::Ok;
+    }
+
+    scratch.candidate_indices.clear();
+    scratch.cell_ranges.clear();
+
+    let q_start = grid.cell_offsets[cell] as usize;
+    let q_end = grid.cell_offsets[cell + 1] as usize;
+    scratch
+        .candidate_indices
+        .extend_from_slice(&grid.point_indices[q_start..q_end]);
+    scratch.cell_ranges.push((q_start, q_end));
+
+    for &ncell in grid.cell_neighbors(cell) {
+        if ncell == u32::MAX || ncell == cell as u32 {
+            continue;
+        }
+        let nc = ncell as usize;
+        let n_start = grid.cell_offsets[nc] as usize;
+        let n_end = grid.cell_offsets[nc + 1] as usize;
+        if n_start < n_end {
+            scratch
+                .candidate_indices
+                .extend_from_slice(&grid.point_indices[n_start..n_end]);
+            scratch.cell_ranges.push((n_start, n_end));
+        }
+    }
+
+    let num_candidates = scratch.candidate_indices.len();
+    if num_candidates == 0 {
+        return PackedKnnCellStatus::Ok;
+    }
+    if num_candidates > MAX_CANDIDATES_FAST {
+        return PackedKnnCellStatus::SlowPath;
+    }
+
+    let edges = edges.get(cell);
+
+    let stride = num_candidates;
+    let slab_size = num_queries * stride;
+    scratch.keys_slab.clear();
+    if scratch.keys_slab.capacity() < slab_size {
+        scratch
+            .keys_slab
+            .reserve(slab_size.saturating_sub(scratch.keys_slab.len()));
+    }
+    unsafe { scratch.keys_slab.set_len(slab_size) };
+    scratch.lens.resize(num_queries, 0);
+    scratch.lens.fill(0);
+    scratch.min_center_dot.resize(num_queries, f32::INFINITY);
+    scratch.min_center_dot.fill(f32::INFINITY);
+
+    scratch.query_x.resize(num_queries, 0.0);
+    scratch.query_y.resize(num_queries, 0.0);
+    scratch.query_z.resize(num_queries, 0.0);
+    for (qi, &query_idx) in queries.iter().enumerate() {
+        let q = points[query_idx as usize];
+        scratch.query_x[qi] = q.x;
+        scratch.query_y[qi] = q.y;
+        scratch.query_z[qi] = q.z;
+    }
+
+    scratch.security_thresholds.clear();
+    scratch.security_thresholds.reserve(num_queries);
+    for qi in 0..num_queries {
+        let q = Vec3::new(scratch.query_x[qi], scratch.query_y[qi], scratch.query_z[qi]);
+        scratch.security_thresholds.push(security_planes(q, edges));
+    }
+
+    let (center_soa_start, center_soa_end) = scratch.cell_ranges[0];
+    let center_len = center_soa_end - center_soa_start;
+    let xs = &grid.cell_points_x[center_soa_start..center_soa_end];
+    let ys = &grid.cell_points_y[center_soa_start..center_soa_end];
+    let zs = &grid.cell_points_z[center_soa_start..center_soa_end];
+
+    let full_chunks = center_len / 8;
+    for chunk in 0..full_chunks {
+        let i = chunk * 8;
+        let cx = f32x8::from_slice(&xs[i..]);
+        let cy = f32x8::from_slice(&ys[i..]);
+        let cz = f32x8::from_slice(&zs[i..]);
+
+        for qi in 0..num_queries {
+            let qx = f32x8::splat(scratch.query_x[qi]);
+            let qy = f32x8::splat(scratch.query_y[qi]);
+            let qz = f32x8::splat(scratch.query_z[qi]);
+            let dots = cx * qx + cy * qy + cz * qz;
+
+            let thresh_vec = f32x8::splat(scratch.security_thresholds[qi]);
+            let mask: Mask<i32, 8> = dots.simd_gt(thresh_vec);
+            let mut mask_bits = mask.to_bitmask() as u32;
+
+            if mask_bits != 0 {
+                let dots_arr: [f32; 8] = dots.into();
+                let query_idx = queries[qi];
+                while mask_bits != 0 {
+                    let lane = mask_bits.trailing_zeros() as usize;
+                    let cand_idx = i + lane;
+                    let cand_global = scratch.candidate_indices[cand_idx];
+                    if cand_global != query_idx {
+                        let dot = dots_arr[lane];
+                        let slab_idx = qi * stride + scratch.lens[qi];
+                        scratch.keys_slab[slab_idx].write(make_desc_key(dot, cand_global));
+                        scratch.lens[qi] += 1;
+                        scratch.min_center_dot[qi] = scratch.min_center_dot[qi].min(dot);
+                    }
+                    mask_bits &= mask_bits - 1;
+                }
+            }
+        }
+    }
+
+    let tail_start = full_chunks * 8;
+    for i in tail_start..center_len {
+        let cx = xs[i];
+        let cy = ys[i];
+        let cz = zs[i];
+        let cand_global = scratch.candidate_indices[i];
+        for qi in 0..num_queries {
+            if cand_global == queries[qi] {
+                continue;
+            }
+            let dot = cx * scratch.query_x[qi] + cy * scratch.query_y[qi] + cz * scratch.query_z[qi];
+            if dot > scratch.security_thresholds[qi] {
+                let slab_idx = qi * stride + scratch.lens[qi];
+                scratch.keys_slab[slab_idx].write(make_desc_key(dot, cand_global));
+                scratch.lens[qi] += 1;
+                scratch.min_center_dot[qi] = scratch.min_center_dot[qi].min(dot);
+            }
+        }
+    }
+
+    scratch.center_lens.resize(num_queries, 0);
+    scratch.center_lens.copy_from_slice(&scratch.lens);
+
+    scratch.thresholds.clear();
+    scratch.thresholds.reserve(num_queries);
+    for qi in 0..num_queries {
+        let threshold = if scratch.center_lens[qi] > 0 {
+            scratch.security_thresholds[qi].max(scratch.min_center_dot[qi] - 1e-6)
+        } else {
+            scratch.security_thresholds[qi]
+        };
+        scratch.thresholds.push(threshold);
+    }
+
+    let mut cand_offset = center_len;
+    for &(soa_start, soa_end) in &scratch.cell_ranges[1..] {
+        let range_len = soa_end - soa_start;
+        let xs = &grid.cell_points_x[soa_start..soa_end];
+        let ys = &grid.cell_points_y[soa_start..soa_end];
+        let zs = &grid.cell_points_z[soa_start..soa_end];
+
+        let full_chunks = range_len / 8;
+        for chunk in 0..full_chunks {
+            let i = chunk * 8;
+            let cx = f32x8::from_slice(&xs[i..]);
+            let cy = f32x8::from_slice(&ys[i..]);
+            let cz = f32x8::from_slice(&zs[i..]);
+
+            for qi in 0..num_queries {
+                let qx = f32x8::splat(scratch.query_x[qi]);
+                let qy = f32x8::splat(scratch.query_y[qi]);
+                let qz = f32x8::splat(scratch.query_z[qi]);
+                let dots = cx * qx + cy * qy + cz * qz;
+
+                let thresh_vec = f32x8::splat(scratch.thresholds[qi]);
+                let mask: Mask<i32, 8> = dots.simd_gt(thresh_vec);
+                let mut mask_bits = mask.to_bitmask() as u32;
+
+                if mask_bits != 0 {
+                    let dots_arr: [f32; 8] = dots.into();
+                    let query_idx = queries[qi];
+                    while mask_bits != 0 {
+                        let lane = mask_bits.trailing_zeros() as usize;
+                        let cand_idx = cand_offset + i + lane;
+                        let cand_global = scratch.candidate_indices[cand_idx];
+                        if cand_global != query_idx {
+                            let dot = dots_arr[lane];
+                            let slab_idx = qi * stride + scratch.lens[qi];
+                            scratch
+                                .keys_slab[slab_idx]
+                                .write(make_desc_key(dot, cand_global));
+                            scratch.lens[qi] += 1;
+                        }
+                        mask_bits &= mask_bits - 1;
+                    }
+                }
+            }
+        }
+
+        let tail_start = full_chunks * 8;
+        for i in tail_start..range_len {
+            let cx = xs[i];
+            let cy = ys[i];
+            let cz = zs[i];
+            let cand_global = scratch.candidate_indices[cand_offset + i];
+            for qi in 0..num_queries {
+                if cand_global == queries[qi] {
+                    continue;
+                }
+                let dot =
+                    cx * scratch.query_x[qi] + cy * scratch.query_y[qi] + cz * scratch.query_z[qi];
+                if dot > scratch.thresholds[qi] {
+                    let slab_idx = qi * stride + scratch.lens[qi];
+                    scratch.keys_slab[slab_idx].write(make_desc_key(dot, cand_global));
+                    scratch.lens[qi] += 1;
+                }
+            }
+        }
+
+        cand_offset += range_len;
+    }
+
+    for qi in 0..num_queries {
+        let ring_added = scratch.lens[qi] - scratch.center_lens[qi];
+        let need = k.saturating_sub(scratch.center_lens[qi]);
+        if ring_added < need {
+            scratch.lens[qi] = scratch.center_lens[qi];
+            let mut cand_offset = center_len;
+            for &(soa_start, soa_end) in &scratch.cell_ranges[1..] {
+                let range_len = soa_end - soa_start;
+                let xs = &grid.cell_points_x[soa_start..soa_end];
+                let ys = &grid.cell_points_y[soa_start..soa_end];
+                let zs = &grid.cell_points_z[soa_start..soa_end];
+
+                for i in 0..range_len {
+                    let cand_global = scratch.candidate_indices[cand_offset + i];
+                    if cand_global == queries[qi] {
+                        continue;
+                    }
+                    let dot = xs[i] * scratch.query_x[qi]
+                        + ys[i] * scratch.query_y[qi]
+                        + zs[i] * scratch.query_z[qi];
+                    if dot > scratch.security_thresholds[qi] {
+                        let slab_idx = qi * stride + scratch.lens[qi];
+                        scratch
+                            .keys_slab[slab_idx]
+                            .write(make_desc_key(dot, cand_global));
+                        scratch.lens[qi] += 1;
+                    }
+                }
+                cand_offset += range_len;
+            }
+        }
+    }
+
+    scratch.neighbors.resize(num_queries * k, u32::MAX);
+    for (qi, &query_idx) in queries.iter().enumerate() {
+        let m = scratch.lens[qi];
+        let keys_uninit = &mut scratch.keys_slab[qi * stride..qi * stride + m];
+        let keys_slice = unsafe {
+            std::slice::from_raw_parts_mut(keys_uninit.as_mut_ptr() as *mut u64, m)
+        };
+
+        let k_actual = k.min(m);
+        if k_actual > 0 {
+            if m > k_actual {
+                keys_slice.select_nth_unstable(k_actual - 1);
+            }
+            keys_slice[..k_actual].sort_unstable();
+
+            let out_start = qi * k;
+            for i in 0..k_actual {
+                scratch.neighbors[out_start + i] = key_to_idx(keys_slice[i]);
+            }
+        }
+
+        let out_start = qi * k;
+        let out_end = out_start + k_actual;
+        on_query(
+            qi,
+            query_idx,
+            &scratch.neighbors[out_start..out_end],
+            k_actual,
+            scratch.security_thresholds[qi],
+        );
+    }
+
+    PackedKnnCellStatus::Ok
 }
 
 /// PackedV4 batched k-NN (fast path, no stats instrumentation).
@@ -134,7 +498,7 @@ fn packed_knn_impl(
         let edges = &all_edges[cell];
 
         // Worst-case: fall back to an unbounded (slow) path rather than silently truncating.
-        if num_candidates > 512 {
+        if num_candidates > MAX_CANDIDATES_FAST {
             if let Some(stats) = stats.as_deref_mut() {
                 stats.slow_path_cells += 1;
             }

@@ -841,6 +841,12 @@ impl CubeMapGrid {
         self.point_cells[idx] as usize
     }
 
+    /// Get grid resolution (cells per face).
+    #[inline]
+    pub fn res(&self) -> usize {
+        self.res
+    }
+
     /// Get points in a cell.
     #[inline]
     pub fn cell_points(&self, cell: usize) -> &[u32] {

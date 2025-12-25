@@ -31,6 +31,12 @@ impl<'a> CubeMapGridKnn<'a> {
         self.points
     }
 
+    /// Access the underlying cube-map grid.
+    #[inline]
+    pub fn grid(&self) -> &crate::geometry::cube_grid::CubeMapGrid {
+        &self.grid
+    }
+
     /// Create a scratch buffer for k-NN queries.
     #[inline]
     pub fn make_scratch(&self) -> crate::geometry::cube_grid::CubeMapGridScratch {

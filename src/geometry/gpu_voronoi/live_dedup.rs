@@ -9,11 +9,15 @@ use glam::Vec3;
 #[cfg(not(feature = "single-threaded"))]
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
+use std::sync::Arc;
 
 use super::cell_builder::F64CellBuilder;
 use super::timing::{DedupSubPhases, Timer};
 use super::{TerminationConfig, VertexKey};
 use crate::geometry::VoronoiCell;
+use crate::geometry::cube_grid::packed_knn::{
+    packed_knn_cell_stream, PackedKnnCellScratch, PackedKnnCellStatus, PackedV4Edges,
+};
 
 const NIL: u32 = u32::MAX;
 const DEFERRED: u64 = u64::MAX;
@@ -64,6 +68,19 @@ struct BinAssignment {
     global_to_local: Vec<u32>,
     bin_generators: Vec<Vec<usize>>,
     num_bins: usize,
+}
+
+struct BinQuery {
+    cell: u32,
+    global: usize,
+    local: u32,
+}
+
+struct PackedSeed<'a> {
+    neighbors: &'a [u32],
+    count: usize,
+    security: f32,
+    k: usize,
 }
 
 #[inline]
@@ -167,8 +184,8 @@ impl ShardState {
             support_map: FxHashMap::default(),
             support_data: Vec::new(),
             cell_indices: Vec::new(),
-            cell_starts: Vec::new(),
-            cell_counts: Vec::new(),
+            cell_starts: vec![0; num_local_generators],
+            cell_counts: vec![0; num_local_generators],
             triplet_overflow: Vec::new(),
             support_overflow: Vec::new(),
             triplet_keys: 0,
@@ -236,6 +253,8 @@ pub(super) fn build_cells_sharded_live_dedup(
 ) -> ShardedCellsData {
     let assignment = assign_bins(points);
     let num_bins = assignment.num_bins;
+    let packed_k = super::KNN_RESUME_KS[0].min(points.len().saturating_sub(1));
+    let packed_edges = Arc::new(PackedV4Edges::new(knn.grid().res()));
 
     #[cfg(not(feature = "single-threaded"))]
     let iter = (0..num_bins).into_par_iter();
@@ -258,8 +277,6 @@ pub(super) fn build_cells_sharded_live_dedup(
                 .vertices
                 .reserve(my_generators.len().saturating_mul(4));
             shard.nodes.reserve(my_generators.len().saturating_mul(4));
-            shard.cell_starts.reserve(my_generators.len());
-            shard.cell_counts.reserve(my_generators.len());
             shard
                 .cell_indices
                 .reserve(my_generators.len().saturating_mul(6));
@@ -267,11 +284,28 @@ pub(super) fn build_cells_sharded_live_dedup(
                 .support_data
                 .reserve(my_generators.len().saturating_mul(2));
 
+            let grid = knn.grid();
+            let packed_edges = packed_edges.clone();
+            let mut packed_scratch = PackedKnnCellScratch::new();
+            let mut packed_queries: Vec<u32> = Vec::new();
+
+            let mut bin_queries: Vec<BinQuery> = Vec::with_capacity(my_generators.len());
             for &i in my_generators {
+                let cell = grid.point_index_to_cell(i) as u32;
+                let local = assignment.global_to_local[i];
+                bin_queries.push(BinQuery {
+                    cell,
+                    global: i,
+                    local,
+                });
+            }
+            bin_queries.sort_unstable_by_key(|q| q.cell);
+
+            let mut process_cell = |i: usize, local: u32, packed: Option<PackedSeed>| {
                 builder.reset(i, points[i]);
 
                 let cell_start = shard.cell_indices.len() as u32;
-                shard.cell_starts.push(cell_start);
+                shard.cell_starts[local as usize] = cell_start;
 
                 let mut cell_neighbors_processed = 0usize;
                 let mut terminated = false;
@@ -279,6 +313,7 @@ pub(super) fn build_cells_sharded_live_dedup(
                 let mut full_scan_done = false;
                 let mut did_full_scan_fallback = false;
                 let mut did_full_scan_recovery = false;
+                let mut used_knn = false;
 
                 let mut worst_cos = 1.0f32;
                 let max_neighbors = points.len().saturating_sub(1);
@@ -288,12 +323,66 @@ pub(super) fn build_cells_sharded_live_dedup(
                 let mut knn_stage = KnnCellStage::Resume(super::KNN_RESUME_KS[0]);
                 let mut did_reach_knn_limit = false;
 
+                let mut did_packed = false;
+                let mut packed_count = 0usize;
+                let mut packed_security = 0.0f32;
+                let mut packed_k_local = 0usize;
+
+                if let Some(seed) = packed {
+                    did_packed = true;
+                    packed_count = seed.count;
+                    packed_security = seed.security;
+                    packed_k_local = seed.k;
+
+                    if packed_count > 0 {
+                        let t_clip = Timer::start();
+                        for &neighbor_idx in seed.neighbors {
+                            let neighbor_idx = neighbor_idx as usize;
+                            if neighbor_idx == i {
+                                continue;
+                            }
+                            let neighbor = points[neighbor_idx];
+                            if builder.clip(neighbor_idx, neighbor).is_err() {
+                                break;
+                            }
+                            cell_neighbors_processed += 1;
+                            let dot = points[i].dot(neighbor);
+                            worst_cos = worst_cos.min(dot);
+
+                            if termination.enabled && builder.vertex_count() >= 3 {
+                                if termination.should_check(cell_neighbors_processed)
+                                    && builder.can_terminate(worst_cos)
+                                {
+                                    terminated = true;
+                                    break;
+                                }
+                            }
+                        }
+                        sub_accum.add_clip(t_clip.elapsed());
+                    }
+
+                    if termination.enabled && !terminated && builder.vertex_count() >= 3 {
+                        let bound = if packed_count == packed_k_local {
+                            worst_cos
+                        } else {
+                            packed_security
+                        };
+                        if builder.can_terminate(bound) {
+                            terminated = true;
+                        }
+                    }
+                }
+
                 let resume_track_limit = (*super::KNN_RESUME_KS.last().unwrap()).min(max_neighbors);
                 for (stage_idx, &k_stage) in super::KNN_RESUME_KS.iter().enumerate() {
+                    if terminated || knn_exhausted || builder.is_failed() {
+                        break;
+                    }
                     let k = k_stage.min(resume_track_limit);
                     if k == 0 || k <= processed {
                         continue;
                     }
+                    used_knn = true;
                     max_k_requested = max_k_requested.max(k);
                     let t_knn = Timer::start();
                     let status = if stage_idx == 0 {
@@ -322,6 +411,9 @@ pub(super) fn build_cells_sharded_live_dedup(
 
                     let t_clip = Timer::start();
                     for &neighbor_idx in &neighbors[processed..] {
+                        if did_packed && builder.has_neighbor(neighbor_idx) {
+                            continue;
+                        }
                         let neighbor = points[neighbor_idx];
                         if builder.clip(neighbor_idx, neighbor).is_err() {
                             break;
@@ -354,11 +446,12 @@ pub(super) fn build_cells_sharded_live_dedup(
                 }
 
                 if !terminated && !knn_exhausted && !builder.is_failed() {
-                    for (restart_idx, &k_stage) in super::KNN_RESTART_KS.iter().enumerate() {
+                    for &k_stage in super::KNN_RESTART_KS.iter() {
                         let k = k_stage.min(max_neighbors);
                         if k == 0 || k <= max_k_requested {
                             continue;
                         }
+                        used_knn = true;
                         max_k_requested = k;
                         neighbors.clear();
 
@@ -419,7 +512,14 @@ pub(super) fn build_cells_sharded_live_dedup(
 
                 // Final termination check at the end
                 if termination.enabled && !terminated && builder.vertex_count() >= 3 {
-                    if builder.can_terminate(worst_cos) {
+                    let bound = if used_knn {
+                        worst_cos
+                    } else if did_packed && packed_count < packed_k_local {
+                        packed_security
+                    } else {
+                        worst_cos
+                    };
+                    if builder.can_terminate(bound) {
                         terminated = true;
                     }
                 }
@@ -502,9 +602,8 @@ pub(super) fn build_cells_sharded_live_dedup(
                 sub_accum.add_cert(t_cert.elapsed());
 
                 let count = cell_vertices.len();
-                shard
-                    .cell_counts
-                    .push(u8::try_from(count).expect("cell vertex count exceeds u8 capacity"));
+                shard.cell_counts[local as usize] =
+                    u8::try_from(count).expect("cell vertex count exceeds u8 capacity");
 
                 let t_keys = Timer::start();
                 for (key, pos) in cell_vertices {
@@ -565,6 +664,56 @@ pub(super) fn build_cells_sharded_live_dedup(
                 );
 
                 let _ = (full_scan_done, cell_neighbors_processed);
+            };
+
+            let mut cursor = 0usize;
+            while cursor < bin_queries.len() {
+                let cell = bin_queries[cursor].cell;
+                let start = cursor;
+                while cursor < bin_queries.len() && bin_queries[cursor].cell == cell {
+                    cursor += 1;
+                }
+                let group = &bin_queries[start..cursor];
+
+                if packed_k > 0 {
+                    packed_queries.clear();
+                    if packed_queries.capacity() < group.len() {
+                        packed_queries.reserve(group.len().saturating_sub(packed_queries.len()));
+                    }
+                    for q in group {
+                        packed_queries.push(q.global as u32);
+                    }
+
+                    let status = packed_knn_cell_stream(
+                        grid,
+                        points,
+                        cell as usize,
+                        &packed_queries,
+                        packed_k,
+                        packed_edges.as_ref(),
+                        &mut packed_scratch,
+                        |qi, query_idx, neighbors, count, security| {
+                            let local = group[qi].local;
+                            let seed = PackedSeed {
+                                neighbors,
+                                count,
+                                security,
+                                k: packed_k,
+                            };
+                            process_cell(query_idx as usize, local, Some(seed));
+                        },
+                    );
+
+                    if status == PackedKnnCellStatus::SlowPath {
+                        for q in group {
+                            process_cell(q.global, q.local, None);
+                        }
+                    }
+                } else {
+                    for q in group {
+                        process_cell(q.global, q.local, None);
+                    }
+                }
             }
 
             (shard, sub_accum)
