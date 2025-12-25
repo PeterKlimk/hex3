@@ -130,9 +130,6 @@ pub struct CubeMapGrid {
     /// Precomputed cell index per point (for fast query start).
     /// Length: n (number of points)
     point_cells: Vec<u32>,
-    /// Index into the SoA arrays (`cell_points_{x,y,z}`) for each original point index.
-    /// Length: n (number of points)
-    point_soa_index: Vec<u32>,
     /// Precomputed 3×3 neighborhood for each cell.
     /// 9 entries per cell (self + 8 neighbors), u32::MAX = invalid.
     /// Length: 6 * res² * 9
@@ -635,13 +632,11 @@ impl CubeMapGrid {
 
         // Step 3: Scatter points into cells
         let mut point_indices = vec![0u32; points.len()];
-        let mut point_soa_index = vec![0u32; points.len()];
         let mut cell_cursors = cell_offsets[..num_cells].to_vec();
         for (i, cell_u32) in point_cells.iter().copied().enumerate() {
             let cell = cell_u32 as usize;
             let pos = cell_cursors[cell] as usize;
             point_indices[pos] = i as u32;
-            point_soa_index[i] = pos as u32;
             cell_cursors[cell] += 1;
         }
 
@@ -674,7 +669,6 @@ impl CubeMapGrid {
             cell_offsets,
             point_indices,
             point_cells,
-            point_soa_index,
             neighbors,
             cell_centers,
             cell_cos_radius,
@@ -845,12 +839,6 @@ impl CubeMapGrid {
     #[inline]
     pub fn point_index_to_cell(&self, idx: usize) -> usize {
         self.point_cells[idx] as usize
-    }
-
-    /// Get the SoA index for `points[idx]` used to build this grid.
-    #[inline]
-    pub fn point_index_to_soa(&self, idx: usize) -> usize {
-        self.point_soa_index[idx] as usize
     }
 
     /// Get grid resolution (cells per face).

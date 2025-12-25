@@ -134,6 +134,7 @@ pub enum PackedKnnCellStatus {
 /// but may be a strict subset of that cell's points.
 pub fn packed_knn_cell_stream(
     grid: &CubeMapGrid,
+    points: &[Vec3],
     cell: usize,
     queries: &[u32],
     k: usize,
@@ -195,10 +196,10 @@ pub fn packed_knn_cell_stream(
     scratch.query_y.resize(num_queries, 0.0);
     scratch.query_z.resize(num_queries, 0.0);
     for (qi, &query_idx) in queries.iter().enumerate() {
-        let soa = grid.point_index_to_soa(query_idx as usize);
-        scratch.query_x[qi] = grid.cell_points_x[soa];
-        scratch.query_y[qi] = grid.cell_points_y[soa];
-        scratch.query_z[qi] = grid.cell_points_z[soa];
+        let q = points[query_idx as usize];
+        scratch.query_x[qi] = q.x;
+        scratch.query_y[qi] = q.y;
+        scratch.query_z[qi] = q.z;
     }
 
     scratch.security_thresholds.clear();

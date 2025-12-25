@@ -709,6 +709,7 @@ pub(super) fn build_cells_sharded_live_dedup(
                     let t_packed = Timer::start();
                     let status = packed_knn_cell_stream(
                         grid,
+                        points,
                         cell as usize,
                         queries,
                         packed_k,
