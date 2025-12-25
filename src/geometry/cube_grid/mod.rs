@@ -20,7 +20,7 @@ mod bench_knn;
 #[cfg(test)]
 mod bounds_test;
 
-pub mod batched_knn;
+pub mod packed_knn;
 
 use glam::{Vec3, Vec3A};
 use std::cmp::{Ordering, Reverse};
