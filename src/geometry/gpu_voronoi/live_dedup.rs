@@ -301,7 +301,11 @@ pub(super) fn build_cells_sharded_live_dedup(
             }
             bin_queries.sort_unstable_by_key(|q| q.cell);
 
-            let mut process_cell = |i: usize, local: u32, packed: Option<PackedSeed>| {
+            let mut process_cell =
+                |cell_sub: &mut super::timing::CellSubAccum,
+                 i: usize,
+                 local: u32,
+                 packed: Option<PackedSeed>| {
                 builder.reset(i, points[i]);
 
                 let cell_start = shard.cell_indices.len() as u32;
@@ -358,7 +362,7 @@ pub(super) fn build_cells_sharded_live_dedup(
                                 }
                             }
                         }
-                        sub_accum.add_clip(t_clip.elapsed());
+                        cell_sub.add_clip(t_clip.elapsed());
                     }
 
                     if termination.enabled && !terminated && builder.vertex_count() >= 3 {
@@ -404,7 +408,7 @@ pub(super) fn build_cells_sharded_live_dedup(
                             &mut neighbors,
                         )
                     };
-                    sub_accum.add_knn(t_knn.elapsed());
+                    cell_sub.add_knn(t_knn.elapsed());
 
                     // Track which resume stage we're at
                     knn_stage = KnnCellStage::Resume(k_stage);
@@ -431,7 +435,7 @@ pub(super) fn build_cells_sharded_live_dedup(
                             }
                         }
                     }
-                    sub_accum.add_clip(t_clip.elapsed());
+                    cell_sub.add_clip(t_clip.elapsed());
                     processed = neighbors.len();
 
                     if terminated {
@@ -464,7 +468,7 @@ pub(super) fn build_cells_sharded_live_dedup(
                             &mut scratch,
                             &mut neighbors,
                         );
-                        sub_accum.add_knn(t_knn.elapsed());
+                        cell_sub.add_knn(t_knn.elapsed());
 
                         // Track which restart stage we're at
                         knn_stage = KnnCellStage::Restart(k_stage);
@@ -491,7 +495,7 @@ pub(super) fn build_cells_sharded_live_dedup(
                                 }
                             }
                         }
-                        sub_accum.add_clip(t_clip.elapsed());
+                        cell_sub.add_clip(t_clip.elapsed());
 
                         if terminated {
                             break;
@@ -585,7 +589,7 @@ pub(super) fn build_cells_sharded_live_dedup(
                 } else {
                     knn_stage
                 };
-                sub_accum.add_cell_stage(knn_stage, knn_exhausted, cell_neighbors_processed);
+                cell_sub.add_cell_stage(knn_stage, knn_exhausted, cell_neighbors_processed);
 
                 // Phase 4: Extract vertices with certified keys
                 let t_cert = Timer::start();
@@ -599,7 +603,7 @@ pub(super) fn build_cells_sharded_live_dedup(
                 }
                 let cell_vertices = builder.to_vertex_data(points, &mut shard.support_data)
                     .unwrap_or_else(|e| panic!("Cell {} certification failed: {:?}", i, e));
-                sub_accum.add_cert(t_cert.elapsed());
+                cell_sub.add_cert(t_cert.elapsed());
 
                 let count = cell_vertices.len();
                 shard.cell_counts[local as usize] =
@@ -655,7 +659,7 @@ pub(super) fn build_cells_sharded_live_dedup(
                         }
                     }
                 }
-                sub_accum.add_key_dedup(t_keys.elapsed());
+                cell_sub.add_key_dedup(t_keys.elapsed());
 
                 debug_assert_eq!(
                     shard.cell_indices.len() as u32 - cell_start,
@@ -684,6 +688,7 @@ pub(super) fn build_cells_sharded_live_dedup(
                         packed_queries.push(q.global as u32);
                     }
 
+                    let t_packed = Timer::start();
                     let status = packed_knn_cell_stream(
                         grid,
                         points,
@@ -700,18 +705,20 @@ pub(super) fn build_cells_sharded_live_dedup(
                                 security,
                                 k: packed_k,
                             };
-                            process_cell(query_idx as usize, local, Some(seed));
+                            process_cell(&mut sub_accum, query_idx as usize, local, Some(seed));
                         },
                     );
+                    let packed_elapsed = t_packed.elapsed();
 
                     if status == PackedKnnCellStatus::SlowPath {
                         for q in group {
-                            process_cell(q.global, q.local, None);
+                            process_cell(&mut sub_accum, q.global, q.local, None);
                         }
                     }
+                    sub_accum.add_packed_knn(packed_elapsed);
                 } else {
                     for q in group {
-                        process_cell(q.global, q.local, None);
+                        process_cell(&mut sub_accum, q.global, q.local, None);
                     }
                 }
             }

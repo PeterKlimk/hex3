@@ -39,6 +39,7 @@ pub enum KnnCellStage {
 #[derive(Debug, Clone)]
 pub struct CellSubPhases {
     pub knn_query: Duration,
+    pub packed_knn: Duration,
     pub clipping: Duration,
     pub certification: Duration,
     /// Live-dedup: per-vertex ownership checks and shard-local dedup work during cell build.
@@ -56,6 +57,7 @@ impl Default for CellSubPhases {
     fn default() -> Self {
         Self {
             knn_query: Duration::ZERO,
+            packed_knn: Duration::ZERO,
             clipping: Duration::ZERO,
             certification: Duration::ZERO,
             key_dedup: Duration::ZERO,
@@ -136,6 +138,7 @@ impl PhaseTimings {
 
         // Sub-phase breakdown: estimate wall time from CPU time using parent ratio
         let cpu_total = self.cell_sub.knn_query
+            + self.cell_sub.packed_knn
             + self.cell_sub.clipping
             + self.cell_sub.certification
             + self.cell_sub.key_dedup;
@@ -168,6 +171,13 @@ impl PhaseTimings {
             est_wall_ms(self.cell_sub.knn_query),
             sub_pct(self.cell_sub.knn_query)
         );
+        if self.cell_sub.packed_knn.as_nanos() > 0 {
+            eprintln!(
+                "    packed_knn:      {:7.1}ms ({:4.1}%)",
+                est_wall_ms(self.cell_sub.packed_knn),
+                sub_pct(self.cell_sub.packed_knn)
+            );
+        }
         eprintln!(
             "    clipping:        {:7.1}ms ({:4.1}%)",
             est_wall_ms(self.cell_sub.clipping),
@@ -433,6 +443,7 @@ impl Timer {
 #[derive(Clone)]
 pub struct CellSubAccum {
     pub knn_query: Duration,
+    pub packed_knn: Duration,
     pub clipping: Duration,
     pub certification: Duration,
     pub key_dedup: Duration,
@@ -446,6 +457,7 @@ impl Default for CellSubAccum {
     fn default() -> Self {
         Self {
             knn_query: Duration::ZERO,
+            packed_knn: Duration::ZERO,
             clipping: Duration::ZERO,
             certification: Duration::ZERO,
             key_dedup: Duration::ZERO,
@@ -464,6 +476,10 @@ impl CellSubAccum {
 
     pub fn add_knn(&mut self, d: Duration) {
         self.knn_query += d;
+    }
+
+    pub fn add_packed_knn(&mut self, d: Duration) {
+        self.packed_knn += d;
     }
 
     pub fn add_clip(&mut self, d: Duration) {
@@ -503,6 +519,7 @@ impl CellSubAccum {
 
     pub fn merge(&mut self, other: &CellSubAccum) {
         self.knn_query += other.knn_query;
+        self.packed_knn += other.packed_knn;
         self.clipping += other.clipping;
         self.certification += other.certification;
         self.key_dedup += other.key_dedup;
@@ -518,6 +535,7 @@ impl CellSubAccum {
     pub fn into_sub_phases(self) -> CellSubPhases {
         CellSubPhases {
             knn_query: self.knn_query,
+            packed_knn: self.packed_knn,
             clipping: self.clipping,
             certification: self.certification,
             key_dedup: self.key_dedup,
@@ -541,6 +559,8 @@ impl CellSubAccum {
     }
     #[inline(always)]
     pub fn add_knn(&mut self, _d: Duration) {}
+    #[inline(always)]
+    pub fn add_packed_knn(&mut self, _d: Duration) {}
     #[inline(always)]
     pub fn add_clip(&mut self, _d: Duration) {}
     #[inline(always)]
