@@ -15,7 +15,12 @@
 mod tests;
 
 #[cfg(test)]
-mod knn_experiments;
+mod bench_knn;
+
+#[cfg(test)]
+mod bounds_test;
+
+pub mod batched_knn;
 
 use glam::{Vec3, Vec3A};
 use std::cmp::{Ordering, Reverse};
@@ -118,10 +123,10 @@ pub struct CubeMapGrid {
     pub(super) res: usize,
     /// Start index into point_indices for each cell, plus final length.
     /// Length: 6 * res² + 1
-    cell_offsets: Vec<u32>,
+    pub(super) cell_offsets: Vec<u32>,
     /// Point indices grouped by cell.
     /// Length: n (number of points)
-    point_indices: Vec<u32>,
+    pub(super) point_indices: Vec<u32>,
     /// Precomputed cell index per point (for fast query start).
     /// Length: n (number of points)
     point_cells: Vec<u32>,
@@ -134,15 +139,19 @@ pub struct CubeMapGrid {
     /// Spherical cap radius around `cell_centers[cell]` that conservatively contains the cell.
     /// Stored as cos/sin for fast per-query bounds.
     pub(super) cell_cos_radius: Vec<f32>,
-    cell_sin_radius: Vec<f32>,
+    pub(super) cell_sin_radius: Vec<f32>,
+    /// Precomputed security threshold for 3x3 neighborhood: max dot from any point in the cell
+    /// to any cell in the 5x5 ring (Chebyshev distance 2). This is computed using ring caps,
+    /// which overestimates by ~6.7% but can be precomputed once per cell.
+    pub(super) security_3x3: Vec<f32>,
 
     // === SoA layout: points stored contiguous by cell ===
     /// X coordinates of points, ordered by cell (use cell_offsets for ranges).
-    cell_points_x: Vec<f32>,
+    pub(super) cell_points_x: Vec<f32>,
     /// Y coordinates of points, ordered by cell.
-    cell_points_y: Vec<f32>,
+    pub(super) cell_points_y: Vec<f32>,
     /// Z coordinates of points, ordered by cell.
-    cell_points_z: Vec<f32>,
+    pub(super) cell_points_z: Vec<f32>,
 }
 
 /// Map a point on unit sphere to (face, u, v) where u,v ∈ [-1, 1].
@@ -647,6 +656,14 @@ impl CubeMapGrid {
             cell_points_z.push(p.z);
         }
 
+        // Step 6: Precompute security_3x3 threshold per cell using 5x5 ring caps
+        let security_3x3 = Self::compute_security_3x3(
+            res,
+            &cell_centers,
+            &cell_cos_radius,
+            &cell_sin_radius,
+        );
+
         CubeMapGrid {
             res,
             cell_offsets,
@@ -656,6 +673,7 @@ impl CubeMapGrid {
             cell_centers,
             cell_cos_radius,
             cell_sin_radius,
+            security_3x3,
             cell_points_x,
             cell_points_y,
             cell_points_z,
@@ -726,6 +744,90 @@ impl CubeMapGrid {
         Some(new_face * res * res + new_iv * res + new_iu)
     }
 
+    /// Compute security_3x3 threshold for all cells using 5x5 ring caps.
+    ///
+    /// For each cell, finds the max dot product from any point in the cell to any point
+    /// in the 5x5 ring (Chebyshev distance 2). Uses spherical caps as a conservative bound.
+    fn compute_security_3x3(
+        res: usize,
+        cell_centers: &[Vec3],
+        cell_cos_radius: &[f32],
+        cell_sin_radius: &[f32],
+    ) -> Vec<f32> {
+        let num_cells = 6 * res * res;
+        let mut security = vec![f32::NEG_INFINITY; num_cells];
+
+        for cell in 0..num_cells {
+            // Get 5x5 ring cells (Chebyshev distance exactly 2)
+            let ring = Self::get_ring_cells(cell, 2, res);
+
+            let center_a = cell_centers[cell];
+            let cos_ra = cell_cos_radius[cell];
+            let sin_ra = cell_sin_radius[cell];
+
+            let mut max_dot = f32::NEG_INFINITY;
+            for ring_cell in ring {
+                let center_b = cell_centers[ring_cell];
+                let cos_rb = cell_cos_radius[ring_cell];
+                let sin_rb = cell_sin_radius[ring_cell];
+
+                // Compute max dot between two spherical caps
+                let cos_d = center_a.dot(center_b).clamp(-1.0, 1.0);
+
+                // If center cell is inside ring cell's cap (distance < radius), max_dot = 1.0
+                if cos_d > cos_rb {
+                    max_dot = 1.0;
+                    break;
+                }
+
+                // Max dot = cos(d - ra - rb) where d is center-to-center angle
+                // cos(d - r) = cos_d * cos_r + sin_d * sin_r
+                let sin_d = (1.0 - cos_d * cos_d).max(0.0).sqrt();
+
+                // First subtract ra: cos(d - ra)
+                let cos_d_minus_ra = cos_d * cos_ra + sin_d * sin_ra;
+                let sin_d_minus_ra = sin_d * cos_ra - cos_d * sin_ra;
+
+                // Then subtract rb: cos(d - ra - rb)
+                let cos_min_angle = cos_d_minus_ra * cos_rb + sin_d_minus_ra.abs() * sin_rb;
+
+                max_dot = max_dot.max(cos_min_angle.clamp(-1.0, 1.0));
+            }
+
+            security[cell] = max_dot;
+        }
+
+        security
+    }
+
+    /// Get all cells at exactly Chebyshev distance `dist` from center cell.
+    fn get_ring_cells(center_cell: usize, dist: i32, res: usize) -> Vec<usize> {
+        let (face, iu, iv) = cell_to_face_ij(center_cell, res);
+        let mut ring = Vec::new();
+
+        for dv in -dist..=dist {
+            for du in -dist..=dist {
+                if du.abs().max(dv.abs()) != dist {
+                    continue;
+                }
+
+                let niu = iu as i32 + du;
+                let niv = iv as i32 + dv;
+
+                if niu >= 0 && niu < res as i32 && niv >= 0 && niv < res as i32 {
+                    ring.push(face * res * res + (niv as usize) * res + (niu as usize));
+                } else if let Some(cell) = Self::get_cross_face_neighbor(face, niu, niv, res) {
+                    ring.push(cell);
+                }
+            }
+        }
+
+        // Deduplicate (cross-face cells can map to same target)
+        ring.sort_unstable();
+        ring.dedup();
+        ring
+    }
+
     /// Get cell index for a point.
     #[inline]
     pub fn point_to_cell(&self, p: Vec3) -> usize {
@@ -752,6 +854,13 @@ impl CubeMapGrid {
     pub fn cell_neighbors(&self, cell: usize) -> &[u32; 9] {
         let base = cell * 9;
         self.neighbors[base..base + 9].try_into().unwrap()
+    }
+
+    /// Get precomputed security_3x3 threshold for a cell.
+    /// This is the max dot from any point in the cell to any cell in the 5x5 ring.
+    #[inline]
+    pub fn cell_security_3x3(&self, cell: usize) -> f32 {
+        self.security_3x3[cell]
     }
 
     /// Create a reusable scratch buffer for fast repeated queries.
@@ -1408,6 +1517,7 @@ impl CubeMapGrid {
 
         1
     }
+
     fn compute_cell_bounds(res: usize) -> (Vec<Vec3>, Vec<f32>, Vec<f32>) {
         let num_cells = 6 * res * res;
         let mut centers = Vec::with_capacity(num_cells);

@@ -302,24 +302,36 @@ fn cube_grid_cell_bounds_are_conservative() {
     use rand::Rng;
 
     let points = gen_fibonacci(10_000, 12345, 0.1);
-    let grid = CubeMapGrid::new(&points, 32);
+    let res = 32;
+    let grid = CubeMapGrid::new(&points, res);
     let mut rng = rand::thread_rng();
 
-    let num_cells = 6 * grid.res * grid.res;
-    for _ in 0..200 {
+    let stats = grid.stats();
+    let num_cells = stats.num_cells;
+    let mut tested = 0;
+    while tested < 200 {
         let cell = rng.gen_range(0..num_cells);
-        let (face, iu, iv) = cell_to_face_ij(cell, grid.res);
-        let u0 = (iu as f32) / grid.res as f32 * 2.0 - 1.0;
-        let u1 = ((iu + 1) as f32) / grid.res as f32 * 2.0 - 1.0;
-        let v0 = (iv as f32) / grid.res as f32 * 2.0 - 1.0;
-        let v1 = ((iv + 1) as f32) / grid.res as f32 * 2.0 - 1.0;
+        let (face, iu, iv) = cell_to_face_ij(cell, res);
+        // Skip invalid Morton cells (outside the actual res x res grid)
+        if iu >= res || iv >= res {
+            continue;
+        }
+        tested += 1;
+
+        // Use ST coordinates (matching compute_cell_bounds)
+        let s0 = (iu as f32) / res as f32;
+        let s1 = ((iu + 1) as f32) / res as f32;
+        let t0 = (iv as f32) / res as f32;
+        let t1 = ((iv + 1) as f32) / res as f32;
 
         let center = grid.cell_centers[cell];
         let cap_angle = grid.cell_cos_radius[cell].clamp(-1.0, 1.0).acos() + 1e-3;
 
         for _ in 0..50 {
-            let u = rng.gen_range(u0..u1);
-            let v = rng.gen_range(v0..v1);
+            let s = rng.gen_range(s0..s1);
+            let t = rng.gen_range(t0..t1);
+            let u = st_to_uv(s);
+            let v = st_to_uv(t);
             let p = face_uv_to_3d(face, u, v);
             let ang = center.dot(p).clamp(-1.0, 1.0).acos();
             assert!(

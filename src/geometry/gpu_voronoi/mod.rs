@@ -5,7 +5,6 @@
 
 mod cell_builder;
 mod constants;
-mod f32_fast;
 mod knn;
 mod live_dedup;
 mod timing;

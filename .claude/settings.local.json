@@ -36,7 +36,9 @@
       "Bash(RUST_BACKTRACE=1 cargo test:*)",
       "Bash(for item in \"GapSampler\" \"MAX_PLANES\" \"MAX_VERTICES\" \"order_vertices_ccw_indices\" \"geodesic_distance\")",
       "Bash(VORONOI_DEBUG_FALLBACK=1 timeout 600 cargo run:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(for i in 1 2 3 4 5)",
+      "Bash(RUSTFLAGS=\"-C target-cpu=native\" cargo test:*)"
     ]
   }
 }
