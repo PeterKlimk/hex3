@@ -215,7 +215,7 @@ pub(crate) fn face_uv_to_3d(face: usize, u: f32, v: f32) -> Vec3 {
 
 /// Convert cell index to (face, iu, iv).
 #[inline]
-pub(super) fn cell_to_face_ij(cell: usize, res: usize) -> (usize, usize, usize) {
+pub(crate) fn cell_to_face_ij(cell: usize, res: usize) -> (usize, usize, usize) {
     let face = cell / (res * res);
     let rem = cell % (res * res);
     let iv = rem / res;

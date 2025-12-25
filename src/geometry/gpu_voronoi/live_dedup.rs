@@ -14,10 +14,11 @@ use std::sync::Arc;
 use super::cell_builder::F64CellBuilder;
 use super::timing::{DedupSubPhases, Timer};
 use super::{TerminationConfig, VertexKey};
-use crate::geometry::VoronoiCell;
-use crate::geometry::cube_grid::packed_knn::{
-    packed_knn_cell_stream, PackedKnnCellScratch, PackedKnnCellStatus, PackedV4Edges,
+use crate::geometry::cube_grid::{
+    cell_to_face_ij,
+    packed_knn::{packed_knn_cell_stream, PackedKnnCellScratch, PackedKnnCellStatus, PackedV4Edges},
 };
+use crate::geometry::VoronoiCell;
 
 const NIL: u32 = u32::MAX;
 const DEFERRED: u64 = u64::MAX;
@@ -83,57 +84,43 @@ struct PackedSeed<'a> {
     k: usize,
 }
 
-#[inline]
-fn point_to_face_uv(p: Vec3) -> (usize, f32, f32) {
-    let (x, y, z) = (p.x, p.y, p.z);
-    let (ax, ay, az) = (x.abs(), y.abs(), z.abs());
-
-    if ax >= ay && ax >= az {
-        if x >= 0.0 {
-            (0, -z / ax, y / ax)
-        } else {
-            (1, z / ax, y / ax)
-        }
-    } else if ay >= ax && ay >= az {
-        if y >= 0.0 {
-            (2, x / ay, -z / ay)
-        } else {
-            (3, x / ay, z / ay)
-        }
-    } else if z >= 0.0 {
-        (4, x / az, y / az)
-    } else {
-        (5, -x / az, y / az)
-    }
+struct BinLayout {
+    bin_res: usize,
+    bin_stride: usize,
+    num_bins: usize,
 }
 
-#[inline]
-fn point_to_bin(p: Vec3, tile_res: usize) -> usize {
-    debug_assert!(tile_res >= 1);
-    let (face, u, v) = point_to_face_uv(p);
-    let fu = ((u + 1.0) * 0.5) * (tile_res as f32);
-    let fv = ((v + 1.0) * 0.5) * (tile_res as f32);
-    let iu = (fu as usize).min(tile_res - 1);
-    let iv = (fv as usize).min(tile_res - 1);
-    face * tile_res * tile_res + iv * tile_res + iu
-}
-
-fn choose_tile_res() -> usize {
+fn choose_bin_layout(grid_res: usize) -> BinLayout {
     let threads = rayon::current_num_threads().max(1);
     let target_bins = (threads * 2).clamp(6, 96);
     let target_per_face = (target_bins as f64 / 6.0).max(1.0);
-    (target_per_face.sqrt().ceil() as usize).clamp(1, 8)
+    let mut bin_res = target_per_face.sqrt().ceil() as usize;
+    bin_res = bin_res.clamp(1, grid_res.max(1));
+
+    let mut bin_stride = (grid_res + bin_res - 1) / bin_res;
+    bin_stride = bin_stride.max(1);
+    bin_res = (grid_res + bin_stride - 1) / bin_stride;
+
+    BinLayout {
+        bin_res,
+        bin_stride,
+        num_bins: 6 * bin_res * bin_res,
+    }
 }
 
-fn assign_bins(points: &[Vec3]) -> BinAssignment {
+fn assign_bins(points: &[Vec3], grid: &crate::geometry::cube_grid::CubeMapGrid) -> BinAssignment {
     let n = points.len();
-    let tile_res = choose_tile_res();
-    let num_bins = 6 * tile_res * tile_res;
+    let layout = choose_bin_layout(grid.res());
+    let num_bins = layout.num_bins;
 
     let mut generator_bin: Vec<u32> = Vec::with_capacity(n);
     let mut counts: Vec<usize> = vec![0; num_bins];
-    for &p in points {
-        let b = point_to_bin(p, tile_res);
+    for i in 0..n {
+        let cell = grid.point_index_to_cell(i);
+        let (face, iu, iv) = cell_to_face_ij(cell, grid.res());
+        let bu = (iu / layout.bin_stride).min(layout.bin_res - 1);
+        let bv = (iv / layout.bin_stride).min(layout.bin_res - 1);
+        let b = face * layout.bin_res * layout.bin_res + bv * layout.bin_res + bu;
         generator_bin.push(b as u32);
         counts[b] += 1;
     }
@@ -251,7 +238,7 @@ pub(super) fn build_cells_sharded_live_dedup(
     knn: &super::CubeMapGridKnn,
     termination: TerminationConfig,
 ) -> ShardedCellsData {
-    let assignment = assign_bins(points);
+    let assignment = assign_bins(points, knn.grid());
     let num_bins = assignment.num_bins;
     let packed_k = super::KNN_RESUME_KS[0].min(points.len().saturating_sub(1));
     let packed_edges = Arc::new(PackedV4Edges::new(knn.grid().res()));
@@ -272,6 +259,8 @@ pub(super) fn build_cells_sharded_live_dedup(
             let mut scratch = knn.make_scratch();
             let mut builder = F64CellBuilder::new(0, Vec3::ZERO);
             let mut sub_accum = CellSubAccum::new();
+            let mut neighbors: Vec<usize> = Vec::with_capacity(super::KNN_RESTART_MAX);
+            let mut cell_vertices: Vec<super::cell_builder::VertexData> = Vec::new();
 
             shard
                 .vertices
@@ -301,12 +290,32 @@ pub(super) fn build_cells_sharded_live_dedup(
             }
             bin_queries.sort_unstable_by_key(|q| q.cell);
 
+            #[cfg(debug_assertions)]
+            {
+                let mut seen_cells: rustc_hash::FxHashSet<u32> =
+                    rustc_hash::FxHashSet::with_capacity_and_hasher(
+                        bin_queries.len(),
+                        Default::default(),
+                    );
+                for q in &bin_queries {
+                    if !seen_cells.insert(q.cell) {
+                        continue;
+                    }
+                    debug_assert_eq!(
+                        assignment.generator_bin[q.global],
+                        bin,
+                        "cell assigned to wrong bin"
+                    );
+                }
+            }
+
             let mut process_cell =
                 |cell_sub: &mut super::timing::CellSubAccum,
                  i: usize,
                  local: u32,
                  packed: Option<PackedSeed>| {
                 builder.reset(i, points[i]);
+                neighbors.clear();
 
                 let cell_start = shard.cell_indices.len() as u32;
                 shard.cell_starts[local as usize] = cell_start;
@@ -321,7 +330,6 @@ pub(super) fn build_cells_sharded_live_dedup(
 
                 let mut worst_cos = 1.0f32;
                 let max_neighbors = points.len().saturating_sub(1);
-                let mut neighbors: Vec<usize> = Vec::with_capacity(super::KNN_RESTART_MAX);
                 let mut processed = 0usize;
                 let mut max_k_requested = 0usize;
                 let mut knn_stage = KnnCellStage::Resume(super::KNN_RESUME_KS[0]);
@@ -388,6 +396,9 @@ pub(super) fn build_cells_sharded_live_dedup(
                     }
                     used_knn = true;
                     max_k_requested = max_k_requested.max(k);
+                    if stage_idx == 0 {
+                        neighbors.clear();
+                    }
                     let t_knn = Timer::start();
                     let status = if stage_idx == 0 {
                         knn.knn_resumable_into(
@@ -601,7 +612,8 @@ pub(super) fn build_cells_sharded_live_dedup(
                         builder.vertex_count()
                     );
                 }
-                let cell_vertices = builder.to_vertex_data(points, &mut shard.support_data)
+                builder
+                    .to_vertex_data_into(points, &mut shard.support_data, &mut cell_vertices)
                     .unwrap_or_else(|e| panic!("Cell {} certification failed: {:?}", i, e));
                 cell_sub.add_cert(t_cert.elapsed());
 
@@ -610,7 +622,7 @@ pub(super) fn build_cells_sharded_live_dedup(
                     u8::try_from(count).expect("cell vertex count exceeds u8 capacity");
 
                 let t_keys = Timer::start();
-                for (key, pos) in cell_vertices {
+                for (key, pos) in cell_vertices.iter().copied() {
                     match key {
                         VertexKey::Triplet([a, b, c]) => {
                             shard.triplet_keys += 1;
@@ -688,6 +700,18 @@ pub(super) fn build_cells_sharded_live_dedup(
                         packed_queries.push(q.global as u32);
                     }
 
+                    // NOTE: `packed_knn_cell_stream` invokes the callback per query.
+                    // The callback builds the Voronoi cell and is separately timed (clipping,
+                    // certification, key_dedup, and any fallback knn work). If we time the whole
+                    // call naively, we'd double-count that work under `packed_knn`.
+                    #[cfg(feature = "timing")]
+                    let (knn_before, clip_before, cert_before, key_before) = (
+                        sub_accum.knn_query,
+                        sub_accum.clipping,
+                        sub_accum.certification,
+                        sub_accum.key_dedup,
+                    );
+
                     let t_packed = Timer::start();
                     let status = packed_knn_cell_stream(
                         grid,
@@ -715,6 +739,19 @@ pub(super) fn build_cells_sharded_live_dedup(
                             process_cell(&mut sub_accum, q.global, q.local, None);
                         }
                     }
+
+                    // Attribute only the packed k-NN overhead to `packed_knn`, excluding the work
+                    // done inside `process_cell` (which has its own sub-phase timers).
+                    #[cfg(feature = "timing")]
+                    {
+                        let knn_delta = sub_accum.knn_query.saturating_sub(knn_before);
+                        let clip_delta = sub_accum.clipping.saturating_sub(clip_before);
+                        let cert_delta = sub_accum.certification.saturating_sub(cert_before);
+                        let key_delta = sub_accum.key_dedup.saturating_sub(key_before);
+                        let accounted = knn_delta + clip_delta + cert_delta + key_delta;
+                        sub_accum.add_packed_knn(packed_elapsed.saturating_sub(accounted));
+                    }
+                    #[cfg(not(feature = "timing"))]
                     sub_accum.add_packed_knn(packed_elapsed);
                 } else {
                     for q in group {

@@ -1442,3 +1442,52 @@ fn rational_vs_f64_benchmark() {
     println!("  BigFloat:    {:.2}ms extra", 10.0 * bigfloat_time.as_secs_f64() * 1e3 / iterations as f64);
     println!("  BigRational: {:.2}ms extra", 10.0 * rational_time.as_secs_f64() * 1e3 / iterations as f64);
 }
+
+#[cfg(feature = "timing")]
+#[test]
+#[ignore] // cargo test knn_density_sweep --release --features timing -- --ignored --nocapture
+fn knn_density_sweep() {
+    use super::live_dedup;
+    use super::timing::{Timer, TimingBuilder};
+    use crate::geometry::fibonacci_sphere_points_with_rng;
+    use rand::SeedableRng;
+    use rand_chacha::ChaCha8Rng;
+
+    const N: usize = 2_500_000;
+    const SEED: u64 = 12345;
+
+    let mut rng = ChaCha8Rng::seed_from_u64(SEED);
+    let spacing = (4.0 * std::f32::consts::PI / N as f32).sqrt();
+    let points = fibonacci_sphere_points_with_rng(N, spacing * 0.1, &mut rng);
+
+    let densities: [f64; 8] = [8.0, 16.0, 24.0, 32.0, 48.0, 64.0, 80.0, 96.0];
+
+    for &density in &densities {
+        eprintln!("\n=== KNN Grid Density Sweep: target_points_per_cell={} ===", density);
+        let mut tb = TimingBuilder::new();
+
+        let t = Timer::start();
+        let knn = super::CubeMapGridKnn::new_with_target_density(&points, density);
+        tb.set_knn_build(t.elapsed());
+
+        let stats = knn.grid().stats();
+        eprintln!(
+            "grid: res={} cells={} avg_pts/cell={:.1} max_pts/cell={}",
+            knn.grid().res(),
+            stats.num_cells,
+            stats.avg_points_per_cell,
+            stats.max_points_per_cell
+        );
+
+        let t = Timer::start();
+        let sharded = live_dedup::build_cells_sharded_live_dedup(
+            &points,
+            &knn,
+            super::TerminationConfig::default(),
+        );
+        tb.set_cell_construction(t.elapsed(), sharded.cell_sub.clone().into_sub_phases());
+
+        tb.finish().report(points.len());
+        drop(sharded);
+    }
+}

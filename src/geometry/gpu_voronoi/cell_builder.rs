@@ -3,9 +3,8 @@
 use glam::{DVec3, Vec3};
 
 use super::constants::{
-    support_cluster_drift_dot, EPS_PLANE_CONTAINS, EPS_TERMINATION_MARGIN, MIN_BISECTOR_DISTANCE,
-    SUPPORT_CERT_MARGIN_ABS, SUPPORT_CLUSTER_RADIUS_ANGLE, SUPPORT_EPS_ABS,
-    SUPPORT_VERTEX_ANGLE_EPS,
+    support_cluster_drift_dot, EPS_TERMINATION_MARGIN, MIN_BISECTOR_DISTANCE,
+    SUPPORT_CERT_MARGIN_ABS, SUPPORT_CLUSTER_RADIUS_ANGLE, SUPPORT_EPS_ABS, SUPPORT_VERTEX_ANGLE_EPS,
 };
 
 /// Vertex key for deduplication (fast triplet or full support set).
@@ -153,6 +152,19 @@ pub struct F64CellBuilder {
 }
 
 impl F64CellBuilder {
+    #[inline(always)]
+    fn sort3(a: &mut u32, b: &mut u32, c: &mut u32) {
+        if *a > *b {
+            std::mem::swap(a, b);
+        }
+        if *b > *c {
+            std::mem::swap(b, c);
+        }
+        if *a > *b {
+            std::mem::swap(a, b);
+        }
+    }
+
     #[inline(always)]
     fn debug_assert_unitish(v: DVec3) {
         #[cfg(debug_assertions)]
@@ -838,13 +850,41 @@ impl F64CellBuilder {
     /// Certification passes if min_gap > eps_support + error_margin.
     ///
     /// Returns Err if certification fails.
-    pub fn to_vertex_data(&self, points: &[Vec3], support_data: &mut Vec<u32>) -> Result<Vec<VertexData>, CellFailure> {
+    pub fn to_vertex_data(
+        &self,
+        points: &[Vec3],
+        support_data: &mut Vec<u32>,
+    ) -> Result<Vec<VertexData>, CellFailure> {
+        let mut out = Vec::new();
+        self.to_vertex_data_into(points, support_data, &mut out)?;
+        Ok(out)
+    }
+
+    /// Convert f64 vertices to f32 VertexData with certified support keys, writing into `out`.
+    ///
+    /// This is equivalent to `to_vertex_data` but allows reusing allocations across cells.
+    pub fn to_vertex_data_into(
+        &self,
+        points: &[Vec3],
+        support_data: &mut Vec<u32>,
+        out: &mut Vec<VertexData>,
+    ) -> Result<(), CellFailure> {
+        out.clear();
         if self.failed.is_some() || self.vertex_count < 3 {
-            return Ok(Vec::new());
+            return Ok(());
         }
 
-        // Compute gaps and support sets for all vertices
-        let vertex_gaps = self.compute_vertex_gaps(points, SUPPORT_EPS_ABS);
+        let g = self.generator;
+        Self::debug_assert_unitish(g);
+        let gen_idx = self.generator_idx as u32;
+
+        // Pre-normalize neighbor positions once into a fixed stack buffer (no heap alloc).
+        let mut neighbor_positions = [DVec3::ZERO; MAX_PLANES];
+        for plane_idx in 0..self.plane_count {
+            let p = points[self.neighbor_indices[plane_idx]];
+            neighbor_positions[plane_idx] =
+                DVec3::new(p.x as f64, p.y as f64, p.z as f64).normalize();
+        }
 
         // F64 vertex error bound (Case A from plan2.md):
         // vertex_err ≈ C * f64::EPSILON / conditioning
@@ -856,16 +896,41 @@ impl F64CellBuilder {
         // We use C = 16 to account for multiple f64 operations (normalize, cross, etc.)
         const F64_VERTEX_ERR_FACTOR: f64 = 16.0 * f64::EPSILON;
 
-        let mut result = Vec::with_capacity(self.vertex_count);
+        // Scratch reused only for rare support-set cases (near-degenerate vertices).
+        let mut support_tmp: Vec<u32> = Vec::with_capacity(MAX_PLANES + 1);
+        let mut support_extra = [0u32; MAX_PLANES];
 
-        for (vertex_idx, (min_gap, support_set)) in (0..self.vertex_count).zip(vertex_gaps.iter()) {
-            let vertex_dir = self.get_vertex_pos(vertex_idx);
-            Self::debug_assert_unit(vertex_dir);
-            let pos = Vec3::new(
-                vertex_dir.x as f32,
-                vertex_dir.y as f32,
-                vertex_dir.z as f32,
-            );
+        out.reserve(self.vertex_count);
+        for vertex_idx in 0..self.vertex_count {
+            let v_pos = self.get_vertex_pos(vertex_idx);
+            Self::debug_assert_unit(v_pos);
+
+            let pos = Vec3::new(v_pos.x as f32, v_pos.y as f32, v_pos.z as f32);
+            let dot_g = v_pos.dot(g);
+
+            let v_plane_a = self.vertex_plane_a[vertex_idx];
+            let v_plane_b = self.vertex_plane_b[vertex_idx];
+            let def_a = self.neighbor_indices[v_plane_a] as u32;
+            let def_b = self.neighbor_indices[v_plane_b] as u32;
+
+            let mut min_gap = f64::INFINITY;
+            let mut extra_len = 0usize;
+
+            for plane_idx in 0..self.plane_count {
+                if plane_idx == v_plane_a || plane_idx == v_plane_b {
+                    continue;
+                }
+
+                let dot_c = v_pos.dot(neighbor_positions[plane_idx]);
+                let gap = dot_g - dot_c;
+
+                if gap <= SUPPORT_EPS_ABS {
+                    support_extra[extra_len] = self.neighbor_indices[plane_idx] as u32;
+                    extra_len += 1;
+                } else if gap < min_gap {
+                    min_gap = gap;
+                }
+            }
 
             // Per-vertex conditioning-based error bound
             let conditioning = self.vertex_conditioning_at(vertex_idx).max(1e-6);
@@ -875,28 +940,41 @@ impl F64CellBuilder {
             let gap_err_bound = vertex_err * 2.0;
             let cert_threshold = SUPPORT_EPS_ABS + gap_err_bound;
 
-            // Certification: min_gap must be larger than threshold
-            // This ensures no excluded generator could enter the support set under uncertainty
-            let certified = *min_gap > cert_threshold;
-
-            if !certified {
+            if min_gap <= cert_threshold {
                 return Err(CellFailure::CertificationFailed);
             }
 
-            let key = if support_set.len() == 3 {
-                VertexKey::Triplet([support_set[0], support_set[1], support_set[2]])
-            } else if support_set.len() >= 4 {
-                let start = support_data.len() as u32;
-                support_data.extend(support_set.iter().copied());
-                let len = support_set.len() as u8;
-                VertexKey::Support { start, len }
+            let key = if extra_len == 0 {
+                let mut a = gen_idx;
+                let mut b = def_a;
+                let mut c = def_b;
+                Self::sort3(&mut a, &mut b, &mut c);
+                VertexKey::Triplet([a, b, c])
             } else {
-                return Err(CellFailure::CertificationFailed);
+                support_tmp.clear();
+                support_tmp.push(gen_idx);
+                support_tmp.push(def_a);
+                support_tmp.push(def_b);
+                support_tmp.extend_from_slice(&support_extra[..extra_len]);
+                support_tmp.sort_unstable();
+                support_tmp.dedup();
+
+                if support_tmp.len() == 3 {
+                    VertexKey::Triplet([support_tmp[0], support_tmp[1], support_tmp[2]])
+                } else if support_tmp.len() >= 4 {
+                    let start = support_data.len() as u32;
+                    support_data.extend_from_slice(&support_tmp);
+                    let len = u8::try_from(support_tmp.len())
+                        .map_err(|_| CellFailure::CertificationFailed)?;
+                    VertexKey::Support { start, len }
+                } else {
+                    return Err(CellFailure::CertificationFailed);
+                }
             };
 
-            result.push((key, pos));
+            out.push((key, pos));
         }
 
-        Ok(result)
+        Ok(())
     }
 }

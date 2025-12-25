@@ -2,7 +2,10 @@
 //!
 //! Run with: cargo test bench_knn --release -- --ignored --nocapture
 
-use super::packed_knn::{packed_knn, packed_knn_stats, PackedKnnStats};
+use super::packed_knn::{
+    packed_knn, packed_knn_cell_stream, packed_knn_stats, PackedKnnCellScratch,
+    PackedKnnCellStatus, PackedKnnStats, PackedV4Edges,
+};
 use super::*;
 use crate::geometry::fibonacci_sphere_points_with_rng;
 use glam::{Vec3, Vec3A};
@@ -120,6 +123,112 @@ fn bench_perpoint_vs_packed() {
     );
     println!(
         "PackedV4 speedup: {:.2}x",
+        perpoint_time.as_secs_f64() / packed_time.as_secs_f64()
+    );
+}
+
+#[test]
+#[ignore]
+fn bench_stream_vs_perpoint() {
+    const N: usize = 100_000;
+    const K: usize = 24;
+    const SEED: u64 = 12345;
+
+    println!("\n=== Packed Stream vs Per-Point Benchmark ===");
+    println!("Points: {N}, k: {K}\n");
+
+    let points = gen_points(N, SEED);
+    let points_a: Vec<Vec3A> = points.iter().map(|&p| Vec3A::from(p)).collect();
+    let res = res_for_k(N, K as f64);
+    let grid = CubeMapGrid::new(&points, res);
+    let edges = PackedV4Edges::new(res);
+
+    let num_cells = 6 * res * res;
+    let mut scratch = CubeMapGridScratch::new(num_cells);
+    let mut out_indices = Vec::new();
+
+    // Warmup
+    for i in 0..100 {
+        grid.find_k_nearest_with_scratch_into_dot_topk(
+            &points_a,
+            points_a[i],
+            i,
+            K,
+            &mut scratch,
+            &mut out_indices,
+        );
+    }
+    let mut packed_scratch = PackedKnnCellScratch::new();
+    for cell in 0..num_cells {
+        let queries = grid.cell_points(cell);
+        let _ = packed_knn_cell_stream(
+            &grid,
+            &points,
+            cell,
+            queries,
+            K,
+            &edges,
+            &mut packed_scratch,
+            |_qi, _query_idx, _neighbors, _count, _security| {},
+        );
+    }
+
+    // Per-point queries (baseline)
+    let t0 = Instant::now();
+    for i in 0..N {
+        grid.find_k_nearest_with_scratch_into_dot_topk(
+            &points_a,
+            points_a[i],
+            i,
+            K,
+            &mut scratch,
+            &mut out_indices,
+        );
+    }
+    let perpoint_time = t0.elapsed();
+
+    // Packed stream per cell with slow-path fallback to per-point.
+    let t0 = Instant::now();
+    for cell in 0..num_cells {
+        let queries = grid.cell_points(cell);
+        let status = packed_knn_cell_stream(
+            &grid,
+            &points,
+            cell,
+            queries,
+            K,
+            &edges,
+            &mut packed_scratch,
+            |_qi, _query_idx, _neighbors, _count, _security| {},
+        );
+        if status == PackedKnnCellStatus::SlowPath {
+            for &query_idx in queries {
+                let i = query_idx as usize;
+                grid.find_k_nearest_with_scratch_into_dot_topk(
+                    &points_a,
+                    points_a[i],
+                    i,
+                    K,
+                    &mut scratch,
+                    &mut out_indices,
+                );
+            }
+        }
+    }
+    let packed_time = t0.elapsed();
+
+    println!(
+        "Per-point:  {:>7.2} ms ({:>5.0} ns/pt)",
+        perpoint_time.as_secs_f64() * 1000.0,
+        perpoint_time.as_nanos() as f64 / N as f64
+    );
+    println!(
+        "PackedStream: {:>7.2} ms ({:>5.0} ns/pt)",
+        packed_time.as_secs_f64() * 1000.0,
+        packed_time.as_nanos() as f64 / N as f64
+    );
+    println!(
+        "PackedStream speedup: {:.2}x",
         perpoint_time.as_secs_f64() / packed_time.as_secs_f64()
     );
 }

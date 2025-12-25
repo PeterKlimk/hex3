@@ -71,7 +71,7 @@ pub(super) const KNN_RESTART_KS: [usize; 2] = [24, KNN_RESTART_MAX];
 /// Target points per cell for the cube-map KNN grid.
 /// Lower = more cells, faster scans, more heap overhead.
 /// Higher = fewer cells, longer scans, less overhead.
-pub(super) const KNN_GRID_TARGET_DENSITY: f64 = 32.0;
+pub(super) const KNN_GRID_TARGET_DENSITY: f64 = 24.0;
 
 // Default termination cadence:
 // - start near the end of the initial k pass
