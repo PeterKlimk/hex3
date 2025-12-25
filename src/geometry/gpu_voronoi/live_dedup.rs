@@ -73,7 +73,7 @@ struct BinAssignment {
 
 struct BinQuery {
     cell: u32,
-    global: usize,
+    global: u32,
     local: u32,
 }
 
@@ -276,7 +276,6 @@ pub(super) fn build_cells_sharded_live_dedup(
             let grid = knn.grid();
             let packed_edges = packed_edges.clone();
             let mut packed_scratch = PackedKnnCellScratch::new();
-            let mut packed_queries: Vec<u32> = Vec::new();
 
             let mut bin_queries: Vec<BinQuery> = Vec::with_capacity(my_generators.len());
             for &i in my_generators {
@@ -284,11 +283,12 @@ pub(super) fn build_cells_sharded_live_dedup(
                 let local = assignment.global_to_local[i];
                 bin_queries.push(BinQuery {
                     cell,
-                    global: i,
+                    global: u32::try_from(i).expect("point index must fit in u32"),
                     local,
                 });
             }
             bin_queries.sort_unstable_by_key(|q| q.cell);
+            let packed_queries_all: Vec<u32> = bin_queries.iter().map(|q| q.global).collect();
 
             #[cfg(debug_assertions)]
             {
@@ -302,7 +302,7 @@ pub(super) fn build_cells_sharded_live_dedup(
                         continue;
                     }
                     debug_assert_eq!(
-                        assignment.generator_bin[q.global],
+                        assignment.generator_bin[q.global as usize],
                         bin,
                         "cell assigned to wrong bin"
                     );
@@ -692,13 +692,7 @@ pub(super) fn build_cells_sharded_live_dedup(
                 let group = &bin_queries[start..cursor];
 
                 if packed_k > 0 {
-                    packed_queries.clear();
-                    if packed_queries.capacity() < group.len() {
-                        packed_queries.reserve(group.len().saturating_sub(packed_queries.len()));
-                    }
-                    for q in group {
-                        packed_queries.push(q.global as u32);
-                    }
+                    let queries = &packed_queries_all[start..cursor];
 
                     // NOTE: `packed_knn_cell_stream` invokes the callback per query.
                     // The callback builds the Voronoi cell and is separately timed (clipping,
@@ -715,9 +709,8 @@ pub(super) fn build_cells_sharded_live_dedup(
                     let t_packed = Timer::start();
                     let status = packed_knn_cell_stream(
                         grid,
-                        points,
                         cell as usize,
-                        &packed_queries,
+                        queries,
                         packed_k,
                         packed_edges.as_ref(),
                         &mut packed_scratch,
@@ -736,7 +729,7 @@ pub(super) fn build_cells_sharded_live_dedup(
 
                     if status == PackedKnnCellStatus::SlowPath {
                         for q in group {
-                            process_cell(&mut sub_accum, q.global, q.local, None);
+                            process_cell(&mut sub_accum, q.global as usize, q.local, None);
                         }
                     }
 
@@ -755,7 +748,7 @@ pub(super) fn build_cells_sharded_live_dedup(
                     sub_accum.add_packed_knn(packed_elapsed);
                 } else {
                     for q in group {
-                        process_cell(&mut sub_accum, q.global, q.local, None);
+                        process_cell(&mut sub_accum, q.global as usize, q.local, None);
                     }
                 }
             }

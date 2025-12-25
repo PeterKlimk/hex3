@@ -134,7 +134,6 @@ pub enum PackedKnnCellStatus {
 /// but may be a strict subset of that cell's points.
 pub fn packed_knn_cell_stream(
     grid: &CubeMapGrid,
-    points: &[Vec3],
     cell: usize,
     queries: &[u32],
     k: usize,
@@ -196,17 +195,21 @@ pub fn packed_knn_cell_stream(
     scratch.query_y.resize(num_queries, 0.0);
     scratch.query_z.resize(num_queries, 0.0);
     for (qi, &query_idx) in queries.iter().enumerate() {
-        let q = points[query_idx as usize];
-        scratch.query_x[qi] = q.x;
-        scratch.query_y[qi] = q.y;
-        scratch.query_z[qi] = q.z;
+        let soa = grid.point_index_to_soa(query_idx as usize);
+        scratch.query_x[qi] = grid.cell_points_x[soa];
+        scratch.query_y[qi] = grid.cell_points_y[soa];
+        scratch.query_z[qi] = grid.cell_points_z[soa];
     }
 
     scratch.security_thresholds.clear();
     scratch.security_thresholds.reserve(num_queries);
     for qi in 0..num_queries {
-        let q = Vec3::new(scratch.query_x[qi], scratch.query_y[qi], scratch.query_z[qi]);
-        scratch.security_thresholds.push(security_planes(q, edges));
+        scratch.security_thresholds.push(security_planes_xyz(
+            scratch.query_x[qi],
+            scratch.query_y[qi],
+            scratch.query_z[qi],
+            edges,
+        ));
     }
 
     let stride = num_candidates;
@@ -1141,6 +1144,17 @@ fn security_planes(q: Vec3, edges: &[EdgeData; 4]) -> f32 {
     let mut max_dot = f32::NEG_INFINITY;
     for edge in edges {
         let dn = q.dot(edge.n).abs();
+        let dot_to_plane = (1.0 - dn * dn).max(0.0).sqrt();
+        max_dot = max_dot.max(dot_to_plane);
+    }
+    max_dot
+}
+
+#[inline]
+fn security_planes_xyz(x: f32, y: f32, z: f32, edges: &[EdgeData; 4]) -> f32 {
+    let mut max_dot = f32::NEG_INFINITY;
+    for edge in edges {
+        let dn = (x * edge.n.x + y * edge.n.y + z * edge.n.z).abs();
         let dot_to_plane = (1.0 - dn * dn).max(0.0).sqrt();
         max_dot = max_dot.max(dot_to_plane);
     }

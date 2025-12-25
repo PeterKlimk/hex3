@@ -163,7 +163,6 @@ fn bench_stream_vs_perpoint() {
         let queries = grid.cell_points(cell);
         let _ = packed_knn_cell_stream(
             &grid,
-            &points,
             cell,
             queries,
             K,
@@ -193,7 +192,6 @@ fn bench_stream_vs_perpoint() {
         let queries = grid.cell_points(cell);
         let status = packed_knn_cell_stream(
             &grid,
-            &points,
             cell,
             queries,
             K,
