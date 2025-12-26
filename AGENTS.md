@@ -2,6 +2,10 @@
 
 This file provides context for LLM coding assistants (ChatGPT Codex, Copilot, etc.) working with this repository.
 
+## Scope
+
+This file covers the hex3 app and workspace-level guidance. For the s2-voronoi library crate, see `crates/s2-voronoi/AGENTS.md`.
+
 ## Development Environment
 
 Development is done in WSL2, but the application must be run on Windows. Compute shaders (used for the particle system) do not work properly under WSL2's GPU passthrough.
@@ -24,6 +28,11 @@ cargo fmt                # Format
 
 Hex3 is a spherical Voronoi-based planet generator with tectonic plate simulation, rendered using wgpu. It generates procedural worlds with realistic terrain based on plate tectonics.
 
+## Workspace Layout
+
+- `crates/s2-voronoi/` - S2 Voronoi library crate (see nested AGENTS.md)
+- `src/` - hex3 app, worldgen, and rendering
+
 ## Architecture
 
 ### Module Structure
@@ -37,7 +46,7 @@ src/
 │   ├── lloyd.rs        # Lloyd relaxation for even point distribution
 │   ├── sphere.rs       # Random points on unit sphere
 │   ├── mesh.rs         # Voronoi → triangle mesh, map projection
-│   └── gpu_voronoi.rs  # GPU-style Voronoi via half-space clipping
+│   └── validation.rs   # Voronoi diagram validation utilities
 ├── world/              # World generation and simulation
 │   ├── tessellation.rs # Voronoi cells + adjacency + cell areas
 │   ├── plates.rs       # Plate assignment via flood fill
@@ -200,13 +209,21 @@ MICRO_AMPLITUDE = 0.02        // Fine detail
 RELIEF_SCALE = 0.2            // Elevation displacement multiplier
 ```
 
+## Voronoi Backends
+
+Two backends for spherical Voronoi computation (select via `--voronoi-backend`):
+- **convex-hull** (default): qhull-based convex hull duality, mathematically exact
+- **knn-clipping**: s2-voronoi crate, kNN-driven half-space clipping
+
+The knn-clipping backend uses the `s2-voronoi` crate (see `crates/s2-voronoi/AGENTS.md`). Integration point is `Tessellation::generate_knn_clipping()` in `src/world/tessellation.rs`.
+
 ## Common Tasks
 
 ### Tuning terrain appearance
 Modify constants in `src/world/constants.rs`
 
 ### Changing cell count or plate count
-Modify `NUM_CELLS` and `NUM_PLATES` in `src/main.rs` (and `LLOYD_ITERATIONS` if needed)
+Modify `NUM_CELLS` and `NUM_PLATES` in `src/app/world.rs` (and `LLOYD_ITERATIONS` if needed)
 
 ### Adding new render modes
 1. Add variant to `RenderMode` enum in `src/app/view.rs`

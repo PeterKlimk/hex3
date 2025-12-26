@@ -143,8 +143,14 @@ pub fn compute_voronoi_qhull(points: &[Vec3]) -> SphericalVoronoi {
     }
 
     // Build cells by ordering vertices CCW around each generator
-    let generators: Vec<UnitVec3> = points.iter().map(|&p| UnitVec3::from_glam(p)).collect();
-    let voronoi_vertices: Vec<UnitVec3> = vertices.iter().map(|&v| UnitVec3::from_glam(v)).collect();
+    let generators: Vec<UnitVec3> = points
+        .iter()
+        .map(|&p| UnitVec3::new(p.x, p.y, p.z))
+        .collect();
+    let voronoi_vertices: Vec<UnitVec3> = vertices
+        .iter()
+        .map(|&v| UnitVec3::new(v.x, v.y, v.z))
+        .collect();
 
     let mut cells = Vec::with_capacity(points.len());
     let mut cell_indices: Vec<u32> = Vec::new();

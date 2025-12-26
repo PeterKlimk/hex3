@@ -43,6 +43,31 @@ pub use tessellation::Tessellation;
 
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
+use std::fmt;
+
+/// Backend used to compute the spherical Voronoi diagram.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VoronoiBackend {
+    /// Exact convex-hull duality (slower, robust).
+    ConvexHull,
+    /// kNN-driven half-space clipping (fast, approximate).
+    KnnClipping,
+}
+
+impl Default for VoronoiBackend {
+    fn default() -> Self {
+        Self::ConvexHull
+    }
+}
+
+impl fmt::Display for VoronoiBackend {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            VoronoiBackend::ConvexHull => write!(f, "convex-hull"),
+            VoronoiBackend::KnnClipping => write!(f, "knn-clipping"),
+        }
+    }
+}
 
 /// A procedurally generated world with layered geological features.
 ///
@@ -83,24 +108,26 @@ impl World {
     /// This only generates the tessellation. Call generation methods
     /// to build up additional layers.
     pub fn new(seed: u64, num_cells: usize, lloyd_iterations: usize) -> Self {
-        Self::new_with_options(seed, num_cells, lloyd_iterations, false)
+        Self::new_with_options(seed, num_cells, lloyd_iterations, VoronoiBackend::ConvexHull)
     }
 
     /// Create a new world with options.
     ///
-    /// If `gpu_voronoi` is true, uses the GPU-style half-space clipping algorithm
-    /// instead of convex hull duality for Voronoi computation.
+    /// Selects the Voronoi backend for tessellation.
     pub fn new_with_options(
         seed: u64,
         num_cells: usize,
         lloyd_iterations: usize,
-        gpu_voronoi: bool,
+        backend: VoronoiBackend,
     ) -> Self {
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
-        let tessellation = if gpu_voronoi {
-            Tessellation::generate_gpu_style(num_cells, lloyd_iterations, &mut rng)
-        } else {
-            Tessellation::generate(num_cells, lloyd_iterations, &mut rng)
+        let tessellation = match backend {
+            VoronoiBackend::ConvexHull => {
+                Tessellation::generate(num_cells, lloyd_iterations, &mut rng)
+            }
+            VoronoiBackend::KnnClipping => {
+                Tessellation::generate_knn_clipping(num_cells, lloyd_iterations, &mut rng)
+            }
         };
 
         Self {

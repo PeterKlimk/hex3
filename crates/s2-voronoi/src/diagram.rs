@@ -75,8 +75,14 @@ impl SphericalVoronoi {
         cell_indices: Vec<u32>,
     ) -> Self {
         Self {
-            generators: generators.into_iter().map(UnitVec3::from_glam).collect(),
-            vertices: vertices.into_iter().map(UnitVec3::from_glam).collect(),
+            generators: generators
+                .into_iter()
+                .map(|v| UnitVec3::new(v.x, v.y, v.z))
+                .collect(),
+            vertices: vertices
+                .into_iter()
+                .map(|v| UnitVec3::new(v.x, v.y, v.z))
+                .collect(),
             cells: cells
                 .into_iter()
                 .map(|c| CellData {

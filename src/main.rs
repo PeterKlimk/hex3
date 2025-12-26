@@ -2,10 +2,28 @@ mod app;
 
 use std::path::PathBuf;
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use winit::event_loop::{ControlFlow, EventLoop};
 
 use app::world::{advance_to_stage_2, advance_to_stage_3, create_world_with_options};
+use hex3::world::VoronoiBackend;
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum CliVoronoiBackend {
+    #[value(name = "convex-hull")]
+    ConvexHull,
+    #[value(name = "knn-clipping")]
+    KnnClipping,
+}
+
+impl From<CliVoronoiBackend> for VoronoiBackend {
+    fn from(value: CliVoronoiBackend) -> Self {
+        match value {
+            CliVoronoiBackend::ConvexHull => VoronoiBackend::ConvexHull,
+            CliVoronoiBackend::KnnClipping => VoronoiBackend::KnnClipping,
+        }
+    }
+}
 
 /// Hex3 - Spherical Voronoi planet generator
 #[derive(Parser, Debug)]
@@ -27,9 +45,9 @@ struct Cli {
     #[arg(long, value_name = "FILE")]
     export: Option<PathBuf>,
 
-    /// Use GPU-style Voronoi algorithm (experimental)
-    #[arg(long)]
-    gpu_voronoi: bool,
+    /// Voronoi backend to use (convex-hull or knn-clipping)
+    #[arg(long, value_enum, default_value_t = CliVoronoiBackend::ConvexHull)]
+    voronoi_backend: CliVoronoiBackend,
 
     /// Legacy flag: equivalent to --stage 2
     #[arg(long, hide = true)]
@@ -51,10 +69,12 @@ fn main() {
         1 // Interactive defaults to stage 1
     };
 
+    let backend = VoronoiBackend::from(cli.voronoi_backend);
+
     if cli.headless {
-        run_headless(cli.seed, target_stage, cli.export, cli.gpu_voronoi);
+        run_headless(cli.seed, target_stage, cli.export, backend);
     } else {
-        run_interactive(cli.seed, target_stage, cli.export, cli.gpu_voronoi);
+        run_interactive(cli.seed, target_stage, cli.export, backend);
     }
 }
 
@@ -62,18 +82,18 @@ fn run_headless(
     seed: Option<u64>,
     target_stage: u32,
     export_path: Option<PathBuf>,
-    gpu_voronoi: bool,
+    voronoi_backend: VoronoiBackend,
 ) {
     let seed = seed.unwrap_or_else(rand::random);
     println!(
-        "Headless mode: seed={}, target_stage={}, gpu_voronoi={}",
-        seed, target_stage, gpu_voronoi
+        "Headless mode: seed={}, target_stage={}, voronoi_backend={}",
+        seed, target_stage, voronoi_backend
     );
 
     // Generate world
     print!("Generating world... ");
     let start = std::time::Instant::now();
-    let mut world = create_world_with_options(seed, gpu_voronoi);
+    let mut world = create_world_with_options(seed, voronoi_backend);
     println!("{:.1}ms", start.elapsed().as_secs_f64() * 1000.0);
 
     // Advance to target stage
@@ -106,7 +126,7 @@ fn run_interactive(
     seed: Option<u64>,
     target_stage: u32,
     export_path: Option<PathBuf>,
-    gpu_voronoi: bool,
+    voronoi_backend: VoronoiBackend,
 ) {
     let event_loop = EventLoop::new().expect("Failed to create event loop");
     event_loop.set_control_flow(ControlFlow::Wait);
@@ -115,7 +135,7 @@ fn run_interactive(
         seed,
         target_stage,
         export_path,
-        gpu_voronoi,
+        voronoi_backend,
     };
 
     let mut app = app::App::new(config);

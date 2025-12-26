@@ -31,13 +31,15 @@ impl UnitVec3 {
         Self::new(p.x(), p.y(), p.z())
     }
 
-    /// Convert to a glam::Vec3.
+    /// Convert to a glam::Vec3 (available when the `glam` feature is enabled).
+    #[cfg(feature = "glam")]
     #[inline]
     pub fn to_glam(self) -> glam::Vec3 {
         glam::Vec3::new(self.x, self.y, self.z)
     }
 
-    /// Create from a glam::Vec3.
+    /// Create from a glam::Vec3 (available when the `glam` feature is enabled).
+    #[cfg(feature = "glam")]
     #[inline]
     pub fn from_glam(v: glam::Vec3) -> Self {
         Self::new(v.x, v.y, v.z)
@@ -87,6 +89,7 @@ impl From<UnitVec3> for [f32; 3] {
     }
 }
 
+#[cfg(feature = "glam")]
 impl From<glam::Vec3> for UnitVec3 {
     #[inline]
     fn from(v: glam::Vec3) -> Self {
@@ -94,6 +97,7 @@ impl From<glam::Vec3> for UnitVec3 {
     }
 }
 
+#[cfg(feature = "glam")]
 impl From<UnitVec3> for glam::Vec3 {
     #[inline]
     fn from(v: UnitVec3) -> glam::Vec3 {
@@ -155,7 +159,8 @@ impl UnitVec3Like for (f32, f32, f32) {
     }
 }
 
-// Always implement for glam::Vec3 since glam is an internal dependency
+// Implement for glam::Vec3 when the feature is enabled.
+#[cfg(feature = "glam")]
 impl UnitVec3Like for glam::Vec3 {
     #[inline]
     fn x(&self) -> f32 {
@@ -197,11 +202,20 @@ mod tests {
         let uv = UnitVec3::new(1.0, 2.0, 3.0);
         let arr = [1.0f32, 2.0, 3.0];
         let tuple = (1.0f32, 2.0f32, 3.0f32);
-        let glam_v = glam::Vec3::new(1.0, 2.0, 3.0);
 
         assert_eq!(accepts_like(&uv), 6.0);
         assert_eq!(accepts_like(&arr), 6.0);
         assert_eq!(accepts_like(&tuple), 6.0);
+    }
+
+    #[test]
+    #[cfg(feature = "glam")]
+    fn test_unit_vec3_like_trait_glam() {
+        fn accepts_like<P: UnitVec3Like>(p: &P) -> f32 {
+            p.x() + p.y() + p.z()
+        }
+
+        let glam_v = glam::Vec3::new(1.0, 2.0, 3.0);
         assert_eq!(accepts_like(&glam_v), 6.0);
     }
 }

@@ -8,6 +8,7 @@ pub mod world;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use hex3::world::VoronoiBackend;
 use winit::{
     application::ApplicationHandler,
     dpi::PhysicalSize,
@@ -25,7 +26,7 @@ pub struct AppConfig {
     pub seed: Option<u64>,
     pub target_stage: u32,
     pub export_path: Option<PathBuf>,
-    pub gpu_voronoi: bool,
+    pub voronoi_backend: VoronoiBackend,
 }
 
 pub struct App {
@@ -59,7 +60,8 @@ impl ApplicationHandler for App {
         );
 
         let seed = self.config.seed.unwrap_or_else(rand::random);
-        let mut state = pollster::block_on(AppState::new(window, seed, self.config.gpu_voronoi));
+        let mut state =
+            pollster::block_on(AppState::new(window, seed, self.config.voronoi_backend));
 
         // Advance to target stage
         while state.world_data.current_stage() < self.config.target_stage {

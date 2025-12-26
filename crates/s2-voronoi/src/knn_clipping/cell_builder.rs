@@ -2,10 +2,7 @@
 
 use glam::{DVec3, Vec3};
 
-use super::constants::{
-    support_cluster_drift_dot, EPS_TERMINATION_MARGIN, MIN_BISECTOR_DISTANCE,
-    SUPPORT_CERT_MARGIN_ABS, SUPPORT_CLUSTER_RADIUS_ANGLE, SUPPORT_EPS_ABS, SUPPORT_VERTEX_ANGLE_EPS,
-};
+use super::constants::COINCIDENT_DOT_TOL;
 
 /// Vertex key for deduplication (fast triplet or full support set).
 #[derive(Debug, Clone, Copy)]
@@ -86,6 +83,27 @@ pub fn order_vertices_ccw_indices(generator: Vec3, vertices: &[Vec3]) -> Vec<usi
 const F64_EPS_CLIP: f64 = 1e-14;
 /// Epsilon for f64 plane parallelism check.
 const F64_EPS_PARALLEL: f64 = 1e-12;
+/// Dimensionless multiplier for f32 input dot error.
+const INPUT_DOT_ERR_FACTOR: f64 = 4.0;
+/// Dimensionless multiplier for f64 vertex position error.
+const VERTEX_ERR_FACTOR: f64 = 16.0;
+/// Conditioning floor to avoid exploding error bounds on degenerate triplets.
+const CONDITIONING_FLOOR: f64 = 1e-6;
+
+#[inline]
+fn input_dot_err() -> f64 {
+    INPUT_DOT_ERR_FACTOR * f32::EPSILON as f64
+}
+
+#[inline]
+fn vertex_err(conditioning: f64) -> f64 {
+    VERTEX_ERR_FACTOR * f64::EPSILON / conditioning.max(CONDITIONING_FLOOR)
+}
+
+#[inline]
+fn support_cutoff(conditioning: f64) -> f64 {
+    input_dot_err() + 2.0 * vertex_err(conditioning)
+}
 
 /// A great circle in f64 precision.
 #[derive(Debug, Clone, Copy)]
@@ -267,13 +285,12 @@ impl F64CellBuilder {
 
     /// Create a new f64 cell builder for the given generator.
     pub fn new(generator_idx: usize, generator: Vec3) -> Self {
-        let gen64 = DVec3::new(generator.x as f64, generator.y as f64, generator.z as f64).normalize();
-        let eps_cell = SUPPORT_VERTEX_ANGLE_EPS + SUPPORT_CLUSTER_RADIUS_ANGLE;
-        let (sin_eps, cos_eps) = (eps_cell as f32).sin_cos();
-        let termination_margin = EPS_TERMINATION_MARGIN
-            + SUPPORT_CERT_MARGIN_ABS as f32
-            + 2.0 * SUPPORT_EPS_ABS as f32
-            + 2.0 * support_cluster_drift_dot() as f32;
+        let gen64 =
+            DVec3::new(generator.x as f64, generator.y as f64, generator.z as f64).normalize();
+        let support_cutoff_max = support_cutoff(CONDITIONING_FLOOR);
+        let eps_angle = (2.0 * support_cutoff_max).sqrt() as f32;
+        let (sin_eps, cos_eps) = eps_angle.sin_cos();
+        let termination_margin = support_cutoff_max as f32;
         Self {
             generator_idx,
             generator: gen64,
@@ -549,9 +566,9 @@ impl F64CellBuilder {
 
         let n64 = DVec3::new(neighbor.x as f64, neighbor.y as f64, neighbor.z as f64).normalize();
 
-        // Skip degenerate bisectors
-        let diff = self.generator - n64;
-        if diff.length_squared() < (MIN_BISECTOR_DISTANCE as f64).powi(2) {
+        // Skip coincident generators (duplicate inputs).
+        let dot = self.generator.dot(n64).clamp(-1.0, 1.0);
+        if (1.0 - dot) <= COINCIDENT_DOT_TOL as f64 {
             return Ok(());
         }
 
@@ -873,16 +890,6 @@ impl F64CellBuilder {
         // Use cached normalized neighbor positions (computed once in clip())
         let neighbor_positions = &self.neighbor_positions;
 
-        // F64 vertex error bound (Case A from plan2.md):
-        // vertex_err ≈ C * f64::EPSILON / conditioning
-        // where conditioning = sin(angle between defining planes)
-        //
-        // Gap error = vertex_err * |G - C| (generator distance)
-        // For certification: min_gap > SUPPORT_EPS_ABS + gap_error_bound
-        //
-        // We use C = 16 to account for multiple f64 operations (normalize, cross, etc.)
-        const F64_VERTEX_ERR_FACTOR: f64 = 16.0 * f64::EPSILON;
-
         // Scratch reused only for rare support-set cases (near-degenerate vertices).
         let mut support_tmp: Vec<u32> = Vec::with_capacity(MAX_PLANES + 1);
         let mut support_extra = [0u32; MAX_PLANES];
@@ -899,6 +906,8 @@ impl F64CellBuilder {
             let v_plane_b = self.vertex_plane_b[vertex_idx];
             let def_a = self.neighbor_indices[v_plane_a] as u32;
             let def_b = self.neighbor_indices[v_plane_b] as u32;
+            let conditioning = self.vertex_conditioning_at(vertex_idx);
+            let support_cutoff = support_cutoff(conditioning);
 
             let mut min_gap = f64::INFINITY;
             let mut extra_len = 0usize;
@@ -911,7 +920,7 @@ impl F64CellBuilder {
                 let dot_c = v_pos.dot(neighbor_positions[plane_idx]);
                 let gap = dot_g - dot_c;
 
-                if gap <= SUPPORT_EPS_ABS {
+                if gap <= support_cutoff {
                     support_extra[extra_len] = self.neighbor_indices[plane_idx] as u32;
                     extra_len += 1;
                 } else if gap < min_gap {
@@ -920,14 +929,7 @@ impl F64CellBuilder {
             }
 
             // Per-vertex conditioning-based error bound
-            let conditioning = self.vertex_conditioning_at(vertex_idx).max(1e-6);
-            let vertex_err = F64_VERTEX_ERR_FACTOR / conditioning;
-            // Gap error is vertex_err * max_generator_distance
-            // Conservative: use 2.0 as upper bound for |G - C| on unit sphere
-            let gap_err_bound = vertex_err * 2.0;
-            let cert_threshold = SUPPORT_EPS_ABS + gap_err_bound;
-
-            if min_gap <= cert_threshold {
+            if min_gap <= support_cutoff {
                 return Err(CellFailure::CertificationFailed);
             }
 

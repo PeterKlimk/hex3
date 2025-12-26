@@ -1,4 +1,4 @@
-//! Zero-cost timing instrumentation for gpu_voronoi.
+//! Zero-cost timing instrumentation for knn_clipping.
 //!
 //! When the `timing` feature is enabled, this module provides timing
 //! infrastructure that measures and reports phase durations.
@@ -124,7 +124,7 @@ impl PhaseTimings {
             }
         };
 
-        eprintln!("[timing] gpu_voronoi n={}", n);
+        eprintln!("[timing] knn_clipping n={}", n);
         eprintln!(
             "  knn_build:         {:7.1}ms ({:4.1}%)",
             self.knn_build.as_secs_f64() * 1000.0,

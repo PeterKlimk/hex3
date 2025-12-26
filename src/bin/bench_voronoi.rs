@@ -1,4 +1,4 @@
-//! Benchmark GPU-style Voronoi at large scales.
+//! Benchmark s2-voronoi at large scales.
 //!
 //! Run with: cargo run --release --bin bench_voronoi
 //!
@@ -12,8 +12,7 @@
 
 use clap::Parser;
 use glam::Vec3;
-use hex3::geometry::gpu_voronoi::{compute_voronoi_gpu_style, compute_voronoi_gpu_style_no_preprocess};
-use hex3::geometry::{fibonacci_sphere_points_with_rng, lloyd_relax_kmeans};
+use hex3::geometry::{fibonacci_sphere_points_with_rng, lloyd_relax_kmeans, SphericalVoronoi};
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use std::io::{self, Write};
@@ -44,7 +43,7 @@ fn mean_spacing(num_points: usize) -> f32 {
 
 #[derive(Parser)]
 #[command(name = "bench_voronoi")]
-#[command(about = "Benchmark GPU-style Voronoi at various scales")]
+#[command(about = "Benchmark s2-voronoi at various scales")]
 struct Args {
     /// Cell counts to benchmark (e.g., 100k, 1m, 10M)
     #[arg(value_parser = parse_count)]
@@ -61,10 +60,6 @@ struct Args {
     /// Compare against convex hull ground truth (slow, max 100k)
     #[arg(long)]
     validate: bool,
-
-    /// Skip preprocessing (merge close points) - for benchmarking
-    #[arg(long)]
-    no_preprocess: bool,
 
     /// Number of iterations to run (useful for profiling)
     #[arg(short = 'n', long, default_value_t = 1)]
@@ -107,8 +102,6 @@ fn format_num(n: usize) -> String {
 }
 
 fn validate_against_hull(points: &[Vec3]) {
-    use hex3::geometry::SphericalVoronoi;
-
     println!("\nValidating against convex hull ground truth...");
 
     let t0 = Instant::now();
@@ -116,20 +109,20 @@ fn validate_against_hull(points: &[Vec3]) {
     let hull_time = t0.elapsed().as_secs_f64() * 1000.0;
 
     let t1 = Instant::now();
-    let gpu = compute_voronoi_gpu_style(points);
-    let gpu_time = t1.elapsed().as_secs_f64() * 1000.0;
+    let s2_output = s2_voronoi::compute(points).expect("s2-voronoi should succeed");
+    let s2_time = t1.elapsed().as_secs_f64() * 1000.0;
 
     let mut exact_match = 0usize;
     let mut bad_cells = 0usize;
 
     for i in 0..points.len() {
         let hull_count = hull.cell(i).len();
-        let gpu_count = gpu.cell(i).len();
+        let s2_count = s2_output.diagram.cell(i).len();
 
-        if hull_count == gpu_count {
+        if hull_count == s2_count {
             exact_match += 1;
         }
-        if gpu_count < 3 {
+        if s2_count < 3 {
             bad_cells += 1;
         }
     }
@@ -138,9 +131,9 @@ fn validate_against_hull(points: &[Vec3]) {
 
     println!("  Convex hull time: {:>8.1}ms", hull_time);
     println!(
-        "  GPU Voronoi time: {:>8.1}ms ({:.1}x faster)",
-        gpu_time,
-        hull_time / gpu_time
+        "  s2-voronoi time:  {:>8.1}ms ({:.1}x faster)",
+        s2_time,
+        hull_time / s2_time
     );
     println!(
         "  Exact matches:    {:>8} / {} ({:.2}%)",
@@ -151,6 +144,13 @@ fn validate_against_hull(points: &[Vec3]) {
     if bad_cells > 0 {
         println!("  Invalid cells:    {:>8} (< 3 vertices)", bad_cells);
     }
+    if !s2_output.diagnostics.is_clean() {
+        println!(
+            "  Diagnostics:      {:>8} bad, {} degenerate",
+            s2_output.diagnostics.bad_cells.len(),
+            s2_output.diagnostics.degenerate_cells.len()
+        );
+    }
 }
 
 struct BenchResult {
@@ -160,30 +160,26 @@ struct BenchResult {
     num_cells: usize,
 }
 
-fn run_benchmark(points: &[Vec3], no_preprocess: bool) -> BenchResult {
+fn run_benchmark(points: &[Vec3]) -> BenchResult {
     let n = points.len();
 
     let t0 = Instant::now();
-    let voronoi = if no_preprocess {
-        compute_voronoi_gpu_style_no_preprocess(points)
-    } else {
-        compute_voronoi_gpu_style(points)
-    };
+    let output = s2_voronoi::compute(points).expect("s2-voronoi should succeed");
     let time_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
     BenchResult {
         n,
         time_ms,
-        num_vertices: voronoi.vertices.len(),
-        num_cells: voronoi.num_cells(),
+        num_vertices: output.diagram.vertices.len(),
+        num_cells: output.diagram.num_cells(),
     }
 }
 
 fn main() {
     let args = Args::parse();
 
-    println!("GPU-style Voronoi Benchmark");
-    println!("===========================\n");
+    println!("s2-voronoi Benchmark");
+    println!("====================\n");
 
     let sizes: Vec<usize> = if args.sizes.is_empty() {
         vec![100_000]
@@ -204,9 +200,6 @@ fn main() {
         "  sizes = {:?}",
         sizes.iter().map(|&n| format_num(n)).collect::<Vec<_>>()
     );
-    if args.no_preprocess {
-        println!("  preprocess = disabled (no point merging)");
-    }
     if args.repeat > 1 {
         println!("  repeat = {}", args.repeat);
     }
@@ -236,7 +229,7 @@ fn main() {
                 io::stdout().flush().unwrap();
             }
 
-            let result = run_benchmark(&points, args.no_preprocess);
+            let result = run_benchmark(&points);
             times.push(result.time_ms);
 
             if args.repeat > 1 {

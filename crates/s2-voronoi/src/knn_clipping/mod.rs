@@ -17,10 +17,7 @@ pub use cell_builder::{
     geodesic_distance, order_vertices_ccw_indices, CellFailure, F64CellBuilder, VertexData,
     VertexKey, VertexList, MAX_PLANES, MAX_VERTICES,
 };
-pub use constants::{
-    support_cluster_drift_dot, MIN_BISECTOR_DISTANCE, SUPPORT_CERT_MARGIN_ABS,
-    SUPPORT_CLUSTER_RADIUS_ANGLE, SUPPORT_EPS_ABS, SUPPORT_VERTEX_ANGLE_EPS, VERTEX_WELD_FRACTION,
-};
+use constants::coincident_distance;
 pub use knn::CubeMapGridKnn;
 
 /// Build a k-d tree from sphere points for efficient k-NN queries.
@@ -96,7 +93,7 @@ impl TerminationConfig {
     }
 }
 
-/// Result of merging close points before Voronoi computation.
+/// Result of merging coincident generators before Voronoi computation.
 pub struct MergeResult {
     /// Points to use for Voronoi (representatives only, or all if no merges).
     pub effective_points: Vec<Vec3>,
@@ -135,7 +132,7 @@ impl SimpleDsu {
     }
 }
 
-/// Find and merge points that are too close together.
+/// Find and merge coincident (near-identical) generators.
 /// Uses strict radius-based merging to ensure no remaining pair is within threshold.
 /// Returns effective points (representatives) and a mapping from original to effective indices.
 ///
@@ -230,7 +227,7 @@ fn compute_voronoi_gpu_style_core(
     let (effective_points, merge_result) = if skip_preprocess {
         (points.to_vec(), None)
     } else {
-        let result = merge_close_points(points, MIN_BISECTOR_DISTANCE);
+        let result = merge_close_points(points, coincident_distance());
         let pts = if result.num_merged > 0 {
             result.effective_points.clone()
         } else {

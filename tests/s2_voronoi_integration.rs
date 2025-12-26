@@ -9,18 +9,18 @@ use rand_chacha::ChaCha8Rng;
 use std::collections::HashSet;
 
 #[test]
-fn test_generate_gpu_style_basic() {
+fn test_generate_knn_clipping_basic() {
     let mut rng = ChaCha8Rng::seed_from_u64(12345);
-    let tess = Tessellation::generate_gpu_style(1000, 2, &mut rng);
+    let tess = Tessellation::generate_knn_clipping(1000, 2, &mut rng);
 
     assert_eq!(tess.voronoi.num_cells(), 1000);
     assert!(!tess.voronoi.vertices.is_empty());
 }
 
 #[test]
-fn test_generate_gpu_style_adjacency_valid() {
+fn test_generate_knn_clipping_adjacency_valid() {
     let mut rng = ChaCha8Rng::seed_from_u64(54321);
-    let tess = Tessellation::generate_gpu_style(500, 2, &mut rng);
+    let tess = Tessellation::generate_knn_clipping(500, 2, &mut rng);
 
     // Every cell should have adjacency info
     assert_eq!(tess.adjacency.len(), 500);
@@ -51,9 +51,9 @@ fn test_generate_gpu_style_adjacency_valid() {
 }
 
 #[test]
-fn test_generate_gpu_style_vertices_on_sphere() {
+fn test_generate_knn_clipping_vertices_on_sphere() {
     let mut rng = ChaCha8Rng::seed_from_u64(99999);
-    let tess = Tessellation::generate_gpu_style(500, 2, &mut rng);
+    let tess = Tessellation::generate_knn_clipping(500, 2, &mut rng);
 
     // All vertices should be on the unit sphere
     for (i, v) in tess.voronoi.vertices.iter().enumerate() {
@@ -79,9 +79,9 @@ fn test_generate_gpu_style_vertices_on_sphere() {
 }
 
 #[test]
-fn test_generate_gpu_style_cell_vertex_count() {
+fn test_generate_knn_clipping_cell_vertex_count() {
     let mut rng = ChaCha8Rng::seed_from_u64(77777);
-    let tess = Tessellation::generate_gpu_style(1000, 2, &mut rng);
+    let tess = Tessellation::generate_knn_clipping(1000, 2, &mut rng);
 
     // Most cells should have >= 3 vertices (valid polygons)
     let valid_cells = tess
@@ -98,9 +98,9 @@ fn test_generate_gpu_style_cell_vertex_count() {
 }
 
 #[test]
-fn test_generate_gpu_style_no_duplicate_vertices_in_cell() {
+fn test_generate_knn_clipping_no_duplicate_vertices_in_cell() {
     let mut rng = ChaCha8Rng::seed_from_u64(11111);
-    let tess = Tessellation::generate_gpu_style(500, 2, &mut rng);
+    let tess = Tessellation::generate_knn_clipping(500, 2, &mut rng);
 
     let mut cells_with_dupes = 0;
     for cell in tess.voronoi.iter_cells() {
@@ -119,9 +119,9 @@ fn test_generate_gpu_style_no_duplicate_vertices_in_cell() {
 }
 
 #[test]
-fn test_generate_gpu_style_cell_areas() {
+fn test_generate_knn_clipping_cell_areas() {
     let mut rng = ChaCha8Rng::seed_from_u64(33333);
-    let tess = Tessellation::generate_gpu_style(500, 2, &mut rng);
+    let tess = Tessellation::generate_knn_clipping(500, 2, &mut rng);
 
     let areas = tess.cell_areas();
     assert_eq!(areas.len(), 500);
@@ -145,12 +145,12 @@ fn test_generate_gpu_style_cell_areas() {
 }
 
 #[test]
-fn test_generate_gpu_style_reproducible() {
+fn test_generate_knn_clipping_reproducible() {
     let mut rng1 = ChaCha8Rng::seed_from_u64(42);
-    let tess1 = Tessellation::generate_gpu_style(200, 2, &mut rng1);
+    let tess1 = Tessellation::generate_knn_clipping(200, 2, &mut rng1);
 
     let mut rng2 = ChaCha8Rng::seed_from_u64(42);
-    let tess2 = Tessellation::generate_gpu_style(200, 2, &mut rng2);
+    let tess2 = Tessellation::generate_knn_clipping(200, 2, &mut rng2);
 
     assert_eq!(tess1.voronoi.num_cells(), tess2.voronoi.num_cells());
     assert_eq!(tess1.voronoi.vertices.len(), tess2.voronoi.vertices.len());
@@ -168,10 +168,10 @@ fn test_generate_gpu_style_reproducible() {
 }
 
 #[test]
-fn test_generate_gpu_style_various_sizes() {
+fn test_generate_knn_clipping_various_sizes() {
     for n in [100, 500, 2000] {
         let mut rng = ChaCha8Rng::seed_from_u64(12345 + n as u64);
-        let tess = Tessellation::generate_gpu_style(n, 2, &mut rng);
+        let tess = Tessellation::generate_knn_clipping(n, 2, &mut rng);
         assert_eq!(
             tess.voronoi.num_cells(),
             n,

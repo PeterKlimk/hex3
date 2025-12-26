@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Scope
+
+This file covers the hex3 app and workspace-level guidance. For the s2-voronoi library crate, see `crates/s2-voronoi/CLAUDE.md`.
+
 ## Development Environment
 
 Development is done in WSL2, but the application must be run on Windows. Compute shaders (used for the particle system) do not work properly under WSL2's GPU passthrough.
@@ -35,7 +39,7 @@ cargo run --release -- --headless --export out.json.gz  # Headless + export
 - `--stage N` - Target stage (1=Lithosphere, 2=Atmosphere, 3=Hydrosphere)
 - `--seed N` - Random seed for reproducible generation
 - `--export FILE` - Export world data to JSON (supports .json.gz)
-- `--gpu-voronoi` - Use experimental GPU-style Voronoi algorithm instead of convex hull
+- `--voronoi-backend <convex-hull|knn-clipping>` - Select Voronoi algorithm (default: convex-hull)
 - `D` key - Export current world in interactive mode
 
 ## Data Analysis
@@ -74,7 +78,7 @@ Hex3 is a spherical Voronoi-based planet generator with tectonic plate simulatio
   - `lloyd.rs` - Lloyd relaxation for point distribution
   - `sphere.rs` - Uniform random points on a unit sphere
   - `mesh.rs` - Voronoi to triangle mesh conversion, map projection
-  - `gpu_voronoi.rs` - GPU-style Voronoi via half-space clipping (experimental)
+  - `validation.rs` - Voronoi diagram validation utilities
 
 - **`src/world/`** - World generation and simulation
   - `tessellation.rs` - Spherical tessellation with Voronoi cells and adjacency
@@ -180,9 +184,17 @@ Notes:
 - Plates mode (globe view) overlays plate velocity arrows and Euler pole markers.
 - Rivers follow terrain elevation in Relief mode, flat in other modes.
 
+## Voronoi Backends
+
+Two backends for spherical Voronoi computation:
+- **convex-hull** (default): qhull-based convex hull duality, mathematically exact
+- **knn-clipping**: s2-voronoi crate, kNN-driven half-space clipping
+
+The knn-clipping backend uses the `s2-voronoi` crate (see `crates/s2-voronoi/`). Integration point is `Tessellation::generate_knn_clipping()` in `src/world/tessellation.rs`.
+
 ## Common Edit Points
 
-- World resolution: `src/main.rs` (`NUM_CELLS`, `LLOYD_ITERATIONS`, `NUM_PLATES`)
+- World resolution: `src/app/world.rs` (`NUM_CELLS`, `LLOYD_ITERATIONS`, `NUM_PLATES`)
 - Tectonic feature tuning: `src/world/constants.rs`
 - Elevation & noise tuning: `src/world/constants.rs` (noise layers, feature sensitivities)
 - Plate generation heuristics: `src/world/plates.rs` (seed spacing, target sizes, noise)

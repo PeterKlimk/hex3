@@ -6,7 +6,7 @@ use hex3::geometry::{
 };
 use hex3::render::{create_index_buffer, create_vertex_buffer, ElevationVertex};
 use hex3::util::Timed;
-use hex3::world::{PlateType, World};
+use hex3::world::{PlateType, VoronoiBackend, World};
 
 use super::coloring::{
     cell_color_climate, cell_color_elevation, cell_color_feature, cell_color_hydrology,
@@ -99,23 +99,23 @@ impl WorldBuffers {
 
 /// Generate a new world (Stage 1: Lithosphere).
 pub fn create_world(seed: u64) -> World {
-    create_world_with_options(seed, false)
+    create_world_with_options(seed, VoronoiBackend::ConvexHull)
 }
 
-pub fn create_world_with_options(seed: u64, gpu_voronoi: bool) -> World {
+pub fn create_world_with_options(seed: u64, backend: VoronoiBackend) -> World {
     let _total = Timed::info("Stage 1 (Lithosphere)");
     log::info!(
-        "Generating world: seed={}, cells={}, lloyd={}, plates={}, gpu_voronoi={}",
+        "Generating world: seed={}, cells={}, lloyd={}, plates={}, voronoi_backend={}",
         seed,
         NUM_CELLS,
         LLOYD_ITERATIONS,
         NUM_PLATES,
-        gpu_voronoi
+        backend
     );
 
     let mut world = {
         let _t = Timed::info("Tessellation");
-        World::new_with_options(seed, NUM_CELLS, LLOYD_ITERATIONS, gpu_voronoi)
+        World::new_with_options(seed, NUM_CELLS, LLOYD_ITERATIONS, backend)
     };
 
     {

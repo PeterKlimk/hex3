@@ -65,11 +65,11 @@ impl Tessellation {
         Self { voronoi, adjacency }
     }
 
-    /// Generate a tessellation using the GPU-style Voronoi algorithm.
+    /// Generate a tessellation using the kNN clipping Voronoi algorithm.
     ///
     /// Same point distribution as `generate`, but uses the half-space clipping
     /// algorithm (via s2-voronoi crate) instead of convex hull duality.
-    pub fn generate_gpu_style<R: Rng>(
+    pub fn generate_knn_clipping<R: Rng>(
         num_cells: usize,
         _lloyd_iterations: usize,
         rng: &mut R,
