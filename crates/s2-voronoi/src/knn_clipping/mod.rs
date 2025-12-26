@@ -9,10 +9,6 @@ mod knn;
 mod live_dedup;
 mod timing;
 
-// TODO: Phase 5 - restructure tests (currently disabled due to hex3 dependencies)
-// #[cfg(test)]
-// mod tests;
-
 use glam::Vec3;
 use kiddo::ImmutableKdTree;
 

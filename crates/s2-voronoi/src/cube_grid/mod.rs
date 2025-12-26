@@ -11,16 +11,6 @@
 //! distance bounds. Typical uniform inputs terminate after visiting a handful
 //! of cells; worst-case falls back to brute force.
 
-// TODO: Phase 5 - restructure tests (currently disabled due to hex3 dependencies)
-// #[cfg(test)]
-// mod tests;
-
-// #[cfg(test)]
-// mod bench_knn;
-
-// #[cfg(test)]
-// mod bounds_test;
-
 pub mod packed_knn;
 
 use glam::{Vec3, Vec3A};

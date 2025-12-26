@@ -32,9 +32,16 @@ mod types;
 pub(crate) mod cube_grid;
 pub(crate) mod knn_clipping;
 
+// Optional qhull backend (test/benchmark only)
+#[cfg(feature = "qhull")]
+pub mod convex_hull;
+
 pub use diagram::{CellView, SphericalVoronoi, VoronoiCell};
 pub use error::VoronoiError;
 pub use types::{UnitVec3, UnitVec3Like};
+
+#[cfg(feature = "qhull")]
+pub use convex_hull::compute_voronoi_qhull;
 
 /// Output from Voronoi computation, including diagram and diagnostics.
 #[derive(Debug, Clone)]
