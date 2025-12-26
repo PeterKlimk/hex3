@@ -566,7 +566,7 @@ fn build_cell_pair_edge_midpoints(tessellation: &Tessellation) -> HashMap<(usize
     // Map Voronoi edges (vertex pairs) -> cells containing that edge, then produce a
     // cell-pair map keyed by (min_cell, max_cell) to the edge midpoint.
     let voronoi = &tessellation.voronoi;
-    let mut edge_to_cells: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
+    let mut edge_to_cells: HashMap<(u32, u32), Vec<usize>> = HashMap::new();
 
     for cell_idx in 0..voronoi.num_cells() {
         let cell = voronoi.cell(cell_idx);
@@ -590,8 +590,8 @@ fn build_cell_pair_edge_midpoints(tessellation: &Tessellation) -> HashMap<(usize
         let c1 = cells[1];
         let key = if c0 < c1 { (c0, c1) } else { (c1, c0) };
 
-        let v0 = voronoi.vertices[va];
-        let v1 = voronoi.vertices[vb];
+        let v0 = voronoi.vertices[va as usize];
+        let v1 = voronoi.vertices[vb as usize];
         let sum = v0 + v1;
         let midpoint = if sum.length_squared() > 1e-10 {
             sum.normalize()

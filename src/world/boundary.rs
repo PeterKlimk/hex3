@@ -88,26 +88,26 @@ fn classify_kind(convergence: f32, shear: f32) -> BoundaryKind {
 }
 
 fn shared_edge_length(tessellation: &Tessellation, cell_a: usize, cell_b: usize) -> f32 {
-    let verts_a: HashSet<usize> = tessellation
+    let verts_a: HashSet<u32> = tessellation
         .voronoi
         .cell(cell_a)
         .vertex_indices
         .iter()
         .copied()
         .collect();
-    let verts_b: HashSet<usize> = tessellation
+    let verts_b: HashSet<u32> = tessellation
         .voronoi
         .cell(cell_b)
         .vertex_indices
         .iter()
         .copied()
         .collect();
-    let shared: Vec<usize> = verts_a.intersection(&verts_b).copied().collect();
+    let shared: Vec<u32> = verts_a.intersection(&verts_b).copied().collect();
 
     let shared_len = shared.len();
     if shared_len == 2 {
-        let v0 = tessellation.voronoi.vertices[shared[0]];
-        let v1 = tessellation.voronoi.vertices[shared[1]];
+        let v0 = tessellation.voronoi.vertices[shared[0] as usize];
+        let v1 = tessellation.voronoi.vertices[shared[1] as usize];
         v0.dot(v1).clamp(-1.0, 1.0).acos()
     } else {
         debug_assert_eq!(

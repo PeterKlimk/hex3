@@ -25,7 +25,7 @@ fn lloyd_step(points: &mut [Vec3]) {
         let cell_vertices: Vec<Vec3> = cell
             .vertex_indices
             .iter()
-            .map(|&idx| voronoi.vertices[idx])
+            .map(|&idx| voronoi.vertices[idx as usize])
             .collect();
 
         // Compute centroid and move the generator

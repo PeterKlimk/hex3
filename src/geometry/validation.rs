@@ -57,9 +57,9 @@ pub struct ValidationResult {
     /// Cells with near-duplicate vertex positions (different indices, same position)
     pub near_duplicate_cells: Vec<(usize, Vec<(usize, usize, f32)>)>, // cell_idx, [(v1, v2, dist)]
     /// Edges that appear in only one cell (boundary errors)
-    pub orphan_edges: Vec<(usize, usize)>, // (vertex_idx_a, vertex_idx_b)
+    pub orphan_edges: Vec<(u32, u32)>, // (vertex_idx_a, vertex_idx_b)
     /// Edges that appear in more than 2 cells (topology errors)
-    pub overcounted_edges: Vec<(usize, usize, usize)>, // (vertex_idx_a, vertex_idx_b, count)
+    pub overcounted_edges: Vec<(u32, u32, usize)>, // (vertex_idx_a, vertex_idx_b, count)
     /// Cells that don't contain their generator in the cell interior
     pub generator_outside_cells: Vec<usize>,
     /// Cells with wrong winding order (clockwise instead of counterclockwise)
@@ -201,7 +201,7 @@ pub fn validate_voronoi(
 
     // Track edges for consistency checking
     // Key: (min_vertex_idx, max_vertex_idx), Value: list of cell indices
-    let mut edge_to_cells: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
+    let mut edge_to_cells: HashMap<(u32, u32), Vec<usize>> = HashMap::new();
 
     for cell_idx in 0..voronoi.num_cells() {
         let cell = voronoi.cell(cell_idx);
@@ -214,7 +214,7 @@ pub fn validate_voronoi(
         }
 
         // Check 2: Duplicate indices (same index appears twice)
-        let mut seen_indices: Vec<usize> = Vec::with_capacity(vertex_indices.len());
+        let mut seen_indices: Vec<u32> = Vec::with_capacity(vertex_indices.len());
         let mut has_dup_index = false;
         for &vi in vertex_indices {
             if seen_indices.contains(&vi) {
@@ -230,7 +230,7 @@ pub fn validate_voronoi(
         // Check 3: Near-duplicate positions (different indices, same position)
         let positions: Vec<Vec3> = vertex_indices
             .iter()
-            .map(|&vi| voronoi.vertices[vi])
+            .map(|&vi| voronoi.vertices[vi as usize])
             .collect();
         let mut near_dups: Vec<(usize, usize, f32)> = Vec::new();
         for i in 0..positions.len() {
@@ -259,8 +259,8 @@ pub fn validate_voronoi(
         let generator = voronoi.generators[cell.generator_index];
         let mut generator_inside = true;
         for i in 0..vertex_indices.len() {
-            let v1 = voronoi.vertices[vertex_indices[i]];
-            let v2 = voronoi.vertices[vertex_indices[(i + 1) % vertex_indices.len()]];
+            let v1 = voronoi.vertices[vertex_indices[i] as usize];
+            let v2 = voronoi.vertices[vertex_indices[(i + 1) % vertex_indices.len()] as usize];
             // Edge plane normal: cross product of the two vertices (points on unit sphere)
             // This gives the normal to the great circle containing the edge
             let edge_normal = v1.cross(v2);
@@ -292,7 +292,7 @@ pub fn validate_voronoi(
     }
 
     // Check edge consistency and compute Euler characteristic
-    let mut unique_vertices: HashSet<usize> = HashSet::new();
+    let mut unique_vertices: HashSet<u32> = HashSet::new();
     for cell_idx in 0..voronoi.num_cells() {
         let cell = voronoi.cell(cell_idx);
         for &vi in cell.vertex_indices {
@@ -393,8 +393,9 @@ pub fn validate_voronoi_sampling<R: rand::Rng>(
             // Check if point is inside this cell's spherical polygon
             let mut inside = true;
             for i in 0..cell.vertex_indices.len() {
-                let v1 = voronoi.vertices[cell.vertex_indices[i]];
-                let v2 = voronoi.vertices[cell.vertex_indices[(i + 1) % cell.vertex_indices.len()]];
+                let v1 = voronoi.vertices[cell.vertex_indices[i] as usize];
+                let v2 = voronoi.vertices
+                    [cell.vertex_indices[(i + 1) % cell.vertex_indices.len()] as usize];
                 let edge_normal = v1.cross(v2);
                 if edge_normal.length_squared() < 1e-12 {
                     continue;
@@ -473,8 +474,8 @@ pub struct StrictValidationResult {
     pub num_merged_generators: usize,
     pub merge_threshold: f64,
     pub degenerate_cells: Vec<usize>,
-    pub orphan_edges: Vec<(usize, usize)>,
-    pub overcounted_edges: Vec<(usize, usize, usize)>,
+    pub orphan_edges: Vec<(u32, u32)>,
+    pub overcounted_edges: Vec<(u32, u32, usize)>,
     pub duplicate_support_vertices: Vec<(usize, usize)>,
     pub support_lt3: Vec<usize>,
     pub generator_mismatch_vertices: Vec<usize>,
@@ -598,7 +599,7 @@ pub fn validate_voronoi_strict(
         ..Default::default()
     };
 
-    let mut edge_to_cells: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
+    let mut edge_to_cells: HashMap<(u32, u32), Vec<usize>> = HashMap::new();
     let mut vertex_to_cells: Vec<Vec<usize>> = vec![Vec::new(); num_vertices];
 
     for cell_idx in 0..num_cells {
@@ -610,9 +611,10 @@ pub fn validate_voronoi_strict(
         }
 
         for &vi in vertex_indices {
-            if vi < num_vertices {
-                if !vertex_to_cells[vi].contains(&eff_cell_idx) {
-                    vertex_to_cells[vi].push(eff_cell_idx);
+            let viu = vi as usize;
+            if viu < num_vertices {
+                if !vertex_to_cells[viu].contains(&eff_cell_idx) {
+                    vertex_to_cells[viu].push(eff_cell_idx);
                 }
             }
         }
@@ -760,8 +762,8 @@ pub fn validate_voronoi_strict(
     }
 
     let mut edges: HashSet<(usize, usize)> = HashSet::new();
-    let mut collapsed_samples: Vec<(usize, usize, usize)> = Vec::new();
-    let mut missing_key_samples: Vec<(usize, usize)> = Vec::new();
+    let mut collapsed_samples: Vec<(u32, u32, usize)> = Vec::new();
+    let mut missing_key_samples: Vec<(u32, u32)> = Vec::new();
     for rep in rep_cell_for_eff.iter().flatten() {
         let cell = voronoi.cell(*rep);
         let vertex_indices = cell.vertex_indices;
@@ -771,8 +773,14 @@ pub fn validate_voronoi_strict(
         for i in 0..vertex_indices.len() {
             let v1 = vertex_indices[i];
             let v2 = vertex_indices[(i + 1) % vertex_indices.len()];
-            let k1 = vertex_key_id.get(v1).copied().unwrap_or(usize::MAX);
-            let k2 = vertex_key_id.get(v2).copied().unwrap_or(usize::MAX);
+            let k1 = vertex_key_id
+                .get(v1 as usize)
+                .copied()
+                .unwrap_or(usize::MAX);
+            let k2 = vertex_key_id
+                .get(v2 as usize)
+                .copied()
+                .unwrap_or(usize::MAX);
             if k1 == usize::MAX || k2 == usize::MAX {
                 result.missing_key_edges += 1;
                 if missing_key_samples.len() < 5 {
@@ -804,8 +812,8 @@ pub fn validate_voronoi_strict(
             continue;
         }
         let (v1, v2) = edge;
-        let p1 = voronoi.vertices[v1];
-        let p2 = voronoi.vertices[v2];
+        let p1 = voronoi.vertices[v1 as usize];
+        let p2 = voronoi.vertices[v2 as usize];
         let p1 = glam::DVec3::new(p1.x as f64, p1.y as f64, p1.z as f64).normalize();
         let p2 = glam::DVec3::new(p2.x as f64, p2.y as f64, p2.z as f64).normalize();
         let mid = (p1 + p2).normalize();
@@ -976,7 +984,7 @@ pub fn count_unique_vertices(voronoi: &SphericalVoronoi, cell_idx: usize, tolera
     let positions: Vec<Vec3> = cell
         .vertex_indices
         .iter()
-        .map(|&vi| voronoi.vertices[vi])
+        .map(|&vi| voronoi.vertices[vi as usize])
         .collect();
 
     let mut unique: Vec<Vec3> = Vec::new();
@@ -991,18 +999,18 @@ pub fn count_unique_vertices(voronoi: &SphericalVoronoi, cell_idx: usize, tolera
 /// Create a deduplicated version of a Voronoi diagram.
 /// Returns a new SphericalVoronoi with duplicate vertices merged within each cell.
 pub fn deduplicate_voronoi(voronoi: &SphericalVoronoi, tolerance: f32) -> SphericalVoronoi {
-    let mut new_cell_data: Vec<(usize, Vec<usize>)> = Vec::with_capacity(voronoi.num_cells());
+    let mut new_cell_data: Vec<Vec<u32>> = Vec::with_capacity(voronoi.num_cells());
 
     for cell_idx in 0..voronoi.num_cells() {
         let cell = voronoi.cell(cell_idx);
         let positions: Vec<Vec3> = cell
             .vertex_indices
             .iter()
-            .map(|&vi| voronoi.vertices[vi])
+            .map(|&vi| voronoi.vertices[vi as usize])
             .collect();
 
         // Build list of unique vertex indices
-        let mut unique_indices: Vec<usize> = Vec::new();
+        let mut unique_indices: Vec<u32> = Vec::new();
         let mut unique_positions: Vec<Vec3> = Vec::new();
 
         for (local_idx, &global_idx) in cell.vertex_indices.iter().enumerate() {
@@ -1016,7 +1024,7 @@ pub fn deduplicate_voronoi(voronoi: &SphericalVoronoi, tolerance: f32) -> Spheri
             }
         }
 
-        new_cell_data.push((cell.generator_index, unique_indices));
+        new_cell_data.push(unique_indices);
     }
 
     SphericalVoronoi::new(
@@ -1042,8 +1050,8 @@ pub fn analyze_orphan_edges(voronoi: &SphericalVoronoi, tolerance: f32) -> Orpha
     // For each orphan edge, find which cell it belongs to and check if there's
     // a "missing" adjacent cell that should share this edge
     for &(v1, v2) in &result.orphan_edges {
-        let pos1 = voronoi.vertices[v1];
-        let pos2 = voronoi.vertices[v2];
+        let pos1 = voronoi.vertices[v1 as usize];
+        let pos2 = voronoi.vertices[v2 as usize];
         let _edge_midpoint = ((pos1 + pos2) / 2.0).normalize();
 
         // Find cells that contain either v1 or v2
@@ -1082,7 +1090,7 @@ pub fn analyze_orphan_edges(voronoi: &SphericalVoronoi, tolerance: f32) -> Orpha
             let positions: Vec<Vec3> = cell
                 .vertex_indices
                 .iter()
-                .map(|&vi| voronoi.vertices[vi])
+                .map(|&vi| voronoi.vertices[vi as usize])
                 .collect();
 
             let has_pos1 = positions.iter().any(|p| (*p - pos1).length() < tolerance);
@@ -1139,7 +1147,7 @@ pub fn analyze_knn_coverage(points: &[glam::Vec3], k: usize) -> KnnCoverageAnaly
     let mut examples: Vec<OrphanEdgeExample> = Vec::new();
 
     // Build edge-to-cells map
-    let mut edge_to_cells: std::collections::HashMap<(usize, usize), Vec<usize>> =
+    let mut edge_to_cells: std::collections::HashMap<(u32, u32), Vec<usize>> =
         std::collections::HashMap::new();
     for cell_idx in 0..voronoi.num_cells() {
         let cell = voronoi.cell(cell_idx);
@@ -1168,8 +1176,8 @@ pub fn analyze_knn_coverage(points: &[glam::Vec3], k: usize) -> KnnCoverageAnaly
         let knn_a = find_k_nearest(&tree, &entries, points[cell_a], cell_a, k);
 
         // The edge vertex positions
-        let pos1 = voronoi.vertices[v1];
-        let pos2 = voronoi.vertices[v2];
+        let pos1 = voronoi.vertices[v1 as usize];
+        let pos2 = voronoi.vertices[v2 as usize];
 
         // Find which generator is closest to the edge midpoint (that's likely cell B)
         let edge_mid = ((pos1 + pos2) / 2.0).normalize();
@@ -1455,8 +1463,8 @@ pub fn validate_voronoi_large(
     // Phase 1: Fast topology checks
     let t0 = Instant::now();
 
-    let mut edge_to_cells: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
-    let mut unique_vertices: HashSet<usize> = HashSet::new();
+    let mut edge_to_cells: HashMap<(u32, u32), Vec<usize>> = HashMap::new();
+    let mut unique_vertices: HashSet<u32> = HashSet::new();
 
     for cell_idx in 0..voronoi.num_cells() {
         let cell = voronoi.cell(cell_idx);
@@ -1486,7 +1494,7 @@ pub fn validate_voronoi_large(
         // Compute cell area
         let positions: Vec<Vec3> = vertex_indices
             .iter()
-            .map(|&vi| voronoi.vertices[vi])
+            .map(|&vi| voronoi.vertices[vi as usize])
             .collect();
         result.total_area += spherical_polygon_area(&positions);
     }
@@ -1521,14 +1529,18 @@ pub fn validate_voronoi_large(
     for cell_idx in 0..voronoi.num_cells() {
         let cell = voronoi.cell(cell_idx);
         for &vi in cell.vertex_indices {
-            if vi < vertex_to_cells.len() && !vertex_to_cells[vi].contains(&cell_idx) {
-                vertex_to_cells[vi].push(cell_idx);
+            let viu = vi as usize;
+            if viu < vertex_to_cells.len() && !vertex_to_cells[viu].contains(&cell_idx) {
+                vertex_to_cells[viu].push(cell_idx);
             }
         }
     }
 
     // Collect referenced vertices
-    let referenced_vertices: Vec<usize> = unique_vertices.into_iter().collect();
+    let referenced_vertices: Vec<usize> = unique_vertices
+        .into_iter()
+        .map(|vi| vi as usize)
+        .collect();
 
     // Sample vertices
     let mut rng = ChaCha8Rng::seed_from_u64(config.seed);

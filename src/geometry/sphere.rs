@@ -92,7 +92,7 @@ pub fn lloyd_relax_voronoi(points: &mut [Vec3], iterations: usize) {
             // Compute centroid of cell vertices (spherical mean)
             let mut sum = Vec3::ZERO;
             for &vi in cell.vertex_indices {
-                sum += voronoi.vertices[vi];
+                sum += voronoi.vertices[vi as usize];
             }
 
             // Normalize to project back onto sphere

@@ -44,29 +44,31 @@ pub fn build_boundary_edge_colors(world: &World) -> HashMap<(usize, usize), Vec3
             }
             processed_cell_pairs.insert(cell_pair);
 
-            let cell_verts: HashSet<usize> = voronoi
+            let cell_verts: HashSet<u32> = voronoi
                 .cell(cell_idx)
                 .vertex_indices
                 .iter()
                 .copied()
                 .collect();
-            let neighbor_verts: HashSet<usize> = voronoi
+            let neighbor_verts: HashSet<u32> = voronoi
                 .cell(neighbor_idx)
                 .vertex_indices
                 .iter()
                 .copied()
                 .collect();
 
-            let shared: Vec<usize> = cell_verts.intersection(&neighbor_verts).copied().collect();
+            let shared: Vec<u32> = cell_verts.intersection(&neighbor_verts).copied().collect();
 
             if shared.len() != 2 {
                 continue;
             }
 
-            let edge_key = if shared[0] < shared[1] {
-                (shared[0], shared[1])
+            let a = shared[0] as usize;
+            let b = shared[1] as usize;
+            let edge_key = if a < b {
+                (a, b)
             } else {
-                (shared[1], shared[0])
+                (b, a)
             };
 
             let cell_pos = tessellation.cell_center(cell_idx);

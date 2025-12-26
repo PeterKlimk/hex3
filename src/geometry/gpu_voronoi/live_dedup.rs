@@ -774,7 +774,7 @@ pub(super) fn build_cells_sharded_live_dedup(
 
 pub(super) fn assemble_sharded_live_dedup(
     mut data: ShardedCellsData,
-) -> (Vec<Vec3>, Vec<VoronoiCell>, Vec<usize>, DedupSubPhases) {
+) -> (Vec<Vec3>, Vec<VoronoiCell>, Vec<u32>, DedupSubPhases) {
     let t0 = Timer::start();
 
     let num_bins = data.assignment.num_bins;
@@ -835,10 +835,11 @@ pub(super) fn assemble_sharded_live_dedup(
     let t2 = Timer::start();
 
     // Phase 4: concatenate vertices
-    let mut vertex_offsets: Vec<usize> = vec![0; num_bins];
+    let mut vertex_offsets: Vec<u32> = vec![0; num_bins];
     let mut total_vertices = 0usize;
     for (bin, shard) in data.shards.iter().enumerate() {
-        vertex_offsets[bin] = total_vertices;
+        vertex_offsets[bin] =
+            u32::try_from(total_vertices).expect("total vertex count exceeds u32 capacity");
         total_vertices += shard.vertices.len();
     }
 
@@ -854,11 +855,11 @@ pub(super) fn assemble_sharded_live_dedup(
 
     // Phase 4: emit cells in generator index order.
     let mut cells: Vec<VoronoiCell> = Vec::with_capacity(num_cells);
-    let mut cell_indices: Vec<usize> =
+    let mut cell_indices: Vec<u32> =
         Vec::with_capacity(data.shards.iter().map(|s| s.cell_indices.len()).sum());
     // Cells are small (<= MAX_VERTICES), so a compact linear "seen" set is often faster than
     // hashing or random-access marks arrays.
-    let mut seen: [usize; super::MAX_VERTICES] = [0usize; super::MAX_VERTICES];
+    let mut seen: [u32; super::MAX_VERTICES] = [0u32; super::MAX_VERTICES];
     #[allow(unused_mut)]
     let mut dupes_removed = 0u64;
     for gen_idx in 0..num_cells {
@@ -869,11 +870,12 @@ pub(super) fn assemble_sharded_live_dedup(
         let count = shard.cell_counts[local] as usize;
 
         let base = cell_indices.len();
+        let base_u32 = u32::try_from(base).expect("cell index buffer exceeds u32 capacity");
         let mut seen_len = 0usize;
         for &packed in &shard.cell_indices[start..start + count] {
             debug_assert_ne!(packed, DEFERRED, "deferred index leaked to assembly");
             let (vbin, local) = unpack_ref(packed);
-            let global = vertex_offsets[vbin as usize] + local as usize;
+            let global = vertex_offsets[vbin as usize] + local;
             let mut duplicate = false;
             for &idx in &seen[..seen_len] {
                 if idx == global {
@@ -891,7 +893,9 @@ pub(super) fn assemble_sharded_live_dedup(
             }
         }
         let new_count = cell_indices.len() - base;
-        cells.push(VoronoiCell::new(gen_idx, base, new_count));
+        let new_count_u16 =
+            u16::try_from(new_count).expect("cell vertex count exceeds u16 capacity");
+        cells.push(VoronoiCell::new(base_u32, new_count_u16));
     }
     #[allow(unused_variables)]
     let emit_cells_time = t3.elapsed();

@@ -267,18 +267,21 @@ fn compute_voronoi_gpu_style_core(
 
         // Each original point maps to an effective point's cell
         let mut new_cells = Vec::with_capacity(points.len());
-        let mut new_cell_indices = Vec::new();
+        let mut new_cell_indices: Vec<u32> = Vec::new();
 
         for orig_idx in 0..points.len() {
             let eff_idx = merge_result.original_to_effective[orig_idx];
             let eff_cell = &eff_cells[eff_idx];
 
-            let start = new_cell_indices.len();
+            let start = u32::try_from(new_cell_indices.len())
+                .expect("cell index buffer exceeds u32 capacity");
             let eff_start = eff_cell.vertex_start();
             let eff_end = eff_start + eff_cell.vertex_count();
             new_cell_indices.extend_from_slice(&eff_cell_indices[eff_start..eff_end]);
 
-            new_cells.push(VoronoiCell::new(orig_idx, start, eff_cell.vertex_count()));
+            let count_u16 =
+                u16::try_from(eff_cell.vertex_count()).expect("cell vertex count exceeds u16");
+            new_cells.push(VoronoiCell::new(start, count_u16));
         }
         (new_cells, new_cell_indices)
     } else {

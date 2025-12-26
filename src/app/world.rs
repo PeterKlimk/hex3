@@ -551,17 +551,18 @@ pub fn generate_elevation_mesh_buffers(
         let is_water = cell_is_water[cell_idx];
 
         for &vertex_idx in cell.vertex_indices {
+            let vi = vertex_idx as usize;
             if is_water {
                 // Track water level (use max in case of adjacent lakes at different levels)
-                vertex_water_level[vertex_idx] = Some(
-                    vertex_water_level[vertex_idx]
+                vertex_water_level[vi] = Some(
+                    vertex_water_level[vi]
                         .map(|wl| wl.max(elev))
                         .unwrap_or(elev),
                 );
             } else {
                 // Accumulate land elevation for averaging
-                vertex_land_sum[vertex_idx] += elev;
-                vertex_land_count[vertex_idx] += 1;
+                vertex_land_sum[vi] += elev;
+                vertex_land_count[vi] += 1;
             }
         }
     }
@@ -604,17 +605,18 @@ pub fn generate_elevation_mesh_buffers(
 
         // Add vertices with proper elevation handling
         for &vertex_idx in cell.vertex_indices {
-            let pos = voronoi.vertices[vertex_idx];
+            let vi = vertex_idx as usize;
+            let pos = voronoi.vertices[vi];
 
             let elev = if is_water {
                 // Water cells are flat at their water level
                 cell_water_level
-            } else if vertex_water_level[vertex_idx].is_some() {
+            } else if vertex_water_level[vi].is_some() {
                 // Land vertex touching water: use water level for seamless coast
-                vertex_water_level[vertex_idx].unwrap()
+                vertex_water_level[vi].unwrap()
             } else {
                 // Interior land vertex: use averaged elevation
-                vertex_elevations[vertex_idx]
+                vertex_elevations[vi]
             };
 
             vertices.push(ElevationVertex {

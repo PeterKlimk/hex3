@@ -170,7 +170,7 @@ impl Tessellation {
             let verts: Vec<Vec3> = cell
                 .vertex_indices
                 .iter()
-                .map(|&vi| self.voronoi.vertices[vi])
+                .map(|&vi| self.voronoi.vertices[vi as usize])
                 .collect();
 
             let n = verts.len();
@@ -204,7 +204,7 @@ impl Tessellation {
 /// Two cells are adjacent if they share an edge (two consecutive Voronoi vertices).
 fn build_adjacency(voronoi: &SphericalVoronoi) -> Vec<Vec<usize>> {
     // Map from edge (as canonical vertex pair) to list of cells containing that edge
-    let mut edge_to_cells: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
+    let mut edge_to_cells: HashMap<(u32, u32), Vec<usize>> = HashMap::new();
 
     for cell_idx in 0..voronoi.num_cells() {
         let cell = voronoi.cell(cell_idx);

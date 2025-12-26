@@ -368,13 +368,13 @@ fn apply_terrain_effects(tessellation: &Tessellation, elevation: &Elevation, win
 /// This is the length of the great circle arc forming their shared boundary.
 fn compute_edge_length(tessellation: &Tessellation, cell_a: usize, cell_b: usize) -> f32 {
     let voronoi = &tessellation.voronoi;
-    let verts_a: std::collections::HashSet<usize> = voronoi
+    let verts_a: std::collections::HashSet<u32> = voronoi
         .cell(cell_a)
         .vertex_indices
         .iter()
         .copied()
         .collect();
-    let verts_b: std::collections::HashSet<usize> = voronoi
+    let verts_b: std::collections::HashSet<u32> = voronoi
         .cell(cell_b)
         .vertex_indices
         .iter()
@@ -382,12 +382,12 @@ fn compute_edge_length(tessellation: &Tessellation, cell_a: usize, cell_b: usize
         .collect();
 
     // Find shared vertices
-    let shared: Vec<usize> = verts_a.intersection(&verts_b).copied().collect();
+    let shared: Vec<u32> = verts_a.intersection(&verts_b).copied().collect();
 
     if shared.len() == 2 {
         // Edge length = arc distance between the two shared Voronoi vertices
-        let v0 = voronoi.vertices[shared[0]];
-        let v1 = voronoi.vertices[shared[1]];
+        let v0 = voronoi.vertices[shared[0] as usize];
+        let v1 = voronoi.vertices[shared[1] as usize];
         v0.dot(v1).clamp(-1.0, 1.0).acos()
     } else {
         // Fallback: approximate from mean cell spacing
