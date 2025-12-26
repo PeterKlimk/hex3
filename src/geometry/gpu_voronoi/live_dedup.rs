@@ -147,17 +147,52 @@ fn assign_bins(points: &[Vec3], grid: &crate::geometry::cube_grid::CubeMapGrid) 
     }
 }
 
-struct ShardState {
-    vertices: Vec<Vec3>,
+/// Data only needed during vertex deduplication (dropped after overflow flush).
+struct ShardDedup {
     heads: Vec<u32>,
     nodes: Vec<TripletNode>,
     support_map: FxHashMap<Vec<u32>, u32>,
     support_data: Vec<u32>,
+    triplet_overflow: Vec<TripletOverflow>,
+    support_overflow: Vec<SupportOverflow>,
+}
+
+impl ShardDedup {
+    fn new(num_local_generators: usize) -> Self {
+        Self {
+            heads: vec![NIL; num_local_generators],
+            nodes: Vec::new(),
+            support_map: FxHashMap::default(),
+            support_data: Vec::new(),
+            triplet_overflow: Vec::new(),
+            support_overflow: Vec::new(),
+        }
+    }
+}
+
+/// Output data needed for final assembly.
+struct ShardOutput {
+    vertices: Vec<Vec3>,
     cell_indices: Vec<u64>,
     cell_starts: Vec<u32>,
     cell_counts: Vec<u8>,
-    triplet_overflow: Vec<TripletOverflow>,
-    support_overflow: Vec<SupportOverflow>,
+}
+
+impl ShardOutput {
+    fn new(num_local_generators: usize) -> Self {
+        Self {
+            vertices: Vec::new(),
+            cell_indices: Vec::new(),
+            cell_starts: vec![0; num_local_generators],
+            cell_counts: vec![0; num_local_generators],
+        }
+    }
+}
+
+/// Per-shard state during cell construction.
+struct ShardState {
+    dedup: ShardDedup,
+    output: ShardOutput,
     triplet_keys: u64,
     support_keys: u64,
 }
@@ -165,16 +200,8 @@ struct ShardState {
 impl ShardState {
     fn new(num_local_generators: usize) -> Self {
         Self {
-            vertices: Vec::new(),
-            heads: vec![NIL; num_local_generators],
-            nodes: Vec::new(),
-            support_map: FxHashMap::default(),
-            support_data: Vec::new(),
-            cell_indices: Vec::new(),
-            cell_starts: vec![0; num_local_generators],
-            cell_counts: vec![0; num_local_generators],
-            triplet_overflow: Vec::new(),
-            support_overflow: Vec::new(),
+            dedup: ShardDedup::new(num_local_generators),
+            output: ShardOutput::new(num_local_generators),
             triplet_keys: 0,
             support_keys: 0,
         }
@@ -183,36 +210,54 @@ impl ShardState {
     #[inline(always)]
     fn dedup_triplet(&mut self, local_a: u32, b: u32, c: u32, pos: Vec3) -> u32 {
         let bc = pack_bc(b, c);
-        let mut node_id = self.heads[local_a as usize];
+        let mut node_id = self.dedup.heads[local_a as usize];
         while node_id != NIL {
-            let node = &self.nodes[node_id as usize];
+            let node = &self.dedup.nodes[node_id as usize];
             if node.bc == bc {
                 return node.idx;
             }
             node_id = node.next;
         }
 
-        let idx = self.vertices.len() as u32;
-        self.vertices.push(pos);
-        let new_id = self.nodes.len() as u32;
-        self.nodes.push(TripletNode {
+        let idx = self.output.vertices.len() as u32;
+        self.output.vertices.push(pos);
+        let new_id = self.dedup.nodes.len() as u32;
+        self.dedup.nodes.push(TripletNode {
             bc,
             idx,
-            next: self.heads[local_a as usize],
+            next: self.dedup.heads[local_a as usize],
         });
-        self.heads[local_a as usize] = new_id;
+        self.dedup.heads[local_a as usize] = new_id;
         idx
     }
 
     #[inline(always)]
     fn dedup_support_owned(&mut self, support: Vec<u32>, pos: Vec3) -> u32 {
-        if let Some(&idx) = self.support_map.get(support.as_slice()) {
+        if let Some(&idx) = self.dedup.support_map.get(support.as_slice()) {
             return idx;
         }
-        let idx = self.vertices.len() as u32;
-        self.vertices.push(pos);
-        self.support_map.insert(support, idx);
+        let idx = self.output.vertices.len() as u32;
+        self.output.vertices.push(pos);
+        self.dedup.support_map.insert(support, idx);
         idx
+    }
+}
+
+/// Shard state after construction, with dedup dropped.
+struct ShardFinal {
+    output: ShardOutput,
+    triplet_keys: u64,
+    support_keys: u64,
+}
+
+impl ShardState {
+    fn into_final(self) -> ShardFinal {
+        ShardFinal {
+            output: self.output,
+            triplet_keys: self.triplet_keys,
+            support_keys: self.support_keys,
+        }
+        // self.dedup dropped here automatically
     }
 }
 
@@ -263,13 +308,19 @@ pub(super) fn build_cells_sharded_live_dedup(
             let mut cell_vertices: Vec<super::cell_builder::VertexData> = Vec::new();
 
             shard
+                .output
                 .vertices
                 .reserve(my_generators.len().saturating_mul(4));
-            shard.nodes.reserve(my_generators.len().saturating_mul(4));
             shard
+                .dedup
+                .nodes
+                .reserve(my_generators.len().saturating_mul(4));
+            shard
+                .output
                 .cell_indices
                 .reserve(my_generators.len().saturating_mul(6));
             shard
+                .dedup
                 .support_data
                 .reserve(my_generators.len().saturating_mul(2));
 
@@ -317,8 +368,8 @@ pub(super) fn build_cells_sharded_live_dedup(
                 builder.reset(i, points[i]);
                 neighbors.clear();
 
-                let cell_start = shard.cell_indices.len() as u32;
-                shard.cell_starts[local as usize] = cell_start;
+                let cell_start = shard.output.cell_indices.len() as u32;
+                shard.output.cell_starts[local as usize] = cell_start;
 
                 let mut cell_neighbors_processed = 0usize;
                 let mut terminated = false;
@@ -613,12 +664,12 @@ pub(super) fn build_cells_sharded_live_dedup(
                     );
                 }
                 builder
-                    .to_vertex_data_into(points, &mut shard.support_data, &mut cell_vertices)
+                    .to_vertex_data_into(points, &mut shard.dedup.support_data, &mut cell_vertices)
                     .unwrap_or_else(|e| panic!("Cell {} certification failed: {:?}", i, e));
                 cell_sub.add_cert(t_cert.elapsed());
 
                 let count = cell_vertices.len();
-                shard.cell_counts[local as usize] =
+                shard.output.cell_counts[local as usize] =
                     u8::try_from(count).expect("cell vertex count exceeds u8 capacity");
 
                 let t_keys = Timer::start();
@@ -631,11 +682,11 @@ pub(super) fn build_cells_sharded_live_dedup(
                             if owner_bin == bin {
                                 let local_a = assignment.global_to_local[a_usize];
                                 let idx = shard.dedup_triplet(local_a, b, c, pos);
-                                shard.cell_indices.push(pack_ref(bin, idx));
+                                shard.output.cell_indices.push(pack_ref(bin, idx));
                             } else {
-                                let source_slot = shard.cell_indices.len() as u32;
-                                shard.cell_indices.push(DEFERRED);
-                                shard.triplet_overflow.push(TripletOverflow {
+                                let source_slot = shard.output.cell_indices.len() as u32;
+                                shard.output.cell_indices.push(DEFERRED);
+                                shard.dedup.triplet_overflow.push(TripletOverflow {
                                     source_bin: bin,
                                     target_bin: owner_bin,
                                     source_slot,
@@ -650,17 +701,18 @@ pub(super) fn build_cells_sharded_live_dedup(
                             shard.support_keys += 1;
                             let start = start as usize;
                             let len = len as usize;
-                            let support: Vec<u32> = shard.support_data[start..start + len].to_vec();
+                            let support: Vec<u32> =
+                                shard.dedup.support_data[start..start + len].to_vec();
                             let owner =
                                 *support.iter().min().expect("support set must be non-empty");
                             let owner_bin = assignment.generator_bin[owner as usize];
                             if owner_bin == bin {
                                 let idx = shard.dedup_support_owned(support, pos);
-                                shard.cell_indices.push(pack_ref(bin, idx));
+                                shard.output.cell_indices.push(pack_ref(bin, idx));
                             } else {
-                                let source_slot = shard.cell_indices.len() as u32;
-                                shard.cell_indices.push(DEFERRED);
-                                shard.support_overflow.push(SupportOverflow {
+                                let source_slot = shard.output.cell_indices.len() as u32;
+                                shard.output.cell_indices.push(DEFERRED);
+                                shard.dedup.support_overflow.push(SupportOverflow {
                                     source_bin: bin,
                                     target_bin: owner_bin,
                                     source_slot,
@@ -674,7 +726,7 @@ pub(super) fn build_cells_sharded_live_dedup(
                 cell_sub.add_key_dedup(t_keys.elapsed());
 
                 debug_assert_eq!(
-                    shard.cell_indices.len() as u32 - cell_start,
+                    shard.output.cell_indices.len() as u32 - cell_start,
                     count as u32,
                     "cell index stream mismatch"
                 );
@@ -784,10 +836,10 @@ pub(super) fn assemble_sharded_live_dedup(
     let mut support_by_target: Vec<Vec<SupportOverflow>> =
         (0..num_bins).map(|_| Vec::new()).collect();
     for shard in &mut data.shards {
-        for entry in shard.triplet_overflow.drain(..) {
+        for entry in shard.dedup.triplet_overflow.drain(..) {
             triplet_by_target[entry.target_bin as usize].push(entry);
         }
-        for entry in shard.support_overflow.drain(..) {
+        for entry in shard.dedup.support_overflow.drain(..) {
             support_by_target[entry.target_bin as usize].push(entry);
         }
     }
@@ -807,7 +859,8 @@ pub(super) fn assemble_sharded_live_dedup(
 
             let local_a = data.assignment.global_to_local[entry.a as usize];
             let idx = target_shard.dedup_triplet(local_a, entry.b, entry.c, entry.pos);
-            source_shard.cell_indices[entry.source_slot as usize] = pack_ref(target as u32, idx);
+            source_shard.output.cell_indices[entry.source_slot as usize] =
+                pack_ref(target as u32, idx);
         }
 
         // Support sets
@@ -818,34 +871,42 @@ pub(super) fn assemble_sharded_live_dedup(
             let (source_shard, target_shard) = with_two_mut(&mut data.shards, source, target);
 
             let idx = target_shard.dedup_support_owned(entry.support, entry.pos);
-            source_shard.cell_indices[entry.source_slot as usize] = pack_ref(target as u32, idx);
+            source_shard.output.cell_indices[entry.source_slot as usize] =
+                pack_ref(target as u32, idx);
         }
     }
 
     #[cfg(debug_assertions)]
     for shard in &data.shards {
         debug_assert!(
-            !shard.cell_indices.iter().any(|&x| x == DEFERRED),
+            !shard.output.cell_indices.iter().any(|&x| x == DEFERRED),
             "unresolved deferred indices remain after overflow flush"
         );
     }
 
     #[allow(unused_variables)]
     let overflow_flush_time = t1.elapsed();
+
+    // Convert to ShardFinal, dropping dedup structures to reduce memory pressure
+    let finals: Vec<ShardFinal> = std::mem::take(&mut data.shards)
+        .into_iter()
+        .map(|s| s.into_final())
+        .collect();
+
     let t2 = Timer::start();
 
     // Phase 4: concatenate vertices
     let mut vertex_offsets: Vec<u32> = vec![0; num_bins];
     let mut total_vertices = 0usize;
-    for (bin, shard) in data.shards.iter().enumerate() {
+    for (bin, shard) in finals.iter().enumerate() {
         vertex_offsets[bin] =
             u32::try_from(total_vertices).expect("total vertex count exceeds u32 capacity");
-        total_vertices += shard.vertices.len();
+        total_vertices += shard.output.vertices.len();
     }
 
     let mut all_vertices: Vec<Vec3> = Vec::with_capacity(total_vertices);
-    for shard in &data.shards {
-        all_vertices.extend_from_slice(&shard.vertices);
+    for shard in &finals {
+        all_vertices.extend_from_slice(&shard.output.vertices);
     }
 
     let num_cells = data.assignment.generator_bin.len();
@@ -856,7 +917,7 @@ pub(super) fn assemble_sharded_live_dedup(
     // Phase 4: emit cells in generator index order.
     let mut cells: Vec<VoronoiCell> = Vec::with_capacity(num_cells);
     let mut cell_indices: Vec<u32> =
-        Vec::with_capacity(data.shards.iter().map(|s| s.cell_indices.len()).sum());
+        Vec::with_capacity(finals.iter().map(|s| s.output.cell_indices.len()).sum());
     // Cells are small (<= MAX_VERTICES), so a compact linear "seen" set is often faster than
     // hashing or random-access marks arrays.
     let mut seen: [u32; super::MAX_VERTICES] = [0u32; super::MAX_VERTICES];
@@ -865,14 +926,14 @@ pub(super) fn assemble_sharded_live_dedup(
     for gen_idx in 0..num_cells {
         let bin = data.assignment.generator_bin[gen_idx] as usize;
         let local = data.assignment.global_to_local[gen_idx] as usize;
-        let shard = &data.shards[bin];
-        let start = shard.cell_starts[local] as usize;
-        let count = shard.cell_counts[local] as usize;
+        let shard = &finals[bin];
+        let start = shard.output.cell_starts[local] as usize;
+        let count = shard.output.cell_counts[local] as usize;
 
         let base = cell_indices.len();
         let base_u32 = u32::try_from(base).expect("cell index buffer exceeds u32 capacity");
         let mut seen_len = 0usize;
-        for &packed in &shard.cell_indices[start..start + count] {
+        for &packed in &shard.output.cell_indices[start..start + count] {
             debug_assert_ne!(packed, DEFERRED, "deferred index leaked to assembly");
             let (vbin, local) = unpack_ref(packed);
             let global = vertex_offsets[vbin as usize] + local;
