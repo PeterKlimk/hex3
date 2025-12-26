@@ -1865,8 +1865,8 @@ mod tests {
 
         // Examine overcounted edges
         for &(v1, v2, count) in &result.overcounted_edges {
-            let pos1 = gpu.vertices[v1];
-            let pos2 = gpu.vertices[v2];
+            let pos1 = gpu.vertices[v1 as usize];
+            let pos2 = gpu.vertices[v2 as usize];
             println!("\nEdge ({}, {}) appears in {} cells:", v1, v2, count);
             println!("  v1: ({:.6}, {:.6}, {:.6})", pos1.x, pos1.y, pos1.z);
             println!("  v2: ({:.6}, {:.6}, {:.6})", pos2.x, pos2.y, pos2.z);

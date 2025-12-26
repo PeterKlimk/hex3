@@ -1,3 +1,7 @@
+[workspace]
+members = [".", "crates/s2-voronoi"]
+resolver = "2"
+
 [package]
 name = "hex3"
 version = "0.1.0"
@@ -54,6 +58,9 @@ kiddo = "4"
 
 # Fast hashing for integer keys
 rustc-hash = "2"
+
+# Spherical Voronoi computation
+s2-voronoi = { path = "crates/s2-voronoi", features = ["glam"] }
 
 # CLI and serialization
 clap = { version = "4", features = ["derive"] }

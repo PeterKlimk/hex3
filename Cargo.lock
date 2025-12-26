@@ -986,6 +986,7 @@ dependencies = [
  "rand_distr",
  "rayon",
  "rustc-hash 2.1.1",
+ "s2-voronoi",
  "serde",
  "serde_json",
  "smallvec",
@@ -2088,6 +2089,21 @@ name = "ryu"
 version = "1.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28d3b2b1366ec20994f1fd18c3c594f05c5dd4bc44d8bb0c1c632c8d6829481f"
+
+[[package]]
+name = "s2-voronoi"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "glam",
+ "kiddo",
+ "qhull-enhanced",
+ "rand",
+ "rand_chacha",
+ "rayon",
+ "rustc-hash 2.1.1",
+ "smallvec",
+]
 
 [[package]]
 name = "same-file"

@@ -500,9 +500,9 @@ mod tests {
                 }
 
                 let verts_a: HashSet<usize> =
-                    voronoi.cell(a).vertex_indices.iter().copied().collect();
+                    voronoi.cell(a).vertex_indices.iter().map(|&v| v as usize).collect();
                 let verts_b: HashSet<usize> =
-                    voronoi.cell(b).vertex_indices.iter().copied().collect();
+                    voronoi.cell(b).vertex_indices.iter().map(|&v| v as usize).collect();
                 let shared = verts_a.intersection(&verts_b).count();
 
                 assert_eq!(shared, 2, "cells {a} and {b} share {shared} vertices");

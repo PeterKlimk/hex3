@@ -5,10 +5,7 @@ use std::collections::HashMap;
 use glam::Vec3;
 use rand::Rng;
 
-use crate::geometry::{
-    compute_voronoi_gpu_style, fibonacci_sphere_points_with_rng, lloyd_relax_kmeans,
-    SphericalVoronoi,
-};
+use crate::geometry::{fibonacci_sphere_points_with_rng, lloyd_relax_kmeans, SphericalVoronoi};
 
 /// A spherical tessellation with Voronoi cells and cell adjacency.
 pub struct Tessellation {
@@ -71,12 +68,13 @@ impl Tessellation {
     /// Generate a tessellation using the GPU-style Voronoi algorithm.
     ///
     /// Same point distribution as `generate`, but uses the half-space clipping
-    /// algorithm instead of convex hull duality for Voronoi computation.
+    /// algorithm (via s2-voronoi crate) instead of convex hull duality.
     pub fn generate_gpu_style<R: Rng>(
         num_cells: usize,
         _lloyd_iterations: usize,
         rng: &mut R,
     ) -> Self {
+        use crate::geometry::VoronoiCell;
         use crate::util::Timed;
 
         let mean_spacing = (4.0 * std::f32::consts::PI / num_cells as f32).sqrt();
@@ -93,38 +91,55 @@ impl Tessellation {
         }
 
         let voronoi = {
-            let _t = Timed::debug("  GPU-style Voronoi computation");
-            compute_voronoi_gpu_style(&points)
+            let _t = Timed::debug("  s2-voronoi computation");
+
+            // Use s2-voronoi crate for computation
+            let output = s2_voronoi::compute(&points).expect("Voronoi computation failed");
+
+            // Log diagnostics from s2-voronoi
+            if !output.diagnostics.bad_cells.is_empty() {
+                log::warn!(
+                    "s2-voronoi: {} cells have < 3 vertices: {:?}",
+                    output.diagnostics.bad_cells.len(),
+                    &output.diagnostics.bad_cells[..output.diagnostics.bad_cells.len().min(20)]
+                );
+            }
+            if !output.diagnostics.degenerate_cells.is_empty() {
+                log::warn!(
+                    "s2-voronoi: {} degenerate cells: {:?}",
+                    output.diagnostics.degenerate_cells.len(),
+                    &output.diagnostics.degenerate_cells
+                        [..output.diagnostics.degenerate_cells.len().min(20)]
+                );
+            }
+
+            // Convert s2-voronoi output to hex3's SphericalVoronoi
+            let generators: Vec<Vec3> = output
+                .diagram
+                .generators
+                .iter()
+                .map(|u| Vec3::new(u.x, u.y, u.z))
+                .collect();
+            let vertices: Vec<Vec3> = output
+                .diagram
+                .vertices
+                .iter()
+                .map(|u| Vec3::new(u.x, u.y, u.z))
+                .collect();
+
+            // Build cells from s2-voronoi's cell views
+            let mut cells = Vec::with_capacity(output.diagram.num_cells());
+            let mut cell_indices: Vec<u32> = Vec::new();
+            for i in 0..output.diagram.num_cells() {
+                let cell_view = output.diagram.cell(i);
+                let start = cell_indices.len() as u32;
+                cell_indices.extend_from_slice(cell_view.vertex_indices);
+                let count = cell_view.vertex_indices.len() as u16;
+                cells.push(VoronoiCell::new(start, count));
+            }
+
+            SphericalVoronoi::from_raw_parts(generators, vertices, cells, cell_indices)
         };
-
-        // Diagnostic: count cells with insufficient vertices
-        let bad_cells: Vec<usize> = (0..voronoi.num_cells())
-            .filter(|&i| voronoi.cell(i).len() < 3)
-            .collect();
-        if !bad_cells.is_empty() {
-            log::warn!(
-                "GPU Voronoi: {} cells have < 3 vertices (will have no adjacency): {:?}",
-                bad_cells.len(),
-                &bad_cells[..bad_cells.len().min(20)]
-            );
-        }
-
-        // Diagnostic: check for degenerate cells (duplicate vertex indices)
-        let degenerate_cells: Vec<usize> = (0..voronoi.num_cells())
-            .filter(|&i| {
-                let cell = voronoi.cell(i);
-                let indices = cell.vertex_indices;
-                let unique: std::collections::HashSet<_> = indices.iter().collect();
-                unique.len() < indices.len() || indices.len() < 3
-            })
-            .collect();
-        if !degenerate_cells.is_empty() {
-            log::warn!(
-                "GPU Voronoi: {} degenerate cells (duplicate vertices or <3): {:?}",
-                degenerate_cells.len(),
-                &degenerate_cells[..degenerate_cells.len().min(20)]
-            );
-        }
 
         let adjacency = {
             let _t = Timed::debug("  Build adjacency");
@@ -135,7 +150,7 @@ impl Tessellation {
         let orphan_count = adjacency.iter().filter(|a| a.is_empty()).count();
         if orphan_count > 0 {
             log::warn!(
-                "GPU Voronoi: {} cells have no neighbors (orphans)",
+                "s2-voronoi: {} cells have no neighbors (orphans)",
                 orphan_count
             );
         }
@@ -297,7 +312,7 @@ mod tests {
             let verts: Vec<Vec3> = cell
                 .vertex_indices
                 .iter()
-                .map(|&vi| voronoi.vertices[vi])
+                .map(|&vi| voronoi.vertices[vi as usize])
                 .collect();
             let nv = verts.len();
             if nv < 3 {

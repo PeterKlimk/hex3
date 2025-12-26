@@ -1,322 +1,311 @@
-# Live Dedup with Sharded Ownership
+# Plan: Extract `s2-voronoi` Crate + Refactor Hex3
 
-## Goal
-Replace post-hoc dedup with live dedup during cell building. Each thread/shard
-owns a spatial region of generators and can safely dedup triplets where the
-lowest generator index belongs to its region.
+## Goals
 
-## V1 Scope (Simplify First)
-For an initial implementation, keep the design correct and measurable before
-maximizing parallelism:
-- Do **parallel cell building** per bin/shard (Phase 2).
-- Do **overflow flush single-threaded** (Phase 3) to avoid cross-thread
-  write-back complexity in v1.
-- Keep **per-cell duplicate index removal** as a dedicated post-pass after all
-  deferred indices have been resolved (Phase 4).
+- Extract a publishable crate, `s2-voronoi`, that computes spherical (unit-sphere / S2) Voronoi diagrams
+- Rename "gpu_voronoi" to "knn_clipping" (it's CPU-based, kNN + great-circle half-space clipping)
+- Refactor first, then improve testing, then tune epsilons/errors, then add fallbacks, then stress test
+- Clean up test infrastructure (currently scattered and mixed concerns)
+- Keep hex3 free to reorganize (no external users yet)
 
-## Key Data Structures
+## Non-goals (first pass)
 
-### Pre-computed (once per run)
-```rust
-generator_bin: Vec<u8>        // bin (0-11) for each generator, ~2.5MB for 2.5M
-points
-global_to_local: Vec<u32>     // global gen idx → local idx within its bin
-bin_ranges: [(usize, usize); 12]  // (start, count) for each bin's generators
+- Moving Lloyd relaxation or point generation to s2-voronoi (defer)
+- Moving adjacency computation to s2-voronoi (keep in hex3)
+- Stable-only compilation (nice-to-have later)
+- Splitting hex3 rendering/app into separate crates
+
+## Workspace layout
+
+```
+hex3/                      # workspace root
+├── Cargo.toml             # [workspace]
+├── crates/
+│   └── s2-voronoi/
+│       ├── Cargo.toml
+│       ├── src/
+│       │   ├── lib.rs
+│       │   ├── diagram.rs           # SphericalVoronoi + storage
+│       │   ├── error.rs             # Error types (NEW)
+│       │   ├── types.rs             # UnitVec3, UnitVec3Like trait
+│       │   ├── knn_clipping/        # renamed from gpu_voronoi
+│       │   │   ├── mod.rs
+│       │   │   ├── cell_builder.rs
+│       │   │   ├── ...
+│       │   └── cube_grid/           # kNN spatial index
+│       ├── benches/                 # criterion benchmarks (NEW)
+│       │   └── voronoi_bench.rs
+│       └── tests/                   # integration tests
+│           └── correctness.rs
+└── src/                   # hex3 app + worldgen + rendering
 ```
 
-### Per-shard (owned, no sharing)
+## Module placement decisions
+
+| Current location | Destination | Notes |
+|------------------|-------------|-------|
+| `geometry/voronoi.rs` | s2-voronoi | Core SphericalVoronoi type |
+| `geometry/gpu_voronoi/` | s2-voronoi/knn_clipping/ | Main algorithm, renamed |
+| `geometry/cube_grid/` | s2-voronoi/cube_grid/ | kNN spatial index |
+| `geometry/convex_hull.rs` | s2-voronoi (feature) | qhull backend, test-only |
+| `geometry/validation.rs` | s2-voronoi (partial) | Public validation helpers |
+| `geometry/sphere.rs` | hex3 | Point generation stays for now |
+| `geometry/lloyd.rs` | hex3 | Lloyd relaxation stays for now |
+| `geometry/mesh.rs` | hex3 | Map projection, rendering |
+| `world/tessellation.rs` | hex3 | Uses s2-voronoi, owns adjacency |
+
+## Naming decisions
+
+- Crate: `s2-voronoi` (S2 = unit sphere)
+- Backend rename: `gpu_voronoi` → `knn_clipping`
+- CLI flag: `--gpu-voronoi` → `--voronoi-backend knn-clip`
+
+## Public API
+
+### Core types
+
 ```rust
-heads: Vec<u32>               // size = generators in this shard
-nodes: Vec<TripletNode>       // linked list nodes
-vertices: Vec<Vec3>           // thread-local vertex storage
-// Overflow entries must include where to patch the originating cell index.
-// `source_slot` is the index into this shard's `cell_indices` to overwrite later.
-triplet_overflow: [Vec<(u32,u32,u32,Vec3,u32)>; 12] // (a,b,c,pos,source_slot)
-support_overflow: [Vec<(Vec<u32>, Vec3, u32)>; 12]  // (support_set,pos,source_slot)
-cell_indices: Vec<u32>         // local vertex indices per cell vertex (DEFERRED placeholders allowed)
+/// Dependency-free point representation for stable ABI
+#[repr(C)]
+pub struct UnitVec3 {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+}
+
+/// Trait for zero-copy input from various math libraries
+pub trait UnitVec3Like {
+    fn x(&self) -> f32;
+    fn y(&self) -> f32;
+    fn z(&self) -> f32;
+}
+
+// Always implemented for:
+impl UnitVec3Like for UnitVec3 { ... }
+impl UnitVec3Like for [f32; 3] { ... }
+
+// With `glam` feature:
+impl UnitVec3Like for glam::Vec3 { ... }
 ```
 
-### Overflow Matrix (12×12)
+### Diagram output
+
 ```rust
-// overflow_matrix[source_bin][target_bin]
-// - Source thread owns its row (no contention during write)
-// - Flush can parallelize by target column
-// - Each cell is a Vec of (a, b, c, pos, source_bin, source_slot) where
-//   generator_bin[a] == target_bin
-```
+pub struct SphericalVoronoi {
+    pub generators: Vec<UnitVec3>,
+    pub vertices: Vec<UnitVec3>,
+    cells: Vec<CellData>,        // internal
+    cell_indices: Vec<u32>,      // internal
+}
 
-## Algorithm
+impl SphericalVoronoi {
+    pub fn num_cells(&self) -> usize;
+    pub fn cell(&self, index: usize) -> CellView<'_>;
+    pub fn iter_cells(&self) -> impl Iterator<Item = CellView<'_>>;
+}
 
-### Phase 1: Bin Assignment (~1-3ms for 2.5M points)
-```rust
-fn point_to_bin_12(p: Vec3) -> u8  // 6 faces × 2 = 12 bins
-```
-- Single pass over generators
-- Build `generator_bin` and `global_to_local`
-- Count generators per bin for pre-allocation
-
-**Caveat**: `point_to_bin_12()` needs explicit, deterministic tie-breaking.
-Consider reusing cube-face selection logic (like `cube_grid::point_to_face_uv`)
-to avoid “seam surprises”. Also consider making `NUM_BINS` configurable:
-coarser bins typically improve locality (reduce overflow), but can hurt load
-balance.
-
-### Phase 2: Parallel Cell Building (main work)
-Each shard processes generators in its bin:
-```rust
-for cell_idx in my_generators {
-    // ... build cell, get vertices with triplet keys [a,b,c] ...
-
-    for (a, b, c, pos) in cell_vertices {
-        if generator_bin[a] == my_bin {
-            // I own this triplet
-            let local_a = global_to_local[a];
-            let idx = local_dedup(&mut heads[local_a], &mut nodes, a, b, c,
-pos);
-            // store idx (thread_id, local_vertex_idx)
-        } else {
-            // Not mine → defer
-            // Must record where to write back into my `cell_indices`.
-            triplet_overflow[target_bin].push((a, b, c, pos, source_slot));
-        }
-    }
+pub struct CellView<'a> {
+    pub generator_index: usize,
+    pub vertex_indices: &'a [u32],
 }
 ```
 
-**Caveat**: do not perform per-cell index deduplication/compaction yet, because
-it will shift `source_slot` positions. Treat `cell_indices` as a stable stream
-until all overflow entries have been resolved and patched.
+### Compute API
 
-**Support sets** (`VertexKey::Support`) should follow the same ownership rule
-as triplets:
-- Canonical owner is `min(support_set)`.
-- If not owned, defer to the target bin for that owner and record `source_slot`.
-
-### Phase 3: Flush Overflow (parallel by target bin)
 ```rust
-// Can parallelize: each target bin T processes overflow_matrix[*][T]
-for target_bin in 0..12 {  // parallel
-    for source_bin in 0..12 {
-        for (a, b, c, pos) in overflow_matrix[source_bin][target_bin].drain(..)
-{
-            // Dedup into target_bin's structures
-            // Returns (target_bin, local_idx)
-        }
-    }
+/// Compute with default settings (knn-clipping backend).
+///
+/// Returns a diagram plus diagnostics. Errors are reserved for invalid inputs
+/// (e.g. insufficient points) or unrecoverable internal failures.
+pub fn compute<P: UnitVec3Like>(points: &[P]) -> Result<VoronoiOutput, VoronoiError>;
+
+/// Compute with explicit backend/config
+pub fn compute_with<P: UnitVec3Like>(
+    points: &[P],
+    config: VoronoiConfig,
+) -> Result<VoronoiOutput, VoronoiError>;
+
+pub struct VoronoiConfig {
+    pub termination: TerminationConfig,
+    // future: knn schedule, preprocessing options
 }
-```
-- Seam vertices are ~5-10% of total
-- No contention: each target bin's dedup structures are independent
 
-**V1 note**: implement this flush **single-threaded** initially:
-- It avoids the need for cross-thread write-back into source shards.
-- It keeps correctness simpler while you validate locality and performance.
+impl Default for VoronoiConfig { ... }
 
-**If parallelizing later**: do not directly mutate source shards from target
-workers. Instead, have the flush produce a list of fixups:
-`(source_bin, source_slot, target_bin, target_local_idx)` and apply fixups in a
-separate pass grouped by source bin/shard.
+pub struct VoronoiOutput {
+    pub diagram: SphericalVoronoi,
+    pub diagnostics: VoronoiDiagnostics,
+}
 
-### Phase 4: Assemble Final Output
-```rust
-// Compute vertex offsets per shard
-let shard_offsets = prefix_sum(shard_vertex_counts);  // [0, n0, n0+n1, ...]
-
-// Concatenate vertices (simple memcpy per shard)
-let all_vertices = concatenate(shard_vertices);
-
-// Remap cell indices: local_idx → shard_offsets[shard_id] + local_idx
-// Each cell knows which shard produced it, so remapping is O(total_indices)
-```
-
-**Additional required step**: per-cell duplicate vertex index removal (similar
-to current `deduplicate_cell_indices()`), performed only after:
-1) all deferred indices have been patched, and
-2) global remapping is complete (or remap after dedup; either is fine as long as
-it is consistent).
-
-## Files to Modify
-
-1. **src/geometry/gpu_voronoi/mod.rs** (major changes)
-- Add `point_to_bin_12()` function (inline, ~15 lines)
-- Add `BinAssignment` struct: `generator_bin`, `global_to_local`,
-`bin_generators`
-- Replace `build_cells_data_flat()` parallel loop: iterate by bin instead of
-index range
-- Remove `FlatChunk`/`FlatCellsData` (replaced by `ShardOutput`)
-- Update `compute_voronoi_gpu_style_core()` to use new flow
-
-2. **src/geometry/gpu_voronoi/dedup.rs** (major rewrite)
-- Remove `dedup_vertices_hash_flat()`
-- Add `ShardState` struct with live dedup methods:
-    - `dedup_triplet(local_a, b, c, pos) -> u32`
-    - `dedup_support(support, pos) -> u32`
-- Add `ShardOutput` struct (vertices, cell_indices, overflow)
-- Add `flush_overflow()` for Phase 3
-- Add `assemble_final()` for Phase 4
-
-3. **src/geometry/gpu_voronoi/timing.rs** (minor)
-- Add `bin_assignment` and `overflow_flush` sub-phases to `PhaseTimings`
-
-4. **src/geometry/gpu_voronoi/cell_builder.rs** (no change)
-- `F64CellBuilder` and `to_vertex_data()` unchanged
-
-## Benefits
-- No atomics or unsafe in hot path
-- ~90-95% of triplets handled locally without contention
-- Thread-local vertices avoid allocation contention
-- Simple ownership model Rust can verify
-
-## Resolved Design Decisions
-1. **Overflow**: 12×12 matrix `[source_bin][target_bin]` - source owns row,
-flush parallelizes by column
-2. **Vertex indices**: Local indices only, remap during assembly using
-prefix-sum offsets
-3. **Ownership check**: `generator_bin: Vec<u8>` lookup, O(1) per triplet
-
-## Issues Identified from Code Exploration
-
-### 1. Support Sets (VertexKey::Support)
-Current code has two key types:
-- `Triplet([u32; 3])` - common case, ~95%+, bins by `a` (lowest index)
-- `Support { start, len }` - degenerate case, 4+ generators, uses
-`FxHashMap<Vec<u32>, usize>`
-
-**Solution**: Use `min(support_set)` as owner, same as triplet. Support sets are
-rare (~1-5%), so even if they all overflow, it's fine.
-
-### 2. Current Chunk Structure Mismatch
-Current: Chunks are contiguous index ranges `[start..end]`
-Proposed: Bins are spatial (non-contiguous indices)
-
-**Solution**: Restructure parallel loop to iterate by bin:
-```rust
-// Current: par_iter over index ranges
-ranges.par_iter().map(|(start, end)| process_cells(start..end))
-
-// New: par_iter over bins
-(0..12).into_par_iter().map(|bin| {
-    let my_generators = &bin_generators[bin];  // indices in this bin
-    process_cells_for_bin(bin, my_generators)
-})
-```
-
-### 3. FlatChunk Changes
-Current FlatChunk stores raw `Vec<VertexData>` (undeduped).
-With live dedup, each shard directly produces deduped vertices.
-
-**New per-shard output:**
-```rust
-struct ShardOutput {
-    vertices: Vec<Vec3>,           // deduped vertices for this shard
-    cell_indices: Vec<u32>,        // local vertex indices per cell
-    cell_counts: Vec<u8>,          // vertices per cell
-    cell_generator_indices: Vec<usize>,  // which generator each cell is for
-    overflow: [Vec<(u32,u32,u32,Vec3)>; 12],  // cross-bin triplets
-    support_overflow: Vec<(Vec<u32>, Vec3)>,  // cross-bin support sets
+pub struct VoronoiDiagnostics {
+    /// Cells with <3 vertices (effectively empty/invalid for adjacency).
+    pub bad_cells: Vec<usize>,
+    /// Cells with duplicate vertex indices (degenerate polygons).
+    pub degenerate_cells: Vec<usize>,
+    /// Cells with no neighbors after adjacency build (if computed externally).
+    pub orphan_cells: Vec<usize>,
+    /// (Optional) backend-specific counters, timing, termination histograms, etc.
 }
 ```
 
-## Final Approach
+### Error handling (NEW)
 
-### Phase 1: Bin Assignment (new, ~1-3ms)
 ```rust
-// Single pass to compute bin assignments
-let generator_bin: Vec<u8> = points.iter().map(point_to_bin_12).collect();
+#[derive(Debug, thiserror::Error)]
+pub enum VoronoiError {
+    #[error("insufficient points: need at least 4, got {0}")]
+    InsufficientPoints(usize),
 
-// Build per-bin generator lists
-let mut bin_generators: [Vec<usize>; 12] = Default::default();
-for (i, &bin) in generator_bin.iter().enumerate() {
-    bin_generators[bin as usize].push(i);
-}
+    #[error("degenerate input: {0} coincident point pairs")]
+    DegenerateInput(usize),
 
-// Build global_to_local mapping
-let mut global_to_local: Vec<u32> = vec![0; n];
-for generators in &bin_generators {
-    for (local_idx, &global_idx) in generators.iter().enumerate() {
-        global_to_local[global_idx] = local_idx as u32;
-    }
+    #[error("computation failed: {0}")]
+    ComputationFailed(String),
 }
 ```
 
-### Phase 2: Parallel Cell Building with Live Dedup
-```rust
-let shard_outputs: Vec<ShardOutput> = (0..12).into_par_iter().map(|bin| {
-    let my_generators = &bin_generators[bin];
-    let mut shard = ShardState::new(my_generators.len());
+Note: In the initial extraction pass, “bad/degenerate cells” are expected for some inputs and
+should generally be reported via `VoronoiDiagnostics` rather than returned as `Err`.
 
-    for &cell_idx in my_generators {
-        // Build cell (existing F64CellBuilder logic)
-        let vertices = build_cell(cell_idx, &points, &knn);
+## Feature flags
 
-        for (key, pos) in vertices {
-            match key {
-                VertexKey::Triplet([a, b, c]) => {
-                    if generator_bin[a as usize] == bin as u8 {
-                        // I own this → local dedup
-                        let local_a = global_to_local[a as usize];
-                        let idx = shard.dedup_triplet(local_a, b, c, pos);
-                        shard.cell_indices.push(idx);
-                    } else {
-                        // Not mine → overflow to target bin
-                        let target = generator_bin[a as usize] as usize;
-                        let source_slot = shard.cell_indices.len() as u32;
-                        shard.triplet_overflow[target].push((a, b, c, pos, source_slot));
-                        shard.cell_indices.push(DEFERRED);
-                    }
-                }
-                VertexKey::Support { start, len } => {
-                    let support = &support_data[start..start+len];
-                    let owner = support.iter().min().unwrap();
-                    if generator_bin[*owner as usize] == bin as u8 {
-                        let idx = shard.dedup_support(support, pos);
-                        shard.cell_indices.push(idx);
-                    } else {
-                        let target = generator_bin[*owner as usize] as usize;
-                        let source_slot = shard.cell_indices.len() as u32;
-                        shard.support_overflow[target].push((support.to_vec(), pos, source_slot));
-                        shard.cell_indices.push(DEFERRED);
-                    }
-                }
-            }
-        }
-        shard.finish_cell(cell_idx);
-    }
-    shard.into_output()
-}).collect();
+| Feature | Description | Default |
+|---------|-------------|---------|
+| `glam` | `UnitVec3Like` impl for `glam::Vec3` | off |
+| `timing` | Detailed timing instrumentation | off |
+| `parallel` | Rayon parallelism in backends | on (default feature) |
+| `qhull` | Convex hull backend (test/bench only) | off |
+
+Note: glam is always an internal dependency (used for computation). The `glam` feature only controls the public trait impl.
+
+## Implementation phases
+
+### Phase 0: Sequence of work (big picture)
+
+1. Refactor/extract with minimal behavioral change
+2. Improve and reorganize tests (fast correctness first)
+3. Revisit epsilons + error classification
+4. Implement hierarchical fallback (higher precision) for uncertified/failed/degenerate cells
+5. Stress test + benchmark across scales and input families
+
+### Phase 1: Workspace setup
+- Create `Cargo.toml` with `[workspace]`
+- Create `crates/s2-voronoi/` skeleton
+- Add core types: `UnitVec3`, `UnitVec3Like`, error types
+- Verify `cargo build` works
+
+### Phase 2: Move knn_clipping backend
+- Move `geometry/gpu_voronoi/` → `s2-voronoi/src/knn_clipping/`
+- Move `geometry/cube_grid/` → `s2-voronoi/src/cube_grid/`
+- Update imports, replace `glam::Vec3` inputs with trait bounds
+- Implement `compute()` and `compute_with()` API
+
+### Phase 3: Integrate hex3
+- Update hex3 `Cargo.toml` to depend on `s2-voronoi`
+- Update `tessellation.rs` to use `s2_voronoi::compute()`
+- Keep `build_adjacency` in hex3
+- Update CLI: `--gpu-voronoi` → `--voronoi-backend`
+
+### Phase 4: qhull backend (test-only)
+- Move `convex_hull.rs` behind `qhull` feature
+- Use only in tests/benches for ground-truth comparison
+- Keep as dev-dependency intent
+
+### Phase 5: Test restructuring (phase 1)
+
+Current state:
+- 15+ inline `#[cfg(test)]` modules scattered across files
+- Massive test files (gpu_voronoi/tests.rs ~1500 lines)
+- Mixed concerns: unit tests, stress tests, timing, validation
+- Many `#[ignore]` tests that are really benchmarks
+
+Target state:
+
+**s2-voronoi tests (`crates/s2-voronoi/tests/`):**
+```
+tests/
+├── api.rs           # Public API tests
+├── correctness.rs   # Geometric invariants
+└── edge_cases.rs    # Coincident points, small inputs
 ```
 
-### Phase 3: Flush Overflow (parallel by target)
-```rust
-// Collect overflow by target bin
-let overflow_by_target: [Vec<_>; 12] = collect_overflow(&shard_outputs);
-
-// Parallel flush - each target processes its column
-(0..12).into_par_iter().for_each(|target| {
-    let shard = &mut shard_outputs[target];
-    for (a, b, c, pos) in overflow_by_target[target].drain(..) {
-        let local_a = global_to_local[a as usize];
-        shard.dedup_triplet(local_a, b, c, pos);
-    }
-    // Similarly for support overflow
-});
+**s2-voronoi benchmarks (`crates/s2-voronoi/benches/`):**
+```
+benches/
+└── voronoi_bench.rs  # criterion: 10k, 100k, 500k, 1M points
 ```
 
-**Correction**: overflow entries must also carry `(source_bin, source_slot)` and
-the flush must emit fixups so the originating shard can patch its `DEFERRED`
-entries. In v1, do this sequentially to avoid parallel write-back.
-
-### Phase 4: Assemble Final Output
-```rust
-// Compute vertex offsets
-let shard_offsets = prefix_sum(shard_outputs.iter().map(|s| s.vertices.len()));
-
-// Concatenate vertices
-let all_vertices: Vec<Vec3> = shard_outputs.iter()
-    .flat_map(|s| s.vertices.iter().copied())
-    .collect();
-
-// Remap cell indices and build final cells
-// Each cell knows its shard (from generator_bin[cell_idx])
-// local_idx → shard_offsets[shard] + local_idx
+**hex3 integration tests (`tests/`):**
 ```
+tests/
+├── tessellation.rs   # Full pipeline: points → voronoi → adjacency
+└── generation.rs     # World generation smoke tests
+```
+
+Test categories:
+1. **Unit tests** (inline `#[cfg(test)]`) - small, fast, test one thing
+2. **Integration tests** (`tests/`) - full pipeline, public API only
+3. **Benchmarks** (`benches/`) - criterion, no assertions, timing only
+4. **Property tests** (later phase) - geometric invariants once fallbacks are implemented and
+   “success criteria” for degenerate inputs are well-defined.
+
+### Phase 6: Epsilons + error classification (after tests)
+- Define what constitutes:
+  - “invalid input” (hard error)
+  - “computable but degraded” (diagnostic)
+  - “cell build failure requiring fallback” (recoverable)
+- Audit and tune tolerances/epsilons with regression tests.
+
+### Phase 7: Hierarchical fallback (precision ladder)
+
+Goal: recover from uncertified / failed / degenerate cells by escalating precision:
+1. f32 fast path (current)
+2. f64 (already present for parts of the cell builder)
+3. bigfloat
+4. bigrational (most robust, slowest; likely last resort)
+
+Implementation notes:
+- Keep fallback internal to the backend initially; expose only diagnostics and final output.
+- Add targeted tests that force each fallback tier to trigger.
+
+### Phase 8: Stress tests + benchmarks
+- Add/curate stress suites for:
+  - near-duplicates
+  - clustered inputs
+  - very large N
+  - adversarial seam/cubemap boundary cases
+- Keep long-running stress tests `#[ignore]` and run them manually/CI nightly if desired.
+
+### Phase 9: Documentation
+- Doc comments on public API
+- `//!` module docs explaining algorithm
+- Examples in doc comments
+- README.md for s2-voronoi crate
+
+## Validation checklist
+
+- [ ] `cargo build` passes in WSL2
+- [ ] `cargo test` passes (both crates)
+- [ ] `cargo test --release` passes
+- [ ] `cargo clippy` clean
+- [ ] `cargo doc` builds without warnings
+- [ ] Windows: `cargo run --release` works (wgpu + compute shaders)
+- [ ] Benchmarks run with criterion
+
+## Open questions (resolved)
+
+| Question | Decision |
+|----------|----------|
+| Normalize inputs or require unit vectors? | Debug-assert only (caller's responsibility) |
+| Adjacency helper in s2-voronoi? | No, keep in hex3 |
+| glam as internal or feature? | Internal dep, feature for trait impl |
+| Lloyd/point gen in s2-voronoi? | No, keep in hex3 for now |
+| qhull as real backend? | No, test-only |
+
+## Future considerations (not this pass)
+
+- Move Lloyd relaxation to s2-voronoi as optional convenience
+- Move point generation (Fibonacci lattice) to s2-voronoi
+- Adjacency helper as optional s2-voronoi feature
+- SIMD acceleration with scalar fallback
+- Publish to crates.io
