@@ -119,6 +119,8 @@ pub struct F64CellBuilder {
     // Planes - stored as normals (DVec3 is simpler than SoA for 3 elements)
     plane_normals: [DVec3; MAX_PLANES],
     neighbor_indices: [usize; MAX_PLANES],
+    /// Cached normalized neighbor positions (f64) - computed once in clip(), reused in certification
+    neighbor_positions: [DVec3; MAX_PLANES],
     plane_count: usize,
 
     // Vertices as SoA (Structure of Arrays) for cache-friendly access
@@ -279,6 +281,7 @@ impl F64CellBuilder {
             // Planes
             plane_normals: [DVec3::ZERO; MAX_PLANES],
             neighbor_indices: [0; MAX_PLANES],
+            neighbor_positions: [DVec3::ZERO; MAX_PLANES],
             plane_count: 0,
 
             // Vertices (SoA)
@@ -339,20 +342,6 @@ impl F64CellBuilder {
         let v1 = Self::intersect_two_planes(&plane_b, &plane_c, self.generator);
         let v2 = Self::intersect_two_planes(&plane_c, &plane_a, self.generator);
 
-        // Check that all 3 vertices satisfy ALL accumulated half-spaces
-        for plane_idx in 0..self.plane_count {
-            if plane_idx == a || plane_idx == b || plane_idx == c {
-                continue;
-            }
-            let plane = self.get_plane(plane_idx);
-            let d0 = plane.signed_distance(v0);
-            let d1 = plane.signed_distance(v1);
-            let d2 = plane.signed_distance(v2);
-            if d0 < -F64_EPS_CLIP && d1 < -F64_EPS_CLIP && d2 < -F64_EPS_CLIP {
-                return false;
-            }
-        }
-
         // Verify generator is inside the spherical triangle
         let edge_plane_01 = v0.cross(v1);
         let edge_plane_12 = v1.cross(v2);
@@ -367,6 +356,26 @@ impl F64CellBuilder {
 
         if !consistent_winding {
             return false;
+        }
+
+        // Check that the seed triangle is not fully outside any accumulated half-space.
+        for plane_idx in 0..self.plane_count {
+            if plane_idx == a || plane_idx == b || plane_idx == c {
+                continue;
+            }
+            let plane = self.get_plane(plane_idx);
+            let d0 = plane.signed_distance(v0);
+            if d0 >= -F64_EPS_CLIP {
+                continue;
+            }
+            let d1 = plane.signed_distance(v1);
+            if d1 >= -F64_EPS_CLIP {
+                continue;
+            }
+            let d2 = plane.signed_distance(v2);
+            if d2 < -F64_EPS_CLIP {
+                return false;
+            }
         }
 
         // Clear vertices
@@ -414,22 +423,12 @@ impl F64CellBuilder {
             return false;
         }
 
-        // Try triplets including the newest plane first
+        // Called incrementally as planes are appended, so each triplet is tried exactly once when
+        // its highest index becomes the "newest plane".
         for i in 0..(n - 1) {
             for j in (i + 1)..(n - 1) {
                 if self.try_seed_from_triplet(i, j, n - 1) {
                     return true;
-                }
-            }
-        }
-
-        // Try all other triplets
-        for a in 0..(n - 1) {
-            for b in (a + 1)..(n - 1) {
-                for c in (b + 1)..(n - 1) {
-                    if self.try_seed_from_triplet(a, b, c) {
-                        return true;
-                    }
                 }
             }
         }
@@ -562,6 +561,7 @@ impl F64CellBuilder {
         let plane_idx = self.plane_count;
         self.plane_normals[plane_idx] = new_plane.normal;
         self.neighbor_indices[plane_idx] = neighbor_idx;
+        self.neighbor_positions[plane_idx] = n64; // Cache the normalized position
         self.plane_count += 1;
 
         if !self.seeded {
@@ -771,7 +771,7 @@ impl F64CellBuilder {
     /// Returns for each vertex: (min_gap, support_set)
     /// - min_gap: smallest positive gap (closest excluded generator)
     /// - support_set: generators with gap <= eps_support (including defining generators)
-    pub fn compute_vertex_gaps(&self, points: &[Vec3], eps_support: f64) -> Vec<(f64, Vec<u32>)> {
+    pub fn compute_vertex_gaps(&self, _points: &[Vec3], eps_support: f64) -> Vec<(f64, Vec<u32>)> {
         if self.failed.is_some() || self.vertex_count < 3 {
             return Vec::new();
         }
@@ -780,14 +780,8 @@ impl F64CellBuilder {
         Self::debug_assert_unitish(g);
         let gen_idx = self.generator_idx as u32;
 
-        // Pre-load all neighbor positions once (instead of per-vertex).
-        let neighbor_positions: Vec<DVec3> = self.neighbor_indices[..self.plane_count]
-            .iter()
-            .map(|&idx| {
-                let p = points[idx];
-                DVec3::new(p.x as f64, p.y as f64, p.z as f64).normalize()
-            })
-            .collect();
+        // Use cached normalized neighbor positions (computed once in clip())
+        let neighbor_positions = &self.neighbor_positions[..self.plane_count];
 
         (0..self.vertex_count)
             .map(|vi| {
@@ -852,11 +846,11 @@ impl F64CellBuilder {
     /// Returns Err if certification fails.
     pub fn to_vertex_data(
         &self,
-        points: &[Vec3],
+        _points: &[Vec3],
         support_data: &mut Vec<u32>,
     ) -> Result<Vec<VertexData>, CellFailure> {
         let mut out = Vec::new();
-        self.to_vertex_data_into(points, support_data, &mut out)?;
+        self.to_vertex_data_into(_points, support_data, &mut out)?;
         Ok(out)
     }
 
@@ -865,7 +859,7 @@ impl F64CellBuilder {
     /// This is equivalent to `to_vertex_data` but allows reusing allocations across cells.
     pub fn to_vertex_data_into(
         &self,
-        points: &[Vec3],
+        _points: &[Vec3],
         support_data: &mut Vec<u32>,
         out: &mut Vec<VertexData>,
     ) -> Result<(), CellFailure> {
@@ -878,13 +872,8 @@ impl F64CellBuilder {
         Self::debug_assert_unitish(g);
         let gen_idx = self.generator_idx as u32;
 
-        // Pre-normalize neighbor positions once into a fixed stack buffer (no heap alloc).
-        let mut neighbor_positions = [DVec3::ZERO; MAX_PLANES];
-        for plane_idx in 0..self.plane_count {
-            let p = points[self.neighbor_indices[plane_idx]];
-            neighbor_positions[plane_idx] =
-                DVec3::new(p.x as f64, p.y as f64, p.z as f64).normalize();
-        }
+        // Use cached normalized neighbor positions (computed once in clip())
+        let neighbor_positions = &self.neighbor_positions;
 
         // F64 vertex error bound (Case A from plan2.md):
         // vertex_err ≈ C * f64::EPSILON / conditioning
