@@ -1554,7 +1554,8 @@ impl CubeMapGrid {
             let vc = st_to_uv(tc);
             let center = face_uv_to_3d(face, uc, vc);
 
-            let mut max_angle = 0.0f32;
+            // Track min dot (= cos of max angle) to avoid acos entirely.
+            let mut min_dot = 1.0f32;
             for &tv in &TS {
                 let t = t0 + (t1 - t0) * tv;
                 let v = st_to_uv(t);
@@ -1563,16 +1564,22 @@ impl CubeMapGrid {
                     let u = st_to_uv(s);
                     let p = face_uv_to_3d(face, u, v);
                     let dot = center.dot(p).clamp(-1.0, 1.0);
-                    let angle = dot.acos();
-                    max_angle = max_angle.max(angle);
+                    min_dot = min_dot.min(dot);
                 }
             }
 
-            // Inflate slightly to avoid underestimation from float error / sampling.
-            let radius = (max_angle + 1e-4).min(std::f32::consts::PI);
+            // Inflate by epsilon using angle addition formulas (no trig needed).
+            // cos(a + ε) = cos(a)·cos(ε) - sin(a)·sin(ε)
+            // sin(a + ε) = sin(a)·cos(ε) + cos(a)·sin(ε)
+            // For ε = 1e-4: cos(ε) ≈ 1.0, sin(ε) ≈ 1e-4
+            const SIN_EPS: f32 = 1e-4;
+            let sin_a = (1.0 - min_dot * min_dot).max(0.0).sqrt();
+            let cos_radius = (min_dot - sin_a * SIN_EPS).clamp(-1.0, 1.0);
+            let sin_radius = (sin_a + min_dot * SIN_EPS).clamp(0.0, 1.0);
+
             centers.push(center);
-            cos_r.push(radius.cos());
-            sin_r.push(radius.sin());
+            cos_r.push(cos_radius);
+            sin_r.push(sin_radius);
         }
 
         (centers, cos_r, sin_r)
