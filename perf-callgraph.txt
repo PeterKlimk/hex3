@@ -1,0 +1,1275 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 3K of event 'cycles:P'
+# Event count (approx.): 57626835894
+#
+# Children      Self  Symbol                                                                                                                                                                                                                                                                                                                                                                                                                                            IPC   [IPC Coverage]
+# ........  ........  ................................................................................................................................................................................................................................................................................................................................................................................................................................................  ....................
+#
+    28.18%    28.11%  [.] _RINvNtNtNtCseERxa3dxhbo_4hex38geometry9cube_grid10packed_knn22packed_knn_cell_streamNCNCNvNtNtB6_11gpu_voronoi10live_dedup30build_cells_sharded_live_dedup0s1_0EB8_                                                                                                                                                                                                                                                                          -      -            
+            |          
+            |--0.24%--asm_sysvec_hyperv_stimer0
+            |          sysvec_hyperv_stimer0
+            |          __sysvec_hyperv_stimer0
+            |          hv_stimer0_isr
+            |          hrtimer_interrupt
+            |          __hrtimer_run_queues
+            |          tick_sched_timer
+            |          tick_sched_handle
+            |          update_process_times
+            |          scheduler_tick
+            |          |          
+            |          |--51.11%--perf_event_task_tick
+            |          |          perf_adjust_freq_unthr_context
+            |          |          x86_pmu_disable
+            |          |          
+            |           --48.89%--trigger_load_balance
+            |                     smp_call_function_single_async
+            |                     generic_exec_single
+            |                     llist_add_batch
+             --99.76%--[...]
+
+    11.43%    10.45%  [.] _RNCNCNvNtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi10live_dedup30build_cells_sharded_live_dedup0s1_0Bb_                                                                                                                                                                                                                                                                                                                                   -      -            
+            |          
+            |--65.53%--_RNCNCNvNtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi10live_dedup30build_cells_sharded_live_dedup0s1_0Bb_
+            |          |          
+            |          |--83.58%--asm_exc_page_fault
+            |          |          |          
+            |          |           --100.00%--exc_page_fault
+            |          |                     do_user_addr_fault
+            |          |                     |          
+            |          |                     |--93.91%--handle_mm_fault
+            |          |                     |          |          
+            |          |                     |          |--87.85%--__handle_mm_fault
+            |          |                     |          |          |          
+            |          |                     |          |           --100.00%--do_anonymous_page
+            |          |                     |          |                     |          
+            |          |                     |          |                     |--44.59%--vma_alloc_folio
+            |          |                     |          |                     |          __folio_alloc
+            |          |                     |          |                     |          __alloc_pages
+            |          |                     |          |                     |          |          
+            |          |                     |          |                     |          |--65.74%--get_page_from_freelist
+            |          |                     |          |                     |          |          |          
+            |          |                     |          |                     |          |          |--50.27%--__rmqueue_pcplist
+            |          |                     |          |                     |          |          |          
+            |          |                     |          |                     |          |           --49.73%--__list_del_entry_valid_or_report
+            |          |                     |          |                     |          |          
+            |          |                     |          |                     |           --34.26%--clear_page_erms
+            |          |                     |          |                     |          
+            |          |                     |          |                     |--22.20%--__pte_offset_map_lock
+            |          |                     |          |                     |          _raw_spin_lock
+            |          |                     |          |                     |          
+            |          |                     |          |                     |--11.40%--__raw_callee_save___pv_queued_spin_unlock
+            |          |                     |          |                     |          
+            |          |                     |          |                     |--11.35%--folio_add_lru_vma
+            |          |                     |          |                     |          folio_add_lru
+            |          |                     |          |                     |          folio_batch_move_lru
+            |          |                     |          |                     |          folio_lruvec_lock_irqsave
+            |          |                     |          |                     |          
+            |          |                     |          |                      --10.45%--folio_add_new_anon_rmap
+            |          |                     |          |                                __mod_lruvec_page_state
+            |          |                     |          |                                __mod_lruvec_state
+            |          |                     |          |                                __mod_memcg_lruvec_state
+            |          |                     |          |          
+            |          |                     |          |--6.32%--__rcu_read_lock
+            |          |                     |          |          
+            |          |                     |           --5.82%--do_anonymous_page
+            |          |                     |          
+            |          |                      --6.09%--count_memcg_events.constprop.0
+            |          |          
+            |          |--9.78%--sync_regs
+            |          |          
+            |           --6.64%--asm_sysvec_hyperv_stimer0
+            |                     sysvec_hyperv_stimer0
+            |                     |          
+            |                     |--51.35%--__sysvec_hyperv_stimer0
+            |                     |          hv_stimer0_isr
+            |                     |          hrtimer_interrupt
+            |                     |          __hrtimer_run_queues
+            |                     |          tick_sched_timer
+            |                     |          tick_sched_handle
+            |                     |          update_process_times
+            |                     |          account_process_tick
+            |                     |          account_user_time
+            |                     |          cpuacct_account_field
+            |                     |          
+            |                      --48.65%--irq_exit_rcu
+            |                                __irq_exit_rcu
+            |                                handle_softirqs
+            |                                rcu_core_si
+            |                                rcu_core
+             --34.47%--[...]
+
+    10.76%    10.38%  [.] _RNvMs_NtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi12cell_builderNtB4_14F64CellBuilder19to_vertex_data_into                                                                                                                                                                                                                                                                                                                                -      -            
+            |          
+            |--2.12%--cfree
+            |          |          
+            |          |--39.69%--0x7d8b1f6ab18b
+            |          |          
+            |          |--21.43%--0x7d8b1f6ab1ca
+            |          |          
+            |          |--20.14%--0x7d8b1f6ab1e9
+            |          |          
+            |           --18.74%--0x7d8b1f6ab1f7
+            |          
+            |--0.63%--malloc
+            |          
+            |--0.31%--0x7d8b1f6ab170
+            |          
+            |--0.31%--asm_sysvec_hyperv_stimer0
+            |          sysvec_hyperv_stimer0
+            |          __sysvec_hyperv_stimer0
+            |          hv_stimer0_isr
+            |          hrtimer_interrupt
+            |          __hrtimer_run_queues
+            |          tick_sched_timer
+            |          tick_sched_handle
+            |          update_process_times
+            |          scheduler_tick
+            |          update_rq_clock
+            |          sched_clock_cpu
+            |          sched_clock
+            |          read_hv_sched_clock_tsc
+            |          
+            |--0.20%--0x7d8b1f6ab2a7
+             --96.43%--[...]
+
+    10.41%    10.34%  [.] _RNvMs_NtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi12cell_builderNtB4_14F64CellBuilder15clip_with_plane                                                                                                                                                                                                                                                                                                                                    -      -            
+            |          
+            |--68.54%--_RNvMs_NtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi12cell_builderNtB4_14F64CellBuilder15clip_with_plane
+            |          |          
+            |           --100.00%--asm_sysvec_hyperv_stimer0
+            |                     sysvec_hyperv_stimer0
+            |                     |          
+            |                     |--50.62%--irqentry_exit
+            |                     |          irqentry_exit_to_user_mode
+            |                     |          exit_to_user_mode_prepare
+            |                     |          
+            |                      --49.38%--__sysvec_hyperv_stimer0
+            |                                hv_stimer0_isr
+            |                                hrtimer_interrupt
+            |                                read_hv_clock_tsc_cs
+            |          
+            |--3.24%--0x6ffec5237220fa83
+            |          _RNvMs_NtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi12cell_builderNtB4_14F64CellBuilder15clip_with_plane
+             --28.22%--[...]
+
+     9.93%     9.93%  [.] _RNvMs_NtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi12cell_builderNtB4_14F64CellBuilder4clip                                                                                                                                                                                                                                                                                                                                                -      -            
+            |          
+            |--96.32%--_RNvMs_NtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi12cell_builderNtB4_14F64CellBuilder4clip
+             --3.68%--[...]
+
+     7.70%     7.70%  [.] _RINvNtNtNtCsgwRk3ijgeAs_4core5slice4sort6select18partition_at_indexyNvYyNtNtB8_3cmp10PartialOrd2ltECseERxa3dxhbo_4hex3                                                                                                                                                                                                                                                                                                                       -      -            
+            |          
+            |--35.02%--_RINvNtNtNtCsgwRk3ijgeAs_4core5slice4sort6select18partition_at_indexyNvYyNtNtB8_3cmp10PartialOrd2ltECseERxa3dxhbo_4hex3
+             --64.98%--[...]
+
+     5.35%     5.35%  [.] _RNvMs_NtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi12cell_builderNtB4_14F64CellBuilder21try_seed_from_triplet                                                                                                                                                                                                                                                                                                                              -      -            
+     4.73%     0.00%  [.] 0x0000000000000011                                                                                                                                                                                                                                                                                                                                                                                                                            -      -            
+            |
+            ---_RINvNtNtNtCsgwRk3ijgeAs_4core5slice4sort6select18partition_at_indexyNvYyNtNtB8_3cmp10PartialOrd2ltECseERxa3dxhbo_4hex3
+
+     2.72%     2.72%  [.] _RNvMs_NtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi12cell_builderNtB4_14F64CellBuilder22vertex_conditioning_at                                                                                                                                                                                                                                                                                                                             -      -            
+     2.51%     1.71%  [.] _RNvNtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi10live_dedup27assemble_sharded_live_dedup                                                                                                                                                                                                                                                                                                                                                  -      -            
+            |          
+            |--97.33%--_RNvNtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi10live_dedup27assemble_sharded_live_dedup
+            |          |          
+            |          |--87.68%--asm_exc_page_fault
+            |          |          |          
+            |          |           --100.00%--exc_page_fault
+            |          |                     |          
+            |          |                     |--96.36%--do_user_addr_fault
+            |          |                     |          |          
+            |          |                     |          |--80.79%--handle_mm_fault
+            |          |                     |          |          |          
+            |          |                     |          |          |--90.36%--__handle_mm_fault
+            |          |                     |          |          |          |          
+            |          |                     |          |          |          |--94.90%--do_anonymous_page
+            |          |                     |          |          |          |          |          
+            |          |                     |          |          |          |          |--31.61%--vma_alloc_folio
+            |          |                     |          |          |          |          |          __folio_alloc
+            |          |                     |          |          |          |          |          |          
+            |          |                     |          |          |          |          |           --100.00%--__alloc_pages
+            |          |                     |          |          |          |          |                     |          
+            |          |                     |          |          |          |          |                     |--50.92%--get_page_from_freelist
+            |          |                     |          |          |          |          |                     |          |          
+            |          |                     |          |          |          |          |                     |          |--39.12%--preempt_count_add
+            |          |                     |          |          |          |          |                     |          |          
+            |          |                     |          |          |          |          |                     |          |--32.55%--_raw_spin_trylock
+            |          |                     |          |          |          |          |                     |          |          
+            |          |                     |          |          |          |          |                     |           --28.33%--__rmqueue_pcplist
+            |          |                     |          |          |          |          |                     |                     __list_del_entry_valid_or_report
+            |          |                     |          |          |          |          |                     |          
+            |          |                     |          |          |          |          |                      --49.08%--clear_page_erms
+            |          |                     |          |          |          |          |                                |          
+            |          |                     |          |          |          |          |                                 --100.00%--asm_sysvec_hyperv_stimer0
+            |          |                     |          |          |          |          |                                           sysvec_hyperv_stimer0
+            |          |                     |          |          |          |          |                                           __sysvec_hyperv_stimer0
+            |          |                     |          |          |          |          |                                           hv_stimer0_isr
+            |          |                     |          |          |          |          |                                           hrtimer_interrupt
+            |          |                     |          |          |          |          |                                           __hrtimer_run_queues
+            |          |                     |          |          |          |          |                                           tick_sched_timer
+            |          |                     |          |          |          |          |                                           tick_sched_handle
+            |          |                     |          |          |          |          |                                           update_process_times
+            |          |                     |          |          |          |          |                                           irq_work_tick
+            |          |                     |          |          |          |          |                                           debug_smp_processor_id
+            |          |                     |          |          |          |          |                                           check_preemption_disabled
+            |          |                     |          |          |          |          |          
+            |          |                     |          |          |          |          |--27.80%--folio_add_lru_vma
+            |          |                     |          |          |          |          |          folio_add_lru
+            |          |                     |          |          |          |          |          |          
+            |          |                     |          |          |          |          |          |--82.09%--folio_batch_move_lru
+            |          |                     |          |          |          |          |          |          |          
+            |          |                     |          |          |          |          |          |          |--70.01%--lru_add_fn
+            |          |                     |          |          |          |          |          |          |          |          
+            |          |                     |          |          |          |          |          |          |          |--53.57%--mem_cgroup_update_lru_size
+            |          |                     |          |          |          |          |          |          |          |          
+            |          |                     |          |          |          |          |          |          |           --46.43%--__mod_lruvec_state
+            |          |                     |          |          |          |          |          |          |                     __mod_node_page_state
+            |          |                     |          |          |          |          |          |          |                     __this_cpu_preempt_check
+            |          |                     |          |          |          |          |          |          |                     check_preemption_disabled
+            |          |                     |          |          |          |          |          |          |          
+            |          |                     |          |          |          |          |          |           --29.99%--folio_lruvec_lock_irqsave
+            |          |                     |          |          |          |          |          |          
+            |          |                     |          |          |          |          |           --17.91%--preempt_count_sub
+            |          |                     |          |          |          |          |          
+            |          |                     |          |          |          |          |--19.44%--__mem_cgroup_charge
+            |          |                     |          |          |          |          |          |          
+            |          |                     |          |          |          |          |          |--54.99%--get_mem_cgroup_from_mm
+            |          |                     |          |          |          |          |          |          
+            |          |                     |          |          |          |          |           --45.01%--charge_memcg
+            |          |                     |          |          |          |          |                     |          
+            |          |                     |          |          |          |          |                     |--61.27%--try_charge_memcg
+            |          |                     |          |          |          |          |                     |          
+            |          |                     |          |          |          |          |                      --38.73%--mem_cgroup_charge_statistics
+            |          |                     |          |          |          |          |                                __this_cpu_preempt_check
+            |          |                     |          |          |          |          |                                check_preemption_disabled
+            |          |                     |          |          |          |          |          
+            |          |                     |          |          |          |          |--11.90%--folio_add_new_anon_rmap
+            |          |                     |          |          |          |          |          __mod_lruvec_page_state
+            |          |                     |          |          |          |          |          __mod_node_page_state
+            |          |                     |          |          |          |          |          
+            |          |                     |          |          |          |          |--5.51%--__pte_offset_map_lock
+            |          |                     |          |          |          |          |          preempt_count_add
+            |          |                     |          |          |          |          |          
+            |          |                     |          |          |          |           --3.75%--__pte_offset_map
+            |          |                     |          |          |          |          
+            |          |                     |          |          |           --5.10%--__folio_throttle_swaprate
+            |          |                     |          |          |          
+            |          |                     |          |           --9.64%--count_memcg_events.constprop.0
+            |          |                     |          |                     __count_memcg_events
+            |          |                     |          |                     __this_cpu_preempt_check
+            |          |                     |          |                     check_preemption_disabled
+            |          |                     |          |          
+            |          |                     |          |--10.29%--lock_vma_under_rcu
+            |          |                     |          |          |          
+            |          |                     |          |           --100.00%--mas_walk
+            |          |                     |          |                     mtree_range_walk
+            |          |                     |          |          
+            |          |                     |          |--5.11%--up_read
+            |          |                     |          |          |          
+            |          |                     |          |           --100.00%--preempt_count_add
+            |          |                     |          |          
+            |          |                     |           --3.81%--__rcu_read_lock
+            |          |                     |          
+            |          |                      --3.64%--access_error
+            |          |          
+            |          |--5.29%--sync_regs
+            |          |          
+            |          |--5.18%--__irqentry_text_end
+            |          |          
+            |           --1.85%--asm_sysvec_hyperv_stimer0
+            |                     sysvec_hyperv_stimer0
+            |                     __sysvec_hyperv_stimer0
+            |                     hv_stimer0_isr
+            |                     hrtimer_interrupt
+            |                     __hrtimer_run_queues
+            |                     tick_sched_timer
+            |                     tick_sched_do_timer
+            |                     tick_do_update_jiffies64
+            |                     update_wall_time
+            |                     timekeeping_advance
+            |          
+             --2.67%--0xcccccccccccccccc
+                       _RNvNtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi10live_dedup27assemble_sharded_live_dedup
+
+     2.23%     0.00%  [.] 0x6ffec5237220fa83                                                                                                                                                                                                                                                                                                                                                                                                                            -      -            
+            |          
+            |--44.32%--0x7d8b1f788a51
+            |          
+            |--15.16%--_RNvMs_NtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi12cell_builderNtB4_14F64CellBuilder15clip_with_plane
+            |          
+            |--7.50%--0x7d8b1f788a65
+            |          
+            |--6.02%--0x7d8b1f788a6b
+            |          
+            |--6.00%--0x7d8b1f788a5b
+            |          
+            |--5.95%--0x7d8b1f788a6e
+            |          
+            |--4.56%--0x7d8b1f788a40
+            |          
+            |--4.47%--0x7d8b1f788a61
+            |          
+            |--2.96%--0x7d8b1f788a44
+            |          
+            |--1.54%--0x7d8b1f788a47
+            |          
+             --1.52%--0x7d8b1f788a4d
+
+     2.18%     0.46%  [k] asm_exc_page_fault                                                                                                                                                                                                                                                                                                                                                                                                                            -      -            
+            |          
+            |--78.66%--asm_exc_page_fault
+            |          exc_page_fault
+            |          |          
+            |          |--97.72%--do_user_addr_fault
+            |          |          |          
+            |          |          |--91.41%--handle_mm_fault
+            |          |          |          |          
+            |          |          |          |--92.72%--__handle_mm_fault
+            |          |          |          |          |          
+            |          |          |          |          |--98.27%--do_anonymous_page
+            |          |          |          |          |          |          
+            |          |          |          |          |          |--35.83%--vma_alloc_folio
+            |          |          |          |          |          |          __folio_alloc
+            |          |          |          |          |          |          |          
+            |          |          |          |          |          |           --100.00%--__alloc_pages
+            |          |          |          |          |          |                     |          
+            |          |          |          |          |          |                     |--62.31%--clear_page_erms
+            |          |          |          |          |          |                     |          |          
+            |          |          |          |          |          |                     |           --100.00%--asm_sysvec_hyperv_stimer0
+            |          |          |          |          |          |                     |                     sysvec_hyperv_stimer0
+            |          |          |          |          |          |                     |                     __sysvec_hyperv_stimer0
+            |          |          |          |          |          |                     |                     hv_stimer0_isr
+            |          |          |          |          |          |                     |                     hrtimer_interrupt
+            |          |          |          |          |          |                     |                     __hrtimer_run_queues
+            |          |          |          |          |          |                     |                     tick_sched_timer
+            |          |          |          |          |          |                     |                     tick_sched_handle
+            |          |          |          |          |          |                     |                     update_process_times
+            |          |          |          |          |          |                     |                     irq_work_tick
+            |          |          |          |          |          |                     |                     debug_smp_processor_id
+            |          |          |          |          |          |                     |                     check_preemption_disabled
+            |          |          |          |          |          |                     |          
+            |          |          |          |          |          |                      --37.69%--get_page_from_freelist
+            |          |          |          |          |          |                                |          
+            |          |          |          |          |          |                                |--40.27%--__rmqueue_pcplist
+            |          |          |          |          |          |                                |          |          
+            |          |          |          |          |          |                                |           --100.00%--__list_del_entry_valid_or_report
+            |          |          |          |          |          |                                |          
+            |          |          |          |          |          |                                |--27.05%--__list_del_entry_valid_or_report
+            |          |          |          |          |          |                                |          
+            |          |          |          |          |          |                                |--17.84%--preempt_count_add
+            |          |          |          |          |          |                                |          
+            |          |          |          |          |          |                                 --14.84%--_raw_spin_trylock
+            |          |          |          |          |          |          
+            |          |          |          |          |          |--21.38%--folio_add_lru_vma
+            |          |          |          |          |          |          folio_add_lru
+            |          |          |          |          |          |          |          
+            |          |          |          |          |          |          |--81.70%--folio_batch_move_lru
+            |          |          |          |          |          |          |          |          
+            |          |          |          |          |          |          |          |--53.78%--lru_add_fn
+            |          |          |          |          |          |          |          |          |          
+            |          |          |          |          |          |          |          |          |--46.24%--__mod_zone_page_state
+            |          |          |          |          |          |          |          |          |          __this_cpu_preempt_check
+            |          |          |          |          |          |          |          |          |          check_preemption_disabled
+            |          |          |          |          |          |          |          |          |          
+            |          |          |          |          |          |          |          |          |--28.80%--mem_cgroup_update_lru_size
+            |          |          |          |          |          |          |          |          |          
+            |          |          |          |          |          |          |          |           --24.96%--__mod_lruvec_state
+            |          |          |          |          |          |          |          |                     __mod_node_page_state
+            |          |          |          |          |          |          |          |                     __this_cpu_preempt_check
+            |          |          |          |          |          |          |          |                     check_preemption_disabled
+            |          |          |          |          |          |          |          |          
+            |          |          |          |          |          |          |          |--30.95%--folio_lruvec_lock_irqsave
+            |          |          |          |          |          |          |          |          
+            |          |          |          |          |          |          |           --15.27%--__rcu_read_unlock
+            |          |          |          |          |          |          |          
+            |          |          |          |          |          |          |--11.10%--check_preemption_disabled
+            |          |          |          |          |          |          |          
+            |          |          |          |          |          |           --7.21%--preempt_count_sub
+            |          |          |          |          |          |          
+            |          |          |          |          |          |--18.79%--__mem_cgroup_charge
+            |          |          |          |          |          |          |          
+            |          |          |          |          |          |          |--52.20%--get_mem_cgroup_from_mm
+            |          |          |          |          |          |          |          
+            |          |          |          |          |          |           --47.80%--charge_memcg
+            |          |          |          |          |          |                     |          
+            |          |          |          |          |          |                     |--80.35%--try_charge_memcg
+            |          |          |          |          |          |                     |          |          
+            |          |          |          |          |          |                     |           --100.00%--check_preemption_disabled
+            |          |          |          |          |          |                     |          
+            |          |          |          |          |          |                      --19.65%--mem_cgroup_charge_statistics
+            |          |          |          |          |          |                                __this_cpu_preempt_check
+            |          |          |          |          |          |                                check_preemption_disabled
+            |          |          |          |          |          |          
+            |          |          |          |          |          |--9.70%--folio_add_new_anon_rmap
+            |          |          |          |          |          |          __mod_lruvec_page_state
+            |          |          |          |          |          |          |          
+            |          |          |          |          |          |          |--57.32%--__mod_lruvec_state
+            |          |          |          |          |          |          |          __mod_memcg_lruvec_state
+            |          |          |          |          |          |          |          |          
+            |          |          |          |          |          |          |           --100.00%--__this_cpu_preempt_check
+            |          |          |          |          |          |          |                     check_preemption_disabled
+            |          |          |          |          |          |          |          
+            |          |          |          |          |          |           --42.68%--__mod_node_page_state
+            |          |          |          |          |          |          
+            |          |          |          |          |          |--7.81%--__pte_offset_map_lock
+            |          |          |          |          |          |          |          
+            |          |          |          |          |          |          |--75.45%--_raw_spin_lock
+            |          |          |          |          |          |          |          
+            |          |          |          |          |          |           --24.55%--preempt_count_add
+            |          |          |          |          |          |          
+            |          |          |          |          |          |--3.03%--__raw_callee_save___pv_queued_spin_unlock
+            |          |          |          |          |          |          
+            |          |          |          |          |          |--2.16%--_raw_spin_unlock
+            |          |          |          |          |          |          __raw_callee_save___pv_queued_spin_unlock
+            |          |          |          |          |          |          
+            |          |          |          |          |           --1.30%--__pte_offset_map
+            |          |          |          |          |          
+            |          |          |          |           --1.73%--__folio_throttle_swaprate
+            |          |          |          |          
+            |          |          |          |--2.96%--count_memcg_events.constprop.0
+            |          |          |          |          __count_memcg_events
+            |          |          |          |          __this_cpu_preempt_check
+            |          |          |          |          check_preemption_disabled
+            |          |          |          |          
+            |          |          |          |--2.25%--__rcu_read_lock
+            |          |          |          |          
+            |          |          |           --2.07%--do_anonymous_page
+            |          |          |          
+            |          |          |--3.50%--lock_vma_under_rcu
+            |          |          |          |          
+            |          |          |           --100.00%--mas_walk
+            |          |          |                     mtree_range_walk
+            |          |          |          
+            |          |          |--2.06%--count_memcg_events.constprop.0
+            |          |          |          
+            |          |          |--1.74%--up_read
+            |          |          |          |          
+            |          |          |           --100.00%--preempt_count_add
+            |          |          |          
+            |          |           --1.29%--__rcu_read_lock
+            |          |          
+            |          |--1.25%--access_error
+            |          |          
+            |           --1.02%--irqentry_exit
+            |                     irqentry_exit_to_user_mode
+            |                     exit_to_user_mode_prepare
+            |          
+            |--11.91%--_RNCNCNvNtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi10live_dedup30build_cells_sharded_live_dedup0s1_0Bb_
+            |          asm_exc_page_fault
+            |          
+            |--5.17%--_RNvNtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi10live_dedup27assemble_sharded_live_dedup
+            |          asm_exc_page_fault
+            |          
+            |--1.55%--_RINvXs0_NtNtNtCsgwRk3ijgeAs_4core4iter8adapters3mapINtB6_3MapINtNtNtBc_3ops5range5RangejENCNvNtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi10live_dedup30build_cells_sharded_live_dedup0ENtNtNtBa_6traits8iterator8Iterator4folduNCINvNvB2Y_8for_each4callTNtB1t_10ShardStateNtNtB1v_6timing12CellSubAccumENCINvMsj_NtCsg1zDg1C6YyQ_5alloc3vecINtB4X_3VecB41_E14extend_trustedBN_E0E0EB1z_
+            |          asm_exc_page_fault
+            |          
+            |--1.42%--0x7d8b1f78950a
+            |          asm_exc_page_fault
+            |          
+             --1.29%--0x7d8b1f788d47
+                       asm_exc_page_fault
+
+     1.71%     0.00%  [k] exc_page_fault                                                                                                                                                                                                                                                                                                                                                                                                                                -      -            
+            |          
+            |--97.72%--do_user_addr_fault
+            |          |          
+            |          |--91.41%--handle_mm_fault
+            |          |          |          
+            |          |          |--92.72%--__handle_mm_fault
+            |          |          |          |          
+            |          |          |          |--98.27%--do_anonymous_page
+            |          |          |          |          |          
+            |          |          |          |          |--35.83%--vma_alloc_folio
+            |          |          |          |          |          __folio_alloc
+            |          |          |          |          |          |          
+            |          |          |          |          |           --100.00%--__alloc_pages
+            |          |          |          |          |                     |          
+            |          |          |          |          |                     |--62.31%--clear_page_erms
+            |          |          |          |          |                     |          |          
+            |          |          |          |          |                     |           --100.00%--asm_sysvec_hyperv_stimer0
+            |          |          |          |          |                     |                     sysvec_hyperv_stimer0
+            |          |          |          |          |                     |                     __sysvec_hyperv_stimer0
+            |          |          |          |          |                     |                     hv_stimer0_isr
+            |          |          |          |          |                     |                     hrtimer_interrupt
+            |          |          |          |          |                     |                     __hrtimer_run_queues
+            |          |          |          |          |                     |                     tick_sched_timer
+            |          |          |          |          |                     |                     tick_sched_handle
+            |          |          |          |          |                     |                     update_process_times
+            |          |          |          |          |                     |                     irq_work_tick
+            |          |          |          |          |                     |                     debug_smp_processor_id
+            |          |          |          |          |                     |                     check_preemption_disabled
+            |          |          |          |          |                     |          
+            |          |          |          |          |                      --37.69%--get_page_from_freelist
+            |          |          |          |          |                                |          
+            |          |          |          |          |                                |--40.27%--__rmqueue_pcplist
+            |          |          |          |          |                                |          |          
+            |          |          |          |          |                                |           --100.00%--__list_del_entry_valid_or_report
+            |          |          |          |          |                                |          
+            |          |          |          |          |                                |--27.05%--__list_del_entry_valid_or_report
+            |          |          |          |          |                                |          
+            |          |          |          |          |                                |--17.84%--preempt_count_add
+            |          |          |          |          |                                |          
+            |          |          |          |          |                                 --14.84%--_raw_spin_trylock
+            |          |          |          |          |          
+            |          |          |          |          |--21.38%--folio_add_lru_vma
+            |          |          |          |          |          folio_add_lru
+            |          |          |          |          |          |          
+            |          |          |          |          |          |--81.70%--folio_batch_move_lru
+            |          |          |          |          |          |          |          
+            |          |          |          |          |          |          |--53.78%--lru_add_fn
+            |          |          |          |          |          |          |          |          
+            |          |          |          |          |          |          |          |--46.24%--__mod_zone_page_state
+            |          |          |          |          |          |          |          |          __this_cpu_preempt_check
+            |          |          |          |          |          |          |          |          check_preemption_disabled
+            |          |          |          |          |          |          |          |          
+            |          |          |          |          |          |          |          |--28.80%--mem_cgroup_update_lru_size
+            |          |          |          |          |          |          |          |          
+            |          |          |          |          |          |          |           --24.96%--__mod_lruvec_state
+            |          |          |          |          |          |          |                     __mod_node_page_state
+            |          |          |          |          |          |          |                     __this_cpu_preempt_check
+            |          |          |          |          |          |          |                     check_preemption_disabled
+            |          |          |          |          |          |          |          
+            |          |          |          |          |          |          |--30.95%--folio_lruvec_lock_irqsave
+            |          |          |          |          |          |          |          
+            |          |          |          |          |          |           --15.27%--__rcu_read_unlock
+            |          |          |          |          |          |          
+            |          |          |          |          |          |--11.10%--check_preemption_disabled
+            |          |          |          |          |          |          
+            |          |          |          |          |           --7.21%--preempt_count_sub
+            |          |          |          |          |          
+            |          |          |          |          |--18.79%--__mem_cgroup_charge
+            |          |          |          |          |          |          
+            |          |          |          |          |          |--52.20%--get_mem_cgroup_from_mm
+            |          |          |          |          |          |          
+            |          |          |          |          |           --47.80%--charge_memcg
+            |          |          |          |          |                     |          
+            |          |          |          |          |                     |--80.35%--try_charge_memcg
+            |          |          |          |          |                     |          |          
+            |          |          |          |          |                     |           --100.00%--check_preemption_disabled
+            |          |          |          |          |                     |          
+            |          |          |          |          |                      --19.65%--mem_cgroup_charge_statistics
+            |          |          |          |          |                                __this_cpu_preempt_check
+            |          |          |          |          |                                check_preemption_disabled
+            |          |          |          |          |          
+            |          |          |          |          |--9.70%--folio_add_new_anon_rmap
+            |          |          |          |          |          __mod_lruvec_page_state
+            |          |          |          |          |          |          
+            |          |          |          |          |          |--57.32%--__mod_lruvec_state
+            |          |          |          |          |          |          __mod_memcg_lruvec_state
+            |          |          |          |          |          |          |          
+            |          |          |          |          |          |           --100.00%--__this_cpu_preempt_check
+            |          |          |          |          |          |                     check_preemption_disabled
+            |          |          |          |          |          |          
+            |          |          |          |          |           --42.68%--__mod_node_page_state
+            |          |          |          |          |          
+            |          |          |          |          |--7.81%--__pte_offset_map_lock
+            |          |          |          |          |          |          
+            |          |          |          |          |          |--75.45%--_raw_spin_lock
+            |          |          |          |          |          |          
+            |          |          |          |          |           --24.55%--preempt_count_add
+            |          |          |          |          |          
+            |          |          |          |          |--3.03%--__raw_callee_save___pv_queued_spin_unlock
+            |          |          |          |          |          
+            |          |          |          |          |--2.16%--_raw_spin_unlock
+            |          |          |          |          |          __raw_callee_save___pv_queued_spin_unlock
+            |          |          |          |          |          
+            |          |          |          |           --1.30%--__pte_offset_map
+            |          |          |          |          
+            |          |          |           --1.73%--__folio_throttle_swaprate
+            |          |          |          
+            |          |          |--2.96%--count_memcg_events.constprop.0
+            |          |          |          __count_memcg_events
+            |          |          |          __this_cpu_preempt_check
+            |          |          |          check_preemption_disabled
+            |          |          |          
+            |          |          |--2.25%--__rcu_read_lock
+            |          |          |          
+            |          |           --2.07%--do_anonymous_page
+            |          |          
+            |          |--3.50%--lock_vma_under_rcu
+            |          |          |          
+            |          |           --100.00%--mas_walk
+            |          |                     mtree_range_walk
+            |          |          
+            |          |--2.06%--count_memcg_events.constprop.0
+            |          |          
+            |          |--1.74%--up_read
+            |          |          |          
+            |          |           --100.00%--preempt_count_add
+            |          |          
+            |           --1.29%--__rcu_read_lock
+            |          
+            |--1.25%--access_error
+            |          
+             --1.02%--irqentry_exit
+                       irqentry_exit_to_user_mode
+                       exit_to_user_mode_prepare
+
+     1.67%     0.00%  [k] do_user_addr_fault                                                                                                                                                                                                                                                                                                                                                                                                                            -      -            
+            |          
+            |--91.41%--handle_mm_fault
+            |          |          
+            |          |--92.72%--__handle_mm_fault
+            |          |          |          
+            |          |          |--98.27%--do_anonymous_page
+            |          |          |          |          
+            |          |          |          |--35.83%--vma_alloc_folio
+            |          |          |          |          __folio_alloc
+            |          |          |          |          |          
+            |          |          |          |           --100.00%--__alloc_pages
+            |          |          |          |                     |          
+            |          |          |          |                     |--62.31%--clear_page_erms
+            |          |          |          |                     |          |          
+            |          |          |          |                     |           --100.00%--asm_sysvec_hyperv_stimer0
+            |          |          |          |                     |                     sysvec_hyperv_stimer0
+            |          |          |          |                     |                     __sysvec_hyperv_stimer0
+            |          |          |          |                     |                     hv_stimer0_isr
+            |          |          |          |                     |                     hrtimer_interrupt
+            |          |          |          |                     |                     __hrtimer_run_queues
+            |          |          |          |                     |                     tick_sched_timer
+            |          |          |          |                     |                     tick_sched_handle
+            |          |          |          |                     |                     update_process_times
+            |          |          |          |                     |                     irq_work_tick
+            |          |          |          |                     |                     debug_smp_processor_id
+            |          |          |          |                     |                     check_preemption_disabled
+            |          |          |          |                     |          
+            |          |          |          |                      --37.69%--get_page_from_freelist
+            |          |          |          |                                |          
+            |          |          |          |                                |--40.27%--__rmqueue_pcplist
+            |          |          |          |                                |          |          
+            |          |          |          |                                |           --100.00%--__list_del_entry_valid_or_report
+            |          |          |          |                                |          
+            |          |          |          |                                |--27.05%--__list_del_entry_valid_or_report
+            |          |          |          |                                |          
+            |          |          |          |                                |--17.84%--preempt_count_add
+            |          |          |          |                                |          
+            |          |          |          |                                 --14.84%--_raw_spin_trylock
+            |          |          |          |          
+            |          |          |          |--21.38%--folio_add_lru_vma
+            |          |          |          |          folio_add_lru
+            |          |          |          |          |          
+            |          |          |          |          |--81.70%--folio_batch_move_lru
+            |          |          |          |          |          |          
+            |          |          |          |          |          |--53.78%--lru_add_fn
+            |          |          |          |          |          |          |          
+            |          |          |          |          |          |          |--46.24%--__mod_zone_page_state
+            |          |          |          |          |          |          |          __this_cpu_preempt_check
+            |          |          |          |          |          |          |          check_preemption_disabled
+            |          |          |          |          |          |          |          
+            |          |          |          |          |          |          |--28.80%--mem_cgroup_update_lru_size
+            |          |          |          |          |          |          |          
+            |          |          |          |          |          |           --24.96%--__mod_lruvec_state
+            |          |          |          |          |          |                     __mod_node_page_state
+            |          |          |          |          |          |                     __this_cpu_preempt_check
+            |          |          |          |          |          |                     check_preemption_disabled
+            |          |          |          |          |          |          
+            |          |          |          |          |          |--30.95%--folio_lruvec_lock_irqsave
+            |          |          |          |          |          |          
+            |          |          |          |          |           --15.27%--__rcu_read_unlock
+            |          |          |          |          |          
+            |          |          |          |          |--11.10%--check_preemption_disabled
+            |          |          |          |          |          
+            |          |          |          |           --7.21%--preempt_count_sub
+            |          |          |          |          
+            |          |          |          |--18.79%--__mem_cgroup_charge
+            |          |          |          |          |          
+            |          |          |          |          |--52.20%--get_mem_cgroup_from_mm
+            |          |          |          |          |          
+            |          |          |          |           --47.80%--charge_memcg
+            |          |          |          |                     |          
+            |          |          |          |                     |--80.35%--try_charge_memcg
+            |          |          |          |                     |          |          
+            |          |          |          |                     |           --100.00%--check_preemption_disabled
+            |          |          |          |                     |          
+            |          |          |          |                      --19.65%--mem_cgroup_charge_statistics
+            |          |          |          |                                __this_cpu_preempt_check
+            |          |          |          |                                check_preemption_disabled
+            |          |          |          |          
+            |          |          |          |--9.70%--folio_add_new_anon_rmap
+            |          |          |          |          __mod_lruvec_page_state
+            |          |          |          |          |          
+            |          |          |          |          |--57.32%--__mod_lruvec_state
+            |          |          |          |          |          __mod_memcg_lruvec_state
+            |          |          |          |          |          |          
+            |          |          |          |          |           --100.00%--__this_cpu_preempt_check
+            |          |          |          |          |                     check_preemption_disabled
+            |          |          |          |          |          
+            |          |          |          |           --42.68%--__mod_node_page_state
+            |          |          |          |          
+            |          |          |          |--7.81%--__pte_offset_map_lock
+            |          |          |          |          |          
+            |          |          |          |          |--75.45%--_raw_spin_lock
+            |          |          |          |          |          
+            |          |          |          |           --24.55%--preempt_count_add
+            |          |          |          |          
+            |          |          |          |--3.03%--__raw_callee_save___pv_queued_spin_unlock
+            |          |          |          |          
+            |          |          |          |--2.16%--_raw_spin_unlock
+            |          |          |          |          __raw_callee_save___pv_queued_spin_unlock
+            |          |          |          |          
+            |          |          |           --1.30%--__pte_offset_map
+            |          |          |          
+            |          |           --1.73%--__folio_throttle_swaprate
+            |          |          
+            |          |--2.96%--count_memcg_events.constprop.0
+            |          |          __count_memcg_events
+            |          |          __this_cpu_preempt_check
+            |          |          check_preemption_disabled
+            |          |          
+            |          |--2.25%--__rcu_read_lock
+            |          |          
+            |           --2.07%--do_anonymous_page
+            |          
+            |--3.50%--lock_vma_under_rcu
+            |          |          
+            |           --100.00%--mas_walk
+            |                     mtree_range_walk
+            |          
+            |--2.06%--count_memcg_events.constprop.0
+            |          
+            |--1.74%--up_read
+            |          |          
+            |           --100.00%--preempt_count_add
+            |          
+             --1.29%--__rcu_read_lock
+
+     1.56%     1.41%  [.] _RNvMs5_NtNtCseERxa3dxhbo_4hex38geometry9cube_gridNtB5_11CubeMapGrid3new                                                                                                                                                                                                                                                                                                                                                                      -      -            
+            |          
+            |--88.98%--_RNvMs5_NtNtCseERxa3dxhbo_4hex38geometry9cube_gridNtB5_11CubeMapGrid3new
+            |          |          
+            |           --100.00%--asm_exc_page_fault
+            |                     exc_page_fault
+            |                     do_user_addr_fault
+            |                     handle_mm_fault
+            |                     |          
+            |                      --100.00%--__handle_mm_fault
+            |                                |          
+            |                                 --100.00%--do_anonymous_page
+            |                                           vma_alloc_folio
+            |                                           __folio_alloc
+            |                                           __alloc_pages
+            |                                           clear_page_erms
+            |          
+             --11.02%--0x2e0f000797520d54
+                       _RNvMs5_NtNtCseERxa3dxhbo_4hex38geometry9cube_gridNtB5_11CubeMapGrid3new
+
+     1.53%     0.03%  [k] handle_mm_fault                                                                                                                                                                                                                                                                                                                                                                                                                               -      -            
+            |          
+            |--97.83%--handle_mm_fault
+            |          |          
+            |          |--92.72%--__handle_mm_fault
+            |          |          |          
+            |          |          |--98.27%--do_anonymous_page
+            |          |          |          |          
+            |          |          |          |--35.83%--vma_alloc_folio
+            |          |          |          |          __folio_alloc
+            |          |          |          |          |          
+            |          |          |          |           --100.00%--__alloc_pages
+            |          |          |          |                     |          
+            |          |          |          |                     |--62.31%--clear_page_erms
+            |          |          |          |                     |          |          
+            |          |          |          |                     |           --100.00%--asm_sysvec_hyperv_stimer0
+            |          |          |          |                     |                     sysvec_hyperv_stimer0
+            |          |          |          |                     |                     __sysvec_hyperv_stimer0
+            |          |          |          |                     |                     hv_stimer0_isr
+            |          |          |          |                     |                     hrtimer_interrupt
+            |          |          |          |                     |                     __hrtimer_run_queues
+            |          |          |          |                     |                     tick_sched_timer
+            |          |          |          |                     |                     tick_sched_handle
+            |          |          |          |                     |                     update_process_times
+            |          |          |          |                     |                     irq_work_tick
+            |          |          |          |                     |                     debug_smp_processor_id
+            |          |          |          |                     |                     check_preemption_disabled
+            |          |          |          |                     |          
+            |          |          |          |                      --37.69%--get_page_from_freelist
+            |          |          |          |                                |          
+            |          |          |          |                                |--40.27%--__rmqueue_pcplist
+            |          |          |          |                                |          |          
+            |          |          |          |                                |           --100.00%--__list_del_entry_valid_or_report
+            |          |          |          |                                |          
+            |          |          |          |                                |--27.05%--__list_del_entry_valid_or_report
+            |          |          |          |                                |          
+            |          |          |          |                                |--17.84%--preempt_count_add
+            |          |          |          |                                |          
+            |          |          |          |                                 --14.84%--_raw_spin_trylock
+            |          |          |          |          
+            |          |          |          |--21.38%--folio_add_lru_vma
+            |          |          |          |          folio_add_lru
+            |          |          |          |          |          
+            |          |          |          |          |--81.70%--folio_batch_move_lru
+            |          |          |          |          |          |          
+            |          |          |          |          |          |--53.78%--lru_add_fn
+            |          |          |          |          |          |          |          
+            |          |          |          |          |          |          |--46.24%--__mod_zone_page_state
+            |          |          |          |          |          |          |          __this_cpu_preempt_check
+            |          |          |          |          |          |          |          check_preemption_disabled
+            |          |          |          |          |          |          |          
+            |          |          |          |          |          |          |--28.80%--mem_cgroup_update_lru_size
+            |          |          |          |          |          |          |          
+            |          |          |          |          |          |           --24.96%--__mod_lruvec_state
+            |          |          |          |          |          |                     __mod_node_page_state
+            |          |          |          |          |          |                     __this_cpu_preempt_check
+            |          |          |          |          |          |                     check_preemption_disabled
+            |          |          |          |          |          |          
+            |          |          |          |          |          |--30.95%--folio_lruvec_lock_irqsave
+            |          |          |          |          |          |          
+            |          |          |          |          |           --15.27%--__rcu_read_unlock
+            |          |          |          |          |          
+            |          |          |          |          |--11.10%--check_preemption_disabled
+            |          |          |          |          |          
+            |          |          |          |           --7.21%--preempt_count_sub
+            |          |          |          |          
+            |          |          |          |--18.79%--__mem_cgroup_charge
+            |          |          |          |          |          
+            |          |          |          |          |--52.20%--get_mem_cgroup_from_mm
+            |          |          |          |          |          
+            |          |          |          |           --47.80%--charge_memcg
+            |          |          |          |                     |          
+            |          |          |          |                     |--80.35%--try_charge_memcg
+            |          |          |          |                     |          |          
+            |          |          |          |                     |           --100.00%--check_preemption_disabled
+            |          |          |          |                     |          
+            |          |          |          |                      --19.65%--mem_cgroup_charge_statistics
+            |          |          |          |                                __this_cpu_preempt_check
+            |          |          |          |                                check_preemption_disabled
+            |          |          |          |          
+            |          |          |          |--9.70%--folio_add_new_anon_rmap
+            |          |          |          |          __mod_lruvec_page_state
+            |          |          |          |          |          
+            |          |          |          |          |--57.32%--__mod_lruvec_state
+            |          |          |          |          |          __mod_memcg_lruvec_state
+            |          |          |          |          |          |          
+            |          |          |          |          |           --100.00%--__this_cpu_preempt_check
+            |          |          |          |          |                     check_preemption_disabled
+            |          |          |          |          |          
+            |          |          |          |           --42.68%--__mod_node_page_state
+            |          |          |          |          
+            |          |          |          |--7.81%--__pte_offset_map_lock
+            |          |          |          |          |          
+            |          |          |          |          |--75.45%--_raw_spin_lock
+            |          |          |          |          |          
+            |          |          |          |           --24.55%--preempt_count_add
+            |          |          |          |          
+            |          |          |          |--3.03%--__raw_callee_save___pv_queued_spin_unlock
+            |          |          |          |          
+            |          |          |          |--2.16%--_raw_spin_unlock
+            |          |          |          |          __raw_callee_save___pv_queued_spin_unlock
+            |          |          |          |          
+            |          |          |           --1.30%--__pte_offset_map
+            |          |          |          
+            |          |           --1.73%--__folio_throttle_swaprate
+            |          |          
+            |          |--2.96%--count_memcg_events.constprop.0
+            |          |          __count_memcg_events
+            |          |          __this_cpu_preempt_check
+            |          |          check_preemption_disabled
+            |          |          
+            |          |--2.25%--__rcu_read_lock
+            |          |          
+            |           --2.07%--do_anonymous_page
+            |          
+             --2.17%--_RNvMs5_NtNtCseERxa3dxhbo_4hex38geometry9cube_gridNtB5_11CubeMapGrid3new
+                       asm_exc_page_fault
+                       exc_page_fault
+                       do_user_addr_fault
+                       handle_mm_fault
+
+     1.39%     0.17%  [k] __handle_mm_fault                                                                                                                                                                                                                                                                                                                                                                                                                             -      -            
+            |          
+            |--88.02%--__handle_mm_fault
+            |          |          
+            |          |--98.27%--do_anonymous_page
+            |          |          |          
+            |          |          |--35.83%--vma_alloc_folio
+            |          |          |          __folio_alloc
+            |          |          |          |          
+            |          |          |           --100.00%--__alloc_pages
+            |          |          |                     |          
+            |          |          |                     |--62.31%--clear_page_erms
+            |          |          |                     |          |          
+            |          |          |                     |           --100.00%--asm_sysvec_hyperv_stimer0
+            |          |          |                     |                     sysvec_hyperv_stimer0
+            |          |          |                     |                     __sysvec_hyperv_stimer0
+            |          |          |                     |                     hv_stimer0_isr
+            |          |          |                     |                     hrtimer_interrupt
+            |          |          |                     |                     __hrtimer_run_queues
+            |          |          |                     |                     tick_sched_timer
+            |          |          |                     |                     tick_sched_handle
+            |          |          |                     |                     update_process_times
+            |          |          |                     |                     irq_work_tick
+            |          |          |                     |                     debug_smp_processor_id
+            |          |          |                     |                     check_preemption_disabled
+            |          |          |                     |          
+            |          |          |                      --37.69%--get_page_from_freelist
+            |          |          |                                |          
+            |          |          |                                |--40.27%--__rmqueue_pcplist
+            |          |          |                                |          |          
+            |          |          |                                |           --100.00%--__list_del_entry_valid_or_report
+            |          |          |                                |          
+            |          |          |                                |--27.05%--__list_del_entry_valid_or_report
+            |          |          |                                |          
+            |          |          |                                |--17.84%--preempt_count_add
+            |          |          |                                |          
+            |          |          |                                 --14.84%--_raw_spin_trylock
+            |          |          |          
+            |          |          |--21.38%--folio_add_lru_vma
+            |          |          |          folio_add_lru
+            |          |          |          |          
+            |          |          |          |--81.70%--folio_batch_move_lru
+            |          |          |          |          |          
+            |          |          |          |          |--53.78%--lru_add_fn
+            |          |          |          |          |          |          
+            |          |          |          |          |          |--46.24%--__mod_zone_page_state
+            |          |          |          |          |          |          __this_cpu_preempt_check
+            |          |          |          |          |          |          check_preemption_disabled
+            |          |          |          |          |          |          
+            |          |          |          |          |          |--28.80%--mem_cgroup_update_lru_size
+            |          |          |          |          |          |          
+            |          |          |          |          |           --24.96%--__mod_lruvec_state
+            |          |          |          |          |                     __mod_node_page_state
+            |          |          |          |          |                     __this_cpu_preempt_check
+            |          |          |          |          |                     check_preemption_disabled
+            |          |          |          |          |          
+            |          |          |          |          |--30.95%--folio_lruvec_lock_irqsave
+            |          |          |          |          |          
+            |          |          |          |           --15.27%--__rcu_read_unlock
+            |          |          |          |          
+            |          |          |          |--11.10%--check_preemption_disabled
+            |          |          |          |          
+            |          |          |           --7.21%--preempt_count_sub
+            |          |          |          
+            |          |          |--18.79%--__mem_cgroup_charge
+            |          |          |          |          
+            |          |          |          |--52.20%--get_mem_cgroup_from_mm
+            |          |          |          |          
+            |          |          |           --47.80%--charge_memcg
+            |          |          |                     |          
+            |          |          |                     |--80.35%--try_charge_memcg
+            |          |          |                     |          |          
+            |          |          |                     |           --100.00%--check_preemption_disabled
+            |          |          |                     |          
+            |          |          |                      --19.65%--mem_cgroup_charge_statistics
+            |          |          |                                __this_cpu_preempt_check
+            |          |          |                                check_preemption_disabled
+            |          |          |          
+            |          |          |--9.70%--folio_add_new_anon_rmap
+            |          |          |          __mod_lruvec_page_state
+            |          |          |          |          
+            |          |          |          |--57.32%--__mod_lruvec_state
+            |          |          |          |          __mod_memcg_lruvec_state
+            |          |          |          |          |          
+            |          |          |          |           --100.00%--__this_cpu_preempt_check
+            |          |          |          |                     check_preemption_disabled
+            |          |          |          |          
+            |          |          |           --42.68%--__mod_node_page_state
+            |          |          |          
+            |          |          |--7.81%--__pte_offset_map_lock
+            |          |          |          |          
+            |          |          |          |--75.45%--_raw_spin_lock
+            |          |          |          |          
+            |          |          |           --24.55%--preempt_count_add
+            |          |          |          
+            |          |          |--3.03%--__raw_callee_save___pv_queued_spin_unlock
+            |          |          |          
+            |          |          |--2.16%--_raw_spin_unlock
+            |          |          |          __raw_callee_save___pv_queued_spin_unlock
+            |          |          |          
+            |          |           --1.30%--__pte_offset_map
+            |          |          
+            |           --1.73%--__folio_throttle_swaprate
+            |          
+            |--9.59%--_RNCNCNvNtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi10live_dedup30build_cells_sharded_live_dedup0s1_0Bb_
+            |          asm_exc_page_fault
+            |          exc_page_fault
+            |          do_user_addr_fault
+            |          handle_mm_fault
+            |          __handle_mm_fault
+            |          
+             --2.39%--_RNvMs5_NtNtCseERxa3dxhbo_4hex38geometry9cube_gridNtB5_11CubeMapGrid3new
+                       asm_exc_page_fault
+                       exc_page_fault
+                       do_user_addr_fault
+                       handle_mm_fault
+                       __handle_mm_fault
+
+     1.23%     0.10%  [k] do_anonymous_page                                                                                                                                                                                                                                                                                                                                                                                                                             -      -            
+            |          
+            |--91.97%--do_anonymous_page
+            |          |          
+            |          |--35.83%--vma_alloc_folio
+            |          |          __folio_alloc
+            |          |          |          
+            |          |           --100.00%--__alloc_pages
+            |          |                     |          
+            |          |                     |--62.31%--clear_page_erms
+            |          |                     |          |          
+            |          |                     |           --100.00%--asm_sysvec_hyperv_stimer0
+            |          |                     |                     sysvec_hyperv_stimer0
+            |          |                     |                     __sysvec_hyperv_stimer0
+            |          |                     |                     hv_stimer0_isr
+            |          |                     |                     hrtimer_interrupt
+            |          |                     |                     __hrtimer_run_queues
+            |          |                     |                     tick_sched_timer
+            |          |                     |                     tick_sched_handle
+            |          |                     |                     update_process_times
+            |          |                     |                     irq_work_tick
+            |          |                     |                     debug_smp_processor_id
+            |          |                     |                     check_preemption_disabled
+            |          |                     |          
+            |          |                      --37.69%--get_page_from_freelist
+            |          |                                |          
+            |          |                                |--40.27%--__rmqueue_pcplist
+            |          |                                |          |          
+            |          |                                |           --100.00%--__list_del_entry_valid_or_report
+            |          |                                |          
+            |          |                                |--27.05%--__list_del_entry_valid_or_report
+            |          |                                |          
+            |          |                                |--17.84%--preempt_count_add
+            |          |                                |          
+            |          |                                 --14.84%--_raw_spin_trylock
+            |          |          
+            |          |--21.38%--folio_add_lru_vma
+            |          |          folio_add_lru
+            |          |          |          
+            |          |          |--81.70%--folio_batch_move_lru
+            |          |          |          |          
+            |          |          |          |--53.78%--lru_add_fn
+            |          |          |          |          |          
+            |          |          |          |          |--46.24%--__mod_zone_page_state
+            |          |          |          |          |          __this_cpu_preempt_check
+            |          |          |          |          |          check_preemption_disabled
+            |          |          |          |          |          
+            |          |          |          |          |--28.80%--mem_cgroup_update_lru_size
+            |          |          |          |          |          
+            |          |          |          |           --24.96%--__mod_lruvec_state
+            |          |          |          |                     __mod_node_page_state
+            |          |          |          |                     __this_cpu_preempt_check
+            |          |          |          |                     check_preemption_disabled
+            |          |          |          |          
+            |          |          |          |--30.95%--folio_lruvec_lock_irqsave
+            |          |          |          |          
+            |          |          |           --15.27%--__rcu_read_unlock
+            |          |          |          
+            |          |          |--11.10%--check_preemption_disabled
+            |          |          |          
+            |          |           --7.21%--preempt_count_sub
+            |          |          
+            |          |--18.79%--__mem_cgroup_charge
+            |          |          |          
+            |          |          |--52.20%--get_mem_cgroup_from_mm
+            |          |          |          
+            |          |           --47.80%--charge_memcg
+            |          |                     |          
+            |          |                     |--80.35%--try_charge_memcg
+            |          |                     |          |          
+            |          |                     |           --100.00%--check_preemption_disabled
+            |          |                     |          
+            |          |                      --19.65%--mem_cgroup_charge_statistics
+            |          |                                __this_cpu_preempt_check
+            |          |                                check_preemption_disabled
+            |          |          
+            |          |--9.70%--folio_add_new_anon_rmap
+            |          |          __mod_lruvec_page_state
+            |          |          |          
+            |          |          |--57.32%--__mod_lruvec_state
+            |          |          |          __mod_memcg_lruvec_state
+            |          |          |          |          
+            |          |          |           --100.00%--__this_cpu_preempt_check
+            |          |          |                     check_preemption_disabled
+            |          |          |          
+            |          |           --42.68%--__mod_node_page_state
+            |          |          
+            |          |--7.81%--__pte_offset_map_lock
+            |          |          |          
+            |          |          |--75.45%--_raw_spin_lock
+            |          |          |          
+            |          |           --24.55%--preempt_count_add
+            |          |          
+            |          |--3.03%--__raw_callee_save___pv_queued_spin_unlock
+            |          |          
+            |          |--2.16%--_raw_spin_unlock
+            |          |          __raw_callee_save___pv_queued_spin_unlock
+            |          |          
+            |           --1.30%--__pte_offset_map
+            |          
+            |--5.28%--_RNCNCNvNtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi10live_dedup30build_cells_sharded_live_dedup0s1_0Bb_
+            |          asm_exc_page_fault
+            |          exc_page_fault
+            |          do_user_addr_fault
+            |          handle_mm_fault
+            |          |          
+            |          |--52.30%--__handle_mm_fault
+            |          |          do_anonymous_page
+            |          |          
+            |           --47.70%--do_anonymous_page
+            |          
+             --2.75%--_RNvMNtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi3knnNtB2_14CubeMapGridKnn3new
+                       asm_exc_page_fault
+                       exc_page_fault
+                       do_user_addr_fault
+                       handle_mm_fault
+                       __handle_mm_fault
+                       do_anonymous_page
+
+     1.05%     1.05%  [.] 0x0000000000188a51                                                                                                                                                                                                                                                                                                                                                                                                                            -      -            
+            |          
+            |--93.67%--0x6ffec5237220fa83
+            |          0x7d8b1f788a51
+            |          
+             --6.33%--0x7d8b1f788a51
+
+     1.05%     0.00%  [.] 0x00007d8b1f788a51                                                                                                                                                                                                                                                                                                                                                                                                                            -      -            
+     0.97%     0.97%  [.] _RNvMs_NtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi12cell_builderNtB4_14F64CellBuilder13can_terminate                                                                                                                                                                                                                                                                                                                                      -      -            
+            |          
+            |--3.61%--0xbdd92da1be3d163c
+            |          _RNvMs_NtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi12cell_builderNtB4_14F64CellBuilder13can_terminate
+            |          
+            |--3.61%--0xbe8ca9efbe885751
+            |          _RNvMs_NtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi12cell_builderNtB4_14F64CellBuilder13can_terminate
+            |          
+            |--3.58%--0x3edab4163edebe51
+            |          _RNvMs_NtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi12cell_builderNtB4_14F64CellBuilder13can_terminate
+            |          
+            |--3.57%--0x3f06446b3f192155
+            |          _RNvMs_NtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi12cell_builderNtB4_14F64CellBuilder13can_terminate
+            |          
+            |--3.57%--0x3f3591f63f711843
+            |          _RNvMs_NtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi12cell_builderNtB4_14F64CellBuilder13can_terminate
+            |          
+            |--3.57%--0x3f1eafb23f4092b2
+            |          _RNvMs_NtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi12cell_builderNtB4_14F64CellBuilder13can_terminate
+            |          
+            |--3.57%--0xbe66d098be84d026
+            |          _RNvMs_NtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi12cell_builderNtB4_14F64CellBuilder13can_terminate
+            |          
+            |--3.54%--0x3f1605583f1b4139
+            |          _RNvMs_NtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi12cell_builderNtB4_14F64CellBuilder13can_terminate
+            |          
+            |--3.54%--0xbf297738bf4fcf59
+            |          _RNvMs_NtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi12cell_builderNtB4_14F64CellBuilder13can_terminate
+            |          
+            |--3.50%--0x3f32eadb3f71b6ba
+            |          _RNvMs_NtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi12cell_builderNtB4_14F64CellBuilder13can_terminate
+            |          
+            |--3.50%--0x3f31e26f3e95726e
+            |          _RNvMs_NtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi12cell_builderNtB4_14F64CellBuilder13can_terminate
+            |          
+            |--3.50%--0x3f26f8fb3f4de611
+            |          _RNvMs_NtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi12cell_builderNtB4_14F64CellBuilder13can_terminate
+            |          
+            |--3.48%--0xbf34d2aabf7b245e
+            |          _RNvMs_NtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi12cell_builderNtB4_14F64CellBuilder13can_terminate
+            |          
+            |--3.48%--0x3de3c1c43dd5abf0
+            |          _RNvMs_NtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi12cell_builderNtB4_14F64CellBuilder13can_terminate
+            |          
+            |--3.47%--0x3d7a353d3d988e88
+            |          _RNvMs_NtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi12cell_builderNtB4_14F64CellBuilder13can_terminate
+            |          
+            |--3.47%--0xbf2c2d61bf5b21e3
+            |          _RNvMs_NtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi12cell_builderNtB4_14F64CellBuilder13can_terminate
+            |          
+            |--3.46%--0x3ee2a3ca3f1091ad
+            |          _RNvMs_NtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi12cell_builderNtB4_14F64CellBuilder13can_terminate
+            |          
+            |--3.45%--0x5821bd221d27
+            |          _RNvMs_NtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi12cell_builderNtB4_14F64CellBuilder13can_terminate
+            |          
+            |--3.42%--0x3d3a3db63d837229
+            |          _RNvMs_NtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi12cell_builderNtB4_14F64CellBuilder13can_terminate
+            |          
+            |--3.41%--0x3f28d3973f2a8450
+            |          _RNvMs_NtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi12cell_builderNtB4_14F64CellBuilder13can_terminate
+            |          
+            |--3.40%--0x3e2c73f53e32c2f3
+            |          _RNvMs_NtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi12cell_builderNtB4_14F64CellBuilder13can_terminate
+            |          
+            |--3.39%--0x3f1e5c783e82d478
+            |          _RNvMs_NtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi12cell_builderNtB4_14F64CellBuilder13can_terminate
+            |          
+            |--3.34%--0x3f102ec43f130c77
+            |          _RNvMs_NtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi12cell_builderNtB4_14F64CellBuilder13can_terminate
+            |          
+            |--3.33%--0x3f34d95b3f67db30
+            |          _RNvMs_NtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi12cell_builderNtB4_14F64CellBuilder13can_terminate
+            |          
+            |--3.32%--0xbf23c8bfbf471cf2
+            |          _RNvMs_NtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi12cell_builderNtB4_14F64CellBuilder13can_terminate
+            |          
+            |--3.30%--0x3f3260dc3f736a2f
+            |          _RNvMs_NtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi12cell_builderNtB4_14F64CellBuilder13can_terminate
+            |          
+            |--3.29%--0xbf30d7b8bd9afea9
+            |          _RNvMs_NtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi12cell_builderNtB4_14F64CellBuilder13can_terminate
+            |          
+            |--3.21%--0xbf33464abeeea5ab
+            |          _RNvMs_NtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi12cell_builderNtB4_14F64CellBuilder13can_terminate
+            |          
+             --3.12%--0xbf328cffbf706ff8
+                       _RNvMs_NtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi12cell_builderNtB4_14F64CellBuilder13can_terminate
+
+     0.96%     0.00%  [.] 0xbf12a0b3bf1294d6                                                                                                                                                                                                                                                                                                                                                                                                                            -      -            
+            |          
+            |--54.52%--_RNvMs4_NtNtCseERxa3dxhbo_4hex38geometry9cube_gridNtB5_18CubeMapGridScratch16try_add_neighbor
+            |          
+            |--31.19%--_RINvMs5_NtNtCseERxa3dxhbo_4hex38geometry9cube_gridNtB6_11CubeMapGrid21scan_cell_points_implNtNtNtNtCscxLpIqr36iz_4glam3f324sse25vec3a5Vec3AEBa_
+            |          
+            |--3.59%--0x7d8b1f788b24
+            |          
+            |--3.58%--0x7d8b1f788b07
+            |          
+            |--3.56%--0x7d8b1f788ab6
+            |          
+             --3.55%--0x7d8b1f788acb
+
+     0.81%     0.00%  [.] 0x2e0f000797520d54                                                                                                                                                                                                                                                                                                                                                                                                                            -      -            
+            |          
+            |--78.76%--__acosf_finite
+            |          
+             --21.24%--_RNvMs5_NtNtCseERxa3dxhbo_4hex38geometry9cube_gridNtB5_11CubeMapGrid3new
+
+     0.61%     0.44%  [.] _RINvXs0_NtNtNtCsgwRk3ijgeAs_4core4iter8adapters3mapINtB6_3MapINtNtNtBc_3ops5range5RangejENCNvNtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi10live_dedup30build_cells_sharded_live_dedup0ENtNtNtBa_6traits8iterator8Iterator4folduNCINvNvB2Y_8for_each4callTNtB1t_10ShardStateNtNtB1v_6timing12CellSubAccumENCINvMsj_NtCsg1zDg1C6YyQ_5alloc3vecINtB4X_3VecB41_E14extend_trustedBN_E0E0EB1z_                                                  -      -            
+            |          
+            |--88.80%--_RINvXs0_NtNtNtCsgwRk3ijgeAs_4core4iter8adapters3mapINtB6_3MapINtNtNtBc_3ops5range5RangejENCNvNtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi10live_dedup30build_cells_sharded_live_dedup0ENtNtNtBa_6traits8iterator8Iterator4folduNCINvNvB2Y_8for_each4callTNtB1t_10ShardStateNtNtB1v_6timing12CellSubAccumENCINvMsj_NtCsg1zDg1C6YyQ_5alloc3vecINtB4X_3VecB41_E14extend_trustedBN_E0E0EB1z_
+            |          |          
+            |          |--59.71%--asm_exc_page_fault
+            |          |          |          
+            |          |           --100.00%--exc_page_fault
+            |          |                     do_user_addr_fault
+            |          |                     handle_mm_fault
+            |          |                     __handle_mm_fault
+            |          |                     do_anonymous_page
+            |          |                     |          
+            |          |                     |--50.07%--vma_alloc_folio
+            |          |                     |          __folio_alloc
+            |          |                     |          __alloc_pages
+            |          |                     |          
+            |          |                      --49.93%--__mem_cgroup_charge
+            |          |                                get_mem_cgroup_from_mm
+            |          |          
+            |           --40.29%--sync_regs
+            |          
+            |--5.61%--0x5821ab6dd940
+            |          _RINvXs0_NtNtNtCsgwRk3ijgeAs_4core4iter8adapters3mapINtB6_3MapINtNtNtBc_3ops5range5RangejENCNvNtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi10live_dedup30build_cells_sharded_live_dedup0ENtNtNtBa_6traits8iterator8Iterator4folduNCINvNvB2Y_8for_each4callTNtB1t_10ShardStateNtNtB1v_6timing12CellSubAccumENCINvMsj_NtCsg1zDg1C6YyQ_5alloc3vecINtB4X_3VecB41_E14extend_trustedBN_E0E0EB1z_
+            |          
+             --5.60%--0x5821ab717bc0
+                       _RINvXs0_NtNtNtCsgwRk3ijgeAs_4core4iter8adapters3mapINtB6_3MapINtNtNtBc_3ops5range5RangejENCNvNtNtNtCseERxa3dxhbo_4hex38geometry11gpu_voronoi10live_dedup30build_cells_sharded_live_dedup0ENtNtNtBa_6traits8iterator8Iterator4folduNCINvNvB2Y_8for_each4callTNtB1t_10ShardStateNtNtB1v_6timing12CellSubAccumENCINvMsj_NtCsg1zDg1C6YyQ_5alloc3vecINtB4X_3VecB41_E14extend_trustedBN_E0E0EB1z_
+
+     0.52%     0.52%  [.] _RNvMs4_NtNtCseERxa3dxhbo_4hex38geometry9cube_gridNtB5_18CubeMapGridScratch16try_add_neighbor                                                                                                                                                                                                                                                                                                                                                 -      -            
+            |
+            ---_RNvMs4_NtNtCseERxa3dxhbo_4hex38geometry9cube_gridNtB5_18CubeMapGridScratch16try_add_neighbor
+
+     0.52%     0.52%  [.] __acosf_finite                                                                                                                                                                                                                                                                                                                                                                                                                                -      -            
+            |
+            ---__acosf_finite
+
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#

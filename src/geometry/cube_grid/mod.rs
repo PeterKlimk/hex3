@@ -744,15 +744,6 @@ impl CubeMapGrid {
         Some(new_face * res * res + new_iv * res + new_iu)
     }
 
-    /// Ring offsets for Chebyshev distance 2 (16 cells forming the 5x5 border).
-    const RING_2_OFFSETS: [(i32, i32); 16] = [
-        (-2, -2), (-2, -1), (-2, 0), (-2, 1), (-2, 2),
-        (-1, -2), (-1, 2),
-        (0, -2), (0, 2),
-        (1, -2), (1, 2),
-        (2, -2), (2, -1), (2, 0), (2, 1), (2, 2),
-    ];
-
     /// Compute security_3x3 threshold for all cells using 5x5 ring caps.
     ///
     /// For each cell, finds the max dot product from any point in the cell to any point
@@ -765,18 +756,17 @@ impl CubeMapGrid {
     ) -> Vec<f32> {
         let num_cells = 6 * res * res;
         let mut security = vec![f32::NEG_INFINITY; num_cells];
-        let mut ring = Vec::with_capacity(Self::RING_2_OFFSETS.len());
 
         for cell in 0..num_cells {
             // Get 5x5 ring cells (Chebyshev distance exactly 2)
-            Self::get_ring_cells_into(cell, res, &mut ring);
+            let ring = Self::get_ring_cells(cell, 2, res);
 
             let center_a = cell_centers[cell];
             let cos_ra = cell_cos_radius[cell];
             let sin_ra = cell_sin_radius[cell];
 
             let mut max_dot = f32::NEG_INFINITY;
-            for &ring_cell in &ring {
+            for ring_cell in ring {
                 let center_b = cell_centers[ring_cell];
                 let cos_rb = cell_cos_radius[ring_cell];
                 let sin_rb = cell_sin_radius[ring_cell];
@@ -810,25 +800,32 @@ impl CubeMapGrid {
         security
     }
 
-    /// Fill `out` with all cells at Chebyshev distance 2 from center cell.
-    fn get_ring_cells_into(center_cell: usize, res: usize, out: &mut Vec<usize>) {
-        out.clear();
+    /// Get all cells at exactly Chebyshev distance `dist` from center cell.
+    fn get_ring_cells(center_cell: usize, dist: i32, res: usize) -> Vec<usize> {
         let (face, iu, iv) = cell_to_face_ij(center_cell, res);
+        let mut ring = Vec::new();
 
-        for &(du, dv) in &Self::RING_2_OFFSETS {
-            let niu = iu as i32 + du;
-            let niv = iv as i32 + dv;
+        for dv in -dist..=dist {
+            for du in -dist..=dist {
+                if du.abs().max(dv.abs()) != dist {
+                    continue;
+                }
 
-            if niu >= 0 && niu < res as i32 && niv >= 0 && niv < res as i32 {
-                out.push(face * res * res + (niv as usize) * res + (niu as usize));
-            } else if let Some(cell) = Self::get_cross_face_neighbor(face, niu, niv, res) {
-                out.push(cell);
+                let niu = iu as i32 + du;
+                let niv = iv as i32 + dv;
+
+                if niu >= 0 && niu < res as i32 && niv >= 0 && niv < res as i32 {
+                    ring.push(face * res * res + (niv as usize) * res + (niu as usize));
+                } else if let Some(cell) = Self::get_cross_face_neighbor(face, niu, niv, res) {
+                    ring.push(cell);
+                }
             }
         }
 
         // Deduplicate (cross-face cells can map to same target)
-        out.sort_unstable();
-        out.dedup();
+        ring.sort_unstable();
+        ring.dedup();
+        ring
     }
 
     /// Get cell index for a point.
