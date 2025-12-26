@@ -6,3 +6,6 @@ perf.data
 perf.data.old
 flamegraph.svg
 profile.json.gz
+
+perf.txt
+perf-callgraph.txt
