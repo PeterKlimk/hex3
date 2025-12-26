@@ -318,12 +318,13 @@ impl F64CellBuilder {
     /// Intersect two great circles to find vertex position.
     fn intersect_two_planes(p1: &F64GreatCircle, p2: &F64GreatCircle, hint: DVec3) -> DVec3 {
         let cross = p1.normal.cross(p2.normal);
-        let len = cross.length();
-        if len < F64_EPS_PARALLEL {
+        // Use length_squared for parallel check to avoid sqrt on rejection path
+        let len_sq = cross.length_squared();
+        if len_sq < F64_EPS_PARALLEL * F64_EPS_PARALLEL {
             // Nearly parallel - use hint
             return hint.normalize();
         }
-        let dir = cross / len;
+        let dir = cross / len_sq.sqrt();
         // Choose sign based on hint
         if dir.dot(hint) >= 0.0 {
             dir
@@ -381,13 +382,10 @@ impl F64CellBuilder {
         // Clear vertices
         self.vertex_count = 0;
 
-        // Check winding order - triangle normal should point towards generator
-        let edge1 = v1 - v0;
-        let edge2 = v2 - v0;
-        let normal = edge1.cross(edge2);
-
+        // Winding is determined by sign of inside_01 (reuse from containment check above)
+        // Positive inside_01 means CCW winding when viewed from generator
         let mut min_cos = 1.0f32;
-        if normal.dot(self.generator) >= 0.0 {
+        if inside_01 > 0.0 {
             // CCW winding when viewed from generator
             self.push_vertex(v0, a, b);
             min_cos = min_cos.min(self.generator.dot(v0).clamp(-1.0, 1.0) as f32);

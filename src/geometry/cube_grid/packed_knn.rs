@@ -1142,24 +1142,33 @@ fn precompute_edges_all_cells(res: usize) -> Vec<[EdgeData; 4]> {
 
 /// Cheap exact bound: max dot to boundary via great circle projections.
 fn security_planes(q: Vec3, edges: &[EdgeData; 4]) -> f32 {
-    let mut max_dot = f32::NEG_INFINITY;
-    for edge in edges {
-        let dn = q.dot(edge.n).abs();
-        let dot_to_plane = (1.0 - dn * dn).max(0.0).sqrt();
-        max_dot = max_dot.max(dot_to_plane);
-    }
-    max_dot
+    security_planes_xyz(q.x, q.y, q.z, edges)
 }
 
 #[inline]
 fn security_planes_xyz(x: f32, y: f32, z: f32, edges: &[EdgeData; 4]) -> f32 {
-    let mut max_dot = f32::NEG_INFINITY;
+    // We want:
+    //   max_i sqrt(1 - |dot(q, n_i)|^2)
+    //
+    // Since sqrt(.) is monotone increasing and (1 - t) is monotone decreasing:
+    //   max_i sqrt(1 - dn_i^2) == sqrt(1 - min_i dn_i^2)
+    //
+    // This reduces 4 sqrts per query down to 1, and avoids abs() since |d|^2 == d^2.
+    let mut min_dn2 = f32::INFINITY;
     for edge in edges {
-        let dn = (x * edge.n.x + y * edge.n.y + z * edge.n.z).abs();
-        let dot_to_plane = (1.0 - dn * dn).max(0.0).sqrt();
-        max_dot = max_dot.max(dot_to_plane);
+        let d = x * edge.n.x + y * edge.n.y + z * edge.n.z;
+        let dn2 = d * d;
+        min_dn2 = min_dn2.min(dn2);
     }
-    max_dot
+
+    let dot_to_plane = (1.0 - min_dn2).max(0.0).sqrt();
+    // Nudge conservatively downward (more permissive) to avoid excluding candidates due to tiny
+    // floating-point differences. We only deal with non-negative values here.
+    if dot_to_plane > 0.0 {
+        f32::from_bits(dot_to_plane.to_bits() - 1)
+    } else {
+        dot_to_plane
+    }
 }
 
 /// Get 4 outer corners of a cell's 5x5 neighborhood (for security_3x3 threshold).

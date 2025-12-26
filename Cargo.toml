@@ -19,6 +19,11 @@ debug-assertions = true
 debug = false
 debug-assertions = false
 
+[profile.profiled]
+inherits = "release"
+opt-level = 3
+debug = true
+
 [dependencies]
 # Graphics
 wgpu = "27"
