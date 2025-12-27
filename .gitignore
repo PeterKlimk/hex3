@@ -1,6 +1,7 @@
 /target
 **/target/
 **/target_sandbox/
+**/target_codex/
 scripts/.venv/
 analysis/
 

@@ -686,14 +686,18 @@ impl CubeMapGrid {
                     let niu = iu as i32 + du;
                     let niv = iv as i32 + dv;
 
-                    let neighbor_cell =
-                        if niu >= 0 && niu < res as i32 && niv >= 0 && niv < res as i32 {
-                            // Same face
-                            Some(face * res * res + (niv as usize) * res + (niu as usize))
-                        } else {
-                            // Cross face boundary using 3D projection
-                            Self::get_cross_face_neighbor(face, niu, niv, res)
-                        };
+                    let neighbor_cell = if niu >= 0 && niu < res as i32 && niv >= 0 && niv < res as i32
+                    {
+                        // Same face
+                        Some(face * res * res + (niv as usize) * res + (niu as usize))
+                    } else if (niu < 0 || niu >= res as i32) && (niv < 0 || niv >= res as i32) {
+                        // Corner diagonal (out in both axes) crosses a cube vertex.
+                        // Treat as invalid rather than mapping multiple offsets onto the same cell.
+                        None
+                    } else {
+                        // Cross face boundary using 3D projection
+                        Self::get_cross_face_neighbor(face, niu, niv, res)
+                    };
 
                     neighbors[base + idx] = neighbor_cell.map(|c| c as u32).unwrap_or(u32::MAX);
                     idx += 1;
@@ -1608,4 +1612,40 @@ pub struct GridStats {
     pub max_points_per_cell: usize,
     pub empty_cells: usize,
     pub avg_points_per_cell: f64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cell_neighbors_unique() {
+        for res in [4usize, 5, 8, 16] {
+            let grid = CubeMapGrid::new(&[], res);
+            let num_cells = 6 * res * res;
+            for cell in 0..num_cells {
+                let neighbors = grid.cell_neighbors(cell);
+                let mut seen = std::collections::HashSet::<u32>::with_capacity(9);
+                for &ncell in neighbors.iter() {
+                    if ncell == u32::MAX {
+                        continue;
+                    }
+                    assert!(
+                        (ncell as usize) < num_cells,
+                        "invalid neighbor cell: res={}, cell={}, neighbor={}",
+                        res,
+                        cell,
+                        ncell
+                    );
+                    assert!(
+                        seen.insert(ncell),
+                        "duplicate neighbor cell: res={}, cell={}, neighbor={}",
+                        res,
+                        cell,
+                        ncell
+                    );
+                }
+            }
+        }
+    }
 }
