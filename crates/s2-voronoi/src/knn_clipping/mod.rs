@@ -4,9 +4,11 @@
 //! independently from its k nearest neighbors. This enables massive parallelism on GPU.
 
 mod cell_builder;
+mod certify;
 mod constants;
 mod knn;
 mod live_dedup;
+mod predicates;
 mod timing;
 
 use glam::Vec3;

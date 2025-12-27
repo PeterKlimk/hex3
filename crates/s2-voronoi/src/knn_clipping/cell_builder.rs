@@ -3,6 +3,7 @@
 use glam::{DVec3, Vec3};
 
 use super::constants::COINCIDENT_DOT_TOL;
+use super::predicates::F64FilteredKernel;
 
 /// Vertex key for deduplication (fast triplet or full support set).
 #[derive(Debug, Clone, Copy)]
@@ -216,6 +217,11 @@ impl F64CellBuilder {
         if *a > *b {
             std::mem::swap(a, b);
         }
+    }
+
+    #[inline(always)]
+    pub(crate) fn sort3_u32(a: &mut u32, b: &mut u32, c: &mut u32) {
+        Self::sort3(a, b, c);
     }
 
     #[inline(always)]
@@ -653,6 +659,39 @@ impl F64CellBuilder {
         self.plane_count
     }
 
+    #[inline]
+    pub(crate) fn generator(&self) -> DVec3 {
+        self.generator
+    }
+
+    #[inline]
+    pub(crate) fn generator_index_u32(&self) -> u32 {
+        self.generator_idx as u32
+    }
+
+    #[inline]
+    pub(crate) fn vertex_pos_unit(&self, vi: usize) -> DVec3 {
+        self.get_vertex_pos(vi)
+    }
+
+    #[inline]
+    pub(crate) fn vertex_def_planes(&self, vi: usize) -> (usize, usize) {
+        (self.vertex_plane_a[vi], self.vertex_plane_b[vi])
+    }
+
+    #[inline]
+    pub(crate) fn plane_neighbor_index_u32(&self, plane_idx: usize) -> u32 {
+        self.neighbor_indices[plane_idx] as u32
+    }
+
+    /// Unnormalized bisector plane normal for predicates: `n = g - h`.
+    ///
+    /// This avoids normalization (sqrt) and is scale-invariant for sign tests.
+    #[inline]
+    pub(crate) fn plane_normal_unnorm(&self, plane_idx: usize) -> DVec3 {
+        self.generator - self.neighbor_positions[plane_idx]
+    }
+
     /// Returns true if this neighbor has already been clipped into the cell.
     #[inline]
     pub fn has_neighbor(&self, neighbor_idx: usize) -> bool {
@@ -962,92 +1001,7 @@ impl F64CellBuilder {
         support_data: &mut Vec<u32>,
         out: &mut Vec<VertexData>,
     ) -> Result<(), CellFailure> {
-        out.clear();
-        if self.failed.is_some() || self.vertex_count < 3 {
-            return Ok(());
-        }
-
-        let g = self.generator;
-        Self::debug_assert_unitish(g);
-        let gen_idx = self.generator_idx as u32;
-
-        // Use cached normalized neighbor positions (computed once in clip())
-        let neighbor_positions = &self.neighbor_positions;
-
-        // Scratch reused only for rare support-set cases (near-degenerate vertices).
-        let mut support_tmp: Vec<u32> = Vec::with_capacity(MAX_PLANES + 1);
-        let mut support_extra = [0u32; MAX_PLANES];
-
-        out.reserve(self.vertex_count);
-        for vertex_idx in 0..self.vertex_count {
-            let v_pos = self.get_vertex_pos(vertex_idx);
-            Self::debug_assert_unit(v_pos);
-
-            let pos = Vec3::new(v_pos.x as f32, v_pos.y as f32, v_pos.z as f32);
-            let dot_g = v_pos.dot(g);
-
-            let v_plane_a = self.vertex_plane_a[vertex_idx];
-            let v_plane_b = self.vertex_plane_b[vertex_idx];
-            let def_a = self.neighbor_indices[v_plane_a] as u32;
-            let def_b = self.neighbor_indices[v_plane_b] as u32;
-            let conditioning = self.vertex_conditioning_at(vertex_idx);
-            let support_cutoff = support_cutoff(conditioning);
-
-            let mut min_gap = f64::INFINITY;
-            let mut extra_len = 0usize;
-
-            for plane_idx in 0..self.plane_count {
-                if plane_idx == v_plane_a || plane_idx == v_plane_b {
-                    continue;
-                }
-
-                let dot_c = v_pos.dot(neighbor_positions[plane_idx]);
-                let gap = dot_g - dot_c;
-
-                if gap <= support_cutoff {
-                    support_extra[extra_len] = self.neighbor_indices[plane_idx] as u32;
-                    extra_len += 1;
-                } else if gap < min_gap {
-                    min_gap = gap;
-                }
-            }
-
-            // Per-vertex conditioning-based error bound
-            if min_gap <= support_cutoff {
-                return Err(CellFailure::CertificationFailed);
-            }
-
-            let key = if extra_len == 0 {
-                let mut a = gen_idx;
-                let mut b = def_a;
-                let mut c = def_b;
-                Self::sort3(&mut a, &mut b, &mut c);
-                VertexKey::Triplet([a, b, c])
-            } else {
-                support_tmp.clear();
-                support_tmp.push(gen_idx);
-                support_tmp.push(def_a);
-                support_tmp.push(def_b);
-                support_tmp.extend_from_slice(&support_extra[..extra_len]);
-                support_tmp.sort_unstable();
-                support_tmp.dedup();
-
-                if support_tmp.len() == 3 {
-                    VertexKey::Triplet([support_tmp[0], support_tmp[1], support_tmp[2]])
-                } else if support_tmp.len() >= 4 {
-                    let start = support_data.len() as u32;
-                    support_data.extend_from_slice(&support_tmp);
-                    let len = u8::try_from(support_tmp.len())
-                        .map_err(|_| CellFailure::CertificationFailed)?;
-                    VertexKey::Support { start, len }
-                } else {
-                    return Err(CellFailure::CertificationFailed);
-                }
-            };
-
-            out.push((key, pos));
-        }
-
-        Ok(())
+        let kernel = F64FilteredKernel;
+        super::certify::certify_to_vertex_data_into(self, &kernel, support_data, out).map(|_| ())
     }
 }

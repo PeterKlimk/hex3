@@ -191,3 +191,209 @@ Cell-level ladder:
 2. Increase k / extend neighbor schedule (missing a true neighbor can legitimately break clipping).
 3. Full scan fallback (already present).
 4. If still uncertifiable: return structured diagnostics (and optionally use qhull when enabled).
+
+ Below is a concrete “shape” you can implement (modules + types + call flow) that matches docs/
+  analysis.md and keeps you from duplicating the same per-vertex/per-plane loops in 3 places.
+
+  ## Modules / Responsibilities
+
+  - src/knn_clipping/cell_builder.rs
+      - Owns topology + stored geometry for a single cell (planes, vertex cycle, indices).
+      - Exposes a read-only CellView adapter (no certification/termination policy here).
+  - src/knn_clipping/predicates.rs
+      - Defines PredKernel + Tier ladder + determinant sign helpers (filtered f64 → dd → exact-ish).
+      - No knowledge of “Voronoi”, just robust sign tests.
+  - src/knn_clipping/termination.rs
+      - Computes the “unseen dot threshold” (like what we refactored) and returns
+  NeighborCompleteness.
+  - src/knn_clipping/certify.rs
+      - Given a CellView, NeighborSet, and a PredKernel, computes VertexKeys + support sets, or
+  returns a structured failure telling the caller what to do next.
+
+  ## Core shared “view” (prevents duplicate loops)
+
+  pub trait CellView {
+      fn generator_index(&self) -> u32;
+      fn generator(&self) -> glam::DVec3;
+
+      fn plane_count(&self) -> usize;
+      fn plane_neighbor_index(&self, pi: usize) -> u32;
+
+      // IMPORTANT: for predicate friendliness this should be UNNORMALIZED:
+      // n_pi = g - neighbor_pos
+      fn plane_normal_unnorm(&self, pi: usize) -> glam::DVec3;
+
+      fn vertex_count(&self) -> usize;
+      fn vertex_def_planes(&self, vi: usize) -> (usize, usize);
+
+      // For output only (can be normalized); predicates should prefer det on normals.
+      fn vertex_pos_unit(&self, vi: usize) -> glam::DVec3;
+  }
+
+  Then add one helper trait (or free functions) that both termination/certification call:
+
+  pub struct VertexContext {
+      pub vi: usize,
+      pub def_a: usize,
+      pub def_b: usize,
+      pub n_a: DVec3,
+      pub n_b: DVec3,
+      pub v_dir: DVec3,        // cross(n_a, n_b)
+      pub cond: f64,           // |v_dir|
+  }
+
+  pub fn iter_vertex_context(cell: &impl CellView) -> impl Iterator<Item = VertexContext> + '_ { ... }
+
+  This is the big “no-duplication” win: every place that needs conditioning, v_dir, defining planes,
+  etc. gets it from one iterator.
+
+  ## Predicate kernel + tiers (from docs/analysis.md)
+
+  #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+  pub enum Sign { Neg, Zero, Pos }
+
+  #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+  pub enum PredResult { Certain(Sign), Uncertain }
+
+  pub trait PredKernel {
+      fn det3_sign(&self, a: DVec3, b: DVec3, c: DVec3) -> PredResult;
+  }
+
+  #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+  pub enum PredTier { FilteredF64, DoubleDouble, Exact }
+
+  pub struct KernelLadder { /* owns tier impls */ }
+
+  impl KernelLadder {
+      pub fn tiers(&self) -> impl Iterator<Item = (PredTier, &dyn PredKernel)> { ... }
+  }
+
+  ## Termination API (explicit contract)
+
+  #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+  pub enum NeighborCompleteness {
+      Incomplete,
+      Complete,
+      NotApplicable, // e.g. too few vertices or too ill-conditioned
+  }
+
+  pub struct TerminationBound {
+      pub unseen_dot_threshold: f64, // if max_unseen_dot < this => complete
+      pub tier: PredTier,            // optional: if you decide to use kernels here later
+  }
+
+  pub fn termination_bound(cell: &impl CellView) -> Option<TerminationBound>;
+  pub fn check_termination(cell: &impl CellView, max_unseen_dot: f32) -> NeighborCompleteness;
+
+  Notes:
+
+  - If you keep termination purely geometric (triangle inequality), it doesn’t need PredKernel.
+  - If you later fold in “predicate-based” vertex radius bounds, you can.
+
+  ## Certification output and failure modes (actionable)
+
+  You want certify to tell the caller what to do next.
+
+  pub enum KeyCertification {
+      Provisional, // stable for current plane set only
+      Certified,   // stable for the true cell (requires completeness)
+  }
+
+  pub struct CertifiedCellVertices {
+      pub vertices: Vec<(VertexKey, glam::Vec3)>,
+      pub support_data_appended: std::ops::Range<u32>, // or just let caller manage Vec<u32>
+  }
+
+  pub enum CertifyFailure {
+      NeedMoreNeighbors,  // missing constraint (det says someone beats g somewhere)
+      NeedMorePrecision,  // Uncertain predicate
+      BuilderInvariant,   // topology broken (should be rare; indicates bug)
+  }
+
+  pub struct CertifyContext<'a> {
+      pub completion: NeighborCompleteness,
+      pub max_unseen_dot_bound: f32, // optional: for debugging/diagnostics
+      pub candidate_planes: std::ops::Range<usize>, // typically 0..plane_count
+      pub support_write: &'a mut Vec<u32>,
+  }
+
+  pub fn certify_vertices(
+      cell: &impl CellView,
+      kernel: &dyn PredKernel,
+      ctx: CertifyContext<'_>,
+  ) -> Result<(KeyCertification, CertifiedCellVertices), CertifyFailure>;
+
+  ### What certify_vertices actually checks (determinant-based)
+
+  For each vertex context (n_a, n_b):
+
+  - For each plane c (non-defining):
+      - Compute s = det(n_a, n_b, n_c) where n_c = g - c.
+      - Interpret:
+          - Pos: c excluded at this vertex direction (good).
+          - Zero: true degeneracy => include c in support set.
+          - Neg: contradiction => NeedMoreNeighbors (this is not a numeric error; it means the current
+  clipped plane set is missing a real constraint or the topology is wrong).
+          - Uncertain: NeedMorePrecision (retry with higher tier).
+  - Key formation:
+      - If support set size == 3 => VertexKey::Triplet(sorted)
+      - Else => VertexKey::Support{start,len} appended to support_write
+
+  This uses the same sign test family described in docs/analysis.md:33.
+
+  ## Driving it from live_dedup.rs (ladder, no panics)
+
+  High-level loop per cell (pseudo-structure, not exact code):
+
+  // Phase A: build topology incrementally
+  builder.reset(i, points[i]);
+  for neighbor in knn_stream {
+      builder.clip(...)
+      update worst_cos
+      if termination.should_check(...) {
+          if check_termination(builder.view(), worst_cos) == Complete {
+              break;
+          }
+      }
+  }
+  // If not complete by schedule limit -> do full scan fallback.
+
+  for (tier, kernel) in ladder.tiers() {
+      match certify_vertices(builder.view(), kernel, ctx.with_completion(completion)) {
+          Ok((KeyCertification::Certified, verts)) => { use verts; break; }
+          Ok((KeyCertification::Provisional, verts)) => { /* only allowed if you accept provisional
+  */ }
+          Err(CertifyFailure::NeedMorePrecision) => continue, // next tier
+          Err(CertifyFailure::NeedMoreNeighbors) => {
+              // go back to Phase A: extend neighbor set (increase k / full scan),
+              // then restart certification from lowest tier (fast).
+              extend_neighbors();
+              continue 'outer_cell_loop;
+          }
+          Err(CertifyFailure::BuilderInvariant) => { /* diagnostic / fallback */ }
+      }
+  }
+
+  Key point: “NeedMoreNeighbors” routes back to neighbor acquisition, not to higher precision. That’s
+  the separation we discussed.
+
+  ## Naming suggestions (so it stays readable)
+
+  - NeighborCompleteness (termination result)
+  - TerminationBound (explicit threshold type)
+  - CertifyFailure::{NeedMoreNeighbors, NeedMorePrecision}
+  - KeyCertification::{Provisional, Certified}
+  - KernelLadder + PredTier
+  - CellView + VertexContext + iter_vertex_context
+
+  ## Where duplication disappears
+
+  - Only CellView knows how to get n = g - c, vertex defining planes, conditioning, etc.
+  - Only predicates.rs knows how to compute robust det3_sign.
+  - Only certify.rs knows how to turn sign outcomes into support sets + keys.
+  - Only termination.rs knows the spherical triangle-inequality bound (and optionally uses the shared
+  conditioning summaries).
+
+  If you want, I can tailor this sketch to your exact current data layout (e.g. reuse
+  neighbor_positions vs switching to unnormalized normals) and show how the “support cutoff” concept
+  maps into determinant-space without reintroducing normalize().
