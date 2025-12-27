@@ -970,8 +970,8 @@ pub(super) fn assemble_sharded_live_dedup(
         overflow_flush: overflow_flush_time,
         concat_vertices: concat_vertices_time,
         emit_cells: emit_cells_time,
-        triplet_keys: data.shards.iter().map(|s| s.triplet_keys).sum(),
-        support_keys: data.shards.iter().map(|s| s.support_keys).sum(),
+        triplet_keys: finals.iter().map(|s| s.triplet_keys).sum(),
+        support_keys: finals.iter().map(|s| s.support_keys).sum(),
         cell_dupes_removed: dupes_removed,
     };
     #[cfg(not(feature = "timing"))]

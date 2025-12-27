@@ -90,6 +90,19 @@ const VERTEX_ERR_FACTOR: f64 = 16.0;
 /// Conditioning floor to avoid exploding error bounds on degenerate triplets.
 const CONDITIONING_FLOOR: f64 = 1e-6;
 
+/// Conservative angular uncertainty (radians) used by early-termination bounds.
+///
+/// Even though the cell builder uses f64 arithmetic, inputs and kNN are driven by f32,
+/// so termination needs an f32-scale pad. This is intended to be tight enough to allow
+/// early termination on well-spaced point sets.
+const TERMINATION_VERTEX_ANGLE_EPS: f64 = 8.0 * f32::EPSILON as f64;
+
+/// Conservative dot-space slack for early-termination comparisons.
+///
+/// This accounts for f32 dot-product rounding in the kNN path (the `next_neighbor_cos`
+/// value) without inflating the angular pad via an overly pessimistic dot→angle conversion.
+const TERMINATION_COS_MARGIN: f64 = 3.0 * f32::EPSILON as f64;
+
 #[inline]
 fn input_dot_err() -> f64 {
     INPUT_DOT_ERR_FACTOR * f32::EPSILON as f64
@@ -164,11 +177,11 @@ pub struct F64CellBuilder {
 
     seeded: bool,
     failed: Option<CellFailure>,
-    cached_min_vertex_cos: f32,
+    cached_min_vertex_cos: f64,
     cached_min_vertex_cos_valid: bool,
-    sin_eps: f32,
-    cos_eps: f32,
-    termination_margin: f32,
+    sin_eps: f64,
+    cos_eps: f64,
+    termination_margin: f64,
 }
 
 impl F64CellBuilder {
@@ -287,10 +300,9 @@ impl F64CellBuilder {
     pub fn new(generator_idx: usize, generator: Vec3) -> Self {
         let gen64 =
             DVec3::new(generator.x as f64, generator.y as f64, generator.z as f64).normalize();
-        let support_cutoff_max = support_cutoff(CONDITIONING_FLOOR);
-        let eps_angle = (2.0 * support_cutoff_max).sqrt() as f32;
+        let eps_angle = TERMINATION_VERTEX_ANGLE_EPS;
         let (sin_eps, cos_eps) = eps_angle.sin_cos();
-        let termination_margin = support_cutoff_max as f32;
+        let termination_margin = TERMINATION_COS_MARGIN;
         Self {
             generator_idx,
             generator: gen64,
@@ -401,26 +413,26 @@ impl F64CellBuilder {
 
         // Winding is determined by sign of inside_01 (reuse from containment check above)
         // Positive inside_01 means CCW winding when viewed from generator
-        let mut min_cos = 1.0f32;
+        let mut min_cos = 1.0f64;
         if inside_01 > 0.0 {
             // CCW winding when viewed from generator
             self.push_vertex(v0, a, b);
-            min_cos = min_cos.min(self.generator.dot(v0).clamp(-1.0, 1.0) as f32);
+            min_cos = min_cos.min(self.generator.dot(v0).clamp(-1.0, 1.0));
             self.push_vertex(v1, b, c);
-            min_cos = min_cos.min(self.generator.dot(v1).clamp(-1.0, 1.0) as f32);
+            min_cos = min_cos.min(self.generator.dot(v1).clamp(-1.0, 1.0));
             self.push_vertex(v2, c, a);
-            min_cos = min_cos.min(self.generator.dot(v2).clamp(-1.0, 1.0) as f32);
+            min_cos = min_cos.min(self.generator.dot(v2).clamp(-1.0, 1.0));
             self.edge_planes[0] = b;
             self.edge_planes[1] = c;
             self.edge_planes[2] = a;
         } else {
             // Reverse winding
             self.push_vertex(v0, a, b);
-            min_cos = min_cos.min(self.generator.dot(v0).clamp(-1.0, 1.0) as f32);
+            min_cos = min_cos.min(self.generator.dot(v0).clamp(-1.0, 1.0));
             self.push_vertex(v2, c, a);
-            min_cos = min_cos.min(self.generator.dot(v2).clamp(-1.0, 1.0) as f32);
+            min_cos = min_cos.min(self.generator.dot(v2).clamp(-1.0, 1.0));
             self.push_vertex(v1, b, c);
-            min_cos = min_cos.min(self.generator.dot(v1).clamp(-1.0, 1.0) as f32);
+            min_cos = min_cos.min(self.generator.dot(v1).clamp(-1.0, 1.0));
             self.edge_planes[0] = a;
             self.edge_planes[1] = c;
             self.edge_planes[2] = b;
@@ -529,12 +541,12 @@ impl F64CellBuilder {
         self.push_scratch_vertex(entry_pos, entry_edge_plane, plane_idx)?;
         self.scratch_edge_planes[scratch_edge_count] = entry_edge_plane;
         scratch_edge_count += 1;
-        let mut min_cos = self.generator.dot(entry_pos).clamp(-1.0, 1.0) as f32;
+        let mut min_cos = self.generator.dot(entry_pos).clamp(-1.0, 1.0);
 
         let mut i = (entry_idx + 1) % n;
         while i != (exit_idx + 1) % n {
             let v_pos = self.get_vertex_pos(i);
-            min_cos = min_cos.min(self.generator.dot(v_pos).clamp(-1.0, 1.0) as f32);
+            min_cos = min_cos.min(self.generator.dot(v_pos).clamp(-1.0, 1.0));
             self.push_scratch_vertex(v_pos, self.vertex_plane_a[i], self.vertex_plane_b[i])?;
             self.scratch_edge_planes[scratch_edge_count] = self.edge_planes[i];
             scratch_edge_count += 1;
@@ -543,7 +555,7 @@ impl F64CellBuilder {
 
         self.push_scratch_vertex(exit_pos, exit_edge_plane, plane_idx)?;
         self.scratch_edge_planes[scratch_edge_count] = plane_idx;
-        min_cos = min_cos.min(self.generator.dot(exit_pos).clamp(-1.0, 1.0) as f32);
+        min_cos = min_cos.min(self.generator.dot(exit_pos).clamp(-1.0, 1.0));
 
         // Copy scratch to vertices
         self.copy_scratch_to_vertices();
@@ -638,7 +650,7 @@ impl F64CellBuilder {
     #[inline]
     pub fn min_vertex_cos(&self) -> f64 {
         if self.cached_min_vertex_cos_valid {
-            self.cached_min_vertex_cos as f64
+            self.cached_min_vertex_cos
         } else {
             (0..self.vertex_count)
                 .map(|i| self.generator.dot(self.get_vertex_pos(i)).clamp(-1.0, 1.0))
@@ -652,7 +664,7 @@ impl F64CellBuilder {
             return false;
         }
 
-        let min_cos = self.min_vertex_cos() as f32;
+        let min_cos = self.min_vertex_cos();
 
         if min_cos <= 0.0 {
             return false;
@@ -665,7 +677,7 @@ impl F64CellBuilder {
         let sin_theta = (1.0 - min_cos * min_cos).max(0.0).sqrt();
         let cos_theta_eps = min_cos * self.cos_eps - sin_theta * self.sin_eps;
         let cos_2max = 2.0 * cos_theta_eps * cos_theta_eps - 1.0;
-        next_neighbor_cos < cos_2max - self.termination_margin
+        (next_neighbor_cos as f64) < cos_2max - self.termination_margin
     }
 
     /// Attempt to reseed using the best-conditioned triplet among all planes.

@@ -370,12 +370,20 @@ impl PhaseTimings {
                 );
             }
             if self.dedup_sub.cell_dupes_removed > 0 {
-                let dupe_rate = self.dedup_sub.cell_dupes_removed as f64 / total_keys as f64 * 100.0;
-                eprintln!(
-                    "    cell_dupes_removed: {} ({:.2}% of keys)",
-                    self.dedup_sub.cell_dupes_removed,
-                    dupe_rate,
-                );
+                if total_keys > 0 {
+                    let dupe_rate =
+                        self.dedup_sub.cell_dupes_removed as f64 / total_keys as f64 * 100.0;
+                    eprintln!(
+                        "    cell_dupes_removed: {} ({:.2}% of keys)",
+                        self.dedup_sub.cell_dupes_removed,
+                        dupe_rate,
+                    );
+                } else {
+                    eprintln!(
+                        "    cell_dupes_removed: {}",
+                        self.dedup_sub.cell_dupes_removed
+                    );
+                }
             }
         }
 
