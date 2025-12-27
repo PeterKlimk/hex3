@@ -711,6 +711,103 @@ impl F64CellBuilder {
         self.neighbor_indices[..self.plane_count].contains(&neighbor_idx)
     }
 
+    /// Count how many planes are actually referenced by vertices (active planes).
+    /// Returns (active_count, total_count).
+    pub fn count_active_planes(&self) -> (usize, usize) {
+        let mut active = [false; MAX_PLANES];
+        for vi in 0..self.vertex_count {
+            let a = self.vertex_plane_a[vi];
+            let b = self.vertex_plane_b[vi];
+            if a < MAX_PLANES {
+                active[a] = true;
+            }
+            if b < MAX_PLANES {
+                active[b] = true;
+            }
+        }
+        let active_count = active.iter().filter(|&&x| x).count();
+        (active_count, self.plane_count)
+    }
+
+    /// Diagnose why seeding fails. Returns stats about triplet rejection reasons.
+    pub fn diagnose_seed_failure(&self) -> SeedDiagnostics {
+        let mut diag = SeedDiagnostics::default();
+        let n = self.plane_count;
+        if n < 3 {
+            return diag;
+        }
+
+        for a in 0..n {
+            for b in (a + 1)..n {
+                for c in (b + 1)..n {
+                    diag.triplets_tried += 1;
+
+                    let plane_a = self.get_plane(a);
+                    let plane_b = self.get_plane(b);
+                    let plane_c = self.get_plane(c);
+
+                    let v0 = Self::intersect_two_planes(&plane_a, &plane_b, self.generator);
+                    let v1 = Self::intersect_two_planes(&plane_b, &plane_c, self.generator);
+                    let v2 = Self::intersect_two_planes(&plane_c, &plane_a, self.generator);
+
+                    // Check winding
+                    let edge_plane_01 = v0.cross(v1);
+                    let edge_plane_12 = v1.cross(v2);
+                    let edge_plane_20 = v2.cross(v0);
+
+                    let inside_01 = edge_plane_01.dot(self.generator);
+                    let inside_12 = edge_plane_12.dot(self.generator);
+                    let inside_20 = edge_plane_20.dot(self.generator);
+
+                    let consistent_winding = (inside_01 > 0.0 && inside_12 > 0.0 && inside_20 > 0.0)
+                        || (inside_01 < 0.0 && inside_12 < 0.0 && inside_20 < 0.0);
+
+                    if !consistent_winding {
+                        diag.winding_fails += 1;
+                        continue;
+                    }
+
+                    // Check clipping by other planes
+                    let mut clipped_away = false;
+                    for plane_idx in 0..n {
+                        if plane_idx == a || plane_idx == b || plane_idx == c {
+                            continue;
+                        }
+                        let plane = self.get_plane(plane_idx);
+                        let d0 = plane.signed_distance(v0);
+                        if d0 >= -F64_EPS_CLIP {
+                            continue;
+                        }
+                        let d1 = plane.signed_distance(v1);
+                        if d1 >= -F64_EPS_CLIP {
+                            continue;
+                        }
+                        let d2 = plane.signed_distance(v2);
+                        if d2 < -F64_EPS_CLIP {
+                            clipped_away = true;
+                            break;
+                        }
+                    }
+
+                    if clipped_away {
+                        diag.clipped_away += 1;
+                    } else {
+                        diag.valid += 1;
+                    }
+                }
+            }
+        }
+
+        // Also collect neighbor distances for insight
+        for i in 0..n {
+            let dot = self.generator.dot(self.neighbor_positions[i]);
+            diag.neighbor_dots.push(dot);
+        }
+        diag.neighbor_dots.sort_by(|a, b| b.partial_cmp(a).unwrap()); // descending (closest first)
+
+        diag
+    }
+
     /// Returns an iterator over the neighbor indices that have been clipped.
     #[inline]
     pub fn neighbor_indices_iter(&self) -> impl Iterator<Item = usize> + '_ {
@@ -1016,4 +1113,13 @@ impl F64CellBuilder {
         super::certify::certify_to_vertex_data_into(self, support_data, out)
             .map_err(|_| CellFailure::CertificationFailed)
     }
+}
+
+#[derive(Default, Debug)]
+pub struct SeedDiagnostics {
+    pub triplets_tried: usize,
+    pub winding_fails: usize,
+    pub clipped_away: usize,
+    pub valid: usize,
+    pub neighbor_dots: Vec<f64>,
 }
