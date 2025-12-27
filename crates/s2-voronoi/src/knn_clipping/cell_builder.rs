@@ -83,12 +83,17 @@ pub fn order_vertices_ccw_indices(generator: Vec3, vertices: &[Vec3]) -> Vec<usi
 const F64_EPS_CLIP: f64 = 1e-14;
 /// Epsilon for f64 plane parallelism check.
 const F64_EPS_PARALLEL: f64 = 1e-12;
-/// Dimensionless multiplier for f32 input dot error.
-const INPUT_DOT_ERR_FACTOR: f64 = 4.0;
 /// Dimensionless multiplier for f64 vertex position error.
 const VERTEX_ERR_FACTOR: f64 = 16.0;
 /// Conditioning floor to avoid exploding error bounds on degenerate triplets.
 const CONDITIONING_FLOOR: f64 = 1e-6;
+
+/// Support-set epsilon in dot space (absolute).
+///
+/// This controls how aggressively we treat a vertex as "near-degenerate" (supported by >2
+/// neighbor planes). Keeping this small avoids collapsing distinct vertices into the same
+/// support-set key, which can both hurt performance and create per-cell duplicate indices.
+const SUPPORT_EPS_ABS: f64 = 1e-12;
 
 /// Conservative angular uncertainty (radians) used by early-termination bounds.
 ///
@@ -104,18 +109,16 @@ const TERMINATION_VERTEX_ANGLE_EPS: f64 = 8.0 * f32::EPSILON as f64;
 const TERMINATION_COS_MARGIN: f64 = 3.0 * f32::EPSILON as f64;
 
 #[inline]
-fn input_dot_err() -> f64 {
-    INPUT_DOT_ERR_FACTOR * f32::EPSILON as f64
-}
-
-#[inline]
 fn vertex_err(conditioning: f64) -> f64 {
     VERTEX_ERR_FACTOR * f64::EPSILON / conditioning.max(CONDITIONING_FLOOR)
 }
 
 #[inline]
 fn support_cutoff(conditioning: f64) -> f64 {
-    input_dot_err() + 2.0 * vertex_err(conditioning)
+    // We treat the input points as exact (they are already quantized to f32).
+    // The relevant uncertainty is the numeric error in the computed vertex position,
+    // which can be amplified for poorly-conditioned plane intersections.
+    SUPPORT_EPS_ABS + 2.0 * vertex_err(conditioning)
 }
 
 /// A great circle in f64 precision.
