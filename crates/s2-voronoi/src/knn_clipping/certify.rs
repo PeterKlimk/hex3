@@ -1,24 +1,42 @@
-use glam::Vec3;
+use glam::{DVec3, Vec3};
 
-use super::cell_builder::{CellFailure, F64CellBuilder, VertexData, VertexKey, MAX_PLANES};
-use super::predicates::{PredKernel, PredResult, Sign};
+use super::cell_builder::{F64CellBuilder, VertexData, VertexKey, MAX_PLANES};
+use super::predicates::{det3_f64, PredKernel, PredResult, Sign};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum KeyCertification {
-    /// Keys are conservative: they may include ambiguous planes.
-    Provisional,
-    /// Keys contain only provably supporting planes (within the kernel’s certainty).
-    Certified,
+#[derive(Clone, Debug, PartialEq)]
+pub enum CertifyError {
+    /// The predicate kernel cannot decide a sign.
+    NeedMorePrecision,
+    /// Predicate sign is inconsistent with the already-clipped plane set.
+    InvariantViolation(InvariantViolationInfo),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct InvariantViolationInfo {
+    pub kind: ViolationKind,
+    pub gen_idx: u32,
+    pub vertex_idx: usize,
+    pub def_a: u32,
+    pub def_b: u32,
+    pub n_a: DVec3,
+    pub n_b: DVec3,
+    pub v_pos: DVec3,
+    /// For PlaneNeg: the violating plane
+    pub violating_plane: Option<u32>,
+    pub n_c: Option<DVec3>,
+    /// Raw determinant values for debugging
+    pub det_orientation: f64,
+    pub det_plane: Option<f64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(dead_code)]
-pub enum CertifyFailure {
-    /// A candidate generator appears to beat `g` at a purported vertex direction.
-    /// This indicates missing constraints / insufficient neighbors (or bad termination).
-    NeedMoreNeighbors,
-    /// The predicate kernel cannot decide a sign.
-    NeedMorePrecision,
+pub enum ViolationKind {
+    /// det(n_a, n_b, v_pos) == 0: vertex lies in plane of its defining normals
+    OrientationZero,
+    /// det(n_a, n_b, n_c) has wrong sign: plane c should have clipped this vertex
+    PlaneNeg,
+    /// Support set has fewer than 3 elements after dedup
+    SupportTooSmall,
 }
 
 #[inline]
@@ -35,17 +53,17 @@ pub(super) fn certify_to_vertex_data_into(
     kernel: &dyn PredKernel,
     support_data: &mut Vec<u32>,
     out: &mut Vec<VertexData>,
-) -> Result<KeyCertification, CellFailure> {
+) -> Result<(), CertifyError> {
     out.clear();
     if cell.is_failed() || cell.vertex_count() < 3 {
-        return Ok(KeyCertification::Certified);
+        return Ok(());
     }
 
     let gen_idx = cell.generator_index_u32();
 
+    let support_base = support_data.len();
     let mut support_tmp: Vec<u32> = Vec::with_capacity(MAX_PLANES + 1);
     let mut support_extra = [0u32; MAX_PLANES];
-    let mut certification = KeyCertification::Certified;
 
     out.reserve(cell.vertex_count());
 
@@ -60,13 +78,38 @@ pub(super) fn certify_to_vertex_data_into(
         let n_a = cell.plane_normal_unnorm(plane_a);
         let n_b = cell.plane_normal_unnorm(plane_b);
 
+        let det_orientation = det3_f64(n_a, n_b, v_pos);
+
         // Orientation matters: cross(n_a, n_b) has two possible directions on S².
         // Match the actual stored vertex direction so determinant signs correspond to
         // dot(v_dir, n_c).
         let mut flip = false;
-        let v_dir = n_a.cross(n_b);
-        if v_dir.dot(v_pos) < 0.0 {
-            flip = true;
+        match kernel.det3_sign(n_a, n_b, v_pos) {
+            PredResult::Certain(Sign::Pos) => {}
+            PredResult::Certain(Sign::Neg) => {
+                flip = true;
+            }
+            PredResult::Certain(Sign::Zero) => {
+                support_data.truncate(support_base);
+                return Err(CertifyError::InvariantViolation(InvariantViolationInfo {
+                    kind: ViolationKind::OrientationZero,
+                    gen_idx,
+                    vertex_idx: vi,
+                    def_a,
+                    def_b,
+                    n_a,
+                    n_b,
+                    v_pos,
+                    violating_plane: None,
+                    n_c: None,
+                    det_orientation,
+                    det_plane: None,
+                }));
+            }
+            PredResult::Uncertain => {
+                support_data.truncate(support_base);
+                return Err(CertifyError::NeedMorePrecision);
+            }
         }
 
         let mut extra_len = 0usize;
@@ -88,15 +131,29 @@ pub(super) fn certify_to_vertex_data_into(
                             support_extra[extra_len] = cell.plane_neighbor_index_u32(pi);
                             extra_len += 1;
                         }
-                        Sign::Neg => return Err(CellFailure::CertificationFailed),
+                        Sign::Neg => {
+                            let det_plane = det3_f64(n_a, n_b, n_c);
+                            support_data.truncate(support_base);
+                            return Err(CertifyError::InvariantViolation(InvariantViolationInfo {
+                                kind: ViolationKind::PlaneNeg,
+                                gen_idx,
+                                vertex_idx: vi,
+                                def_a,
+                                def_b,
+                                n_a,
+                                n_b,
+                                v_pos,
+                                violating_plane: Some(cell.plane_neighbor_index_u32(pi)),
+                                n_c: Some(n_c),
+                                det_orientation,
+                                det_plane: Some(det_plane),
+                            }));
+                        }
                     }
                 }
                 PredResult::Uncertain => {
-                    // Conservative: treat ambiguity as support, producing a stable but
-                    // potentially non-minimal key.
-                    certification = KeyCertification::Provisional;
-                    support_extra[extra_len] = cell.plane_neighbor_index_u32(pi);
-                    extra_len += 1;
+                    support_data.truncate(support_base);
+                    return Err(CertifyError::NeedMorePrecision);
                 }
             }
         }
@@ -121,15 +178,48 @@ pub(super) fn certify_to_vertex_data_into(
             } else if support_tmp.len() >= 4 {
                 let start = support_data.len() as u32;
                 support_data.extend_from_slice(&support_tmp);
-                let len = u8::try_from(support_tmp.len()).map_err(|_| CellFailure::CertificationFailed)?;
+                let len = match u8::try_from(support_tmp.len()) {
+                    Ok(len) => len,
+                    Err(_) => {
+                        support_data.truncate(support_base);
+                        return Err(CertifyError::InvariantViolation(InvariantViolationInfo {
+                            kind: ViolationKind::SupportTooSmall,
+                            gen_idx,
+                            vertex_idx: vi,
+                            def_a,
+                            def_b,
+                            n_a,
+                            n_b,
+                            v_pos,
+                            violating_plane: None,
+                            n_c: None,
+                            det_orientation,
+                            det_plane: None,
+                        }));
+                    }
+                };
                 VertexKey::Support { start, len }
             } else {
-                return Err(CellFailure::CertificationFailed);
+                support_data.truncate(support_base);
+                return Err(CertifyError::InvariantViolation(InvariantViolationInfo {
+                    kind: ViolationKind::SupportTooSmall,
+                    gen_idx,
+                    vertex_idx: vi,
+                    def_a,
+                    def_b,
+                    n_a,
+                    n_b,
+                    v_pos,
+                    violating_plane: None,
+                    n_c: None,
+                    det_orientation,
+                    det_plane: None,
+                }));
             }
         };
 
         out.push((key, pos));
     }
 
-    Ok(certification)
+    Ok(())
 }

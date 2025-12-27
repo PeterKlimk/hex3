@@ -71,8 +71,9 @@ Interpretation (after full-scan / sufficient-neighbor guarantees):
 
 - `det(...) > 0`: `c` is definitely not in the support set.
 - `det(...) = 0`: true degeneracy; include `c` in the support set.
-- `det(...) < 0`: `c` beats `g` at that vertex direction (often means missing constraints /
-  insufficient neighbors; escalate k / full scan rather than “more precision”).
+- `det(...) < 0`: contradiction with the already-clipped plane set. This should be treated as an
+  invariant violation (or evidence that termination/candidate assumptions are unsound), not a
+  request for more neighbors from certification.
 
 ## Sketch: predicate kernel API
 
@@ -168,8 +169,8 @@ fn certify_vertex_support(
         match kernel.dot_cross_sign(n_a, n_b, w) {
             PredResult::Certain(Sign::Pos) => {} // excluded
             PredResult::Certain(Sign::Zero) => support.push(c_idx), // truly in support set
-            PredResult::Certain(Sign::Neg) => return Err(()), // contradiction / missing constraints
-            PredResult::Uncertain => return Err(()), // escalate kernel tier
+            PredResult::Certain(Sign::Neg) => return Err(()), // invariant violation
+            PredResult::Uncertain => return Err(()), // retry with higher precision
         }
     }
 
@@ -188,9 +189,9 @@ Implement 2–3 precision tiers only for predicates:
 Cell-level ladder:
 
 1. Retry uncertain predicates with a higher tier (don’t rebuild the cell).
-2. Increase k / extend neighbor schedule (missing a true neighbor can legitimately break clipping).
-3. Full scan fallback (already present).
-4. If still uncertifiable: return structured diagnostics (and optionally use qhull when enabled).
+2. If still uncertifiable: return structured diagnostics (and optionally use qhull when enabled).
+
+Neighbor acquisition is governed by termination + kNN schedule, not by certification.
 
  Below is a concrete “shape” you can implement (modules + types + call flow) that matches docs/
   analysis.md and keeps you from duplicating the same per-vertex/per-plane loops in 3 places.
@@ -294,20 +295,14 @@ Cell-level ladder:
 
   You want certify to tell the caller what to do next.
 
-  pub enum KeyCertification {
-      Provisional, // stable for current plane set only
-      Certified,   // stable for the true cell (requires completeness)
-  }
-
   pub struct CertifiedCellVertices {
       pub vertices: Vec<(VertexKey, glam::Vec3)>,
       pub support_data_appended: std::ops::Range<u32>, // or just let caller manage Vec<u32>
   }
 
-  pub enum CertifyFailure {
-      NeedMoreNeighbors,  // missing constraint (det says someone beats g somewhere)
+  pub enum CertifyError {
       NeedMorePrecision,  // Uncertain predicate
-      BuilderInvariant,   // topology broken (should be rare; indicates bug)
+      InvariantViolation, // topology/predicate inconsistency (should be rare; indicates bug)
   }
 
   pub struct CertifyContext<'a> {
@@ -321,7 +316,7 @@ Cell-level ladder:
       cell: &impl CellView,
       kernel: &dyn PredKernel,
       ctx: CertifyContext<'_>,
-  ) -> Result<(KeyCertification, CertifiedCellVertices), CertifyFailure>;
+  ) -> Result<CertifiedCellVertices, CertifyError>;
 
   ### What certify_vertices actually checks (determinant-based)
 
@@ -332,8 +327,7 @@ Cell-level ladder:
       - Interpret:
           - Pos: c excluded at this vertex direction (good).
           - Zero: true degeneracy => include c in support set.
-          - Neg: contradiction => NeedMoreNeighbors (this is not a numeric error; it means the current
-  clipped plane set is missing a real constraint or the topology is wrong).
+          - Neg: contradiction => InvariantViolation (the current plane set is inconsistent).
           - Uncertain: NeedMorePrecision (retry with higher tier).
   - Key formation:
       - If support set size == 3 => VertexKey::Triplet(sorted)
@@ -360,29 +354,19 @@ Cell-level ladder:
 
   for (tier, kernel) in ladder.tiers() {
       match certify_vertices(builder.view(), kernel, ctx.with_completion(completion)) {
-          Ok((KeyCertification::Certified, verts)) => { use verts; break; }
-          Ok((KeyCertification::Provisional, verts)) => { /* only allowed if you accept provisional
-  */ }
-          Err(CertifyFailure::NeedMorePrecision) => continue, // next tier
-          Err(CertifyFailure::NeedMoreNeighbors) => {
-              // go back to Phase A: extend neighbor set (increase k / full scan),
-              // then restart certification from lowest tier (fast).
-              extend_neighbors();
-              continue 'outer_cell_loop;
-          }
-          Err(CertifyFailure::BuilderInvariant) => { /* diagnostic / fallback */ }
+          Ok(verts) => { use verts; break; }
+          Err(CertifyError::NeedMorePrecision) => continue, // next tier
+          Err(CertifyError::InvariantViolation) => { /* diagnostic / fallback */ }
       }
   }
 
-  Key point: “NeedMoreNeighbors” routes back to neighbor acquisition, not to higher precision. That’s
-  the separation we discussed.
+  Key point: certification only asks for more precision or reports an invariant violation.
 
   ## Naming suggestions (so it stays readable)
 
   - NeighborCompleteness (termination result)
   - TerminationBound (explicit threshold type)
-  - CertifyFailure::{NeedMoreNeighbors, NeedMorePrecision}
-  - KeyCertification::{Provisional, Certified}
+  - CertifyError::{NeedMorePrecision, InvariantViolation}
   - KernelLadder + PredTier
   - CellView + VertexContext + iter_vertex_context
 

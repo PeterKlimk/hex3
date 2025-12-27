@@ -173,6 +173,10 @@ pub struct F64CellBuilder {
     neighbor_indices: [usize; MAX_PLANES],
     /// Cached normalized neighbor positions (f64) - computed once in clip(), reused in certification
     neighbor_positions: [DVec3; MAX_PLANES],
+    /// Cached unnormalized predicate normals `n = g - h` for each plane.
+    ///
+    /// This avoids recomputing `g - h` in the inner certification loops.
+    plane_normals_unnorm: [DVec3; MAX_PLANES],
     plane_count: usize,
 
     // Vertices as SoA (Structure of Arrays) for cache-friendly access
@@ -337,6 +341,7 @@ impl F64CellBuilder {
             plane_normals: [DVec3::ZERO; MAX_PLANES],
             neighbor_indices: [0; MAX_PLANES],
             neighbor_positions: [DVec3::ZERO; MAX_PLANES],
+            plane_normals_unnorm: [DVec3::ZERO; MAX_PLANES],
             plane_count: 0,
 
             // Vertices (SoA)
@@ -596,6 +601,14 @@ impl F64CellBuilder {
             return Err(self.failed.unwrap());
         }
 
+        // Debug: catch duplicate neighbors early
+        debug_assert!(
+            !self.has_neighbor(neighbor_idx),
+            "clip() called with duplicate neighbor {} for cell {}",
+            neighbor_idx,
+            self.generator_idx
+        );
+
         // Overflow bailout - if we exceed MAX_PLANES, fail
         if self.plane_count >= MAX_PLANES {
             self.failed = Some(CellFailure::TooManyPlanes);
@@ -615,6 +628,7 @@ impl F64CellBuilder {
         self.plane_normals[plane_idx] = new_plane.normal;
         self.neighbor_indices[plane_idx] = neighbor_idx;
         self.neighbor_positions[plane_idx] = n64; // Cache the normalized position
+        self.plane_normals_unnorm[plane_idx] = self.generator - n64;
         self.plane_count += 1;
 
         if !self.seeded {
@@ -689,7 +703,7 @@ impl F64CellBuilder {
     /// This avoids normalization (sqrt) and is scale-invariant for sign tests.
     #[inline]
     pub(crate) fn plane_normal_unnorm(&self, plane_idx: usize) -> DVec3 {
-        self.generator - self.neighbor_positions[plane_idx]
+        self.plane_normals_unnorm[plane_idx]
     }
 
     /// Returns true if this neighbor has already been clipped into the cell.
@@ -977,9 +991,8 @@ impl F64CellBuilder {
 
     /// Convert f64 vertices to f32 VertexData with certified support keys.
     ///
-    /// Uses slack-based certification: for each vertex, we compute the gap to all
-    /// non-defining generators. The support set includes generators with gap <= eps_support.
-    /// Certification passes if min_gap > eps_support + error_margin.
+    /// Uses determinant-based certification with unnormalized plane normals. Support sets
+    /// include generators whose determinant is zero (true degeneracy).
     ///
     /// Returns Err if certification fails.
     pub fn to_vertex_data(
@@ -1002,6 +1015,7 @@ impl F64CellBuilder {
         out: &mut Vec<VertexData>,
     ) -> Result<(), CellFailure> {
         let kernel = F64FilteredKernel;
-        super::certify::certify_to_vertex_data_into(self, &kernel, support_data, out).map(|_| ())
+        super::certify::certify_to_vertex_data_into(self, &kernel, support_data, out)
+            .map_err(|_| CellFailure::CertificationFailed)
     }
 }

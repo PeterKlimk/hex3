@@ -306,6 +306,7 @@ pub(super) fn build_cells_sharded_live_dedup(
             let mut sub_accum = CellSubAccum::new();
             let mut neighbors: Vec<usize> = Vec::with_capacity(super::KNN_RESTART_MAX);
             let mut cell_vertices: Vec<super::cell_builder::VertexData> = Vec::new();
+            let kernel_ladder = super::predicates::KernelLadder::new();
 
             shard
                 .output
@@ -404,6 +405,12 @@ pub(super) fn build_cells_sharded_live_dedup(
                             if neighbor_idx == i {
                                 continue;
                             }
+                            #[cfg(debug_assertions)]
+                            debug_assert!(
+                                !builder.has_neighbor(neighbor_idx),
+                                "packed kNN returned duplicate neighbor {} for cell {}",
+                                neighbor_idx, i
+                            );
                             let neighbor = points[neighbor_idx];
                             if builder.clip(neighbor_idx, neighbor).is_err() {
                                 break;
@@ -480,6 +487,12 @@ pub(super) fn build_cells_sharded_live_dedup(
                         if did_packed && builder.has_neighbor(neighbor_idx) {
                             continue;
                         }
+                        #[cfg(debug_assertions)]
+                        debug_assert!(
+                            !builder.has_neighbor(neighbor_idx),
+                            "kNN resume returned duplicate neighbor {} for cell {}",
+                            neighbor_idx, i
+                        );
                         let neighbor = points[neighbor_idx];
                         if builder.clip(neighbor_idx, neighbor).is_err() {
                             break;
@@ -663,9 +676,72 @@ pub(super) fn build_cells_sharded_live_dedup(
                         builder.vertex_count()
                     );
                 }
-                builder
-                    .to_vertex_data_into(points, &mut shard.dedup.support_data, &mut cell_vertices)
-                    .unwrap_or_else(|e| panic!("Cell {} certification failed: {:?}", i, e));
+                let mut certified = false;
+                let mut last_err: Option<(super::predicates::PredTier, super::certify::CertifyError)> = None;
+                for (tier, kernel) in kernel_ladder.tiers() {
+                    match super::certify::certify_to_vertex_data_into(
+                        &builder,
+                        kernel,
+                        &mut shard.dedup.support_data,
+                        &mut cell_vertices,
+                    ) {
+                        Ok(()) => {
+                            certified = true;
+                            last_err = None;
+                            break;
+                        }
+                        Err(err) => {
+                            let should_break = matches!(err, super::certify::CertifyError::InvariantViolation(_));
+                            last_err = Some((tier, err));
+                            if should_break {
+                                break;
+                            }
+                        }
+                    }
+                }
+                if !certified {
+                    match last_err {
+                        Some((tier, ref err)) => {
+                            match err {
+                                super::certify::CertifyError::InvariantViolation(info) => {
+                                    panic!(
+                                        "Cell {} certification failed at {:?}: {:?}\n\
+                                         kind: {:?}\n\
+                                         vertex_idx: {}\n\
+                                         def_a: {}, def_b: {}\n\
+                                         n_a: {:?}\n\
+                                         n_b: {:?}\n\
+                                         v_pos: {:?}\n\
+                                         violating_plane: {:?}\n\
+                                         n_c: {:?}\n\
+                                         det_orientation: {:e}\n\
+                                         det_plane: {:?}",
+                                        i, tier, info.kind,
+                                        info.kind,
+                                        info.vertex_idx,
+                                        info.def_a, info.def_b,
+                                        info.n_a,
+                                        info.n_b,
+                                        info.v_pos,
+                                        info.violating_plane,
+                                        info.n_c,
+                                        info.det_orientation,
+                                        info.det_plane,
+                                    );
+                                }
+                                super::certify::CertifyError::NeedMorePrecision => {
+                                    panic!(
+                                        "Cell {} certification failed at {:?}: NeedMorePrecision (exhausted all tiers)",
+                                        i, tier
+                                    );
+                                }
+                            }
+                        }
+                        None => {
+                            panic!("Cell {} certification failed with no diagnostic", i);
+                        }
+                    }
+                }
                 cell_sub.add_cert(t_cert.elapsed());
 
                 let count = cell_vertices.len();
