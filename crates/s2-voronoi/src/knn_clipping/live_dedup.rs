@@ -304,7 +304,6 @@ pub(super) fn build_cells_sharded_live_dedup(
             let mut sub_accum = CellSubAccum::new();
             let mut neighbors: Vec<usize> = Vec::with_capacity(super::KNN_RESTART_MAX);
             let mut cell_vertices: Vec<super::cell_builder::VertexData> = Vec::new();
-            let kernel_ladder = super::predicates::KernelLadder::new();
 
             shard
                 .output
@@ -610,11 +609,18 @@ pub(super) fn build_cells_sharded_live_dedup(
                     did_full_scan_fallback = true;
                     let already_clipped: rustc_hash::FxHashSet<usize> =
                         builder.neighbor_indices_iter().collect();
-                    for (p_idx, &p) in points.iter().enumerate() {
-                        if p_idx == i || already_clipped.contains(&p_idx) {
-                            continue;
-                        }
-                        if builder.clip(p_idx, p).is_err() {
+                    // TODO: Use expanding-ring spatial query instead of sorting all points
+                    let gen = points[i];
+                    let mut sorted_indices: Vec<usize> = (0..points.len())
+                        .filter(|&j| j != i && !already_clipped.contains(&j))
+                        .collect();
+                    sorted_indices.sort_by(|&a, &b| {
+                        let da = gen.dot(points[a]);
+                        let db = gen.dot(points[b]);
+                        db.partial_cmp(&da).unwrap() // descending dot = ascending distance
+                    });
+                    for p_idx in sorted_indices {
+                        if builder.clip(p_idx, points[p_idx]).is_err() {
                             break;
                         }
                         cell_neighbors_processed += 1;
@@ -629,11 +635,18 @@ pub(super) fn build_cells_sharded_live_dedup(
                         if !full_scan_done {
                             did_full_scan_recovery = true;
                             builder.reset(i, points[i]);
-                            for (p_idx, &p) in points.iter().enumerate() {
-                                if p_idx == i {
-                                    continue;
-                                }
-                                if builder.clip(p_idx, p).is_err() {
+                            // TODO: Use expanding-ring spatial query instead of sorting all points
+                            let gen = points[i];
+                            let mut sorted_indices: Vec<usize> = (0..points.len())
+                                .filter(|&j| j != i)
+                                .collect();
+                            sorted_indices.sort_by(|&a, &b| {
+                                let da = gen.dot(points[a]);
+                                let db = gen.dot(points[b]);
+                                db.partial_cmp(&da).unwrap() // descending dot = ascending distance
+                            });
+                            for p_idx in sorted_indices {
+                                if builder.clip(p_idx, points[p_idx]).is_err() {
                                     break;
                                 }
                             }
@@ -645,10 +658,67 @@ pub(super) fn build_cells_sharded_live_dedup(
                             builder.vertex_count() >= 3
                         };
                         if !recovered {
+                            let (active, total) = builder.count_active_planes();
+                            let diag = builder.diagnose_seed_failure();
+                            let closest_dots: Vec<_> = diag.neighbor_dots.iter().take(5).collect();
+                            let farthest_dots: Vec<_> = diag.neighbor_dots.iter().rev().take(5).collect();
+
+                            // Check for near-duplicates: find the closest point overall
+                            let gen = points[i];
+                            let mut closest_idx = 0usize;
+                            let mut closest_dot = -2.0f32;
+                            for (j, &p) in points.iter().enumerate() {
+                                if j == i { continue; }
+                                let d = gen.dot(p);
+                                if d > closest_dot {
+                                    closest_dot = d;
+                                    closest_idx = j;
+                                }
+                            }
+
+                            // Check if the true closest was in our neighbor set
+                            let closest_in_neighbors = builder.has_neighbor(closest_idx);
+
+                            // Check grid cell assignments
+                            let gen_cell = knn.grid().point_index_to_cell(i);
+                            let closest_cell = knn.grid().point_index_to_cell(closest_idx);
+
+                            // List actual neighbors we used
+                            let neighbor_indices: Vec<usize> = builder.neighbor_indices_iter().collect();
+
                             panic!(
-                                "TODO: reseed/full-scan recovery failed for cell {} (planes={})",
+                                "TODO: reseed/full-scan recovery failed for cell {} \
+                                 (planes={}, active={}, vertices={}, failure={:?}, \
+                                 did_packed={}, did_knn={}, did_full_scan={})\n\
+                                 Seed diagnostics: triplets={}, winding_fails={}, clipped_away={}, valid={}\n\
+                                 Closest 5 neighbor dots: {:?}\n\
+                                 Farthest 5 neighbor dots: {:?}\n\
+                                 Generator pos: {:?}\n\
+                                 True closest point: idx={}, dot={:.10}, pos={:?}\n\
+                                 Closest in neighbors: {}, gen_cell={}, closest_cell={}\n\
+                                 First 10 neighbor indices: {:?}",
                                 i,
-                                builder.planes_count()
+                                total,
+                                active,
+                                builder.vertex_count(),
+                                builder.failure(),
+                                did_packed,
+                                used_knn,
+                                full_scan_done,
+                                diag.triplets_tried,
+                                diag.winding_fails,
+                                diag.clipped_away,
+                                diag.valid,
+                                closest_dots,
+                                farthest_dots,
+                                gen,
+                                closest_idx,
+                                closest_dot,
+                                points[closest_idx],
+                                closest_in_neighbors,
+                                gen_cell,
+                                closest_cell,
+                                &neighbor_indices[..neighbor_indices.len().min(10)],
                             );
                         }
                     }
@@ -673,71 +743,35 @@ pub(super) fn build_cells_sharded_live_dedup(
                         builder.vertex_count()
                     );
                 }
-                let mut certified = false;
-                let mut last_err: Option<(super::predicates::PredTier, super::certify::CertifyError)> = None;
-                for (tier, kernel) in kernel_ladder.tiers() {
-                    match super::certify::certify_to_vertex_data_into(
-                        &builder,
-                        kernel,
-                        &mut shard.dedup.support_data,
-                        &mut cell_vertices,
-                    ) {
-                        Ok(()) => {
-                            certified = true;
-                            last_err = None;
-                            break;
-                        }
-                        Err(err) => {
-                            let should_break = matches!(err, super::certify::CertifyError::InvariantViolation(_));
-                            last_err = Some((tier, err));
-                            if should_break {
-                                break;
-                            }
-                        }
-                    }
-                }
-                if !certified {
-                    match last_err {
-                        Some((tier, ref err)) => {
-                            match err {
-                                super::certify::CertifyError::InvariantViolation(info) => {
-                                    panic!(
-                                        "Cell {} certification failed at {:?}: {:?}\n\
-                                         kind: {:?}\n\
-                                         vertex_idx: {}\n\
-                                         def_a: {}, def_b: {}\n\
-                                         n_a: {:?}\n\
-                                         n_b: {:?}\n\
-                                         v_pos: {:?}\n\
-                                         violating_plane: {:?}\n\
-                                         n_c: {:?}\n\
-                                         det_orientation: {:e}\n\
-                                         det_plane: {:?}",
-                                        i, tier, info.kind,
-                                        info.kind,
-                                        info.vertex_idx,
-                                        info.def_a, info.def_b,
-                                        info.n_a,
-                                        info.n_b,
-                                        info.v_pos,
-                                        info.violating_plane,
-                                        info.n_c,
-                                        info.det_orientation,
-                                        info.det_plane,
-                                    );
-                                }
-                                super::certify::CertifyError::NeedMorePrecision => {
-                                    panic!(
-                                        "Cell {} certification failed at {:?}: NeedMorePrecision (exhausted all tiers)",
-                                        i, tier
-                                    );
-                                }
-                            }
-                        }
-                        None => {
-                            panic!("Cell {} certification failed with no diagnostic", i);
-                        }
-                    }
+                if let Err(err) = super::certify::certify_to_vertex_data_into(
+                    &builder,
+                    &mut shard.dedup.support_data,
+                    &mut cell_vertices,
+                ) {
+                    panic!(
+                        "Cell {} certification failed: {:?}\n\
+                         kind: {:?}\n\
+                         vertex_idx: {}\n\
+                         def_a: {}, def_b: {}\n\
+                         n_a: {:?}\n\
+                         n_b: {:?}\n\
+                         v_pos: {:?}\n\
+                         violating_plane: {:?}\n\
+                         n_c: {:?}\n\
+                         det_orientation: {:e}\n\
+                         det_plane: {:?}",
+                        i, err.kind,
+                        err.kind,
+                        err.vertex_idx,
+                        err.def_a, err.def_b,
+                        err.n_a,
+                        err.n_b,
+                        err.v_pos,
+                        err.violating_plane,
+                        err.n_c,
+                        err.det_orientation,
+                        err.det_plane,
+                    );
                 }
                 cell_sub.add_cert(t_cert.elapsed());
 

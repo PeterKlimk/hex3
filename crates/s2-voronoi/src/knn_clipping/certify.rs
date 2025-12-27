@@ -1,18 +1,10 @@
 use glam::{DVec3, Vec3};
 
 use super::cell_builder::{F64CellBuilder, VertexData, VertexKey, MAX_PLANES};
-use super::predicates::{det3_f64, PredKernel, PredResult, Sign};
+use super::predicates::{det3_f64, det3_sign, Sign};
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum CertifyError {
-    /// The predicate kernel cannot decide a sign.
-    NeedMorePrecision,
-    /// Predicate sign is inconsistent with the already-clipped plane set.
-    InvariantViolation(InvariantViolationInfo),
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct InvariantViolationInfo {
+pub struct CertifyError {
     pub kind: ViolationKind,
     pub gen_idx: u32,
     pub vertex_idx: usize,
@@ -50,7 +42,6 @@ fn invert_sign(sign: Sign) -> Sign {
 
 pub(super) fn certify_to_vertex_data_into(
     cell: &F64CellBuilder,
-    kernel: &dyn PredKernel,
     support_data: &mut Vec<u32>,
     out: &mut Vec<VertexData>,
 ) -> Result<(), CertifyError> {
@@ -84,14 +75,14 @@ pub(super) fn certify_to_vertex_data_into(
         // Match the actual stored vertex direction so determinant signs correspond to
         // dot(v_dir, n_c).
         let mut flip = false;
-        match kernel.det3_sign(n_a, n_b, v_pos) {
-            PredResult::Certain(Sign::Pos) => {}
-            PredResult::Certain(Sign::Neg) => {
+        match det3_sign(n_a, n_b, v_pos) {
+            Sign::Pos => {}
+            Sign::Neg => {
                 flip = true;
             }
-            PredResult::Certain(Sign::Zero) => {
+            Sign::Zero => {
                 support_data.truncate(support_base);
-                return Err(CertifyError::InvariantViolation(InvariantViolationInfo {
+                return Err(CertifyError {
                     kind: ViolationKind::OrientationZero,
                     gen_idx,
                     vertex_idx: vi,
@@ -104,11 +95,7 @@ pub(super) fn certify_to_vertex_data_into(
                     n_c: None,
                     det_orientation,
                     det_plane: None,
-                }));
-            }
-            PredResult::Uncertain => {
-                support_data.truncate(support_base);
-                return Err(CertifyError::NeedMorePrecision);
+                });
             }
         }
 
@@ -120,40 +107,33 @@ pub(super) fn certify_to_vertex_data_into(
             }
 
             let n_c = cell.plane_normal_unnorm(pi);
-            match kernel.det3_sign(n_a, n_b, n_c) {
-                PredResult::Certain(mut sign) => {
-                    if flip {
-                        sign = invert_sign(sign);
-                    }
-                    match sign {
-                        Sign::Pos => {}
-                        Sign::Zero => {
-                            support_extra[extra_len] = cell.plane_neighbor_index_u32(pi);
-                            extra_len += 1;
-                        }
-                        Sign::Neg => {
-                            let det_plane = det3_f64(n_a, n_b, n_c);
-                            support_data.truncate(support_base);
-                            return Err(CertifyError::InvariantViolation(InvariantViolationInfo {
-                                kind: ViolationKind::PlaneNeg,
-                                gen_idx,
-                                vertex_idx: vi,
-                                def_a,
-                                def_b,
-                                n_a,
-                                n_b,
-                                v_pos,
-                                violating_plane: Some(cell.plane_neighbor_index_u32(pi)),
-                                n_c: Some(n_c),
-                                det_orientation,
-                                det_plane: Some(det_plane),
-                            }));
-                        }
-                    }
+            let mut sign = det3_sign(n_a, n_b, n_c);
+            if flip {
+                sign = invert_sign(sign);
+            }
+            match sign {
+                Sign::Pos => {}
+                Sign::Zero => {
+                    support_extra[extra_len] = cell.plane_neighbor_index_u32(pi);
+                    extra_len += 1;
                 }
-                PredResult::Uncertain => {
+                Sign::Neg => {
+                    let det_plane = det3_f64(n_a, n_b, n_c);
                     support_data.truncate(support_base);
-                    return Err(CertifyError::NeedMorePrecision);
+                    return Err(CertifyError {
+                        kind: ViolationKind::PlaneNeg,
+                        gen_idx,
+                        vertex_idx: vi,
+                        def_a,
+                        def_b,
+                        n_a,
+                        n_b,
+                        v_pos,
+                        violating_plane: Some(cell.plane_neighbor_index_u32(pi)),
+                        n_c: Some(n_c),
+                        det_orientation,
+                        det_plane: Some(det_plane),
+                    });
                 }
             }
         }
@@ -182,7 +162,7 @@ pub(super) fn certify_to_vertex_data_into(
                     Ok(len) => len,
                     Err(_) => {
                         support_data.truncate(support_base);
-                        return Err(CertifyError::InvariantViolation(InvariantViolationInfo {
+                        return Err(CertifyError {
                             kind: ViolationKind::SupportTooSmall,
                             gen_idx,
                             vertex_idx: vi,
@@ -195,13 +175,13 @@ pub(super) fn certify_to_vertex_data_into(
                             n_c: None,
                             det_orientation,
                             det_plane: None,
-                        }));
+                        });
                     }
                 };
                 VertexKey::Support { start, len }
             } else {
                 support_data.truncate(support_base);
-                return Err(CertifyError::InvariantViolation(InvariantViolationInfo {
+                return Err(CertifyError {
                     kind: ViolationKind::SupportTooSmall,
                     gen_idx,
                     vertex_idx: vi,
@@ -214,7 +194,7 @@ pub(super) fn certify_to_vertex_data_into(
                     n_c: None,
                     det_orientation,
                     det_plane: None,
-                }));
+                });
             }
         };
 

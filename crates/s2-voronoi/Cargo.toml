@@ -28,16 +28,15 @@ rustc-hash = "2"
 # Small vector optimization
 smallvec = "1.13"
 
+# Exact geometric predicates (Shewchuk-style adaptive)
+robust = "1"
+
 # Optional: parallelism
 rayon = { version = "1.10", optional = true }
 
 # Optional: convex hull backend (test-only)
 qhull-enhanced = { version = "0.1", optional = true }
 
-# Precision fallback (for later phases)
-# astro-float = "0.9.5"
-# num-rational = { version = "0.4.2", features = ["num-bigint"] }
-# num-bigint = "0.4.6"
 
 [dev-dependencies]
 rand = "0.8"
