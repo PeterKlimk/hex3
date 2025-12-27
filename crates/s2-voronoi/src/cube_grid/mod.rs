@@ -51,8 +51,9 @@ fn unit_vec_dist_sq_generic<P: UnitVec>(a: P, b: P) -> f32 {
     (2.0 - 2.0 * a.dot(b)).max(0.0)
 }
 
-// Ring-2 size is 16 in a planar grid, but can be slightly larger across cube-face seams due to
-// our "always 9 unique neighbors" diagonal resolution.
+// Ring-2 size is 16 in a planar 3×3 neighborhood, but can be slightly larger on the stitched cube
+// surface near cube vertices where a "3×3" neighborhood has only 7 unique neighbors (one diagonal
+// is missing because only 3 faces meet at a cube vertex).
 const RING2_MAX: usize = 32;
 
 // S2-style quadratic projection to reduce cube map distortion.
@@ -222,7 +223,7 @@ pub(crate) fn cell_to_face_ij(cell: usize, res: usize) -> (usize, usize, usize) 
     (face, iu, iv)
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum EdgeDir {
     Left,
     Right,
@@ -312,71 +313,44 @@ fn step_one(
 }
 
 #[inline]
-fn step_diag_unique(
-    base_face: usize,
-    base_iu: usize,
-    base_iv: usize,
-    used: &mut [u32; 9],
-    used_len: &mut usize,
-    dv_dir: EdgeDir,
-    du_dir: EdgeDir,
-    res: usize,
-) -> (usize, usize, usize) {
-    fn contains(used: &[u32; 9], used_len: usize, cell: u32) -> bool {
-        used[..used_len].iter().any(|&c| c == cell)
+fn diagonal_from_edge_neighbors(center: u32, a: u32, b: u32, res: usize) -> u32 {
+    #[inline]
+    fn step_cell(cell: u32, dir: EdgeDir, res: usize) -> u32 {
+        let (face, iu, iv) = cell_to_face_ij(cell as usize, res);
+        let (nf, nu, nv) = step_one(face, iu, iv, dir, res);
+        (nf * res * res + nv * res + nu) as u32
     }
 
-    // Canonical order: vertical then horizontal.
-    let (v_face, v_iu, v_iv) = step_one(base_face, base_iu, base_iv, dv_dir, res);
-    let (c0f, c0u, c0v) = step_one(v_face, v_iu, v_iv, du_dir, res);
+    let a_edges = [
+        step_cell(a, EdgeDir::Left, res),
+        step_cell(a, EdgeDir::Right, res),
+        step_cell(a, EdgeDir::Down, res),
+        step_cell(a, EdgeDir::Up, res),
+    ];
+    let b_edges = [
+        step_cell(b, EdgeDir::Left, res),
+        step_cell(b, EdgeDir::Right, res),
+        step_cell(b, EdgeDir::Down, res),
+        step_cell(b, EdgeDir::Up, res),
+    ];
 
-    // Alternate order: horizontal then vertical.
-    let (h_face, h_iu, h_iv) = step_one(base_face, base_iu, base_iv, du_dir, res);
-    let (c1f, c1u, c1v) = step_one(h_face, h_iu, h_iv, dv_dir, res);
-
-    // "Other quadrant" fallbacks: flip the second step direction.
-    let du_flip = match du_dir {
-        EdgeDir::Left => EdgeDir::Right,
-        EdgeDir::Right => EdgeDir::Left,
-        EdgeDir::Down | EdgeDir::Up => unreachable!(),
-    };
-    let dv_flip = match dv_dir {
-        EdgeDir::Down => EdgeDir::Up,
-        EdgeDir::Up => EdgeDir::Down,
-        EdgeDir::Left | EdgeDir::Right => unreachable!(),
-    };
-    let (c2f, c2u, c2v) = step_one(v_face, v_iu, v_iv, du_flip, res);
-    let (c3f, c3u, c3v) = step_one(h_face, h_iu, h_iv, dv_flip, res);
-
-    // If the strict diagonal options collide (only possible near cube vertices), allow stepping to
-    // other nearby cells (still at most 2 edge steps away) to guarantee 9 unique neighbors.
-    let extra0 = step_one(v_face, v_iu, v_iv, dv_dir, res);
-    let extra1 = step_one(v_face, v_iu, v_iv, dv_flip, res);
-    let extra2 = step_one(h_face, h_iu, h_iv, du_dir, res);
-    let extra3 = step_one(h_face, h_iu, h_iv, du_flip, res);
-
-    for (f, u, v) in [
-        (c0f, c0u, c0v),
-        (c1f, c1u, c1v),
-        (c2f, c2u, c2v),
-        (c3f, c3u, c3v),
-        extra0,
-        extra1,
-        extra2,
-        extra3,
-    ] {
-        let cell = (f * res * res + v * res + u) as u32;
-        if !contains(used, *used_len, cell) {
-            used[*used_len] = cell;
-            *used_len += 1;
-            return (f, u, v);
+    let mut found: Option<u32> = None;
+    for cand in a_edges {
+        if cand == center || cand == a || cand == b {
+            continue;
+        }
+        if b_edges.iter().any(|&x| x == cand) {
+            if let Some(prev) = found {
+                if prev != cand {
+                    return u32::MAX;
+                }
+            } else {
+                found = Some(cand);
+            }
         }
     }
 
-    // Extremely unlikely: if all candidates collide, fall back to canonical.
-    used[*used_len] = (c0f * res * res + c0v * res + c0u) as u32;
-    *used_len += 1;
-    (c0f, c0u, c0v)
+    found.unwrap_or(u32::MAX)
 }
 
 /// Status of a resumable k-NN query.
@@ -860,63 +834,10 @@ impl CubeMapGrid {
             let (uf, uu, uv) = step_one(face, iu, iv, EdgeDir::Up, res);
             let up = (uf * res * res + uv * res + uu) as u32;
 
-            let mut used = [u32::MAX; 9];
-            let mut used_len = 0usize;
-            used[used_len] = center;
-            used_len += 1;
-            used[used_len] = left;
-            used_len += 1;
-            used[used_len] = right;
-            used_len += 1;
-            used[used_len] = down;
-            used_len += 1;
-            used[used_len] = up;
-            used_len += 1;
-
-            let (dlf, dlu, dlv) = step_diag_unique(
-                face,
-                iu,
-                iv,
-                &mut used,
-                &mut used_len,
-                EdgeDir::Down,
-                EdgeDir::Left,
-                res,
-            );
-            let down_left = (dlf * res * res + dlv * res + dlu) as u32;
-            let (drf, dru, drv) = step_diag_unique(
-                face,
-                iu,
-                iv,
-                &mut used,
-                &mut used_len,
-                EdgeDir::Down,
-                EdgeDir::Right,
-                res,
-            );
-            let down_right = (drf * res * res + drv * res + dru) as u32;
-            let (ulf, ulu, ulv) = step_diag_unique(
-                face,
-                iu,
-                iv,
-                &mut used,
-                &mut used_len,
-                EdgeDir::Up,
-                EdgeDir::Left,
-                res,
-            );
-            let up_left = (ulf * res * res + ulv * res + ulu) as u32;
-            let (urf, uru, urv) = step_diag_unique(
-                face,
-                iu,
-                iv,
-                &mut used,
-                &mut used_len,
-                EdgeDir::Up,
-                EdgeDir::Right,
-                res,
-            );
-            let up_right = (urf * res * res + urv * res + uru) as u32;
+            let down_left = diagonal_from_edge_neighbors(center, down, left, res);
+            let down_right = diagonal_from_edge_neighbors(center, down, right, res);
+            let up_left = diagonal_from_edge_neighbors(center, up, left, res);
+            let up_right = diagonal_from_edge_neighbors(center, up, right, res);
 
             neighbors[base + 0] = down_left;
             neighbors[base + 1] = down;
@@ -928,12 +849,25 @@ impl CubeMapGrid {
             neighbors[base + 7] = up;
             neighbors[base + 8] = up_right;
 
-            debug_assert_eq!(
-                used_len,
-                9,
-                "neighbor resolution failed: cell={}, used_len={}",
+            debug_assert!(
+                {
+                    let ns = [
+                        down_left, down, down_right, left, center, right, up_left, up, up_right,
+                    ];
+                    let mut ok = true;
+                    for i in 0..9 {
+                        for j in (i + 1)..9 {
+                            if ns[i] == u32::MAX || ns[j] == u32::MAX {
+                                continue;
+                            }
+                            ok &= ns[i] != ns[j];
+                        }
+                    }
+                    ok
+                },
+                "duplicate neighbor cell: cell={}, neighbors={:?}",
                 cell,
-                used_len
+                &neighbors[base..base + 9]
             );
         }
 
@@ -951,10 +885,16 @@ impl CubeMapGrid {
 
             let mut ring: Vec<u32> = Vec::with_capacity(RING2_MAX);
             for &n1 in near {
+                if n1 == u32::MAX {
+                    continue;
+                }
                 let n1 = n1 as usize;
                 let b1 = n1 * 9;
                 let near2 = &neighbors[b1..b1 + 9];
                 for &n2 in near2 {
+                    if n2 == u32::MAX {
+                        continue;
+                    }
                     if near.iter().any(|&x| x == n2) {
                         continue;
                     }
@@ -1842,15 +1782,43 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_step_one_has_unique_inverse_direction() {
+        for res in [4usize, 5, 8, 16] {
+            let num_cells = 6 * res * res;
+            for cell in 0..num_cells {
+                let (face, iu, iv) = cell_to_face_ij(cell, res);
+                for dir in [EdgeDir::Left, EdgeDir::Right, EdgeDir::Down, EdgeDir::Up] {
+                    let (f1, u1, v1) = step_one(face, iu, iv, dir, res);
+                    let mut count = 0usize;
+                    for back in [EdgeDir::Left, EdgeDir::Right, EdgeDir::Down, EdgeDir::Up] {
+                        let (fb, ub, vb) = step_one(f1, u1, v1, back, res);
+                        if (fb, ub, vb) == (face, iu, iv) {
+                            count += 1;
+                        }
+                    }
+                    assert_eq!(
+                        count, 1,
+                        "step_one inverse not unique: res={}, cell={}, dir={:?}, step=({},{},{})",
+                        res, cell, dir, f1, u1, v1
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn test_cell_neighbors_unique() {
         for res in [4usize, 5, 8, 16] {
             let grid = CubeMapGrid::new(&[], res);
             let num_cells = 6 * res * res;
             for cell in 0..num_cells {
+                let (face, iu, iv) = cell_to_face_ij(cell, res);
                 let neighbors = grid.cell_neighbors(cell);
                 let mut seen = std::collections::HashSet::<u32>::with_capacity(9);
                 for &ncell in neighbors.iter() {
-                    assert_ne!(ncell, u32::MAX, "invalid neighbor cell: res={}, cell={}", res, cell);
+                    if ncell == u32::MAX {
+                        continue;
+                    }
                     assert!(
                         (ncell as usize) < num_cells,
                         "invalid neighbor cell: res={}, cell={}, neighbor={}",
@@ -1867,12 +1835,22 @@ mod tests {
                         neighbors
                     );
                 }
+                assert!(seen.contains(&(cell as u32)), "center missing: res={}, cell={}", res, cell);
+
+                // Face-corner cells sit on a cube vertex at one corner, where only 3 cells meet;
+                // the "outer" diagonal doesn't exist, so we expect 7 neighbors (8 including self).
+                let last = res - 1;
+                let is_face_corner = (iu == 0 || iu == last) && (iv == 0 || iv == last);
+                let expected = if is_face_corner { 8 } else { 9 };
                 assert_eq!(
                     seen.len(),
-                    9,
-                    "expected 9 unique neighbors: res={}, cell={}, got={}",
+                    expected,
+                    "unexpected neighborhood size: res={}, cell={}, face={}, iu={}, iv={}, got={}",
                     res,
                     cell,
+                    face,
+                    iu,
+                    iv,
                     seen.len()
                 );
             }
@@ -1892,6 +1870,13 @@ mod tests {
                     res,
                     cell
                 );
+                assert!(
+                    ring2.len() <= RING2_MAX,
+                    "ring2 too large: res={}, cell={}, len={}",
+                    res,
+                    cell,
+                    ring2.len()
+                );
                 let mut seen = std::collections::HashSet::<u32>::with_capacity(ring2.len());
                 for &ncell in ring2 {
                     assert!(
@@ -1909,6 +1894,108 @@ mod tests {
                         ncell
                     );
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn test_security_ring2_captures_outside_cap_max() {
+        use rand::{Rng, SeedableRng};
+        use rand_chacha::ChaCha8Rng;
+
+        #[inline]
+        fn max_dot_to_cap(q: Vec3, center: Vec3, cos_r: f32, sin_r: f32) -> f32 {
+            let cos_d = q.dot(center).clamp(-1.0, 1.0);
+            if cos_d > cos_r {
+                return 1.0;
+            }
+            let sin_d = (1.0 - cos_d * cos_d).max(0.0).sqrt();
+            (cos_d * cos_r + sin_d * sin_r).clamp(-1.0, 1.0)
+        }
+
+        fn sample_point_in_cell(cell: usize, res: usize, rng: &mut impl Rng) -> Vec3 {
+            let (face, iu, iv) = cell_to_face_ij(cell, res);
+
+            // Sample in ST space, away from boundaries to avoid tie-breaking artifacts.
+            let eps = 1e-4f32;
+            let fu = (rng.gen::<f32>() * (1.0 - 2.0 * eps) + eps) / res as f32;
+            let fv = (rng.gen::<f32>() * (1.0 - 2.0 * eps) + eps) / res as f32;
+            let su = iu as f32 / res as f32 + fu;
+            let sv = iv as f32 / res as f32 + fv;
+
+            let u = st_to_uv(su);
+            let v = st_to_uv(sv);
+            face_uv_to_3d(face, u, v)
+        }
+
+        let res = 8usize;
+        let grid = CubeMapGrid::new(&[], res);
+        let num_cells = 6 * res * res;
+        let mut rng = ChaCha8Rng::seed_from_u64(12345);
+
+        let samples_per_cell = 8usize;
+
+        for cell in 0..num_cells {
+            let neighbors = grid.cell_neighbors(cell);
+            let mut in_neighborhood = vec![false; num_cells];
+            for &c in neighbors.iter() {
+                if c == u32::MAX {
+                    continue;
+                }
+                in_neighborhood[c as usize] = true;
+            }
+
+            let ring2 = grid.cell_ring2(cell);
+            for &c in ring2 {
+                assert!(
+                    !in_neighborhood[c as usize],
+                    "ring2 cell is inside neighborhood: cell={}, ring2_cell={}",
+                    cell,
+                    c
+                );
+            }
+
+            for _ in 0..samples_per_cell {
+                let q = sample_point_in_cell(cell, res, &mut rng);
+                assert_eq!(grid.point_to_cell(q), cell, "sample not inside cell: cell={}", cell);
+
+                let mut outside_max = f32::NEG_INFINITY;
+                for other in 0..num_cells {
+                    if in_neighborhood[other] {
+                        continue;
+                    }
+                    let dot = max_dot_to_cap(
+                        q,
+                        grid.cell_centers[other],
+                        grid.cell_cos_radius[other],
+                        grid.cell_sin_radius[other],
+                    );
+                    outside_max = outside_max.max(dot);
+                }
+
+                let mut ring2_max = f32::NEG_INFINITY;
+                for &other in ring2 {
+                    let idx = other as usize;
+                    let dot = max_dot_to_cap(
+                        q,
+                        grid.cell_centers[idx],
+                        grid.cell_cos_radius[idx],
+                        grid.cell_sin_radius[idx],
+                    );
+                    ring2_max = ring2_max.max(dot);
+                }
+
+                // For a correct "3×3 neighborhood" security bound based on caps, the maximum cap
+                // dot among all outside cells should always occur in ring2.
+                let diff = outside_max - ring2_max;
+                assert!(
+                    diff <= 1e-5,
+                    "ring2 missed outside max: cell={}, outside_max={}, ring2_max={}, diff={}",
+                    cell,
+                    outside_max,
+                    ring2_max,
+                    diff
+                );
             }
         }
     }
