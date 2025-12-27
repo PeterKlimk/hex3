@@ -3,7 +3,6 @@
 use glam::{DVec3, Vec3};
 
 use super::constants::COINCIDENT_DOT_TOL;
-use super::predicates::F64FilteredKernel;
 
 /// Vertex key for deduplication (fast triplet or full support set).
 #[derive(Debug, Clone, Copy)]
@@ -1014,8 +1013,7 @@ impl F64CellBuilder {
         support_data: &mut Vec<u32>,
         out: &mut Vec<VertexData>,
     ) -> Result<(), CellFailure> {
-        let kernel = F64FilteredKernel;
-        super::certify::certify_to_vertex_data_into(self, &kernel, support_data, out)
+        super::certify::certify_to_vertex_data_into(self, support_data, out)
             .map_err(|_| CellFailure::CertificationFailed)
     }
 }
