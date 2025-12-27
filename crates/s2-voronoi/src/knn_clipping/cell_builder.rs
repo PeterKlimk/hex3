@@ -102,6 +102,23 @@ const SUPPORT_EPS_ABS: f64 = 1e-12;
 /// early termination on well-spaced point sets.
 const TERMINATION_VERTEX_ANGLE_EPS: f64 = 8.0 * f32::EPSILON as f64;
 
+/// Conditioning threshold for termination checks.
+///
+/// Termination assumes vertex directions are accurate enough to bound the true cell radius.
+/// When vertices are defined by nearly-parallel planes, the intersection direction can be
+/// extremely ill-conditioned; in that case we disable termination (and rely on the k schedule
+/// / full-scan fallback) instead of risking a false early-out.
+const TERMINATION_MIN_CONDITIONING: f64 = CONDITIONING_FLOOR;
+
+/// Additional (conditioning-dependent) angular pad applied on top of `TERMINATION_VERTEX_ANGLE_EPS`.
+///
+/// This is a conservative hedge for poorly-conditioned vertices, where small input noise (f32
+/// quantization from the kNN path) can move vertex directions enough to affect the bound.
+const TERMINATION_CONDITIONING_PAD_FACTOR: f64 = 64.0;
+
+/// Cap for the conditioning-dependent pad (radians).
+const TERMINATION_CONDITIONING_PAD_MAX: f64 = 1e-3;
+
 /// Conservative dot-space slack for early-termination comparisons.
 ///
 /// This accounts for f32 dot-product rounding in the kNN path (the `next_neighbor_cos`
@@ -661,26 +678,78 @@ impl F64CellBuilder {
         }
     }
 
-    /// Check if we can terminate early based on security radius.
-    pub fn can_terminate(&self, next_neighbor_cos: f32) -> bool {
+    #[inline]
+    fn min_vertex_conditioning_sq(&self) -> f64 {
+        if self.vertex_count == 0 {
+            return 1.0;
+        }
+
+        (0..self.vertex_count)
+            .map(|vi| {
+                let n_a = self.plane_normals[self.vertex_plane_a[vi]];
+                let n_b = self.plane_normals[self.vertex_plane_b[vi]];
+                n_a.cross(n_b).length_squared()
+            })
+            .fold(1.0f64, f64::min)
+    }
+
+    /// Compute the maximum allowed dot-product for any *unseen* generator, below which
+    /// termination is safe.
+    ///
+    /// Returns `None` if the current cell geometry is too ill-conditioned to safely
+    /// apply the bound.
+    #[inline]
+    pub fn termination_unseen_dot_threshold(&self) -> Option<f64> {
         if self.vertex_count < 3 {
-            return false;
+            return None;
+        }
+
+        // If any vertex is too ill-conditioned, avoid termination entirely.
+        let min_cond_sq = self.min_vertex_conditioning_sq();
+        if !(min_cond_sq.is_finite() && min_cond_sq > 0.0) {
+            return None;
+        }
+        let min_cond = min_cond_sq.sqrt();
+        if min_cond < TERMINATION_MIN_CONDITIONING {
+            return None;
         }
 
         let min_cos = self.min_vertex_cos();
-
         if min_cos <= 0.0 {
-            return false;
+            return None;
         }
 
-        // Conservative bound for epsilon-aware certification:
-        // if a vertex is at angle theta from the generator, any generator within
-        // (theta + 2*eps) of that vertex must be within (2*theta + 2*eps) of the generator.
-        // Use eps_cell as a worst-case bound over vertices to ensure candidate completeness.
+        // Bound derivation (triangle inequality on S²):
+        // If every unseen generator c satisfies dist(g, c) > 2*max_v dist(g, v),
+        // then no unseen generator can be closer than g anywhere in the cell.
+        //
+        // We pad the vertex angle by a small, conservative amount to account for
+        // f32-scale input noise, and inflate further when vertex intersections are
+        // poorly-conditioned.
+        let extra_pad = (TERMINATION_CONDITIONING_PAD_FACTOR * (f32::EPSILON as f64) / min_cond)
+            .min(TERMINATION_CONDITIONING_PAD_MAX);
+        let angle_pad = TERMINATION_VERTEX_ANGLE_EPS + extra_pad;
+
+        let (sin_pad, cos_pad) = if extra_pad == 0.0 {
+            // Fast path: avoid per-call trig.
+            (self.sin_eps, self.cos_eps)
+        } else {
+            angle_pad.sin_cos()
+        };
+
         let sin_theta = (1.0 - min_cos * min_cos).max(0.0).sqrt();
-        let cos_theta_eps = min_cos * self.cos_eps - sin_theta * self.sin_eps;
-        let cos_2max = 2.0 * cos_theta_eps * cos_theta_eps - 1.0;
-        (next_neighbor_cos as f64) < cos_2max - self.termination_margin
+        let cos_theta_pad = min_cos * cos_pad - sin_theta * sin_pad; // cos(theta + pad)
+        let cos_2max = 2.0 * cos_theta_pad * cos_theta_pad - 1.0; // cos(2*(theta + pad))
+
+        Some(cos_2max - self.termination_margin)
+    }
+
+    /// Check if we can terminate early based on security radius.
+    pub fn can_terminate(&self, max_unseen_dot_bound: f32) -> bool {
+        let Some(threshold) = self.termination_unseen_dot_threshold() else {
+            return false;
+        };
+        (max_unseen_dot_bound as f64) < threshold
     }
 
     /// Attempt to reseed using the best-conditioned triplet among all planes.

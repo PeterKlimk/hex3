@@ -39,7 +39,10 @@
       "Bash(git checkout:*)",
       "Bash(for i in 1 2 3 4 5)",
       "Bash(RUSTFLAGS=\"-C target-cpu=native\" cargo test:*)",
-      "Bash(chmod:*)"
+      "Bash(chmod:*)",
+      "Bash(git rm:*)",
+      "Bash(pip install:*)",
+      "Bash(pip3 install:*)"
     ]
   }
 }
