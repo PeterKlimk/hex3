@@ -74,13 +74,17 @@ impl VoronoiDiagnostics {
 /// Configuration for Voronoi computation.
 #[derive(Debug, Clone)]
 pub struct VoronoiConfig {
-    // Future: termination config, knn schedule, preprocessing options
-    _private: (),
+    /// If true, run a preprocessing pass to merge near-coincident generators.
+    ///
+    /// This improves robustness for pathological inputs with duplicates/near-duplicates,
+    /// but adds overhead for large point sets. For benchmarking or when inputs are known
+    /// to be well-spaced, disabling this can substantially improve performance.
+    pub preprocess: bool,
 }
 
 impl Default for VoronoiConfig {
     fn default() -> Self {
-        Self { _private: () }
+        Self { preprocess: true }
     }
 }
 
@@ -95,7 +99,7 @@ pub fn compute<P: UnitVec3Like>(points: &[P]) -> Result<VoronoiOutput, VoronoiEr
 /// Compute a spherical Voronoi diagram with explicit configuration.
 pub fn compute_with<P: UnitVec3Like>(
     points: &[P],
-    _config: VoronoiConfig,
+    config: VoronoiConfig,
 ) -> Result<VoronoiOutput, VoronoiError> {
     use glam::Vec3;
 
@@ -110,7 +114,11 @@ pub fn compute_with<P: UnitVec3Like>(
         .collect();
 
     // Call knn_clipping backend
-    let diagram = knn_clipping::compute_voronoi_gpu_style(&vec3_points);
+    let diagram = if config.preprocess {
+        knn_clipping::compute_voronoi_gpu_style(&vec3_points)
+    } else {
+        knn_clipping::compute_voronoi_gpu_style_no_preprocess(&vec3_points)
+    };
 
     // Collect diagnostics
     let mut diagnostics = VoronoiDiagnostics::default();

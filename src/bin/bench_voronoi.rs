@@ -15,6 +15,7 @@ use glam::Vec3;
 use hex3::geometry::{fibonacci_sphere_points_with_rng, lloyd_relax_kmeans, SphericalVoronoi};
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
+use s2_voronoi::VoronoiConfig;
 use std::io::{self, Write};
 use std::time::Instant;
 
@@ -61,6 +62,10 @@ struct Args {
     #[arg(long)]
     validate: bool,
 
+    /// Disable preprocessing (merge near-coincident points) for benchmarking.
+    #[arg(long)]
+    no_preprocess: bool,
+
     /// Number of iterations to run (useful for profiling)
     #[arg(short = 'n', long, default_value_t = 1)]
     repeat: usize,
@@ -101,7 +106,7 @@ fn format_num(n: usize) -> String {
     }
 }
 
-fn validate_against_hull(points: &[Vec3]) {
+fn validate_against_hull(points: &[Vec3], preprocess: bool) {
     println!("\nValidating against convex hull ground truth...");
 
     let t0 = Instant::now();
@@ -109,7 +114,8 @@ fn validate_against_hull(points: &[Vec3]) {
     let hull_time = t0.elapsed().as_secs_f64() * 1000.0;
 
     let t1 = Instant::now();
-    let s2_output = s2_voronoi::compute(points).expect("s2-voronoi should succeed");
+    let s2_output = s2_voronoi::compute_with(points, VoronoiConfig { preprocess })
+        .expect("s2-voronoi should succeed");
     let s2_time = t1.elapsed().as_secs_f64() * 1000.0;
 
     let mut exact_match = 0usize;
@@ -161,10 +167,14 @@ struct BenchResult {
 }
 
 fn run_benchmark(points: &[Vec3]) -> BenchResult {
+    run_benchmark_with_config(points, VoronoiConfig::default())
+}
+
+fn run_benchmark_with_config(points: &[Vec3], config: VoronoiConfig) -> BenchResult {
     let n = points.len();
 
     let t0 = Instant::now();
-    let output = s2_voronoi::compute(points).expect("s2-voronoi should succeed");
+    let output = s2_voronoi::compute_with(points, config).expect("s2-voronoi should succeed");
     let time_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
     BenchResult {
@@ -200,6 +210,9 @@ fn main() {
         "  sizes = {:?}",
         sizes.iter().map(|&n| format_num(n)).collect::<Vec<_>>()
     );
+    if args.no_preprocess {
+        println!("  preprocess = disabled (no point merging)");
+    }
     if args.repeat > 1 {
         println!("  repeat = {}", args.repeat);
     }
@@ -223,13 +236,17 @@ fn main() {
         let mut times: Vec<f64> = Vec::with_capacity(args.repeat);
         let mut last_result: Option<BenchResult> = None;
 
+        let config = VoronoiConfig {
+            preprocess: !args.no_preprocess,
+        };
+
         for iter in 0..args.repeat {
             if args.repeat > 1 {
                 print!("  Iteration {}/{}... ", iter + 1, args.repeat);
                 io::stdout().flush().unwrap();
             }
 
-            let result = run_benchmark(&points);
+            let result = run_benchmark_with_config(&points, config.clone());
             times.push(result.time_ms);
 
             if args.repeat > 1 {
@@ -268,7 +285,7 @@ fn main() {
         );
 
         if args.validate && *n <= 100_000 {
-            validate_against_hull(&points);
+            validate_against_hull(&points, !args.no_preprocess);
         } else if args.validate && *n > 100_000 {
             println!("\n  (skipping validation for n > 100k - convex hull is slow)");
         }

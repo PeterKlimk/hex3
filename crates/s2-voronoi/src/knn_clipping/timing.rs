@@ -104,6 +104,7 @@ pub struct DedupSubPhases;
 #[derive(Debug, Clone)]
 pub struct PhaseTimings {
     pub total: Duration,
+    pub preprocess: Duration,
     pub knn_build: Duration,
     pub cell_construction: Duration,
     pub cell_sub: CellSubPhases,
@@ -125,6 +126,13 @@ impl PhaseTimings {
         };
 
         eprintln!("[timing] knn_clipping n={}", n);
+        if self.preprocess.as_nanos() > 0 {
+            eprintln!(
+                "  preprocess:        {:7.1}ms ({:4.1}%)",
+                self.preprocess.as_secs_f64() * 1000.0,
+                pct(self.preprocess)
+            );
+        }
         eprintln!(
             "  knn_build:         {:7.1}ms ({:4.1}%)",
             self.knn_build.as_secs_f64() * 1000.0,
@@ -608,6 +616,7 @@ pub enum KnnCellStage {
 #[cfg(feature = "timing")]
 pub struct TimingBuilder {
     t_start: std::time::Instant,
+    preprocess: Duration,
     knn_build: Duration,
     cell_construction: Duration,
     cell_sub: CellSubPhases,
@@ -621,6 +630,7 @@ impl TimingBuilder {
     pub fn new() -> Self {
         Self {
             t_start: std::time::Instant::now(),
+            preprocess: Duration::ZERO,
             knn_build: Duration::ZERO,
             cell_construction: Duration::ZERO,
             cell_sub: CellSubPhases::default(),
@@ -628,6 +638,10 @@ impl TimingBuilder {
             dedup_sub: DedupSubPhases::default(),
             assemble: Duration::ZERO,
         }
+    }
+
+    pub fn set_preprocess(&mut self, d: Duration) {
+        self.preprocess = d;
     }
 
     pub fn set_knn_build(&mut self, d: Duration) {
@@ -651,6 +665,7 @@ impl TimingBuilder {
     pub fn finish(self) -> PhaseTimings {
         PhaseTimings {
             total: self.t_start.elapsed(),
+            preprocess: self.preprocess,
             knn_build: self.knn_build,
             cell_construction: self.cell_construction,
             cell_sub: self.cell_sub,
@@ -674,6 +689,9 @@ impl TimingBuilder {
 
     #[inline(always)]
     pub fn set_knn_build(&mut self, _d: Duration) {}
+
+    #[inline(always)]
+    pub fn set_preprocess(&mut self, _d: Duration) {}
 
     #[inline(always)]
     pub fn set_cell_construction(&mut self, _d: Duration, _sub: CellSubPhases) {}

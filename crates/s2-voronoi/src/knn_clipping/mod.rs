@@ -223,7 +223,8 @@ fn compute_voronoi_gpu_style_core(
 
     let mut tb = TimingBuilder::new();
 
-    // Preprocessing: merge close points (not timed - separate from Voronoi computation)
+    // Preprocessing: merge close points
+    let t = Timer::start();
     let (effective_points, merge_result) = if skip_preprocess {
         (points.to_vec(), None)
     } else {
@@ -235,6 +236,7 @@ fn compute_voronoi_gpu_style_core(
         };
         (pts, Some(result))
     };
+    tb.set_preprocess(t.elapsed());
     let needs_remap = merge_result.as_ref().map_or(false, |r| r.num_merged > 0);
 
     // Build KNN on effective points (this is the timed grid build)
