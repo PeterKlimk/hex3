@@ -9,14 +9,13 @@ use glam::Vec3;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
-use std::sync::Arc;
 
 use super::cell_builder::F64CellBuilder;
 use super::timing::{DedupSubPhases, Timer};
 use super::{TerminationConfig, VertexKey};
 use crate::cube_grid::{
     cell_to_face_ij,
-    packed_knn::{packed_knn_cell_stream, PackedKnnCellScratch, PackedKnnCellStatus, PackedV4Edges},
+    packed_knn::{packed_knn_cell_stream, PackedKnnCellScratch, PackedKnnCellStatus},
 };
 use crate::VoronoiCell;
 
@@ -286,7 +285,6 @@ pub(super) fn build_cells_sharded_live_dedup(
     let assignment = assign_bins(points, knn.grid());
     let num_bins = assignment.num_bins;
     let packed_k = super::KNN_RESUME_KS[0].min(points.len().saturating_sub(1));
-    let packed_edges = Arc::new(PackedV4Edges::new(knn.grid().res()));
 
     #[cfg(feature = "parallel")]
     let iter = (0..num_bins).into_par_iter();
@@ -326,7 +324,6 @@ pub(super) fn build_cells_sharded_live_dedup(
                 .reserve(my_generators.len().saturating_mul(2));
 
             let grid = knn.grid();
-            let packed_edges = packed_edges.clone();
             let mut packed_scratch = PackedKnnCellScratch::new();
 
             let mut bin_queries: Vec<BinQuery> = Vec::with_capacity(my_generators.len());
@@ -841,7 +838,6 @@ pub(super) fn build_cells_sharded_live_dedup(
                         cell as usize,
                         queries,
                         packed_k,
-                        packed_edges.as_ref(),
                         &mut packed_scratch,
                         |qi, query_idx, neighbors, count, security| {
                             let local = group[qi].local;

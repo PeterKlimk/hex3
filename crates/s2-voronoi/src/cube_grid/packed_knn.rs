@@ -2,7 +2,7 @@
 //!
 //! Dominant mode: PackedV4 (batched, cell-local, SIMD dot products).
 
-use super::{cell_to_face_ij, face_uv_to_3d, st_to_uv, CubeMapGrid};
+use super::CubeMapGrid;
 use glam::Vec3;
 use std::mem::MaybeUninit;
 use std::simd::f32x8;
@@ -65,24 +65,6 @@ impl PackedKnnStats {
     }
 }
 
-/// Precomputed plane-edge data for PackedV4 security thresholds.
-pub struct PackedV4Edges {
-    edges: Vec<[EdgeData; 4]>,
-}
-
-impl PackedV4Edges {
-    pub fn new(res: usize) -> Self {
-        Self {
-            edges: precompute_edges_all_cells(res),
-        }
-    }
-
-    #[inline]
-    fn get(&self, cell: usize) -> &[EdgeData; 4] {
-        &self.edges[cell]
-    }
-}
-
 /// Reusable scratch buffers for packed per-cell streaming queries.
 pub struct PackedKnnCellScratch {
     candidate_indices: Vec<u32>,
@@ -138,7 +120,6 @@ pub fn packed_knn_cell_stream(
     cell: usize,
     queries: &[u32],
     k: usize,
-    edges: &PackedV4Edges,
     scratch: &mut PackedKnnCellScratch,
     mut on_query: impl FnMut(usize, u32, &[u32], usize, f32),
 ) -> PackedKnnCellStatus {
@@ -185,7 +166,7 @@ pub fn packed_knn_cell_stream(
         return PackedKnnCellStatus::SlowPath;
     }
 
-    let edges = edges.get(cell);
+    let ring2 = grid.cell_ring2(cell);
 
     scratch.lens.resize(num_queries, 0);
     scratch.lens.fill(0);
@@ -205,11 +186,12 @@ pub fn packed_knn_cell_stream(
     scratch.security_thresholds.clear();
     scratch.security_thresholds.reserve(num_queries);
     for qi in 0..num_queries {
-        scratch.security_thresholds.push(security_planes_xyz(
+        scratch.security_thresholds.push(outside_max_dot_xyz(
             scratch.query_x[qi],
             scratch.query_y[qi],
             scratch.query_z[qi],
-            edges,
+            ring2,
+            grid,
         ));
     }
 
@@ -671,7 +653,6 @@ fn packed_knn_impl(
 
     let mut candidate_indices: Vec<u32> = Vec::with_capacity(512);
     let mut cell_ranges: Vec<(usize, usize)> = Vec::with_capacity(9);
-    let all_edges = precompute_edges_all_cells(grid.res);
 
     let mut keys_slab: Vec<MaybeUninit<u64>> = Vec::new();
     let mut lens: Vec<usize> = Vec::new();
@@ -717,7 +698,7 @@ fn packed_knn_impl(
             continue;
         }
 
-        let edges = &all_edges[cell];
+        let ring2 = grid.cell_ring2(cell);
 
         // Worst-case: fall back to an unbounded (slow) path rather than silently truncating.
         let stride = num_candidates;
@@ -733,7 +714,7 @@ fn packed_knn_impl(
                 query_points,
                 &cell_ranges,
                 &candidate_indices,
-                edges,
+                ring2,
                 &mut neighbors,
                 stats.as_deref_mut(),
             );
@@ -771,8 +752,13 @@ fn packed_knn_impl(
         security_thresholds.clear();
         security_thresholds.reserve(num_queries);
         for qi in 0..num_queries {
-            let q = Vec3::new(query_x[qi], query_y[qi], query_z[qi]);
-            security_thresholds.push(security_planes(q, edges));
+            security_thresholds.push(outside_max_dot_xyz(
+                query_x[qi],
+                query_y[qi],
+                query_z[qi],
+                ring2,
+                grid,
+            ));
         }
 
         // Pass A: center range only - compute dots, filter, track min.
@@ -983,7 +969,7 @@ fn packed_knn_fallback_cell(
     query_points: &[u32],
     cell_ranges: &[(usize, usize)],
     candidate_indices: &[u32],
-    edges: &[EdgeData; 4],
+    ring2: &[u32],
     neighbors: &mut [u32],
     mut stats: Option<&mut PackedKnnStats>,
 ) {
@@ -994,7 +980,7 @@ fn packed_knn_fallback_cell(
 
     for (qi, &query_idx) in query_points.iter().enumerate() {
         let q = points[query_idx as usize];
-        let security = security_planes(q, edges);
+        let security = outside_max_dot(q, ring2, grid);
 
         keys.clear();
         keys.reserve(k.min(candidate_indices.len()));
@@ -1116,80 +1102,46 @@ fn key_to_idx(key: u64) -> u32 {
     (key & 0xFFFF_FFFF) as u32
 }
 
-/// Precomputed edge data for planes-based security threshold.
-struct EdgeData {
-    n: Vec3, // normalized normal of great circle plane
-}
-
-fn precompute_edges(corners: &[Vec3; 4]) -> [EdgeData; 4] {
-    std::array::from_fn(|i| {
-        let a = corners[i];
-        let b = corners[(i + 1) % 4];
-        let n = a.cross(b).normalize_or_zero();
-        EdgeData { n }
-    })
-}
-
-fn precompute_edges_all_cells(res: usize) -> Vec<[EdgeData; 4]> {
-    let num_cells = 6 * res * res;
-    let mut all_edges: Vec<[EdgeData; 4]> = Vec::with_capacity(num_cells);
-    for cell in 0..num_cells {
-        let corners = neighborhood_corners_5x5(cell, res);
-        all_edges.push(precompute_edges(&corners));
+#[inline]
+fn max_dot_to_cap_xyz(qx: f32, qy: f32, qz: f32, center: Vec3, cos_r: f32, sin_r: f32) -> f32 {
+    let cos_d = (qx * center.x + qy * center.y + qz * center.z).clamp(-1.0, 1.0);
+    if cos_d > cos_r {
+        return 1.0;
     }
-    all_edges
-}
 
-/// Cheap exact bound: max dot to boundary via great circle projections.
-fn security_planes(q: Vec3, edges: &[EdgeData; 4]) -> f32 {
-    security_planes_xyz(q.x, q.y, q.z, edges)
+    let sin_d = (1.0 - cos_d * cos_d).max(0.0).sqrt();
+    (cos_d * cos_r + sin_d * sin_r).clamp(-1.0, 1.0)
 }
 
 #[inline]
-fn security_planes_xyz(x: f32, y: f32, z: f32, edges: &[EdgeData; 4]) -> f32 {
-    // We want:
-    //   max_i sqrt(1 - |dot(q, n_i)|^2)
-    //
-    // Since sqrt(.) is monotone increasing and (1 - t) is monotone decreasing:
-    //   max_i sqrt(1 - dn_i^2) == sqrt(1 - min_i dn_i^2)
-    //
-    // This reduces 4 sqrts per query down to 1, and avoids abs() since |d|^2 == d^2.
-    let mut min_dn2 = f32::INFINITY;
-    for edge in edges {
-        let d = x * edge.n.x + y * edge.n.y + z * edge.n.z;
-        let dn2 = d * d;
-        min_dn2 = min_dn2.min(dn2);
-    }
-
-    let dot_to_plane = (1.0 - min_dn2).max(0.0).sqrt();
-    // Nudge conservatively downward (more permissive) to avoid excluding candidates due to tiny
-    // floating-point differences. We only deal with non-negative values here.
-    if dot_to_plane > 0.0 {
-        f32::from_bits(dot_to_plane.to_bits() - 1)
-    } else {
-        dot_to_plane
-    }
+fn outside_max_dot(q: Vec3, ring2: &[u32], grid: &CubeMapGrid) -> f32 {
+    outside_max_dot_xyz(q.x, q.y, q.z, ring2, grid)
 }
 
-/// Get 4 outer corners of a cell's 5x5 neighborhood (for security_3x3 threshold).
-fn neighborhood_corners_5x5(cell: usize, res: usize) -> [Vec3; 4] {
-    let (face, iu, iv) = cell_to_face_ij(cell, res);
-
-    // 5x5 neighborhood bounds: center ± 2 cells (clamped to face).
-    let i0 = iu.saturating_sub(2);
-    let i1 = (iu + 3).min(res);
-    let j0 = iv.saturating_sub(2);
-    let j1 = (iv + 3).min(res);
-
-    let (u0, u1) = (st_to_uv(i0 as f32 / res as f32), st_to_uv(i1 as f32 / res as f32));
-    let (v0, v1) = (st_to_uv(j0 as f32 / res as f32), st_to_uv(j1 as f32 / res as f32));
-
-    [
-        face_uv_to_3d(face, u0, v0),
-        face_uv_to_3d(face, u1, v0),
-        face_uv_to_3d(face, u1, v1),
-        face_uv_to_3d(face, u0, v1),
-    ]
+#[inline]
+fn outside_max_dot_xyz(
+    qx: f32,
+    qy: f32,
+    qz: f32,
+    ring2: &[u32],
+    grid: &CubeMapGrid,
+) -> f32 {
+    debug_assert!(!ring2.is_empty(), "ring2 must be non-empty");
+    let mut max_dot = f32::NEG_INFINITY;
+    for &cell in ring2 {
+        let idx = cell as usize;
+        let center = grid.cell_centers[idx];
+        let cos_r = grid.cell_cos_radius[idx];
+        let sin_r = grid.cell_sin_radius[idx];
+        let dot = max_dot_to_cap_xyz(qx, qy, qz, center, cos_r, sin_r);
+        if dot > max_dot {
+            max_dot = dot;
+            if max_dot >= 1.0 {
+                break;
+            }
+        }
+    }
+    max_dot
 }
 
 #[cfg(test)]
@@ -1248,6 +1200,32 @@ mod tests {
             assert!(!neighbors.contains(&(qi as u32)));
             for &idx in neighbors {
                 assert!((idx as usize) < n);
+            }
+        }
+    }
+
+    #[test]
+    fn test_packed_knn_no_duplicate_neighbors() {
+        let n = 6000;
+        let k = 24;
+        for seed in [1u64, 2, 3, 4, 5] {
+            let points = gen_fibonacci(n, seed);
+            let grid = CubeMapGrid::new(&points, res_for_target(n, 24.0));
+            let result = packed_knn(&grid, &points, k);
+
+            for qi in 0..n {
+                let neighbors = result.get_valid(qi);
+                let mut seen =
+                    std::collections::HashSet::<u32>::with_capacity(neighbors.len());
+                for &idx in neighbors {
+                    assert!(
+                        seen.insert(idx),
+                        "duplicate neighbor: seed={}, query={}, neighbor={}",
+                        seed,
+                        qi,
+                        idx
+                    );
+                }
             }
         }
     }

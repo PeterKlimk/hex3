@@ -51,6 +51,10 @@ fn unit_vec_dist_sq_generic<P: UnitVec>(a: P, b: P) -> f32 {
     (2.0 - 2.0 * a.dot(b)).max(0.0)
 }
 
+// Ring-2 size is 16 in a planar grid, but can be slightly larger across cube-face seams due to
+// our "always 9 unique neighbors" diagonal resolution.
+const RING2_MAX: usize = 32;
+
 // S2-style quadratic projection to reduce cube map distortion.
 // Maps UV ∈ [-1, 1] to ST ∈ [0, 1] with area-equalizing transform.
 // Corners get compressed (larger solid angle → fewer cells),
@@ -122,9 +126,13 @@ pub struct CubeMapGrid {
     /// Length: n (number of points)
     point_cells: Vec<u32>,
     /// Precomputed 3×3 neighborhood for each cell.
-    /// 9 entries per cell (self + 8 neighbors), u32::MAX = invalid.
+    /// 9 entries per cell (self + 8 neighbors).
     /// Length: 6 * res² * 9
     neighbors: Vec<u32>,
+    /// Precomputed ring-2 (Chebyshev distance 2) cells for each cell.
+    /// Entries are padded with u32::MAX past ring2_lens.
+    ring2: Vec<[u32; RING2_MAX]>,
+    ring2_lens: Vec<u8>,
     /// Unit vector at the center of each cell (on the sphere).
     pub(super) cell_centers: Vec<Vec3>,
     /// Spherical cap radius around `cell_centers[cell]` that conservatively contains the cell.
@@ -132,7 +140,7 @@ pub struct CubeMapGrid {
     pub(super) cell_cos_radius: Vec<f32>,
     pub(super) cell_sin_radius: Vec<f32>,
     /// Precomputed security threshold for 3x3 neighborhood: max dot from any point in the cell
-    /// to any cell in the 5x5 ring (Chebyshev distance 2). This is computed using ring caps,
+    /// to any ring-2 cell (Chebyshev distance 2). This is computed using ring caps,
     /// which overestimates by ~6.7% but can be precomputed once per cell.
     pub(super) security_3x3: Vec<f32>,
 
@@ -212,6 +220,163 @@ pub(crate) fn cell_to_face_ij(cell: usize, res: usize) -> (usize, usize, usize) 
     let iv = rem / res;
     let iu = rem % res;
     (face, iu, iv)
+}
+
+#[derive(Clone, Copy)]
+enum EdgeDir {
+    Left,
+    Right,
+    Down,
+    Up,
+}
+
+#[inline]
+fn cross_face_edge(
+    face: usize,
+    iu: usize,
+    iv: usize,
+    dir: EdgeDir,
+    res: usize,
+) -> (usize, usize, usize) {
+    let last = res - 1;
+    let iu_flip = last - iu;
+    let iv_flip = last - iv;
+
+    match (face, dir) {
+        (0, EdgeDir::Left) => (4, last, iv),
+        (0, EdgeDir::Right) => (5, 0, iv),
+        (0, EdgeDir::Down) => (3, last, iu_flip),
+        (0, EdgeDir::Up) => (2, last, iu),
+        (1, EdgeDir::Left) => (5, last, iv),
+        (1, EdgeDir::Right) => (4, 0, iv),
+        (1, EdgeDir::Down) => (3, 0, iu),
+        (1, EdgeDir::Up) => (2, 0, iu_flip),
+        (2, EdgeDir::Left) => (1, iv_flip, last),
+        (2, EdgeDir::Right) => (0, iv, last),
+        (2, EdgeDir::Down) => (4, iu, last),
+        (2, EdgeDir::Up) => (5, iu_flip, last),
+        (3, EdgeDir::Left) => (1, iv, 0),
+        (3, EdgeDir::Right) => (0, iv_flip, 0),
+        (3, EdgeDir::Down) => (5, iu_flip, 0),
+        (3, EdgeDir::Up) => (4, iu, 0),
+        (4, EdgeDir::Left) => (1, last, iv),
+        (4, EdgeDir::Right) => (0, 0, iv),
+        (4, EdgeDir::Down) => (3, iu, last),
+        (4, EdgeDir::Up) => (2, iu, 0),
+        (5, EdgeDir::Left) => (0, last, iv),
+        (5, EdgeDir::Right) => (1, 0, iv),
+        (5, EdgeDir::Down) => (3, iu_flip, 0),
+        (5, EdgeDir::Up) => (2, iu_flip, last),
+        _ => unreachable!("invalid cube face"),
+    }
+}
+
+#[inline]
+fn step_one(
+    face: usize,
+    iu: usize,
+    iv: usize,
+    dir: EdgeDir,
+    res: usize,
+) -> (usize, usize, usize) {
+    match dir {
+        EdgeDir::Left => {
+            if iu > 0 {
+                (face, iu - 1, iv)
+            } else {
+                cross_face_edge(face, iu, iv, dir, res)
+            }
+        }
+        EdgeDir::Right => {
+            if iu + 1 < res {
+                (face, iu + 1, iv)
+            } else {
+                cross_face_edge(face, iu, iv, dir, res)
+            }
+        }
+        EdgeDir::Down => {
+            if iv > 0 {
+                (face, iu, iv - 1)
+            } else {
+                cross_face_edge(face, iu, iv, dir, res)
+            }
+        }
+        EdgeDir::Up => {
+            if iv + 1 < res {
+                (face, iu, iv + 1)
+            } else {
+                cross_face_edge(face, iu, iv, dir, res)
+            }
+        }
+    }
+}
+
+#[inline]
+fn step_diag_unique(
+    base_face: usize,
+    base_iu: usize,
+    base_iv: usize,
+    used: &mut [u32; 9],
+    used_len: &mut usize,
+    dv_dir: EdgeDir,
+    du_dir: EdgeDir,
+    res: usize,
+) -> (usize, usize, usize) {
+    fn contains(used: &[u32; 9], used_len: usize, cell: u32) -> bool {
+        used[..used_len].iter().any(|&c| c == cell)
+    }
+
+    // Canonical order: vertical then horizontal.
+    let (v_face, v_iu, v_iv) = step_one(base_face, base_iu, base_iv, dv_dir, res);
+    let (c0f, c0u, c0v) = step_one(v_face, v_iu, v_iv, du_dir, res);
+
+    // Alternate order: horizontal then vertical.
+    let (h_face, h_iu, h_iv) = step_one(base_face, base_iu, base_iv, du_dir, res);
+    let (c1f, c1u, c1v) = step_one(h_face, h_iu, h_iv, dv_dir, res);
+
+    // "Other quadrant" fallbacks: flip the second step direction.
+    let du_flip = match du_dir {
+        EdgeDir::Left => EdgeDir::Right,
+        EdgeDir::Right => EdgeDir::Left,
+        EdgeDir::Down | EdgeDir::Up => unreachable!(),
+    };
+    let dv_flip = match dv_dir {
+        EdgeDir::Down => EdgeDir::Up,
+        EdgeDir::Up => EdgeDir::Down,
+        EdgeDir::Left | EdgeDir::Right => unreachable!(),
+    };
+    let (c2f, c2u, c2v) = step_one(v_face, v_iu, v_iv, du_flip, res);
+    let (c3f, c3u, c3v) = step_one(h_face, h_iu, h_iv, dv_flip, res);
+
+    // If the strict diagonal options collide (only possible near cube vertices), allow stepping to
+    // other nearby cells (still at most 2 edge steps away) to guarantee 9 unique neighbors.
+    let extra0 = step_one(v_face, v_iu, v_iv, dv_dir, res);
+    let extra1 = step_one(v_face, v_iu, v_iv, dv_flip, res);
+    let extra2 = step_one(h_face, h_iu, h_iv, du_dir, res);
+    let extra3 = step_one(h_face, h_iu, h_iv, du_flip, res);
+
+    for (f, u, v) in [
+        (c0f, c0u, c0v),
+        (c1f, c1u, c1v),
+        (c2f, c2u, c2v),
+        (c3f, c3u, c3v),
+        extra0,
+        extra1,
+        extra2,
+        extra3,
+    ] {
+        let cell = (f * res * res + v * res + u) as u32;
+        if !contains(used, *used_len, cell) {
+            used[*used_len] = cell;
+            *used_len += 1;
+            return (f, u, v);
+        }
+    }
+
+    // Extremely unlikely: if all candidates collide, fall back to canonical.
+    used[*used_len] = (c0f * res * res + c0v * res + c0u) as u32;
+    *used_len += 1;
+    (c0f, c0u, c0v)
 }
 
 /// Status of a resumable k-NN query.
@@ -631,8 +796,9 @@ impl CubeMapGrid {
             cell_cursors[cell] += 1;
         }
 
-        // Step 4: Precompute neighbors for each cell
+        // Step 4: Precompute neighbors and ring-2 cells for each cell
         let neighbors = Self::compute_all_neighbors(res);
+        let (ring2, ring2_lens) = Self::compute_ring2(res, &neighbors);
         let (cell_centers, cell_cos_radius, cell_sin_radius) = Self::compute_cell_bounds(res);
 
         // Step 5: Build SoA layout - points stored contiguous by cell
@@ -647,12 +813,14 @@ impl CubeMapGrid {
             cell_points_z.push(p.z);
         }
 
-        // Step 6: Precompute security_3x3 threshold per cell using 5x5 ring caps
+        // Step 6: Precompute security_3x3 threshold per cell using ring-2 caps
         let security_3x3 = Self::compute_security_3x3(
             res,
             &cell_centers,
             &cell_cos_radius,
             &cell_sin_radius,
+            &ring2,
+            &ring2_lens,
         );
 
         CubeMapGrid {
@@ -661,6 +829,8 @@ impl CubeMapGrid {
             point_indices,
             point_cells,
             neighbors,
+            ring2,
+            ring2_lens,
             cell_centers,
             cell_cos_radius,
             cell_sin_radius,
@@ -679,89 +849,163 @@ impl CubeMapGrid {
         for cell in 0..num_cells {
             let (face, iu, iv) = cell_to_face_ij(cell, res);
             let base = cell * 9;
-            let mut idx = 0;
 
-            for dv in [-1i32, 0, 1] {
-                for du in [-1i32, 0, 1] {
-                    let niu = iu as i32 + du;
-                    let niv = iv as i32 + dv;
+            let center = cell as u32;
+            let (lf, lu, lv) = step_one(face, iu, iv, EdgeDir::Left, res);
+            let left = (lf * res * res + lv * res + lu) as u32;
+            let (rf, ru, rv) = step_one(face, iu, iv, EdgeDir::Right, res);
+            let right = (rf * res * res + rv * res + ru) as u32;
+            let (df, duu, dvv) = step_one(face, iu, iv, EdgeDir::Down, res);
+            let down = (df * res * res + dvv * res + duu) as u32;
+            let (uf, uu, uv) = step_one(face, iu, iv, EdgeDir::Up, res);
+            let up = (uf * res * res + uv * res + uu) as u32;
 
-                    let neighbor_cell = if niu >= 0 && niu < res as i32 && niv >= 0 && niv < res as i32
-                    {
-                        // Same face
-                        Some(face * res * res + (niv as usize) * res + (niu as usize))
-                    } else if (niu < 0 || niu >= res as i32) && (niv < 0 || niv >= res as i32) {
-                        // Corner diagonal (out in both axes) crosses a cube vertex.
-                        // Treat as invalid rather than mapping multiple offsets onto the same cell.
-                        None
-                    } else {
-                        // Cross face boundary using 3D projection
-                        Self::get_cross_face_neighbor(face, niu, niv, res)
-                    };
+            let mut used = [u32::MAX; 9];
+            let mut used_len = 0usize;
+            used[used_len] = center;
+            used_len += 1;
+            used[used_len] = left;
+            used_len += 1;
+            used[used_len] = right;
+            used_len += 1;
+            used[used_len] = down;
+            used_len += 1;
+            used[used_len] = up;
+            used_len += 1;
 
-                    neighbors[base + idx] = neighbor_cell.map(|c| c as u32).unwrap_or(u32::MAX);
-                    idx += 1;
-                }
-            }
+            let (dlf, dlu, dlv) = step_diag_unique(
+                face,
+                iu,
+                iv,
+                &mut used,
+                &mut used_len,
+                EdgeDir::Down,
+                EdgeDir::Left,
+                res,
+            );
+            let down_left = (dlf * res * res + dlv * res + dlu) as u32;
+            let (drf, dru, drv) = step_diag_unique(
+                face,
+                iu,
+                iv,
+                &mut used,
+                &mut used_len,
+                EdgeDir::Down,
+                EdgeDir::Right,
+                res,
+            );
+            let down_right = (drf * res * res + drv * res + dru) as u32;
+            let (ulf, ulu, ulv) = step_diag_unique(
+                face,
+                iu,
+                iv,
+                &mut used,
+                &mut used_len,
+                EdgeDir::Up,
+                EdgeDir::Left,
+                res,
+            );
+            let up_left = (ulf * res * res + ulv * res + ulu) as u32;
+            let (urf, uru, urv) = step_diag_unique(
+                face,
+                iu,
+                iv,
+                &mut used,
+                &mut used_len,
+                EdgeDir::Up,
+                EdgeDir::Right,
+                res,
+            );
+            let up_right = (urf * res * res + urv * res + uru) as u32;
+
+            neighbors[base + 0] = down_left;
+            neighbors[base + 1] = down;
+            neighbors[base + 2] = down_right;
+            neighbors[base + 3] = left;
+            neighbors[base + 4] = center;
+            neighbors[base + 5] = right;
+            neighbors[base + 6] = up_left;
+            neighbors[base + 7] = up;
+            neighbors[base + 8] = up_right;
+
+            debug_assert_eq!(
+                used_len,
+                9,
+                "neighbor resolution failed: cell={}, used_len={}",
+                cell,
+                used_len
+            );
         }
 
         neighbors
     }
 
-    /// Get neighbor cell when crossing a face boundary.
-    /// Uses 3D coordinate conversion to find the correct neighbor cell.
-    fn get_cross_face_neighbor(face: usize, niu: i32, niv: i32, res: usize) -> Option<usize> {
-        // Clamp coordinates to slightly outside the face (for edge/corner crossing)
-        // For corners, this will project to a position near the cube corner
-        let niu_clamped = niu.clamp(-1, res as i32);
-        let niv_clamped = niv.clamp(-1, res as i32);
+    fn compute_ring2(res: usize, neighbors: &[u32]) -> (Vec<[u32; RING2_MAX]>, Vec<u8>) {
+        let num_cells = 6 * res * res;
+        let mut ring2 = vec![[u32::MAX; RING2_MAX]; num_cells];
+        let mut ring2_lens = vec![0u8; num_cells];
 
-        // Convert to ST coordinates, then back to UV for the face projection.
-        let s = (niu_clamped as f32 + 0.5) / res as f32;
-        let t = (niv_clamped as f32 + 0.5) / res as f32;
-        let u = st_to_uv(s);
-        let v = st_to_uv(t);
+        for cell in 0..num_cells {
+            let base = cell * 9;
+            let near = &neighbors[base..base + 9];
 
-        // Convert to 3D point on the cube face, then normalize to sphere
-        let point_3d = face_uv_to_3d(face, u, v);
+            let mut ring: Vec<u32> = Vec::with_capacity(RING2_MAX);
+            for &n1 in near {
+                let n1 = n1 as usize;
+                let b1 = n1 * 9;
+                let near2 = &neighbors[b1..b1 + 9];
+                for &n2 in near2 {
+                    if near.iter().any(|&x| x == n2) {
+                        continue;
+                    }
+                    if ring.iter().any(|&x| x == n2) {
+                        continue;
+                    }
+                    ring.push(n2);
+                }
+            }
 
-        // Use point_to_face_uv to find which face/cell this maps to
-        let (new_face, new_u, new_v) = point_to_face_uv(point_3d);
+            assert!(!ring.is_empty(), "ring2 must be non-empty");
+            assert!(
+                ring.len() <= RING2_MAX,
+                "ring2 exceeded max size: {}",
+                ring.len()
+            );
 
-        // Convert to cell coordinates
-        let new_iu = (uv_to_st(new_u) * res as f32) as usize;
-        let new_iv = (uv_to_st(new_v) * res as f32) as usize;
+            let len = ring.len();
+            ring2[cell][..len].copy_from_slice(&ring);
+            ring2_lens[cell] = len as u8;
+        }
 
-        // Clamp to valid range
-        let new_iu = new_iu.min(res - 1);
-        let new_iv = new_iv.min(res - 1);
-
-        Some(new_face * res * res + new_iv * res + new_iu)
+        (ring2, ring2_lens)
     }
 
-    /// Compute security_3x3 threshold for all cells using 5x5 ring caps.
+    /// Compute security_3x3 threshold for all cells using ring-2 caps.
     ///
     /// For each cell, finds the max dot product from any point in the cell to any point
-    /// in the 5x5 ring (Chebyshev distance 2). Uses spherical caps as a conservative bound.
+    /// in the ring-2 set (Chebyshev distance 2). Uses spherical caps as a conservative bound.
     fn compute_security_3x3(
         res: usize,
         cell_centers: &[Vec3],
         cell_cos_radius: &[f32],
         cell_sin_radius: &[f32],
+        ring2: &[[u32; RING2_MAX]],
+        ring2_lens: &[u8],
     ) -> Vec<f32> {
         let num_cells = 6 * res * res;
         let mut security = vec![f32::NEG_INFINITY; num_cells];
 
         for cell in 0..num_cells {
-            // Get 5x5 ring cells (Chebyshev distance exactly 2)
-            let ring = Self::get_ring_cells(cell, 2, res);
+            let ring = &ring2[cell];
+            let ring_len = ring2_lens[cell] as usize;
 
             let center_a = cell_centers[cell];
             let cos_ra = cell_cos_radius[cell];
             let sin_ra = cell_sin_radius[cell];
 
             let mut max_dot = f32::NEG_INFINITY;
-            for ring_cell in ring {
+            for i in 0..ring_len {
+                let ring_cell = ring[i] as usize;
                 let center_b = cell_centers[ring_cell];
                 let cos_rb = cell_cos_radius[ring_cell];
                 let sin_rb = cell_sin_radius[ring_cell];
@@ -793,34 +1037,6 @@ impl CubeMapGrid {
         }
 
         security
-    }
-
-    /// Get all cells at exactly Chebyshev distance `dist` from center cell.
-    fn get_ring_cells(center_cell: usize, dist: i32, res: usize) -> Vec<usize> {
-        let (face, iu, iv) = cell_to_face_ij(center_cell, res);
-        let mut ring = Vec::new();
-
-        for dv in -dist..=dist {
-            for du in -dist..=dist {
-                if du.abs().max(dv.abs()) != dist {
-                    continue;
-                }
-
-                let niu = iu as i32 + du;
-                let niv = iv as i32 + dv;
-
-                if niu >= 0 && niu < res as i32 && niv >= 0 && niv < res as i32 {
-                    ring.push(face * res * res + (niv as usize) * res + (niu as usize));
-                } else if let Some(cell) = Self::get_cross_face_neighbor(face, niu, niv, res) {
-                    ring.push(cell);
-                }
-            }
-        }
-
-        // Deduplicate (cross-face cells can map to same target)
-        ring.sort_unstable();
-        ring.dedup();
-        ring
     }
 
     /// Get cell index for a point.
@@ -857,8 +1073,15 @@ impl CubeMapGrid {
         self.neighbors[base..base + 9].try_into().unwrap()
     }
 
+    /// Get the ring-2 cells (Chebyshev distance 2) for a cell.
+    #[inline]
+    pub fn cell_ring2(&self, cell: usize) -> &[u32] {
+        let len = self.ring2_lens[cell] as usize;
+        &self.ring2[cell][..len]
+    }
+
     /// Get precomputed security_3x3 threshold for a cell.
-    /// This is the max dot from any point in the cell to any cell in the 5x5 ring.
+    /// This is the max dot from any point in the cell to any ring-2 cell.
     #[inline]
     pub fn cell_security_3x3(&self, cell: usize) -> f32 {
         self.security_3x3[cell]
@@ -1627,9 +1850,7 @@ mod tests {
                 let neighbors = grid.cell_neighbors(cell);
                 let mut seen = std::collections::HashSet::<u32>::with_capacity(9);
                 for &ncell in neighbors.iter() {
-                    if ncell == u32::MAX {
-                        continue;
-                    }
+                    assert_ne!(ncell, u32::MAX, "invalid neighbor cell: res={}, cell={}", res, cell);
                     assert!(
                         (ncell as usize) < num_cells,
                         "invalid neighbor cell: res={}, cell={}, neighbor={}",
@@ -1639,7 +1860,50 @@ mod tests {
                     );
                     assert!(
                         seen.insert(ncell),
-                        "duplicate neighbor cell: res={}, cell={}, neighbor={}",
+                        "duplicate neighbor cell: res={}, cell={}, neighbor={}, neighbors={:?}",
+                        res,
+                        cell,
+                        ncell,
+                        neighbors
+                    );
+                }
+                assert_eq!(
+                    seen.len(),
+                    9,
+                    "expected 9 unique neighbors: res={}, cell={}, got={}",
+                    res,
+                    cell,
+                    seen.len()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_ring2_unique_non_empty() {
+        for res in [4usize, 5, 8, 16] {
+            let grid = CubeMapGrid::new(&[], res);
+            let num_cells = 6 * res * res;
+            for cell in 0..num_cells {
+                let ring2 = grid.cell_ring2(cell);
+                assert!(
+                    !ring2.is_empty(),
+                    "ring2 is empty: res={}, cell={}",
+                    res,
+                    cell
+                );
+                let mut seen = std::collections::HashSet::<u32>::with_capacity(ring2.len());
+                for &ncell in ring2 {
+                    assert!(
+                        (ncell as usize) < num_cells,
+                        "invalid ring2 cell: res={}, cell={}, ring_cell={}",
+                        res,
+                        cell,
+                        ncell
+                    );
+                    assert!(
+                        seen.insert(ncell),
+                        "duplicate ring2 cell: res={}, cell={}, ring_cell={}",
                         res,
                         cell,
                         ncell
