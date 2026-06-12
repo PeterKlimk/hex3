@@ -75,6 +75,12 @@ pub struct FeatureFields {
     /// Per-cell arc shape noise used for oceanic arc coastline variation.
     /// Stored for visualization; applied additively to arc uplift.
     pub arc_shape_noise: Vec<f32>,
+
+    /// Signed crustal thickness change from continental rifting (thickness
+    /// units): negative in the axial valley (necking-localized thinning
+    /// driven by the boundary opening rate), positive on the uplifted
+    /// shoulders. Consumed by elevation through isostasy.
+    pub rift_delta: Vec<f32>,
 }
 
 impl FeatureFields {
@@ -121,6 +127,9 @@ impl FeatureFields {
 
         let mut collision_seed_strength = vec![0.0f32; num_cells];
         let mut collision_seed_dist0 = vec![f32::INFINITY; num_cells];
+
+        let mut rift_seed_strength = vec![0.0f32; num_cells];
+        let mut rift_seed_dist0 = vec![f32::INFINITY; num_cells];
 
         let mut activity_seed = vec![0.0f32; num_cells];
         let mut convergent_seed = vec![0.0f32; num_cells];
@@ -276,6 +285,31 @@ impl FeatureFields {
                         ridge_seed_dist0_ocean[b.cell_b] =
                             ridge_seed_dist0_ocean[b.cell_b].min(dist0_b);
                     }
+
+                    // Continental rifting: seed thinning on continental cells
+                    // from the actual per-edge opening rate (kinematic, so
+                    // along-strike variation comes from Euler-pole geometry,
+                    // not a normalized influence field).
+                    if b.type_a == CrustType::Continental {
+                        let mult = if b.type_b == CrustType::Continental {
+                            DIV_CONT_CONT
+                        } else {
+                            DIV_CONT_OCEAN
+                        };
+                        let force = opening * mult * b.edge_length * FEATURE_FORCE_SCALE;
+                        rift_seed_strength[b.cell_a] += force * area_scale(b.cell_a);
+                        rift_seed_dist0[b.cell_a] = rift_seed_dist0[b.cell_a].min(dist0_a);
+                    }
+                    if b.type_b == CrustType::Continental {
+                        let mult = if b.type_a == CrustType::Continental {
+                            DIV_CONT_CONT
+                        } else {
+                            DIV_CONT_OCEAN
+                        };
+                        let force = opening * mult * b.edge_length * FEATURE_FORCE_SCALE;
+                        rift_seed_strength[b.cell_b] += force * area_scale(b.cell_b);
+                        rift_seed_dist0[b.cell_b] = rift_seed_dist0[b.cell_b].min(dist0_b);
+                    }
                 }
                 BoundaryKind::Transform => {
                     // Transforms don't produce elevation features
@@ -317,6 +351,14 @@ impl FeatureFields {
             plates,
             &ridge_seed_strength_ocean,
             &ridge_seed_dist0_ocean,
+            true,
+        );
+        let rift_support_dist = RIFT_SHOULDER_OFFSET + 3.0 * RIFT_SHOULDER_WIDTH;
+        let rift_dist = distance_field_from_edge_seed_cells(
+            tessellation,
+            plates,
+            &rift_seed_strength,
+            &rift_seed_dist0,
             true,
         );
         let collision_dist = distance_field_from_edge_seed_cells(
@@ -374,6 +416,13 @@ impl FeatureFields {
             collision_support_dist,
             mean_neighbor_dist,
         );
+        let rift_forcing = compute_smoothed_boundary_forcing(
+            tessellation,
+            plates,
+            &rift_seed_strength,
+            rift_support_dist,
+            mean_neighbor_dist,
+        );
 
         // Compute activity and regime influence via diffusion (plate-constrained).
         let activity = compute_influence_field(
@@ -411,6 +460,7 @@ impl FeatureFields {
         let mut ridge = vec![0.0f32; num_cells];
         let mut collision = vec![0.0f32; num_cells];
         let mut arc_shape_noise = vec![0.0f32; num_cells];
+        let mut rift_delta = vec![0.0f32; num_cells];
 
         // Additive noise for oceanic arc height variation.
         let arc_noise_fbm: Fbm<Perlin> = Fbm::new(ARC_NOISE_SEED).set_octaves(ARC_NOISE_OCTAVES);
@@ -508,6 +558,20 @@ impl FeatureFields {
                     collision[i] = uplift * gaussian_band(d, COLLISION_PEAK_DIST, COLLISION_WIDTH);
                 }
             }
+
+            // Continental rift: necking-localized axial thinning with
+            // flexural shoulder uplift on the flanks.
+            if is_continental {
+                let d = rift_dist[i];
+                if d.is_finite() {
+                    let thinning =
+                        sqrt_response(rift_forcing[i], RIFT_SENSITIVITY, RIFT_MAX_THINNING);
+                    let axial = gaussian_band(d, 0.0, RIFT_VALLEY_WIDTH);
+                    let shoulder = RIFT_SHOULDER_RATIO
+                        * gaussian_band(d, RIFT_SHOULDER_OFFSET, RIFT_SHOULDER_WIDTH);
+                    rift_delta[i] = thinning * (shoulder - axial);
+                }
+            }
         }
 
         // Diagnostic logging for resolution-independence verification.
@@ -559,6 +623,7 @@ impl FeatureFields {
             arc,
             ridge,
             collision,
+            rift_delta,
             activity,
             convergent,
             divergent,

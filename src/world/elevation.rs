@@ -333,14 +333,12 @@ fn generate_heightmap_with_noise(
         // thickened extent; ready for future time evolution).
         let thickening = (features.arc[i] + features.collision[i]) / slope;
 
-        // Rift thinning: continental crust stretched at divergent boundaries.
-        // Quadratic in influence: narrows the rift valley to the boundary
-        // core (the influence field decays outward, so squaring tightens
-        // the profile) while the coefficient sets center depth.
-        let d = divergent.clamp(0.0, 1.0);
-        let thinning = RIFT_THINNING * d * d * cont;
+        // Rifting: signed thickness change from features (necking-localized
+        // axial thinning + shoulder uplift, driven by boundary opening
+        // rates). Confined to the continental part of the column.
+        let rift = features.rift_delta[i] * cont;
 
-        let thickness = (base_thickness + macro_dt + thickening - thinning).max(0.05);
+        let thickness = (base_thickness + macro_dt + thickening + rift).max(0.05);
 
         // --- 2. Isostatic base + thermal + dynamic terms ---
         // Thermal anomaly applies to the oceanic part of the column;

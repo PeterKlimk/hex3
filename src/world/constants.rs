@@ -65,10 +65,34 @@ pub const CONTINENTAL_BASE: f32 = 0.08;
 /// interior basins, automatically isostatically compensated.
 pub const MACRO_THICKNESS_AMPLITUDE: f32 = 0.13;
 
-/// Maximum crustal thinning from continental rifting (thickness units),
-/// scaled by divergent boundary influence. Strong rifts subside below sea
-/// level (future oceans).
-pub const RIFT_THINNING: f32 = 0.13;
+// Continental rifting. Thinning derives from the actual opening rate at
+// the boundary (per-edge kinematics, so along-strike variation comes from
+// Euler-pole geometry), localized into a narrow valley by lithospheric
+// necking, with flexural/unloading shoulder uplift on the flanks.
+
+/// Sensitivity of crustal thinning to rift opening forcing (sqrt response).
+pub const RIFT_SENSITIVITY: f32 = 0.10;
+
+/// Maximum axial crustal thinning (thickness units). Strong rifts subside
+/// below sea level (future oceans / Red Sea stage).
+pub const RIFT_MAX_THINNING: f32 = 0.35;
+
+/// Half-width of the rift valley thinning core (radians). Strain localizes
+/// by lithospheric necking; real rift valleys are 50-80 km wide. 0.018 rad
+/// ~ 115 km, near the resolution floor at 100k cells.
+pub const RIFT_VALLEY_WIDTH: f32 = 0.018;
+
+/// Distance from the rift axis to the crest of the uplifted shoulders
+/// (radians). ~0.035 rad ~ 220 km.
+pub const RIFT_SHOULDER_OFFSET: f32 = 0.035;
+
+/// Width of the shoulder uplift band (radians).
+pub const RIFT_SHOULDER_WIDTH: f32 = 0.025;
+
+/// Shoulder thickening as a fraction of axial thinning magnitude.
+/// Real rift shoulders rise a substantial fraction of the graben depth
+/// (flexural unloading + thermal support).
+pub const RIFT_SHOULDER_RATIO: f32 = 0.4;
 
 /// Target fraction of surface area above sea level. Sea level is solved
 /// (uniform elevation shift) so the coastline lands here exactly,
