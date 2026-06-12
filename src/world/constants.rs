@@ -501,14 +501,12 @@ pub const DESERT_BELT_WIDTH: f32 = 0.12;
 /// Rain suppression at the belt center (0 = off, 1 = no rain at the belt).
 pub const DESERT_BELT_STRENGTH: f32 = 0.7;
 
-/// Per-pass relaxation strength for scalar field smoothing (0-1).
-pub const FIELD_SMOOTHING_ALPHA: f32 = 0.7;
-
-/// Neighbor-smoothing passes applied to the uplift field.
-pub const UPLIFT_SMOOTHING_PASSES: usize = 3;
-
-/// Neighbor-smoothing passes applied to the precipitation field.
-pub const PRECIPITATION_SMOOTHING_PASSES: usize = 3;
+/// Eddy diffusivity for moisture transport, in radians^2 per iteration.
+/// Models horizontal turbulent mixing. Resolution-independent: the
+/// per-iteration mixing fraction is diffusivity / cell_spacing^2 (clamped
+/// for stability, so very high resolutions under-diffuse slightly rather
+/// than going unstable).
+pub const MOISTURE_DIFFUSIVITY: f32 = 5.0e-5;
 
 /// Rain enhancement at the equator (ITCZ convergence band). 0 = off.
 pub const ITCZ_STRENGTH: f32 = 0.4;

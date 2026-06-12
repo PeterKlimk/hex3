@@ -16,7 +16,6 @@
 
 use glam::Vec3;
 
-use super::atmosphere::smooth_field;
 use super::constants::*;
 use super::Tessellation;
 
@@ -59,6 +58,11 @@ pub fn simulate_moisture(
     uplift: &[f32],
 ) -> MoistureResult {
     let num_cells = tessellation.num_cells();
+
+    // Per-iteration mixing fraction from the physical diffusivity
+    // (explicit-scheme stability requires < ~0.5).
+    let mean_spacing_sq = tessellation.mean_cell_area();
+    let diffusion_frac = (MOISTURE_DIFFUSIVITY / mean_spacing_sq.max(1e-12)).min(0.45);
 
     // --- Precompute per-cell static data ---
     let capacity: Vec<f32> = temperature.iter().map(|&t| carrying_capacity(t)).collect();
@@ -170,15 +174,23 @@ pub fn simulate_moisture(
             }
         }
         std::mem::swap(&mut moisture, &mut next);
-    }
 
-    // Smooth out cell-scale speckle (discrete advection + mesh geometry);
-    // real rain fields are smooth at synoptic scales.
-    smooth_field(
-        tessellation,
-        &mut precip_accum,
-        PRECIPITATION_SMOOTHING_PASSES,
-    );
+        // Eddy diffusion: horizontal turbulent mixing alongside advection
+        // (standard in atmospheric transport models). Keeps the moisture
+        // field smooth at the mesh scale for physical reasons rather than
+        // post-hoc filtering.
+        next.copy_from_slice(&moisture);
+        for i in 0..num_cells {
+            let neighbors = tessellation.neighbors(i);
+            if neighbors.is_empty() {
+                continue;
+            }
+            let mean: f32 =
+                neighbors.iter().map(|&n| moisture[n]).sum::<f32>() / neighbors.len() as f32;
+            next[i] = moisture[i] + diffusion_frac * (mean - moisture[i]);
+        }
+        std::mem::swap(&mut moisture, &mut next);
+    }
 
     // Normalize precipitation so the LAND mean is 1.0: land rainfall is what
     // hydrology consumes (river thresholds and lake budgets are calibrated in

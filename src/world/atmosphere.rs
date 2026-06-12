@@ -77,13 +77,16 @@ impl Atmosphere {
         // Step 6: Surface wind - start from upper wind, apply terrain effects
         let mut wind = upper_wind.clone();
         apply_terrain_effects(tessellation, elevation, &mut wind);
-        let wind_pre_projection = wind.clone();
 
         // Step 7: Terrain-aware projection for surface wind (SOR solver)
         let phi = project_wind_field(tessellation, Some(elevation), &mut wind);
 
-        // Step 8: Uplift proxy from convergence + orographic upslope flow
-        let uplift = compute_uplift(tessellation, elevation, &wind_pre_projection, &wind);
+        // Step 8: Uplift proxy from convergence + orographic upslope flow.
+        // The convergence part comes from the projection potential phi: the
+        // solver inverted div = laplacian(phi), so phi is the elliptically
+        // integrated (large-scale, mesh-noise-free) divergence field, with
+        // convergence centers at phi maxima.
+        let uplift = compute_uplift(tessellation, elevation, &phi, &wind);
 
         // Step 9: Moisture transport and precipitation
         let moisture_result = simulate_moisture(
@@ -92,6 +95,12 @@ impl Atmosphere {
             &temperature,
             &wind,
             &uplift,
+        );
+
+        log::debug!(
+            "field smoothness (Moran's I): uplift={:.3}, precipitation={:.3}",
+            tessellation.morans_i(&uplift),
+            tessellation.morans_i(&moisture_result.precipitation),
         );
 
         Self {
@@ -731,45 +740,6 @@ fn project_wind_field(
     phi
 }
 
-fn compute_flux_divergence(tessellation: &Tessellation, wind: &[Vec3]) -> Vec<f32> {
-    let num_cells = tessellation.num_cells();
-    const EPSILON: f32 = 1e-6;
-
-    let edge_lengths = precompute_edge_lengths(tessellation);
-    let reverse = reverse_neighbor_indices(tessellation);
-
-    let mut divergence = vec![0.0_f32; num_cells];
-    for i in 0..num_cells {
-        let pos_i = tessellation.cell_center(i);
-        let neighbors = tessellation.neighbors(i);
-
-        for (n_idx, &j) in neighbors.iter().enumerate() {
-            if i >= j {
-                continue;
-            }
-
-            let pos_j = tessellation.cell_center(j);
-            let rev_idx = reverse[i][n_idx];
-            let edge_len = 0.5 * (edge_lengths[i][n_idx] + edge_lengths[j][rev_idx]);
-
-            let n_ij = tangent_toward(pos_i, pos_j);
-            let n_ji = tangent_toward(pos_j, pos_i);
-            if n_ij.length_squared() < EPSILON || n_ji.length_squared() < EPSILON {
-                continue;
-            }
-
-            let u_edge_n = 0.5 * (wind[i].dot(n_ij) - wind[j].dot(n_ji));
-            let flux = u_edge_n * edge_len;
-
-            // Outward flux is positive divergence.
-            divergence[i] += flux;
-            divergence[j] -= flux;
-        }
-    }
-
-    divergence
-}
-
 fn normalize_positive_field(mut values: Vec<f32>, percentile: f32) -> Vec<f32> {
     let mut samples: Vec<f32> = values
         .iter()
@@ -797,48 +767,21 @@ fn normalize_positive_field(mut values: Vec<f32>, percentile: f32) -> Vec<f32> {
     values
 }
 
-/// Smooth a scalar field by relaxing each cell toward its neighbor mean.
-/// Kills cell-scale mesh noise while preserving multi-cell structure.
-pub(super) fn smooth_field(tessellation: &Tessellation, values: &mut Vec<f32>, passes: usize) {
-    let num_cells = tessellation.num_cells();
-    let mut next = vec![0.0f32; num_cells];
-    for _ in 0..passes {
-        for i in 0..num_cells {
-            let neighbors = tessellation.neighbors(i);
-            if neighbors.is_empty() {
-                next[i] = values[i];
-                continue;
-            }
-            let mean: f32 =
-                neighbors.iter().map(|&n| values[n]).sum::<f32>() / neighbors.len() as f32;
-            next[i] = values[i] + FIELD_SMOOTHING_ALPHA * (mean - values[i]);
-        }
-        std::mem::swap(values, &mut next);
-    }
-}
-
 fn compute_uplift(
     tessellation: &Tessellation,
     elevation: &Elevation,
-    wind_pre_projection: &[Vec3],
+    phi: &[f32],
     wind_final: &[Vec3],
 ) -> Vec<f32> {
     let num_cells = tessellation.num_cells();
     let mean_spacing = tessellation.mean_cell_area().sqrt();
 
-    // Convergence proxy from the pre-projection surface wind (projection removes divergence).
-    let flux_div = compute_flux_divergence(tessellation, wind_pre_projection);
-    let areas = tessellation.cell_areas();
-    let mut convergence = vec![0.0_f32; num_cells];
-    for i in 0..num_cells {
-        let area = areas
-            .get(i)
-            .copied()
-            .unwrap_or(tessellation.mean_cell_area())
-            .max(1e-6);
-        let div = flux_div[i] / area;
-        convergence[i] = (-div).max(0.0);
-    }
+    // Convergence proxy from the projection potential: phi solves
+    // div = laplacian(phi), so it is the smooth integral of the divergence
+    // the projection removed. Convergence (negative divergence) shows up as
+    // phi maxima; the positive part above the mean is the convergence field.
+    let phi_mean: f32 = phi.iter().sum::<f32>() / num_cells.max(1) as f32;
+    let convergence: Vec<f32> = phi.iter().map(|&p| (p - phi_mean).max(0.0)).collect();
 
     // Orographic uplift proxy from upslope flow (terrain-following kinematics).
     let mut orographic = vec![0.0_f32; num_cells];
@@ -859,16 +802,16 @@ fn compute_uplift(
         orographic[i] = w.max(0.0);
     }
 
+    // Convergence and orographic components have arbitrary relative units;
+    // normalize each before weighting so the weights mean what they say.
+    let convergence = normalize_positive_field(convergence, UPLIFT_NORM_PERCENTILE);
+    let orographic = normalize_positive_field(orographic, UPLIFT_NORM_PERCENTILE);
+
     let mut uplift = vec![0.0_f32; num_cells];
     for i in 0..num_cells {
         uplift[i] =
             UPLIFT_CONVERGENCE_WEIGHT * convergence[i] + UPLIFT_OROGRAPHIC_WEIGHT * orographic[i];
     }
-
-    // The per-cell flux divergence is dominated by Voronoi mesh-geometry
-    // noise; smooth before normalizing so rain driven by uplift is not
-    // cell-scale speckle.
-    smooth_field(tessellation, &mut uplift, UPLIFT_SMOOTHING_PASSES);
 
     normalize_positive_field(uplift, UPLIFT_NORM_PERCENTILE)
 }

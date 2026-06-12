@@ -194,6 +194,32 @@ impl Tessellation {
         4.0 * std::f32::consts::PI / self.num_cells() as f32
     }
 
+    /// Moran's I spatial autocorrelation of a per-cell field over the
+    /// adjacency graph. ~1.0 for smooth fields, ~0.0 for spatially random
+    /// noise, negative for checkerboards. Use to detect cell-scale speckle
+    /// in fields that should be smooth at synoptic scales (e.g. rain).
+    pub fn morans_i(&self, values: &[f32]) -> f32 {
+        let n = self.num_cells();
+        if n < 2 || values.len() != n {
+            return 0.0;
+        }
+        let mean = values.iter().sum::<f32>() / n as f32;
+        let variance: f32 = values.iter().map(|v| (v - mean).powi(2)).sum();
+        if variance < 1e-12 {
+            return 1.0; // constant field is trivially smooth
+        }
+        let mut cross = 0.0f64;
+        let mut weight_count = 0usize;
+        for i in 0..n {
+            let vi = values[i] - mean;
+            for &j in self.neighbors(i) {
+                cross += (vi * (values[j] - mean)) as f64;
+                weight_count += 1;
+            }
+        }
+        ((n as f64 / weight_count.max(1) as f64) * cross / variance as f64) as f32
+    }
+
     /// Length of the great-circle arc forming the shared boundary of two adjacent cells.
     pub fn shared_edge_length(&self, cell_a: usize, cell_b: usize) -> f32 {
         let verts_a: HashSet<u32> = self
