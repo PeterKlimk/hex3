@@ -70,8 +70,11 @@ def layer_values(data: dict, layer: str):
     if layer == "uplift":
         return np.array(atmosphere.get("uplift")), dict(cmap="YlOrRd", vmin=0, vmax=1)
     if layer == "flow":
-        v = np.array(hydrology.get("flow_accumulation", cells.get("elevation")))
-        return v, dict(cmap="Blues", norm=LogNorm(vmin=max(v[v > 0].min(), 1e-3), vmax=v.max()))
+        # Land-only river view: ocean cells get NaN so rivers stand out.
+        v = np.array(hydrology.get("flow_accumulation", cells.get("elevation")), dtype=float)
+        elev = np.array(cells["elevation"])
+        v[elev < 0] = np.nan
+        return v, dict(cmap="Blues", norm=LogNorm(vmin=1.0, vmax=max(np.nanmax(v), 10.0)))
     # Fallback: look it up in features / noise / atmosphere by name
     for group in (cells.get("features") or {}, cells.get("noise") or {}, atmosphere, hydrology):
         if layer in group:
