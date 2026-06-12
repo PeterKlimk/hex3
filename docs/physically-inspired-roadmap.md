@@ -68,6 +68,13 @@ knob set. Effort: medium.
   fit of poles to slab-pull + ridge-push forces would make kinematics match
   morphology. Effort: medium-high; defer to the time-evolution project.
 
+## Future craziness (noted June 2026)
+
+Zonally-asymmetric circulations — ocean gyres / "Gulf Stream" heat
+transport, Walker-type cells — are deliberately outside the overturning
+model (#3), which is zonal-mean by construction. They would slot in as a
+separate longitude-dependent layer later, not as a rework of Psi.
+
 ## Defended as-is
 
 - **Noise-layer modulation:** its physical replacement is erosion, which is
