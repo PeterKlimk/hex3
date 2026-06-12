@@ -797,6 +797,26 @@ fn normalize_positive_field(mut values: Vec<f32>, percentile: f32) -> Vec<f32> {
     values
 }
 
+/// Smooth a scalar field by relaxing each cell toward its neighbor mean.
+/// Kills cell-scale mesh noise while preserving multi-cell structure.
+pub(super) fn smooth_field(tessellation: &Tessellation, values: &mut Vec<f32>, passes: usize) {
+    let num_cells = tessellation.num_cells();
+    let mut next = vec![0.0f32; num_cells];
+    for _ in 0..passes {
+        for i in 0..num_cells {
+            let neighbors = tessellation.neighbors(i);
+            if neighbors.is_empty() {
+                next[i] = values[i];
+                continue;
+            }
+            let mean: f32 =
+                neighbors.iter().map(|&n| values[n]).sum::<f32>() / neighbors.len() as f32;
+            next[i] = values[i] + FIELD_SMOOTHING_ALPHA * (mean - values[i]);
+        }
+        std::mem::swap(values, &mut next);
+    }
+}
+
 fn compute_uplift(
     tessellation: &Tessellation,
     elevation: &Elevation,
@@ -844,6 +864,11 @@ fn compute_uplift(
         uplift[i] =
             UPLIFT_CONVERGENCE_WEIGHT * convergence[i] + UPLIFT_OROGRAPHIC_WEIGHT * orographic[i];
     }
+
+    // The per-cell flux divergence is dominated by Voronoi mesh-geometry
+    // noise; smooth before normalizing so rain driven by uplift is not
+    // cell-scale speckle.
+    smooth_field(tessellation, &mut uplift, UPLIFT_SMOOTHING_PASSES);
 
     normalize_positive_field(uplift, UPLIFT_NORM_PERCENTILE)
 }

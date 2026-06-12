@@ -16,6 +16,7 @@
 
 use glam::Vec3;
 
+use super::atmosphere::smooth_field;
 use super::constants::*;
 use super::Tessellation;
 
@@ -170,6 +171,14 @@ pub fn simulate_moisture(
         }
         std::mem::swap(&mut moisture, &mut next);
     }
+
+    // Smooth out cell-scale speckle (discrete advection + mesh geometry);
+    // real rain fields are smooth at synoptic scales.
+    smooth_field(
+        tessellation,
+        &mut precip_accum,
+        PRECIPITATION_SMOOTHING_PASSES,
+    );
 
     // Normalize precipitation so the LAND mean is 1.0: land rainfall is what
     // hydrology consumes (river thresholds and lake budgets are calibrated in

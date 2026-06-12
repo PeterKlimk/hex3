@@ -501,6 +501,15 @@ pub const DESERT_BELT_WIDTH: f32 = 0.12;
 /// Rain suppression at the belt center (0 = off, 1 = no rain at the belt).
 pub const DESERT_BELT_STRENGTH: f32 = 0.7;
 
+/// Per-pass relaxation strength for scalar field smoothing (0-1).
+pub const FIELD_SMOOTHING_ALPHA: f32 = 0.7;
+
+/// Neighbor-smoothing passes applied to the uplift field.
+pub const UPLIFT_SMOOTHING_PASSES: usize = 3;
+
+/// Neighbor-smoothing passes applied to the precipitation field.
+pub const PRECIPITATION_SMOOTHING_PASSES: usize = 3;
+
 /// Rain enhancement at the equator (ITCZ convergence band). 0 = off.
 pub const ITCZ_STRENGTH: f32 = 0.4;
 
