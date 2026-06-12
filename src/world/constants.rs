@@ -44,9 +44,37 @@ pub const DIFFUSION_MAX_ITERS: usize = 50;
 /// Convergence tolerance for early termination.
 pub const DIFFUSION_TOLERANCE: f32 = 0.001;
 
-/// Base elevation for continental plate interiors.
-/// Represents typical continental elevation (~500m above sea level).
+// Isostasy: elevation derives from crust thickness via the Airy relation
+// (columns float on the mantle; with uniform densities the relation is
+// linear). The slope/offset are derived from two anchor points:
+// (CRUST_THICKNESS_CONTINENTAL -> CONTINENTAL_BASE) and
+// (CRUST_THICKNESS_OCEANIC -> ABYSSAL_DEPTH).
+
+/// Reference thickness of undisturbed continental crust (definition scale).
+pub const CRUST_THICKNESS_CONTINENTAL: f32 = 1.0;
+
+/// Reference thickness of oceanic crust.
+pub const CRUST_THICKNESS_OCEANIC: f32 = 0.25;
+
+/// Elevation of reference continental crust (~500m above sea level).
+/// Isostasy anchor point.
 pub const CONTINENTAL_BASE: f32 = 0.05;
+
+/// Macro-scale crust thickness variation amplitude (thickness units).
+/// Replaces additive macro elevation noise: thick cratonic cores and thin
+/// interior basins, automatically isostatically compensated.
+pub const MACRO_THICKNESS_AMPLITUDE: f32 = 0.18;
+
+/// Maximum crustal thinning from continental rifting (thickness units),
+/// scaled by divergent boundary influence. Strong rifts subside below sea
+/// level (future oceans).
+pub const RIFT_THINNING: f32 = 0.2;
+
+/// Target fraction of surface area above sea level. Sea level is solved
+/// (uniform elevation shift) so the coastline lands here exactly,
+/// independent of seed. Distinct from CONTINENTAL_FRACTION (crust area):
+/// the difference is submerged shelf.
+pub const LAND_FRACTION: f32 = 0.24;
 
 /// Depth at mid-ocean ridge crests (young, hot oceanic crust).
 /// Represents ~2500m below sea level.
@@ -66,17 +94,10 @@ pub const NO_RIDGE_DEPTH: f32 = -0.38;
 /// to abyssal depth over roughly this distance (sqrt decay).
 pub const THERMAL_SUBSIDENCE_WIDTH: f32 = 1.5;
 
-/// Elevation at continent-ocean margin (continental shelf edge).
-/// Both continental and oceanic crust meet at this depth, representing
-/// the outer continental shelf (~200-400m below sea level on Earth).
-/// This allows continental shelves to be submerged while oceanic crust
-/// rises slightly toward the margin.
-pub const MARGIN_DEPTH: f32 = -0.035;
-
 /// Width of continental shelf transition on passive margins (radians).
 /// 0.05 rad ≈ 320 km on Earth (Atlantic-style wide shelf). Controls how far
-/// inland the shelf/coast transition extends before reaching full continental
-/// base elevation.
+/// inland the crust thickness ramp extends before reaching full continental
+/// thickness.
 pub const PASSIVE_SHELF_WIDTH: f32 = 0.05;
 
 /// Width of continental shelf transition on active margins (radians).
@@ -213,8 +234,6 @@ pub const STRESS_LOW_THRESHOLD: f32 = 0.05;
 pub const STRESS_HIGH_THRESHOLD: f32 = 0.4;
 
 // --- Macro layer (continental tilt) ---
-/// Base amplitude for macro layer - PRIMARY vertical contributor.
-pub const MACRO_AMPLITUDE: f32 = 0.12;
 /// Frequency for macro layer (very low = large features).
 pub const MACRO_FREQUENCY: f64 = 0.7;
 /// Octaves for macro layer (few = smooth).

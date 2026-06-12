@@ -1,15 +1,26 @@
-//! Terrain elevation generation from tectonic features with multi-layer noise.
+//! Terrain elevation generation: isostasy over a crust thickness field.
 //!
-//! Elevation is built from:
-//! - Isostatic base (continental shelf vs oceanic depth)
-//! - Tectonic features (trench, arc, ridge, collision) from FeatureFields
-//! - Multi-layer noise modulated by tectonic activity
+//! Decomposition (each term a distinct physical reason ground sits where
+//! it does):
 //!
-//! Four noise layers create realistic terrain:
-//! - Macro: continental-scale smooth variation
+//!   elevation = isostatic(thickness) + thermal(ocean age)
+//!             + dynamic(trench)      + surface noise
+//!
+//! Thickness = margin ramp (continental thick, oceanic thin) + macro-scale
+//! thickness noise (cratonic cores / interior basins) + tectonic thickening
+//! (collision, arcs) - rift thinning. The Airy relation (linear in
+//! thickness for uniform densities) converts thickness to base elevation,
+//! so plateaus, rift subsidence, and margin profiles all follow from one
+//! principle. Thermal subsidence stays separate (young ocean floor is high
+//! because it is hot, not thick), and trenches stay separate (held out of
+//! isostatic equilibrium by slab pull).
+//!
+//! Sea level is solved (uniform shift) so land fraction hits LAND_FRACTION.
+//!
+//! Surface noise layers:
 //! - Hills: regional rolling terrain (suppressed in active areas)
 //! - Ridges: drainage divides (amplified in active areas)
-//! - Micro: fine surface texture
+//! - Micro: fine surface texture (cosmetic)
 
 use glam::Vec3;
 use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
@@ -63,8 +74,21 @@ impl TerrainNoise {
         }
     }
 
-    /// Sample all four layers at a position, with modulation.
-    /// Returns (combined, macro, hills, ridge, micro) contributions.
+    /// Macro-scale crust thickness variation (thickness units).
+    /// `continentality` (0-1, the margin ramp parameter) scales amplitude
+    /// down over oceanic crust.
+    fn macro_thickness(&self, pos: Vec3, continentality: f32) -> f32 {
+        let macro_pos = pos * MACRO_FREQUENCY as f32;
+        let sample =
+            self.macro_fbm
+                .get([macro_pos.x as f64, macro_pos.y as f64, macro_pos.z as f64])
+                as f32;
+        let mult = MACRO_OCEANIC_MULT + (1.0 - MACRO_OCEANIC_MULT) * continentality;
+        sample * MACRO_THICKNESS_AMPLITUDE * mult
+    }
+
+    /// Sample the surface noise layers at a position, with modulation.
+    /// Returns (hills, ridge, micro) contributions.
     fn sample(
         &self,
         pos: Vec3,
@@ -72,23 +96,9 @@ impl TerrainNoise {
         divergent: f32,
         is_continental: bool,
         is_underwater: bool,
-    ) -> (f32, f32, f32, f32, f32) {
+    ) -> (f32, f32, f32) {
         let comp_driver = convergent.clamp(0.0, 1.0);
         let ext_driver = divergent.clamp(0.0, 1.0);
-
-        // Macro layer: continental tilt - PRIMARY vertical contributor
-        let macro_pos = pos * MACRO_FREQUENCY as f32;
-        let macro_sample =
-            self.macro_fbm
-                .get([macro_pos.x as f64, macro_pos.y as f64, macro_pos.z as f64])
-                as f32;
-        let macro_amp = MACRO_AMPLITUDE
-            * if is_continental {
-                1.0
-            } else {
-                MACRO_OCEANIC_MULT
-            };
-        let macro_contrib = macro_sample * macro_amp;
 
         // Hills layer: regional terrain.
         // Suppressed in active compressional orogens.
@@ -147,14 +157,7 @@ impl TerrainNoise {
             };
         let micro_contrib = micro_sample * micro_amp;
 
-        let combined = macro_contrib + hills_contrib + ridge_contrib + micro_contrib;
-        (
-            combined,
-            macro_contrib,
-            hills_contrib,
-            ridge_contrib,
-            micro_contrib,
-        )
+        (hills_contrib, ridge_contrib, micro_contrib)
     }
 }
 
@@ -242,58 +245,55 @@ impl Elevation {
     }
 }
 
-/// Compute thermal depth for oceanic crust based on distance from ridge.
-/// Uses sqrt decay to model lithospheric cooling (depth ∝ √age ∝ √distance).
-fn thermal_oceanic_depth(ridge_distance: f32) -> f32 {
+/// Thermal elevation anomaly for oceanic crust (positive near ridges).
+/// Young lithosphere is hot and buoyant; depth approaches the abyssal
+/// reference as sqrt(age), with distance-from-ridge as the age proxy
+/// (Parsons-Sclater). This is thermal buoyancy, deliberately separate from
+/// crust thickness.
+fn thermal_anomaly(ridge_distance: f32) -> f32 {
     if !ridge_distance.is_finite() {
-        // No ridge on this plate: old basin of unknown age. A mid-range depth
-        // reads as "aged but varied" rather than a uniform maximal-depth slab.
-        return NO_RIDGE_DEPTH;
+        // No ridge on this plate: old basin of unknown age, mild residual
+        // anomaly so these basins are not uniformly maximal-depth.
+        return NO_RIDGE_DEPTH - ABYSSAL_DEPTH;
     }
-    // Sqrt decay: young crust near ridge is shallow, old crust far from ridge is deep
     let thermal_factor = (ridge_distance / THERMAL_SUBSIDENCE_WIDTH).sqrt().min(1.0);
-    RIDGE_CREST_DEPTH + thermal_factor * (ABYSSAL_DEPTH - RIDGE_CREST_DEPTH)
+    (1.0 - thermal_factor) * (RIDGE_CREST_DEPTH - ABYSSAL_DEPTH)
 }
 
-/// Compute isostatic base elevation for a cell.
-///
-/// Continental: blends from MARGIN_DEPTH at coast to CONTINENTAL_BASE inland.
-/// Oceanic: thermal subsidence based on ridge distance, with margin effect near continents.
-///
-/// `convergent_influence` (0-1, from boundary kinematics) selects the margin
-/// regime: passive margins (mid-plate craton edges) get wide gentle shelves,
-/// active margins (near convergent plate boundaries) get narrow steep ones.
-fn isostatic_base(
-    crust_type: CrustType,
-    margin_distance: f32,
-    ridge_distance: f32,
-    convergent_influence: f32,
-) -> f32 {
+/// Isostatic elevation from crust thickness (Airy, uniform densities).
+/// Linear relation through the two anchor points defined in constants.
+fn isostatic_elevation(thickness: f32) -> f32 {
+    let slope = (CONTINENTAL_BASE - ABYSSAL_DEPTH)
+        / (CRUST_THICKNESS_CONTINENTAL - CRUST_THICKNESS_OCEANIC);
+    let offset = CONTINENTAL_BASE - slope * CRUST_THICKNESS_CONTINENTAL;
+    slope * thickness + offset
+}
+
+/// Elevation change per unit crust thickness (the Airy slope), used to
+/// express feature forcing magnitudes (calibrated in elevation units) as
+/// thickness changes.
+fn isostasy_slope() -> f32 {
+    (CONTINENTAL_BASE - ABYSSAL_DEPTH) / (CRUST_THICKNESS_CONTINENTAL - CRUST_THICKNESS_OCEANIC)
+}
+
+fn smoothstep(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// Continentality: the margin ramp parameter (0 = full oceanic crust,
+/// 1 = full continental), from the signed margin distance. Ramp widths
+/// narrow on active margins (near convergent boundaries).
+fn continentality(signed_margin_distance: f32, convergent_influence: f32) -> f32 {
     let activity = convergent_influence.clamp(0.0, 1.0);
-    match crust_type {
-        CrustType::Continental => {
-            let shelf_width =
-                PASSIVE_SHELF_WIDTH + activity * (ACTIVE_SHELF_WIDTH - PASSIVE_SHELF_WIDTH);
-            // Continental: blend from margin depth to continental base
-            let interior_factor = (margin_distance / shelf_width).min(1.0);
-            MARGIN_DEPTH + interior_factor * (CONTINENTAL_BASE - MARGIN_DEPTH)
-        }
-        CrustType::Oceanic => {
-            // Oceanic: thermal depth based on ridge distance
-            let thermal_depth = thermal_oceanic_depth(ridge_distance);
-
-            let transition_width = PASSIVE_OCEANIC_TRANSITION_WIDTH
-                + activity * (ACTIVE_OCEANIC_TRANSITION_WIDTH - PASSIVE_OCEANIC_TRANSITION_WIDTH);
-            // Near margins, blend toward MARGIN_DEPTH (continental rise effect)
-            let margin_factor = (margin_distance / transition_width).min(1.0);
-            // At margin (factor=0): use MARGIN_DEPTH
-            // At interior (factor=1): use thermal_depth
-            MARGIN_DEPTH + margin_factor * (thermal_depth - MARGIN_DEPTH)
-        }
-    }
+    let land_width = PASSIVE_SHELF_WIDTH + activity * (ACTIVE_SHELF_WIDTH - PASSIVE_SHELF_WIDTH);
+    let ocean_width = PASSIVE_OCEANIC_TRANSITION_WIDTH
+        + activity * (ACTIVE_OCEANIC_TRANSITION_WIDTH - PASSIVE_OCEANIC_TRANSITION_WIDTH);
+    smoothstep((signed_margin_distance + ocean_width) / (ocean_width + land_width))
 }
 
-/// Generate heightmap using tectonic features and multi-layer noise.
+/// Generate heightmap: thickness field -> isostasy -> thermal/dynamic
+/// terms -> surface noise -> sea-level solve.
 fn generate_heightmap_with_noise(
     tessellation: &Tessellation,
     crust: &Crust,
@@ -301,6 +301,7 @@ fn generate_heightmap_with_noise(
     noise: &TerrainNoise,
 ) -> (Vec<f32>, Vec<f32>, NoiseLayerData) {
     let num_cells = tessellation.num_cells();
+    let slope = isostasy_slope();
 
     let mut elevations = Vec::with_capacity(num_cells);
     let mut noise_contributions = Vec::with_capacity(num_cells);
@@ -308,49 +309,55 @@ fn generate_heightmap_with_noise(
     let mut hills_layer = Vec::with_capacity(num_cells);
     let mut ridge_layer = Vec::with_capacity(num_cells);
     let mut micro_layer = Vec::with_capacity(num_cells);
+    let mut is_continental_cells = Vec::with_capacity(num_cells);
 
     for i in 0..num_cells {
         let crust_type = crust.crust_type(i);
         let is_continental = crust_type == CrustType::Continental;
-
-        // 1. Isostatic base elevation
-        // Continental: margin-based shelf transition (narrow on active margins)
-        // Oceanic: thermal subsidence from ridge distance + margin effect
-        let base = isostatic_base(
-            crust_type,
-            crust.margin_distance(i),
-            features.ridge_distance[i],
-            features.convergent[i],
-        );
-
-        // 2. Tectonic feature contributions (from FeatureFields)
-        // Trench is negative (depression), others are positive (uplift)
-        let tectonic =
-            -features.trench[i] + features.arc[i] + features.ridge[i] + features.collision[i];
-
-        let structural_elevation = base + tectonic;
-
-        // 3. Regime-aware noise modulation.
-        // Use separate convergent/divergent influence scalars derived from boundary kinematics.
+        is_continental_cells.push(is_continental);
+        let pos = tessellation.cell_center(i);
         let convergent = features.convergent[i];
         let divergent = features.divergent[i];
 
-        let is_underwater = structural_elevation < 0.0;
-        let pos = tessellation.cell_center(i);
+        // --- 1. Crust thickness ---
+        let cont = continentality(crust.signed_margin_distance[i], convergent);
+        let base_thickness = CRUST_THICKNESS_OCEANIC
+            + cont * (CRUST_THICKNESS_CONTINENTAL - CRUST_THICKNESS_OCEANIC);
 
-        let (_visual_combined, macro_c, hills_c, ridge_c, micro_c) =
+        // Macro-scale thickness variation: cratonic cores and interior basins.
+        let macro_dt = noise.macro_thickness(pos, cont);
+
+        // Tectonic thickening. Feature magnitudes are calibrated in elevation
+        // units, so divide by the Airy slope: same end elevation, but now a
+        // crustal-thickness state change (plateaus emerge over the full
+        // thickened extent; ready for future time evolution).
+        let thickening = (features.arc[i] + features.collision[i]) / slope;
+
+        // Rift thinning: continental crust stretched at divergent boundaries.
+        let thinning = RIFT_THINNING * divergent.clamp(0.0, 1.0) * cont;
+
+        let thickness = (base_thickness + macro_dt + thickening - thinning).max(0.05);
+
+        // --- 2. Isostatic base + thermal + dynamic terms ---
+        // Thermal anomaly applies to the oceanic part of the column;
+        // trench is dynamic topography (slab pull holds it out of isostatic
+        // equilibrium); the small ridge feature rides on the thermal swell.
+        let structural_elevation = isostatic_elevation(thickness)
+            + thermal_anomaly(features.ridge_distance[i]) * (1.0 - cont)
+            + features.ridge[i]
+            - features.trench[i];
+
+        // --- 3. Surface noise (hills / ridge / micro) ---
+        let is_underwater = structural_elevation < 0.0;
+        let (hills_c, ridge_c, micro_c) =
             noise.sample(pos, convergent, divergent, is_continental, is_underwater);
 
-        // Simulation elevation excludes micro noise (micro is cosmetic only)
+        // Simulation elevation excludes micro noise (micro is cosmetic only).
+        // The macro layer is reported as its isostatic elevation contribution
+        // for visualization continuity.
+        let macro_c = macro_dt * slope;
         let simulation_noise = macro_c + hills_c + ridge_c;
-        let mut elevation = structural_elevation + simulation_noise;
-
-        // Cap volcanic island heights using tanh soft clamp.
-        // Oceanic crust above sea level can't grow indefinitely - erosion/subsidence limits height.
-        if !is_continental && elevation > 0.0 {
-            let max_island = VOLCANIC_ISLAND_MAX_HEIGHT;
-            elevation = max_island * (elevation / max_island).tanh();
-        }
+        let elevation = structural_elevation + hills_c + ridge_c;
 
         elevations.push(elevation);
         noise_contributions.push(simulation_noise);
@@ -358,6 +365,27 @@ fn generate_heightmap_with_noise(
         hills_layer.push(hills_c);
         ridge_layer.push(ridge_c);
         micro_layer.push(micro_c);
+    }
+
+    // --- 4. Sea-level solve: uniform shift so land fraction is exact ---
+    let mut sorted = elevations.clone();
+    sorted.sort_by(|a, b| a.total_cmp(b));
+    let idx = (((1.0 - LAND_FRACTION) * num_cells as f32) as usize).min(num_cells - 1);
+    let sea_level = sorted[idx];
+    log::debug!("sea level solve: shift={:.4}", -sea_level);
+
+    for e in &mut elevations {
+        *e -= sea_level;
+    }
+
+    // --- 5. Volcanic island soft cap (relative to true sea level) ---
+    // Oceanic crust above sea level can't grow indefinitely; erosion and
+    // subsidence limit island height. Kept as a transitional safeguard.
+    for i in 0..num_cells {
+        if !is_continental_cells[i] && elevations[i] > 0.0 {
+            let max_island = VOLCANIC_ISLAND_MAX_HEIGHT;
+            elevations[i] = max_island * (elevations[i] / max_island).tanh();
+        }
     }
 
     let noise_layers = NoiseLayerData {
