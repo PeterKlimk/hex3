@@ -989,9 +989,12 @@ fn compute_influence_field(
 
     let attenuation = 1.0 + lambda * mean_degree;
     let reference = (2.0 * MAX_ANGULAR_VELOCITY * mean_neighbor_dist / attenuation).max(1e-6);
-    raw.iter()
-        .map(|&x| (x / reference).clamp(0.0, 1.0))
-        .collect()
+    // Soft saturation (x / (x + ref)) instead of a hard clamp: forcing along
+    // strong boundaries routinely exceeds the reference, and a hard clamp
+    // flattens all along-strike variation (every strong rift segment reads
+    // exactly 1.0, producing uniform features). Soft saturation keeps the
+    // 0-1 range and the ordering at every magnitude.
+    raw.iter().map(|&x| x / (x + reference)).collect()
 }
 
 fn oceanic_age_factor_from_ridge_distance(ridge_distance: f32) -> f32 {

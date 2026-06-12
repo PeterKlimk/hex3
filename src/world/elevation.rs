@@ -334,7 +334,11 @@ fn generate_heightmap_with_noise(
         let thickening = (features.arc[i] + features.collision[i]) / slope;
 
         // Rift thinning: continental crust stretched at divergent boundaries.
-        let thinning = RIFT_THINNING * divergent.clamp(0.0, 1.0) * cont;
+        // Quadratic in influence: narrows the rift valley to the boundary
+        // core (the influence field decays outward, so squaring tightens
+        // the profile) while the coefficient sets center depth.
+        let d = divergent.clamp(0.0, 1.0);
+        let thinning = RIFT_THINNING * d * d * cont;
 
         let thickness = (base_thickness + macro_dt + thickening - thinning).max(0.05);
 

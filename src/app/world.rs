@@ -19,7 +19,7 @@ use super::visualization::{
 
 pub const NUM_CELLS: usize = 100000;
 pub const LLOYD_ITERATIONS: usize = 5;
-pub const NUM_PLATES: usize = 14;
+pub const NUM_PLATES: usize = hex3::world::NUM_PLATES_DEFAULT;
 
 /// Minimum flow for "all rivers" mode, as fraction of total cells.
 /// E.g., 0.0003 means a cell needs 0.03% of total cells draining through it.

@@ -24,6 +24,7 @@ mod atmosphere;
 mod boundary;
 mod constants;
 mod crust;
+pub mod diagnostics;
 mod dynamics;
 mod elevation;
 mod features;
@@ -36,6 +37,9 @@ pub use atmosphere::Atmosphere;
 pub use boundary::{collect_plate_boundaries, BoundaryKind, PlateBoundaryEdge, SubductionPolarity};
 pub use constants::*;
 pub use crust::{Crust, CrustType};
+
+/// Default plate count used by the app and diagnostic tooling.
+pub const NUM_PLATES_DEFAULT: usize = 14;
 pub use dynamics::{Dynamics, EulerPole};
 pub use elevation::{Elevation, NoiseLayerData};
 pub use features::FeatureFields;

@@ -58,23 +58,23 @@ pub const CRUST_THICKNESS_OCEANIC: f32 = 0.25;
 
 /// Elevation of reference continental crust (~500m above sea level).
 /// Isostasy anchor point.
-pub const CONTINENTAL_BASE: f32 = 0.05;
+pub const CONTINENTAL_BASE: f32 = 0.08;
 
 /// Macro-scale crust thickness variation amplitude (thickness units).
 /// Replaces additive macro elevation noise: thick cratonic cores and thin
 /// interior basins, automatically isostatically compensated.
-pub const MACRO_THICKNESS_AMPLITUDE: f32 = 0.18;
+pub const MACRO_THICKNESS_AMPLITUDE: f32 = 0.13;
 
 /// Maximum crustal thinning from continental rifting (thickness units),
 /// scaled by divergent boundary influence. Strong rifts subside below sea
 /// level (future oceans).
-pub const RIFT_THINNING: f32 = 0.2;
+pub const RIFT_THINNING: f32 = 0.13;
 
 /// Target fraction of surface area above sea level. Sea level is solved
 /// (uniform elevation shift) so the coastline lands here exactly,
 /// independent of seed. Distinct from CONTINENTAL_FRACTION (crust area):
 /// the difference is submerged shelf.
-pub const LAND_FRACTION: f32 = 0.24;
+pub const LAND_FRACTION: f32 = 0.26;
 
 /// Depth at mid-ocean ridge crests (young, hot oceanic crust).
 /// Represents ~2500m below sea level.
@@ -235,7 +235,7 @@ pub const STRESS_HIGH_THRESHOLD: f32 = 0.4;
 
 // --- Macro layer (continental tilt) ---
 /// Frequency for macro layer (very low = large features).
-pub const MACRO_FREQUENCY: f64 = 0.7;
+pub const MACRO_FREQUENCY: f64 = 1.1;
 /// Octaves for macro layer (few = smooth).
 pub const MACRO_OCTAVES: usize = 2;
 /// Amplitude multiplier for oceanic plates (flatter ocean floor).
