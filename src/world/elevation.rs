@@ -246,8 +246,9 @@ impl Elevation {
 /// Uses sqrt decay to model lithospheric cooling (depth ∝ √age ∝ √distance).
 fn thermal_oceanic_depth(ridge_distance: f32) -> f32 {
     if !ridge_distance.is_finite() {
-        // No ridge on this plate - use abyssal depth
-        return ABYSSAL_DEPTH;
+        // No ridge on this plate: old basin of unknown age. A mid-range depth
+        // reads as "aged but varied" rather than a uniform maximal-depth slab.
+        return NO_RIDGE_DEPTH;
     }
     // Sqrt decay: young crust near ridge is shallow, old crust far from ridge is deep
     let thermal_factor = (ridge_distance / THERMAL_SUBSIDENCE_WIDTH).sqrt().min(1.0);

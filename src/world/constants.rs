@@ -56,6 +56,11 @@ pub const RIDGE_CREST_DEPTH: f32 = -0.25;
 /// Represents ~4500-5000m below sea level (thermally subsided).
 pub const ABYSSAL_DEPTH: f32 = -0.45;
 
+/// Ocean depth for crust on plates with no ridge (no age information).
+/// Between ridge crest and abyssal so these basins keep noise-driven variety
+/// instead of sitting uniformly at maximum depth.
+pub const NO_RIDGE_DEPTH: f32 = -0.38;
+
 /// Characteristic distance for oceanic thermal subsidence (radians).
 /// 1.5 rad ≈ 9550 km on Earth. Ocean floor deepens from ridge crest
 /// to abyssal depth over roughly this distance (sqrt decay).
@@ -431,6 +436,11 @@ pub const KATABATIC_STRENGTH: f32 = 0.1;
 /// At p=2: gradient=0.5 → perm=0.80, gradient=1.0 (45°) → perm=0.50,
 /// gradient=2.0 → perm=0.20, gradient=4.0 → perm=0.06.
 pub const PERMEABILITY_POWER: f32 = 2.0;
+
+/// Elevation at which terrain exerts full orographic uplift on wind.
+/// Below this, uplift scales down linearly so coastal shelf steps do not
+/// out-rain interior mountain ranges.
+pub const OROGRAPHIC_FULL_HEIGHT: f32 = 0.15;
 
 /// Number of SOR iterations for projection solver.
 pub const PROJECTION_ITERATIONS: usize = 50;

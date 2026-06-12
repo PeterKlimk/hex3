@@ -831,7 +831,11 @@ fn compute_uplift(
             continue;
         }
         // `grad` is roughly Δelev / Δangle; multiply by a typical angular scale for stability.
-        let w = wind_final[i].dot(grad) * mean_spacing;
+        // Weight by elevation so high terrain wrings air harder than the
+        // coastal shelf step (otherwise uplift is a ring hugging every
+        // coastline and "orographic" rain is mostly coastal rain).
+        let height_factor = (elevation.values[i] / OROGRAPHIC_FULL_HEIGHT).clamp(0.0, 1.0);
+        let w = wind_final[i].dot(grad) * mean_spacing * height_factor;
         orographic[i] = w.max(0.0);
     }
 
