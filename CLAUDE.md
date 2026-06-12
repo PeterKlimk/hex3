@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Scope
 
-This file covers the hex3 app and workspace-level guidance. For the s2-voronoi library crate, see `crates/s2-voronoi/CLAUDE.md`.
+This file covers the hex3 app. The s2-voronoi library lives in its own repository: https://github.com/PeterKlimk/s2-voronoi
 
 ## Development Environment
 
@@ -90,7 +90,6 @@ Hex3 is a spherical Voronoi-based planet generator with tectonic plate simulatio
   - `atmosphere.rs` - Atmosphere simulation (temperature, pressure, wind fields)
   - `hydrology.rs` - River networks, drainage basins, lakes
   - `constants.rs` - Tunable simulation parameters
-  - `gen.rs` - World generation orchestration
 
 - **`src/app/`** - Application layer
   - `state.rs` - Application state and rendering
@@ -190,7 +189,7 @@ Two backends for spherical Voronoi computation:
 - **convex-hull** (default): qhull-based convex hull duality, mathematically exact
 - **knn-clipping**: s2-voronoi crate, kNN-driven half-space clipping
 
-The knn-clipping backend uses the `s2-voronoi` crate (see `crates/s2-voronoi/`). Integration point is `Tessellation::generate_knn_clipping()` in `src/world/tessellation.rs`.
+The knn-clipping backend uses the external `s2-voronoi` crate (https://github.com/PeterKlimk/s2-voronoi, pulled in as a git dependency). Integration point is `Tessellation::generate_knn_clipping()` in `src/world/tessellation.rs`.
 
 ## Common Edit Points
 

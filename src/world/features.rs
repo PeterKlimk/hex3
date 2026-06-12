@@ -506,8 +506,7 @@ impl FeatureFields {
 
         // Diagnostic logging for resolution-independence verification.
         // Values should be similar regardless of cell count.
-        #[cfg(debug_assertions)]
-        {
+        if log::log_enabled!(log::Level::Debug) {
             let trench_sum: f32 = trench.iter().sum();
             let trench_max = trench.iter().cloned().fold(0.0f32, f32::max);
             let arc_sum: f32 = arc.iter().sum();
@@ -519,19 +518,27 @@ impl FeatureFields {
             let activity_sum: f32 = activity.iter().sum();
             let activity_max = activity.iter().cloned().fold(0.0f32, f32::max);
 
-            println!(
+            log::debug!(
                 "Features @ {} cells: mean_dist={:.4}, mean_area={:.6}",
-                num_cells, mean_neighbor_dist, mean_area
+                num_cells,
+                mean_neighbor_dist,
+                mean_area
             );
-            println!(
+            log::debug!(
                 "  Trench: sum={:.2}, max={:.3} | Arc: sum={:.2}, max={:.3}",
-                trench_sum, trench_max, arc_sum, arc_max
+                trench_sum,
+                trench_max,
+                arc_sum,
+                arc_max
             );
-            println!(
+            log::debug!(
                 "  Ridge: sum={:.2}, max={:.3} | Collision: sum={:.2}, max={:.3}",
-                ridge_sum, ridge_max, collision_sum, collision_max
+                ridge_sum,
+                ridge_max,
+                collision_sum,
+                collision_max
             );
-            println!(
+            log::debug!(
                 "  Activity: sum={:.2}, max={:.3} | Convergent max={:.3} | Divergent max={:.3} | Transform max={:.3}",
                 activity_sum,
                 activity_max,

@@ -29,8 +29,6 @@ mod hydrology;
 mod plates;
 mod tessellation;
 
-pub mod gen;
-
 pub use atmosphere::Atmosphere;
 pub use boundary::{collect_plate_boundaries, BoundaryKind, PlateBoundaryEdge, SubductionPolarity};
 pub use constants::*;
@@ -46,18 +44,13 @@ use rand_chacha::ChaCha8Rng;
 use std::fmt;
 
 /// Backend used to compute the spherical Voronoi diagram.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum VoronoiBackend {
     /// Exact convex-hull duality (slower, robust).
+    #[default]
     ConvexHull,
     /// kNN-driven half-space clipping (fast, approximate).
     KnnClipping,
-}
-
-impl Default for VoronoiBackend {
-    fn default() -> Self {
-        Self::ConvexHull
-    }
 }
 
 impl fmt::Display for VoronoiBackend {
@@ -108,7 +101,12 @@ impl World {
     /// This only generates the tessellation. Call generation methods
     /// to build up additional layers.
     pub fn new(seed: u64, num_cells: usize, lloyd_iterations: usize) -> Self {
-        Self::new_with_options(seed, num_cells, lloyd_iterations, VoronoiBackend::ConvexHull)
+        Self::new_with_options(
+            seed,
+            num_cells,
+            lloyd_iterations,
+            VoronoiBackend::ConvexHull,
+        )
     }
 
     /// Create a new world with options.

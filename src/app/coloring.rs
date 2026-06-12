@@ -507,68 +507,6 @@ fn temperature_to_color(temp: f32) -> Vec3 {
     }
 }
 
-/// Convert wind speed to color (blue = calm, white = fast).
-fn wind_speed_to_color(speed: f32) -> Vec3 {
-    // Typical speeds are 0-0.5
-    let t = (speed / 0.5).clamp(0.0, 1.0);
-
-    if t < 0.25 {
-        // Calm: dark blue
-        let s = t / 0.25;
-        Vec3::new(0.1, 0.1, 0.3).lerp(Vec3::new(0.2, 0.4, 0.6), s)
-    } else if t < 0.5 {
-        // Light: cyan
-        let s = (t - 0.25) / 0.25;
-        Vec3::new(0.2, 0.4, 0.6).lerp(Vec3::new(0.4, 0.7, 0.8), s)
-    } else if t < 0.75 {
-        // Moderate: light cyan to white
-        let s = (t - 0.5) / 0.25;
-        Vec3::new(0.4, 0.7, 0.8).lerp(Vec3::new(0.8, 0.9, 0.95), s)
-    } else {
-        // Strong: white
-        let s = (t - 0.75) / 0.25;
-        Vec3::new(0.8, 0.9, 0.95).lerp(Vec3::new(1.0, 1.0, 1.0), s)
-    }
-}
-
-/// Convert wind vector to a color that encodes direction (hue) and speed (brightness/saturation).
-///
-/// This makes it possible to visually distinguish surface vs upper wind even when particles
-/// are disabled/broken.
-fn wind_vector_to_color(pos: Vec3, wind: Vec3) -> Vec3 {
-    let speed = wind.length();
-    if speed < 1e-6 {
-        return wind_speed_to_color(0.0);
-    }
-
-    // Build a local tangent basis (east, north) at `pos`.
-    // Use a fallback axis near the poles to avoid degeneracy.
-    let mut east = Vec3::Y.cross(pos);
-    if east.length_squared() < 1e-8 {
-        east = Vec3::X.cross(pos);
-    }
-    east = east.normalize();
-    let north = pos.cross(east).normalize();
-
-    let u_e = wind.dot(east);
-    let u_n = wind.dot(north);
-
-    // Direction hue: atan2(north, east) mapped to [0, 360).
-    let angle = u_n.atan2(u_e);
-    let mut hue = angle / std::f32::consts::TAU * 360.0;
-    if hue < 0.0 {
-        hue += 360.0;
-    }
-
-    // Speed → saturation/lightness.
-    // Typical speeds are ~0-0.5, but keep this robust to occasional spikes.
-    let t = (speed / 0.5).clamp(0.0, 1.0);
-    let s = 0.35 + 0.55 * t;
-    let l = 0.18 + 0.55 * t;
-
-    hsl_to_rgb(hue, s, l)
-}
-
 /// Convert uplift to color (green = low, yellow/red = high).
 fn uplift_to_color(uplift: f32) -> Vec3 {
     // Uplift is normalized 0-1

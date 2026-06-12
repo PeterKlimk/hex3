@@ -84,11 +84,7 @@ fn test_generate_knn_clipping_cell_vertex_count() {
     let tess = Tessellation::generate_knn_clipping(1000, 2, &mut rng);
 
     // Most cells should have >= 3 vertices (valid polygons)
-    let valid_cells = tess
-        .voronoi
-        .iter_cells()
-        .filter(|c| c.len() >= 3)
-        .count();
+    let valid_cells = tess.voronoi.iter_cells().filter(|c| c.len() >= 3).count();
     let ratio = valid_cells as f32 / 1000.0;
     assert!(
         ratio > 0.99,
@@ -172,11 +168,6 @@ fn test_generate_knn_clipping_various_sizes() {
     for n in [100, 500, 2000] {
         let mut rng = ChaCha8Rng::seed_from_u64(12345 + n as u64);
         let tess = Tessellation::generate_knn_clipping(n, 2, &mut rng);
-        assert_eq!(
-            tess.voronoi.num_cells(),
-            n,
-            "failed for n={}",
-            n
-        );
+        assert_eq!(tess.voronoi.num_cells(), n, "failed for n={}", n);
     }
 }

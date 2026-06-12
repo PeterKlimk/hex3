@@ -216,11 +216,14 @@ impl SphericalVoronoi {
     /// Iterate over all cells as views.
     #[inline]
     pub fn iter_cells(&self) -> impl Iterator<Item = CellView<'_>> {
-        self.cells.iter().enumerate().map(move |(idx, cell)| CellView {
-            generator_index: idx,
-            vertex_indices: &self.cell_indices
-                [cell.vertex_start as usize..(cell.vertex_start as usize + cell.vertex_count as usize)],
-        })
+        self.cells
+            .iter()
+            .enumerate()
+            .map(move |(idx, cell)| CellView {
+                generator_index: idx,
+                vertex_indices: &self.cell_indices[cell.vertex_start as usize
+                    ..(cell.vertex_start as usize + cell.vertex_count as usize)],
+            })
     }
 
     /// Compute the spherical Voronoi diagram from points on a unit sphere.
@@ -266,11 +269,11 @@ impl SphericalVoronoi {
         let cell_data: Vec<Vec<u32>> = iter
             .map(|point_idx| {
                 let facet_indices = point_to_facets.get(&point_idx).cloned().unwrap_or_default();
-                let ordered = order_vertices_ccw(points[point_idx], &facet_indices, &vertices)
+
+                order_vertices_ccw(points[point_idx], &facet_indices, &vertices)
                     .into_iter()
                     .map(|idx| u32::try_from(idx).expect("vertex index exceeds u32 capacity"))
-                    .collect();
-                ordered
+                    .collect()
             })
             .collect();
 

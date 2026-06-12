@@ -13,6 +13,17 @@ use rand_distr::{Distribution, Normal};
 use super::constants::*;
 use super::Tessellation;
 
+/// Initial fraction of the base seed-spacing requirement when relaxing the
+/// distance constraint (the ideal spacing rarely fits all plates).
+const SEED_SPACING_RELAXATION_START: f32 = 0.75;
+
+/// How much the seed-spacing requirement shrinks per relaxation round.
+const SEED_SPACING_RELAXATION_STEP: f32 = 0.25;
+
+/// Range of the random per-plate noise-domain offset. Only needs to exceed the
+/// noise frequency scale so plates sample decorrelated regions of the noise field.
+const PLATE_NOISE_OFFSET_RANGE: f32 = 100.0;
+
 /// Tectonic plate assignments for each cell.
 pub struct Plates {
     /// For each cell index, which plate does it belong to.
@@ -110,7 +121,7 @@ fn select_seeds_spaced<R: Rng>(
     }
 
     // Fallback: progressively relax distance constraint
-    let mut relaxation = 0.75;
+    let mut relaxation = SEED_SPACING_RELAXATION_START;
     while seeds.len() < num_plates && relaxation > 0.0 {
         let relaxed_dist = base_min_dist * relaxation;
         indices.shuffle(rng);
@@ -136,7 +147,7 @@ fn select_seeds_spaced<R: Rng>(
             }
         }
 
-        relaxation -= 0.25;
+        relaxation -= SEED_SPACING_RELAXATION_STEP;
     }
 
     // Final fallback: add any remaining cells
@@ -196,9 +207,9 @@ struct PlateState {
 impl PlateState {
     fn new<R: Rng>(seed_pos: Vec3, target_size: f32, rng: &mut R) -> Self {
         let noise_offset = Vec3::new(
-            rng.gen::<f32>() * 100.0,
-            rng.gen::<f32>() * 100.0,
-            rng.gen::<f32>() * 100.0,
+            rng.gen::<f32>() * PLATE_NOISE_OFFSET_RANGE,
+            rng.gen::<f32>() * PLATE_NOISE_OFFSET_RANGE,
+            rng.gen::<f32>() * PLATE_NOISE_OFFSET_RANGE,
         );
         PlateState {
             seed_pos,

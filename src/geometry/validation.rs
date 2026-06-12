@@ -644,23 +644,21 @@ mod tests {
     #[test]
     fn test_s2_voronoi_validity() {
         let points = generate_test_points(1000, 12345);
-        let output = s2_voronoi::compute(&points).expect("s2-voronoi should succeed");
+        let raw_points: Vec<[f32; 3]> = points.iter().map(|p| p.to_array()).collect();
+        let diagram = s2_voronoi::compute(&raw_points).expect("s2-voronoi should succeed");
 
         // Convert to hex3's SphericalVoronoi for validation
-        let cell_data: Vec<Vec<u32>> = output
-            .diagram
+        let cell_data: Vec<Vec<u32>> = diagram
             .iter_cells()
             .map(|c| c.vertex_indices.to_vec())
             .collect();
-        let generators: Vec<Vec3> = output
-            .diagram
-            .generators
+        let generators: Vec<Vec3> = diagram
+            .generators()
             .iter()
             .map(|g| Vec3::new(g.x, g.y, g.z))
             .collect();
-        let vertices: Vec<Vec3> = output
-            .diagram
-            .vertices
+        let vertices: Vec<Vec3> = diagram
+            .vertices()
             .iter()
             .map(|v| Vec3::new(v.x, v.y, v.z))
             .collect();
@@ -678,23 +676,21 @@ mod tests {
     #[test]
     fn test_deduplicate_voronoi() {
         let points = generate_test_points(1000, 12345);
-        let output = s2_voronoi::compute(&points).expect("s2-voronoi should succeed");
+        let raw_points: Vec<[f32; 3]> = points.iter().map(|p| p.to_array()).collect();
+        let diagram = s2_voronoi::compute(&raw_points).expect("s2-voronoi should succeed");
 
         // Convert to hex3's SphericalVoronoi
-        let cell_data: Vec<Vec<u32>> = output
-            .diagram
+        let cell_data: Vec<Vec<u32>> = diagram
             .iter_cells()
             .map(|c| c.vertex_indices.to_vec())
             .collect();
-        let generators: Vec<Vec3> = output
-            .diagram
-            .generators
+        let generators: Vec<Vec3> = diagram
+            .generators()
             .iter()
             .map(|g| Vec3::new(g.x, g.y, g.z))
             .collect();
-        let vertices: Vec<Vec3> = output
-            .diagram
-            .vertices
+        let vertices: Vec<Vec3> = diagram
+            .vertices()
             .iter()
             .map(|v| Vec3::new(v.x, v.y, v.z))
             .collect();

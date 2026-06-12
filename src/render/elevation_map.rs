@@ -20,9 +20,7 @@ pub struct ElevationMap {
     bind_group_layout: wgpu::BindGroupLayout,
     /// Uniform buffer for view-projection matrix
     uniform_buffer: wgpu::Buffer,
-    /// Depth texture for proper occlusion (shared for all faces)
-    depth_texture: wgpu::Texture,
-    /// Depth texture view
+    /// Depth texture view (shared for all faces)
     depth_view: wgpu::TextureView,
 }
 
@@ -186,7 +184,6 @@ impl ElevationMap {
             render_pipeline,
             bind_group_layout,
             uniform_buffer,
-            depth_texture,
             depth_view,
         }
     }

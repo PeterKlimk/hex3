@@ -101,10 +101,8 @@ pub struct WindParticleSystem {
     render_pipeline: wgpu::RenderPipeline,
     render_bind_group: wgpu::BindGroup,
     render_uniform_buffer: wgpu::Buffer,
-    render_bind_group_layout: wgpu::BindGroupLayout,
 
     // Shared buffers
-    particle_buffer: wgpu::Buffer,
     compute_uniform_buffer: wgpu::Buffer,
     wind_buffer: wgpu::Buffer,
 
@@ -563,8 +561,6 @@ impl WindParticleSystem {
             render_pipeline,
             render_bind_group,
             render_uniform_buffer,
-            render_bind_group_layout,
-            particle_buffer,
             compute_uniform_buffer,
             wind_buffer,
             num_particles,
@@ -654,7 +650,7 @@ impl WindParticleSystem {
             compute_pass.set_bind_group(0, &self.compute_bind_group, &[]);
 
             // Dispatch with 64 threads per workgroup
-            let workgroups = (self.num_particles + 63) / 64;
+            let workgroups = self.num_particles.div_ceil(64);
             compute_pass.dispatch_workgroups(workgroups, 1, 1);
         }
 

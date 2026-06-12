@@ -8,7 +8,7 @@
 //! (trenches, arcs, ridges) that need to be anchored to plate boundaries rather
 //! than to a diffused scalar field.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use glam::Vec3;
 
@@ -84,41 +84,6 @@ fn classify_kind(convergence: f32, shear: f32) -> BoundaryKind {
     } else {
         // Low-normal-motion boundaries are treated as transform/inactive for feature generation.
         BoundaryKind::Transform
-    }
-}
-
-fn shared_edge_length(tessellation: &Tessellation, cell_a: usize, cell_b: usize) -> f32 {
-    let verts_a: HashSet<u32> = tessellation
-        .voronoi
-        .cell(cell_a)
-        .vertex_indices
-        .iter()
-        .copied()
-        .collect();
-    let verts_b: HashSet<u32> = tessellation
-        .voronoi
-        .cell(cell_b)
-        .vertex_indices
-        .iter()
-        .copied()
-        .collect();
-    let shared: Vec<u32> = verts_a.intersection(&verts_b).copied().collect();
-
-    let shared_len = shared.len();
-    if shared_len == 2 {
-        let v0 = tessellation.voronoi.vertices[shared[0] as usize];
-        let v1 = tessellation.voronoi.vertices[shared[1] as usize];
-        v0.dot(v1).clamp(-1.0, 1.0).acos()
-    } else {
-        debug_assert_eq!(
-            shared_len, 2,
-            "adjacent cells {cell_a} and {cell_b} share {shared_len} vertices"
-        );
-        // Fallback: approximate the boundary edge length from the cell-center separation.
-        // This should be unreachable for valid Voronoi topology.
-        let pos_a = tessellation.cell_center(cell_a);
-        let pos_b = tessellation.cell_center(cell_b);
-        0.5 * pos_a.dot(pos_b).clamp(-1.0, 1.0).acos()
     }
 }
 
@@ -242,7 +207,7 @@ fn compute_ocean_ocean_polarities(
                 continue;
             }
 
-            let edge_length = shared_edge_length(tessellation, cell_a, cell_b);
+            let edge_length = tessellation.shared_edge_length(cell_a, cell_b);
             let weight = convergence * edge_length;
 
             let key = plate_pair_key(plate_a, plate_b);
@@ -375,7 +340,7 @@ pub fn collect_plate_boundaries(
             let shear = relative_vel.dot(tangent_along);
             let relative_speed = relative_vel.length();
 
-            let edge_length = shared_edge_length(tessellation, cell_a, cell_b);
+            let edge_length = tessellation.shared_edge_length(cell_a, cell_b);
 
             let key = plate_pair_key(plate_a, plate_b);
             let entry = pair_stats.entry(key).or_default();
@@ -499,10 +464,18 @@ mod tests {
                     continue;
                 }
 
-                let verts_a: HashSet<usize> =
-                    voronoi.cell(a).vertex_indices.iter().map(|&v| v as usize).collect();
-                let verts_b: HashSet<usize> =
-                    voronoi.cell(b).vertex_indices.iter().map(|&v| v as usize).collect();
+                let verts_a: HashSet<usize> = voronoi
+                    .cell(a)
+                    .vertex_indices
+                    .iter()
+                    .map(|&v| v as usize)
+                    .collect();
+                let verts_b: HashSet<usize> = voronoi
+                    .cell(b)
+                    .vertex_indices
+                    .iter()
+                    .map(|&v| v as usize)
+                    .collect();
                 let shared = verts_a.intersection(&verts_b).count();
 
                 assert_eq!(shared, 2, "cells {a} and {b} share {shared} vertices");

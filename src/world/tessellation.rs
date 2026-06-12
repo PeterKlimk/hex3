@@ -1,6 +1,6 @@
 //! Spherical tessellation - Voronoi cells and adjacency graph.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use glam::Vec3;
 use rand::Rng;
@@ -93,45 +93,26 @@ impl Tessellation {
         let voronoi = {
             let _t = Timed::debug("  s2-voronoi computation");
 
-            // Use s2-voronoi crate for computation
-            let output = s2_voronoi::compute(&points).expect("Voronoi computation failed");
-
-            // Log diagnostics from s2-voronoi
-            if !output.diagnostics.bad_cells.is_empty() {
-                log::warn!(
-                    "s2-voronoi: {} cells have < 3 vertices: {:?}",
-                    output.diagnostics.bad_cells.len(),
-                    &output.diagnostics.bad_cells[..output.diagnostics.bad_cells.len().min(20)]
-                );
-            }
-            if !output.diagnostics.degenerate_cells.is_empty() {
-                log::warn!(
-                    "s2-voronoi: {} degenerate cells: {:?}",
-                    output.diagnostics.degenerate_cells.len(),
-                    &output.diagnostics.degenerate_cells
-                        [..output.diagnostics.degenerate_cells.len().min(20)]
-                );
-            }
+            // Pass plain arrays so hex3's glam version stays independent of the crate's
+            let raw_points: Vec<[f32; 3]> = points.iter().map(|p| p.to_array()).collect();
+            let diagram = s2_voronoi::compute(&raw_points).expect("Voronoi computation failed");
 
             // Convert s2-voronoi output to hex3's SphericalVoronoi
-            let generators: Vec<Vec3> = output
-                .diagram
-                .generators
+            let generators: Vec<Vec3> = diagram
+                .generators()
                 .iter()
                 .map(|u| Vec3::new(u.x, u.y, u.z))
                 .collect();
-            let vertices: Vec<Vec3> = output
-                .diagram
-                .vertices
+            let vertices: Vec<Vec3> = diagram
+                .vertices()
                 .iter()
                 .map(|u| Vec3::new(u.x, u.y, u.z))
                 .collect();
 
             // Build cells from s2-voronoi's cell views
-            let mut cells = Vec::with_capacity(output.diagram.num_cells());
+            let mut cells = Vec::with_capacity(diagram.num_cells());
             let mut cell_indices: Vec<u32> = Vec::new();
-            for i in 0..output.diagram.num_cells() {
-                let cell_view = output.diagram.cell(i);
+            for cell_view in diagram.iter_cells() {
                 let start = cell_indices.len() as u32;
                 cell_indices.extend_from_slice(cell_view.vertex_indices);
                 let count = cell_view.vertex_indices.len() as u16;
@@ -211,6 +192,42 @@ impl Tessellation {
     /// This is the theoretical mean for a uniform distribution on the sphere.
     pub fn mean_cell_area(&self) -> f32 {
         4.0 * std::f32::consts::PI / self.num_cells() as f32
+    }
+
+    /// Length of the great-circle arc forming the shared boundary of two adjacent cells.
+    pub fn shared_edge_length(&self, cell_a: usize, cell_b: usize) -> f32 {
+        let verts_a: HashSet<u32> = self
+            .voronoi
+            .cell(cell_a)
+            .vertex_indices
+            .iter()
+            .copied()
+            .collect();
+        let verts_b: HashSet<u32> = self
+            .voronoi
+            .cell(cell_b)
+            .vertex_indices
+            .iter()
+            .copied()
+            .collect();
+        let shared: Vec<u32> = verts_a.intersection(&verts_b).copied().collect();
+
+        let shared_len = shared.len();
+        if shared_len == 2 {
+            let v0 = self.voronoi.vertices[shared[0] as usize];
+            let v1 = self.voronoi.vertices[shared[1] as usize];
+            v0.dot(v1).clamp(-1.0, 1.0).acos()
+        } else {
+            debug_assert_eq!(
+                shared_len, 2,
+                "adjacent cells {cell_a} and {cell_b} share {shared_len} vertices"
+            );
+            // Fallback: approximate the boundary edge length from the cell-center separation.
+            // This should be unreachable for valid Voronoi topology.
+            let pos_a = self.cell_center(cell_a);
+            let pos_b = self.cell_center(cell_b);
+            0.5 * pos_a.dot(pos_b).clamp(-1.0, 1.0).acos()
+        }
     }
 }
 
@@ -355,7 +372,8 @@ mod tests {
             let start = Instant::now();
             let points = fibonacci_sphere_points_with_rng(num_cells, mean_spacing * 0.25, &mut rng);
             let elapsed = start.elapsed();
-            let (cv, min_r, max_r, orphans) = measure_regularity("Fib j=0.25 (no Lloyd)", &points);
+            let (cv, _min_r, _max_r, _orphans) =
+                measure_regularity("Fib j=0.25 (no Lloyd)", &points);
             println!("  Time: {:?}, CV={:.3}\n", elapsed, cv);
         }
 

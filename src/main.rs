@@ -131,10 +131,13 @@ fn run_interactive(
     let event_loop = EventLoop::new().expect("Failed to create event loop");
     event_loop.set_control_flow(ControlFlow::Wait);
 
+    if export_path.is_some() {
+        eprintln!("Note: --export is ignored in interactive mode; press D to export instead.");
+    }
+
     let config = app::AppConfig {
         seed,
         target_stage,
-        export_path,
         voronoi_backend,
     };
 

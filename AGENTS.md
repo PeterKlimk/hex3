@@ -4,7 +4,7 @@ This file provides context for LLM coding assistants (ChatGPT Codex, Copilot, et
 
 ## Scope
 
-This file covers the hex3 app and workspace-level guidance. For the s2-voronoi library crate, see `crates/s2-voronoi/AGENTS.md`.
+This file covers the hex3 app. The s2-voronoi library lives in its own repository: https://github.com/PeterKlimk/s2-voronoi
 
 ## Development Environment
 
@@ -30,7 +30,6 @@ Hex3 is a spherical Voronoi-based planet generator with tectonic plate simulatio
 
 ## Workspace Layout
 
-- `crates/s2-voronoi/` - S2 Voronoi library crate (see nested AGENTS.md)
 - `src/` - hex3 app, worldgen, and rendering
 
 ## Architecture
@@ -57,7 +56,6 @@ src/
 │   ├── atmosphere.rs   # Atmosphere (temperature, pressure, wind)
 │   ├── hydrology.rs    # Rivers, drainage basins, lakes
 │   ├── constants.rs    # Tunable parameters
-│   └── gen.rs          # World generation orchestration
 ├── app/                # Application layer
 │   ├── state.rs        # App state and rendering
 │   ├── view.rs         # Render modes, view modes
@@ -215,7 +213,7 @@ Two backends for spherical Voronoi computation (select via `--voronoi-backend`):
 - **convex-hull** (default): qhull-based convex hull duality, mathematically exact
 - **knn-clipping**: s2-voronoi crate, kNN-driven half-space clipping
 
-The knn-clipping backend uses the `s2-voronoi` crate (see `crates/s2-voronoi/AGENTS.md`). Integration point is `Tessellation::generate_knn_clipping()` in `src/world/tessellation.rs`.
+The knn-clipping backend uses the external `s2-voronoi` crate (https://github.com/PeterKlimk/s2-voronoi, pulled in as a git dependency). Integration point is `Tessellation::generate_knn_clipping()` in `src/world/tessellation.rs`.
 
 ## Common Tasks
 

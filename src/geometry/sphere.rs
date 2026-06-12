@@ -2,7 +2,7 @@ use glam::Vec3;
 use rand::Rng;
 
 /// Golden ratio for Fibonacci lattice.
-const PHI: f32 = 1.618033988749895;
+const PHI: f32 = 1.618_034;
 
 /// Generate `n` uniformly distributed random points on a unit sphere.
 pub fn random_sphere_points(n: usize) -> Vec<Vec3> {

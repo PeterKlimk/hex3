@@ -467,6 +467,7 @@ impl UnifiedMesh {
     /// Elevation handling at boundaries:
     /// - Water cells (Ocean, Lake): vertices are flat at water_level (no averaging)
     /// - Land cells: vertices are averaged, but clamped to water_level at water boundaries
+    ///
     /// This ensures water is perfectly flat while land slopes down to meet it.
     pub fn from_voronoi_with_elevation<C, M, E>(
         voronoi: &SphericalVoronoi,
@@ -480,9 +481,8 @@ impl UnifiedMesh {
         E: Fn(usize) -> f32,
     {
         // Step 1: Precompute materials and elevations for all cells
-        let cell_materials: Vec<Material> =
-            (0..voronoi.num_cells()).map(|i| material_fn(i)).collect();
-        let cell_elevations: Vec<f32> = (0..voronoi.num_cells()).map(|i| elevation_fn(i)).collect();
+        let cell_materials: Vec<Material> = (0..voronoi.num_cells()).map(&material_fn).collect();
+        let cell_elevations: Vec<f32> = (0..voronoi.num_cells()).map(elevation_fn).collect();
 
         // Step 2: For each vertex, compute elevation based on adjacent cell types
         // Track: sum of land elevations, count of land cells, water_level if any water adjacent
@@ -598,8 +598,8 @@ impl UnifiedMesh {
 
             // Collect edges
             for i in 0..n {
-                let a = cell.vertex_indices[i] as u32;
-                let b = cell.vertex_indices[(i + 1) % n] as u32;
+                let a = cell.vertex_indices[i];
+                let b = cell.vertex_indices[(i + 1) % n];
                 let edge = if a < b { (a, b) } else { (b, a) };
                 edge_set.insert(edge);
             }
@@ -1021,8 +1021,8 @@ impl VoronoiMesh {
 
             // Collect edges (using global vertex indices from voronoi.vertices)
             for i in 0..n {
-                let a = cell.vertex_indices[i] as u32;
-                let b = cell.vertex_indices[(i + 1) % n] as u32;
+                let a = cell.vertex_indices[i];
+                let b = cell.vertex_indices[(i + 1) % n];
                 let edge = if a < b { (a, b) } else { (b, a) };
                 edge_set.insert(edge);
             }
@@ -1076,9 +1076,8 @@ impl VoronoiMesh {
         use crate::world::RELIEF_SCALE;
 
         // Precompute materials and elevations
-        let cell_materials: Vec<Material> =
-            (0..voronoi.num_cells()).map(|i| material_fn(i)).collect();
-        let cell_elevations: Vec<f32> = (0..voronoi.num_cells()).map(|i| elevation_fn(i)).collect();
+        let cell_materials: Vec<Material> = (0..voronoi.num_cells()).map(material_fn).collect();
+        let cell_elevations: Vec<f32> = (0..voronoi.num_cells()).map(elevation_fn).collect();
 
         // Water-aware vertex elevation (same logic as UnifiedMesh)
         let mut vertex_land_sum = vec![0.0f32; voronoi.vertices.len()];

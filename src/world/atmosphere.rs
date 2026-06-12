@@ -355,44 +355,13 @@ fn apply_terrain_effects(tessellation: &Tessellation, elevation: &Elevation, win
         total_katabatic += katabatic.length();
     }
 
-    println!(
-        "[DEBUG terrain_effects] cells_modified={}, avg_blocking={:.4}, avg_katabatic={:.4}, max_slope={:.2}",
+    log::debug!(
+        "terrain_effects: cells_modified={}, avg_blocking={:.4}, avg_katabatic={:.4}, max_slope={:.2}",
         cells_modified,
         if cells_modified > 0 { total_blocking / cells_modified as f32 } else { 0.0 },
         total_katabatic / num_cells as f32,
         max_slope_seen
     );
-}
-
-/// Compute edge length between two adjacent Voronoi cells.
-/// This is the length of the great circle arc forming their shared boundary.
-fn compute_edge_length(tessellation: &Tessellation, cell_a: usize, cell_b: usize) -> f32 {
-    let voronoi = &tessellation.voronoi;
-    let verts_a: std::collections::HashSet<u32> = voronoi
-        .cell(cell_a)
-        .vertex_indices
-        .iter()
-        .copied()
-        .collect();
-    let verts_b: std::collections::HashSet<u32> = voronoi
-        .cell(cell_b)
-        .vertex_indices
-        .iter()
-        .copied()
-        .collect();
-
-    // Find shared vertices
-    let shared: Vec<u32> = verts_a.intersection(&verts_b).copied().collect();
-
-    if shared.len() == 2 {
-        // Edge length = arc distance between the two shared Voronoi vertices
-        let v0 = voronoi.vertices[shared[0] as usize];
-        let v1 = voronoi.vertices[shared[1] as usize];
-        v0.dot(v1).clamp(-1.0, 1.0).acos()
-    } else {
-        // Fallback: approximate from mean cell spacing
-        tessellation.mean_cell_area().sqrt()
-    }
 }
 
 /// Precompute edge lengths for all neighbor pairs.
@@ -405,7 +374,7 @@ fn precompute_edge_lengths(tessellation: &Tessellation) -> Vec<Vec<f32>> {
         let neighbors = tessellation.neighbors(i);
         let lengths: Vec<f32> = neighbors
             .iter()
-            .map(|&n| compute_edge_length(tessellation, i, n))
+            .map(|&n| tessellation.shared_edge_length(i, n))
             .collect();
         edge_lengths.push(lengths);
     }
@@ -458,9 +427,9 @@ fn precompute_permeability(tessellation: &Tessellation, elevation: &Elevation) -
     }
 
     // Debug: print slope statistics
-    if !all_slopes.is_empty() {
-        all_slopes.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        all_deltas.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    if !all_slopes.is_empty() && log::log_enabled!(log::Level::Debug) {
+        all_slopes.sort_by(|a, b| a.total_cmp(b));
+        all_deltas.sort_by(|a, b| a.total_cmp(b));
         let p50 = all_slopes[all_slopes.len() / 2];
         let p90 = all_slopes[all_slopes.len() * 9 / 10];
         let p99 = all_slopes[all_slopes.len() * 99 / 100];
@@ -470,12 +439,16 @@ fn precompute_permeability(tessellation: &Tessellation, elevation: &Elevation) -
         // Cosine power permeability: 1/(1+g²)^(p/2)
         let perm = |g: f32| 1.0 / (1.0 + g * g).powf(half_power);
 
-        println!(
-            "[DEBUG gradient] p50={:.4}, p90={:.4}, p99={:.4}, max={:.4}, max_delta={:.4}",
-            p50, p90, p99, max_slope, max_delta
+        log::debug!(
+            "gradient: p50={:.4}, p90={:.4}, p99={:.4}, max={:.4}, max_delta={:.4}",
+            p50,
+            p90,
+            p99,
+            max_slope,
+            max_delta
         );
-        println!(
-            "[DEBUG gradient] perm at p50={:.4}, p90={:.4}, p99={:.4}, max={:.4}",
+        log::debug!(
+            "gradient: perm at p50={:.4}, p90={:.4}, p99={:.4}, max={:.4}",
             perm(p50),
             perm(p90),
             perm(p99),
@@ -541,29 +514,33 @@ fn project_wind_field(
 
     // Precompute geometric data
     let edge_lengths = precompute_edge_lengths(tessellation);
-    let permeability =
-        if let Some(elev) = elevation {
-            let perm = precompute_permeability(tessellation, elev);
-            // Debug: print permeability statistics
+    let permeability = if let Some(elev) = elevation {
+        let perm = precompute_permeability(tessellation, elev);
+        if log::log_enabled!(log::Level::Debug) {
             let all_perms: Vec<f32> = perm.iter().flat_map(|v| v.iter().copied()).collect();
             let min_perm = all_perms.iter().copied().fold(f32::INFINITY, f32::min);
             let max_perm = all_perms.iter().copied().fold(f32::NEG_INFINITY, f32::max);
             let mean_perm = all_perms.iter().sum::<f32>() / all_perms.len() as f32;
             let low_count = all_perms.iter().filter(|&&p| p < 0.5).count();
             let very_low_count = all_perms.iter().filter(|&&p| p < 0.1).count();
-            println!(
-            "[DEBUG permeability] min={:.4}, max={:.4}, mean={:.4}, <0.5: {}/{} ({:.1}%), <0.1: {}",
-            min_perm, max_perm, mean_perm,
-            low_count, all_perms.len(), 100.0 * low_count as f32 / all_perms.len() as f32,
-            very_low_count
-        );
-            perm
-        } else {
-            // Uniform permeability (1.0) for upper wind - no terrain effects
-            (0..num_cells)
-                .map(|i| vec![1.0_f32; tessellation.neighbors(i).len()])
-                .collect()
-        };
+            log::debug!(
+                "permeability: min={:.4}, max={:.4}, mean={:.4}, <0.5: {}/{} ({:.1}%), <0.1: {}",
+                min_perm,
+                max_perm,
+                mean_perm,
+                low_count,
+                all_perms.len(),
+                100.0 * low_count as f32 / all_perms.len() as f32,
+                very_low_count
+            );
+        }
+        perm
+    } else {
+        // Uniform permeability (1.0) for upper wind - no terrain effects
+        (0..num_cells)
+            .map(|i| vec![1.0_f32; tessellation.neighbors(i).len()])
+            .collect()
+    };
     let reverse = reverse_neighbor_indices(tessellation);
 
     // --- STEP 1: Compute edge-normal velocities and per-cell divergence (net flux) ---
