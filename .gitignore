@@ -13,4 +13,6 @@ flamegraph.svg
 profile.json.gz
 
 perf.txt
-perf-callgraph.txt
+perf-callgraph.txtanalysis_*.md
+analysis_*.png
+map_*.png
