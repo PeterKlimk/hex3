@@ -4,7 +4,7 @@
 //! it does):
 //!
 //!   elevation = isostatic(thickness) + thermal(ocean age)
-//!             + dynamic(trench)      + surface noise
+//!             + dynamic(trench flexure/outer rise) + surface noise
 //!
 //! Thickness = margin ramp (continental thick, oceanic thin) + macro-scale
 //! thickness noise (cratonic cores / interior basins) + tectonic thickening
@@ -342,8 +342,9 @@ fn generate_heightmap_with_noise(
 
         // --- 2. Isostatic base + thermal + dynamic terms ---
         // Thermal anomaly applies to the oceanic part of the column;
-        // trench is dynamic topography (slab pull holds it out of isostatic
-        // equilibrium); the small ridge feature rides on the thermal swell.
+        // trench flexure is dynamic topography (slab pull holds it out of
+        // isostatic equilibrium, with signed outer-rise uplift); the small
+        // ridge feature rides on the thermal swell.
         let structural_elevation = isostatic_elevation(thickness)
             + thermal_anomaly(features.ridge_distance[i]) * (1.0 - cont)
             + features.ridge[i]

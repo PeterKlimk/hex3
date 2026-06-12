@@ -203,6 +203,23 @@ fn main() {
         }
     }
 
+    // ---- Flexure profile ----
+    let deepest_deflection = features.trench.iter().cloned().fold(0.0f32, f32::max);
+    let strongest_outer_rise = -features.trench.iter().cloned().fold(0.0f32, f32::min);
+    let flexure_ratio = if deepest_deflection > 0.0 {
+        strongest_outer_rise / deepest_deflection
+    } else {
+        0.0
+    };
+    let outer_rise_cells = features.trench.iter().filter(|&&t| t < 0.0).count();
+    println!(
+        "\n-- Flexure profile --   [Earth: outer rise ~200-500 m vs trenches 2-8 km -> ~0.05]"
+    );
+    println!(
+        "  deepest deflection {:.3} | strongest outer rise {:.3} | ratio {:.3} | outer-rise cells {}",
+        deepest_deflection, strongest_outer_rise, flexure_ratio, outer_rise_cells
+    );
+
     // ---- Rivers ----
     let max_flow = hydrology
         .flow_accumulation

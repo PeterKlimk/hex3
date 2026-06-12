@@ -7,6 +7,7 @@
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::collections::HashMap;
+use std::f32::consts::PI;
 
 use glam::Vec3;
 use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
@@ -22,8 +23,10 @@ use super::{Plates, Tessellation};
 /// All values are resolution-independent magnitudes (not raw elevations).
 /// Elevation generation applies these via decay functions and sensitivity constants.
 pub struct FeatureFields {
-    /// Trench depth field (oceanic subducting side only).
-    /// Stores the computed depth magnitude (positive value = depression depth).
+    /// Signed trench dynamic-topography field.
+    /// Positive values are downward deflection; negative values are outer-rise uplift.
+    // SPEC: scripts/analyze_terrain.py still treats trench as a positive-only field;
+    // scripts changes are out of scope for the flexure spec.
     pub trench: Vec<f32>,
 
     /// Volcanic arc uplift (overriding side of subduction).
@@ -115,6 +118,9 @@ impl FeatureFields {
         // appear too close to boundaries at coarse resolutions.
         let mut trench_seed_strength = vec![0.0f32; num_cells];
         let mut trench_seed_dist0 = vec![f32::INFINITY; num_cells];
+
+        let mut forearc_seed_strength = vec![0.0f32; num_cells];
+        let mut forearc_seed_dist0 = vec![f32::INFINITY; num_cells];
 
         let mut arc_seed_strength_cont = vec![0.0f32; num_cells];
         let mut arc_seed_dist0_cont = vec![f32::INFINITY; num_cells];
@@ -213,6 +219,10 @@ impl FeatureFields {
                                         subd_force_a * area_scale(b.cell_a);
                                     trench_seed_dist0[b.cell_a] =
                                         trench_seed_dist0[b.cell_a].min(dist0_a);
+                                    forearc_seed_strength[b.cell_b] +=
+                                        subd_force_a * area_scale(b.cell_b);
+                                    forearc_seed_dist0[b.cell_b] =
+                                        forearc_seed_dist0[b.cell_b].min(dist0_b);
                                 }
                                 match b.type_b {
                                     CrustType::Continental => {
@@ -235,6 +245,10 @@ impl FeatureFields {
                                         subd_force_b * area_scale(b.cell_b);
                                     trench_seed_dist0[b.cell_b] =
                                         trench_seed_dist0[b.cell_b].min(dist0_b);
+                                    forearc_seed_strength[b.cell_a] +=
+                                        subd_force_b * area_scale(b.cell_a);
+                                    forearc_seed_dist0[b.cell_a] =
+                                        forearc_seed_dist0[b.cell_a].min(dist0_a);
                                 }
                                 match b.type_a {
                                     CrustType::Continental => {
@@ -326,6 +340,13 @@ impl FeatureFields {
             &trench_seed_dist0,
             true,
         );
+        let forearc_dist = distance_field_from_edge_seed_cells(
+            tessellation,
+            plates,
+            &forearc_seed_strength,
+            &forearc_seed_dist0,
+            true,
+        );
         let arc_dist_cont = distance_field_from_edge_seed_cells(
             tessellation,
             plates,
@@ -375,7 +396,8 @@ impl FeatureFields {
         // weight field, and take their ratio. This smooths the forcing along/between nearby
         // boundary segments without introducing an additional inland decay (the distance kernels
         // below remain the primary inland projection).
-        let trench_support_dist = 4.0 * TRENCH_DECAY;
+        let trench_support_dist = (PI + 1.0) * TRENCH_FLEX_ALPHA * TRENCH_FLEX_ALPHA_OLD_MULT;
+        let forearc_support_dist = (0.75 * PI + 1.0) * FOREARC_ALPHA;
         let arc_cont_support_dist = ARC_CONT_PEAK_DIST + 3.0 * ARC_CONT_WIDTH;
         let arc_ocean_support_dist = ARC_OCEAN_PEAK_DIST + 3.0 * ARC_OCEAN_WIDTH;
         let ridge_support_dist = 4.0 * RIDGE_DECAY;
@@ -386,6 +408,13 @@ impl FeatureFields {
             plates,
             &trench_seed_strength,
             trench_support_dist,
+            mean_neighbor_dist,
+        );
+        let forearc_forcing = compute_smoothed_boundary_forcing(
+            tessellation,
+            plates,
+            &forearc_seed_strength,
+            forearc_support_dist,
             mean_neighbor_dist,
         );
         let arc_forcing_cont = compute_smoothed_boundary_forcing(
@@ -484,8 +513,17 @@ impl FeatureFields {
                         TRENCH_SENSITIVITY,
                         TRENCH_MAX_DEPTH,
                     );
-                    trench[i] = depth * exp_decay(d, TRENCH_DECAY);
+                    let alpha = TRENCH_FLEX_ALPHA
+                        * (TRENCH_FLEX_ALPHA_YOUNG_MULT
+                            + (TRENCH_FLEX_ALPHA_OLD_MULT - TRENCH_FLEX_ALPHA_YOUNG_MULT) * age);
+                    trench[i] = depth * flexure_broken(d, alpha);
                 }
+            }
+
+            if forearc_dist[i].is_finite() {
+                let w0 = FOREARC_COUPLING
+                    * sqrt_response(forearc_forcing[i], TRENCH_SENSITIVITY, TRENCH_MAX_DEPTH);
+                trench[i] += w0 * flexure_coupled(forearc_dist[i], FOREARC_ALPHA);
             }
 
             // Arc uplift: continental or oceanic depending on crust type
@@ -1116,6 +1154,30 @@ pub fn exp_decay(dist: f32, decay: f32) -> f32 {
     (-(d / k)).exp()
 }
 
+/// Broken elastic plate flexure profile for the subducting side.
+///
+/// Returns normalized downward deflection `w/w0` for an end-loaded broken
+/// thin elastic plate: `exp(-d/alpha) * (cos(d/alpha) + sin(d/alpha))`.
+pub fn flexure_broken(dist: f32, alpha: f32) -> f32 {
+    if alpha <= 0.0 || !dist.is_finite() {
+        return 0.0;
+    }
+    let x = dist.max(0.0) / alpha;
+    (-x).exp() * (x.cos() + x.sin())
+}
+
+/// Coupled continuous-plate flexure profile for the overriding forearc.
+///
+/// Returns normalized downward deflection `w/w0` for the continuous-plate
+/// member of the flexure family: `exp(-d/alpha) * cos(d/alpha)`.
+pub fn flexure_coupled(dist: f32, alpha: f32) -> f32 {
+    if alpha <= 0.0 || !dist.is_finite() {
+        return 0.0;
+    }
+    let x = dist.max(0.0) / alpha;
+    (-x).exp() * x.cos()
+}
+
 /// Smoothstep function for gradual transitions.
 pub fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
     if edge0 == edge1 {
@@ -1124,4 +1186,44 @@ pub fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
     }
     let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const EPS: f32 = 1e-6;
+
+    #[test]
+    fn broken_flexure_matches_key_points() {
+        let a = 0.018;
+
+        assert!((flexure_broken(0.0, a) - 1.0).abs() < EPS);
+        assert!(flexure_broken(2.35 * a, a) > 0.0);
+        assert!(flexure_broken(2.37 * a, a) < 0.0);
+
+        let outer_rise = flexure_broken(PI * a, a);
+        assert!((outer_rise - -0.0432).abs() <= 0.05 * 0.0432);
+        assert!(flexure_broken(2.01 * PI * a, a).abs() < 0.005);
+    }
+
+    #[test]
+    fn coupled_flexure_matches_key_points() {
+        let a = 0.015;
+
+        assert!((flexure_coupled(0.0, a) - 1.0).abs() < EPS);
+        assert!(flexure_coupled(0.49 * PI * a, a) > 0.0);
+        assert!(flexure_coupled(0.51 * PI * a, a) < 0.0);
+
+        let overshoot = flexure_coupled(0.75 * PI * a, a);
+        assert!((overshoot - -0.0670).abs() <= 0.05 * 0.0670);
+    }
+
+    #[test]
+    fn flexure_profiles_guard_invalid_inputs() {
+        assert_eq!(flexure_broken(0.1, 0.0), 0.0);
+        assert_eq!(flexure_broken(f32::INFINITY, 0.1), 0.0);
+        assert_eq!(flexure_coupled(0.1, 0.0), 0.0);
+        assert_eq!(flexure_coupled(f32::INFINITY, 0.1), 0.0);
+    }
 }

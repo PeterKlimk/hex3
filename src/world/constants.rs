@@ -98,6 +98,8 @@ pub const RIFT_SHOULDER_RATIO: f32 = 0.4;
 /// (uniform elevation shift) so the coastline lands here exactly,
 /// independent of seed. Distinct from CONTINENTAL_FRACTION (crust area):
 /// the difference is submerged shelf.
+// SPEC: docs/specs/flexure.md acceptance says land fraction remains 24.0%,
+// but this repository currently targets 26.0%; left unchanged per no-retuning.
 pub const LAND_FRACTION: f32 = 0.26;
 
 /// Depth at mid-ocean ridge crests (young, hot oceanic crust).
@@ -315,9 +317,21 @@ pub const TRENCH_MAX_DEPTH: f32 = 0.18;
 pub const TRENCH_AGE_YOUNG_MULT: f32 = 0.7;
 /// Multiplier applied to trench forcing for old oceanic lithosphere (far from ridges).
 pub const TRENCH_AGE_OLD_MULT: f32 = 1.3;
-/// Trench decay length from the boundary (radians).
-/// 0.020 rad ≈ 127 km on Earth.
-pub const TRENCH_DECAY: f32 = 0.020;
+/// Flexural parameter alpha for the subducting plate (radians).
+/// Sets the whole trench-to-outer-rise geometry: trench wall zero-crossing
+/// at 2.36*alpha, outer rise crest at pi*alpha (4.3% of trench depth, up).
+/// 0.018 rad ~= 115 km on Earth -> outer rise ~360 km from the axis.
+pub const TRENCH_FLEX_ALPHA: f32 = 0.018;
+/// Alpha multiplier for young (near-ridge) lithosphere: hot, thin, floppy.
+pub const TRENCH_FLEX_ALPHA_YOUNG_MULT: f32 = 0.6;
+/// Alpha multiplier for old lithosphere: cold, thick, stiff -> wide flexure.
+pub const TRENCH_FLEX_ALPHA_OLD_MULT: f32 = 1.4;
+/// Flexural parameter for the overriding plate's forearc (radians).
+/// Recovery is ~complete by pi/2*alpha_f ~= 0.024 rad, landward of which
+/// the arc Gaussian (peak 0.04-0.05 rad) takes over.
+pub const FOREARC_ALPHA: f32 = 0.015;
+/// Fraction of the trench-axis depth inherited by the overriding plate edge.
+pub const FOREARC_COUPLING: f32 = 0.8;
 
 /// Volcanic arc / cordillera uplift sensitivity (sqrt response of boundary forcing).
 ///

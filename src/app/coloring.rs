@@ -425,10 +425,15 @@ pub fn cell_color_feature(world: &World, cell_idx: usize, layer: FeatureLayer) -
 
     match layer {
         FeatureLayer::Trench => {
-            // Trench: blue scale (deeper = more blue)
+            // Trench: diverging scale (blue = down, warm = outer rise)
             let value = features.trench[cell_idx];
-            let t = (value / 0.2).clamp(0.0, 1.0);
-            Vec3::new(0.1, 0.15 + 0.15 * t, 0.3 + 0.6 * t)
+            if value >= 0.0 {
+                let t = (value / 0.2).clamp(0.0, 1.0);
+                Vec3::new(0.1, 0.15 + 0.15 * t, 0.3 + 0.6 * t)
+            } else {
+                let t = (-value / 0.02).clamp(0.0, 1.0);
+                Vec3::new(0.35 + 0.55 * t, 0.20 + 0.25 * t, 0.08)
+            }
         }
         FeatureLayer::Arc => {
             // Arc: orange/red scale (higher = more red)
