@@ -302,6 +302,18 @@ pub const MICRO_OCTAVES: usize = 2;
 /// Amplitude multiplier for underwater areas.
 pub const MICRO_UNDERWATER_MULT: f32 = 0.8;
 
+// Climate mechanisms
+
+/// Distance scale for land-ocean thermal contrast continentality (radians).
+/// 0.10 rad ~= 637 km on Earth: shelf seas and nearby coasts stay moderated,
+/// while continental interiors approach the full contrast.
+pub const CONTINENTALITY_DISTANCE_SCALE: f32 = 0.10;
+/// Maximum amplification of latitude-only temperature deviation in continental interiors.
+pub const CONTINENTALITY_AMP: f32 = 0.35;
+/// Exponential sensitivity of basin evaporation to mean catchment temperature.
+/// A basin at global mean temperature keeps the global climate ratio unchanged.
+pub const EVAP_TEMP_SENSITIVITY: f32 = 1.0;
+
 // Boundary-anchored elevation features (minimal bathymetry/orogeny model)
 //
 // These are applied as additive terms during elevation generation, using
@@ -330,6 +342,10 @@ pub const TRENCH_FLEX_ALPHA_OLD_MULT: f32 = 1.4;
 pub const FOREARC_ALPHA: f32 = 0.015;
 /// Fraction of the trench-axis depth inherited by the overriding plate edge.
 pub const FOREARC_COUPLING: f32 = 0.8;
+/// Reference ridge opening rate for distance-to-age conversion.
+/// When local spreading rate equals this value, ridge distance maps to the
+/// previous implicit-age behavior; faster ridges keep ocean floor young wider.
+pub const OCEAN_SPREADING_REFERENCE_RATE: f32 = 1.0;
 
 /// Volcanic arc / cordillera uplift sensitivity (sqrt response of boundary forcing).
 ///

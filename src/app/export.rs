@@ -88,6 +88,8 @@ struct FeatureData {
     divergent: Vec<f32>,
     transform: Vec<f32>,
     ridge_distance: Vec<f32>,
+    ridge_age_distance: Vec<f32>,
+    ridge_spreading_rate: Vec<f32>,
     collision_distance: Vec<f32>,
 }
 
@@ -166,6 +168,8 @@ impl WorldExport {
             divergent: features.divergent.clone(),
             transform: features.transform.clone(),
             ridge_distance: features.ridge_distance.clone(),
+            ridge_age_distance: features.ridge_age_distance.clone(),
+            ridge_spreading_rate: features.ridge_spreading_rate.clone(),
             collision_distance: features.collision_distance.clone(),
         };
 

@@ -60,9 +60,17 @@ pub struct FeatureFields {
     pub transform: Vec<f32>,
 
     /// Raw distance from nearest mid-ocean ridge (radians).
-    /// Used for thermal subsidence calculation in elevation generation.
+    /// Stored for diagnostics/visualization; age-sensitive consumers use
+    /// `ridge_age_distance`.
     /// Infinity for cells with no ridge on their plate.
     pub ridge_distance: Vec<f32>,
+
+    /// Distance-from-ridge converted to age-equivalent distance using local
+    /// spreading rate. Matches `ridge_distance` at the reference opening rate.
+    pub ridge_age_distance: Vec<f32>,
+
+    /// Opening rate propagated from the nearest mid-ocean ridge segment.
+    pub ridge_spreading_rate: Vec<f32>,
 
     /// Raw distance from nearest continental collision boundary (radians).
     /// Infinity for cells with no collision boundary on their plate.
@@ -128,6 +136,8 @@ impl FeatureFields {
 
         let mut ridge_seed_strength_ocean = vec![0.0f32; num_cells];
         let mut ridge_seed_dist0_ocean = vec![f32::INFINITY; num_cells];
+        let mut ridge_opening_seed_sum = vec![0.0f32; num_cells];
+        let mut ridge_opening_seed_count = vec![0.0f32; num_cells];
 
         let mut collision_seed_strength = vec![0.0f32; num_cells];
         let mut collision_seed_dist0 = vec![f32::INFINITY; num_cells];
@@ -293,9 +303,13 @@ impl FeatureFields {
                         ridge_seed_strength_ocean[b.cell_a] += force * area_scale(b.cell_a);
                         ridge_seed_dist0_ocean[b.cell_a] =
                             ridge_seed_dist0_ocean[b.cell_a].min(dist0_a);
+                        ridge_opening_seed_sum[b.cell_a] += opening;
+                        ridge_opening_seed_count[b.cell_a] += 1.0;
                         ridge_seed_strength_ocean[b.cell_b] += force * area_scale(b.cell_b);
                         ridge_seed_dist0_ocean[b.cell_b] =
                             ridge_seed_dist0_ocean[b.cell_b].min(dist0_b);
+                        ridge_opening_seed_sum[b.cell_b] += opening;
+                        ridge_opening_seed_count[b.cell_b] += 1.0;
                     }
 
                     // Continental rifting: seed thinning on continental cells
@@ -365,13 +379,24 @@ impl FeatureFields {
             .zip(arc_dist_ocean.iter())
             .map(|(&c, &o)| c.min(o))
             .collect();
-        let ridge_dist = distance_field_from_edge_seed_cells(
+        let ridge_seed_opening_rate: Vec<f32> = ridge_opening_seed_sum
+            .iter()
+            .zip(ridge_opening_seed_count.iter())
+            .map(|(&sum, &count)| if count > 0.0 { sum / count } else { 0.0 })
+            .collect();
+        let (ridge_dist, ridge_spreading_rate) = distance_and_value_field_from_edge_seed_cells(
             tessellation,
             plates,
             &ridge_seed_strength_ocean,
             &ridge_seed_dist0_ocean,
+            &ridge_seed_opening_rate,
             true,
         );
+        let ridge_age_dist: Vec<f32> = ridge_dist
+            .iter()
+            .zip(ridge_spreading_rate.iter())
+            .map(|(&dist, &rate)| ridge_age_distance_from_spreading_rate(dist, rate))
+            .collect();
         let rift_support_dist = RIFT_SHOULDER_OFFSET + 3.0 * RIFT_SHOULDER_WIDTH;
         let rift_dist = distance_field_from_edge_seed_cells(
             tessellation,
@@ -502,7 +527,7 @@ impl FeatureFields {
                 if d.is_finite() {
                     // Slab age modulation: older oceanic lithosphere tends to produce stronger
                     // trench/slab-pull signals than very young crust near ridges.
-                    let age = oceanic_age_factor_from_ridge_distance(ridge_dist[i]);
+                    let age = oceanic_age_factor_from_ridge_distance(ridge_age_dist[i]);
                     let age_mult =
                         TRENCH_AGE_YOUNG_MULT + (TRENCH_AGE_OLD_MULT - TRENCH_AGE_YOUNG_MULT) * age;
 
@@ -665,11 +690,106 @@ impl FeatureFields {
             divergent,
             transform,
             ridge_distance: ridge_dist,
+            ridge_age_distance: ridge_age_dist,
+            ridge_spreading_rate,
             collision_distance: collision_dist,
             arc_distance: arc_dist,
             arc_shape_noise,
         }
     }
+}
+
+fn distance_and_value_field_from_edge_seed_cells(
+    tessellation: &Tessellation,
+    plates: &Plates,
+    seed_strength: &[f32],
+    seed_dist0: &[f32],
+    seed_value: &[f32],
+    restrict_to_plate: bool,
+) -> (Vec<f32>, Vec<f32>) {
+    #[derive(Clone, Copy, PartialEq)]
+    struct State {
+        dist: f32,
+        cell: usize,
+        plate: u32,
+        value: f32,
+    }
+
+    impl Eq for State {}
+
+    impl Ord for State {
+        fn cmp(&self, other: &Self) -> Ordering {
+            other
+                .dist
+                .partial_cmp(&self.dist)
+                .unwrap_or(Ordering::Equal)
+        }
+    }
+
+    impl PartialOrd for State {
+        fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+            Some(self.cmp(other))
+        }
+    }
+
+    let n = tessellation.num_cells();
+    let mut dist = vec![f32::INFINITY; n];
+    let mut value = vec![0.0f32; n];
+    let mut heap = BinaryHeap::new();
+
+    for i in 0..n {
+        let d0 = seed_dist0[i];
+        if seed_strength[i] > 0.0 && d0.is_finite() {
+            let plate = plates.cell_plate[i];
+            dist[i] = dist[i].min(d0);
+            value[i] = seed_value[i];
+            heap.push(State {
+                dist: d0,
+                cell: i,
+                plate,
+                value: seed_value[i],
+            });
+        }
+    }
+
+    const TIE_EPS: f32 = 1e-6;
+
+    while let Some(State {
+        dist: d,
+        cell,
+        plate,
+        value: source_value,
+    }) = heap.pop()
+    {
+        if d > dist[cell] + TIE_EPS {
+            continue;
+        }
+
+        let pos = tessellation.cell_center(cell);
+
+        for &neighbor in tessellation.neighbors(cell) {
+            if restrict_to_plate && plates.cell_plate[neighbor] != plate {
+                continue;
+            }
+
+            let neighbor_pos = tessellation.cell_center(neighbor);
+            let step = angular_distance(pos, neighbor_pos);
+            let nd = d + step;
+
+            if nd + TIE_EPS < dist[neighbor] {
+                dist[neighbor] = nd;
+                value[neighbor] = source_value;
+                heap.push(State {
+                    dist: nd,
+                    cell: neighbor,
+                    plate,
+                    value: source_value,
+                });
+            }
+        }
+    }
+
+    (dist, value)
 }
 
 fn angular_distance(a: Vec3, b: Vec3) -> f32 {
@@ -1107,6 +1227,16 @@ fn oceanic_age_factor_from_ridge_distance(ridge_distance: f32) -> f32 {
         .clamp(0.0, 1.0)
 }
 
+fn ridge_age_distance_from_spreading_rate(ridge_distance: f32, spreading_rate: f32) -> f32 {
+    if !ridge_distance.is_finite() {
+        return f32::INFINITY;
+    }
+    if spreading_rate <= 1e-6 {
+        return f32::INFINITY;
+    }
+    ridge_distance * (OCEAN_SPREADING_REFERENCE_RATE / spreading_rate)
+}
+
 /// Compute mean angular distance between neighboring cells.
 fn compute_mean_neighbor_distance(tessellation: &Tessellation) -> f32 {
     let mut total_dist: f32 = 0.0;
@@ -1223,5 +1353,20 @@ mod tests {
         assert_eq!(flexure_broken(f32::INFINITY, 0.1), 0.0);
         assert_eq!(flexure_coupled(0.1, 0.0), 0.0);
         assert_eq!(flexure_coupled(f32::INFINITY, 0.1), 0.0);
+    }
+
+    #[test]
+    fn spreading_rate_age_distance_recovers_reference_and_saturates_slow() {
+        let d = 0.2;
+        assert_eq!(
+            ridge_age_distance_from_spreading_rate(d, OCEAN_SPREADING_REFERENCE_RATE),
+            d
+        );
+        assert!(
+            ridge_age_distance_from_spreading_rate(d, 2.0 * OCEAN_SPREADING_REFERENCE_RATE) < d
+        );
+        let stagnant = ridge_age_distance_from_spreading_rate(d, 0.0);
+        assert!(!stagnant.is_finite());
+        assert_eq!(oceanic_age_factor_from_ridge_distance(stagnant), 1.0);
     }
 }

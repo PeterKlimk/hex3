@@ -13,6 +13,7 @@ use std::collections::{BinaryHeap, VecDeque};
 
 use ordered_float::OrderedFloat;
 
+use super::constants::EVAP_TEMP_SENSITIVITY;
 use super::{Crust, CrustType, Elevation, Tessellation};
 
 /// Water state of a cell.
@@ -52,6 +53,11 @@ pub struct Basin {
     /// Precipitation-weighted upstream budget draining into this basin
     /// (units: average-cell rainfall equivalents).
     pub catchment_area: f32,
+    /// Area-weighted mean surface temperature of the basin catchment.
+    pub mean_temperature: f32,
+    /// Evaporation multiplier derived from mean catchment temperature.
+    /// 1.0 means the global climate ratio behaves exactly as before.
+    pub evaporation_factor: f32,
     /// Current water surface elevation.
     /// If < bottom_elevation, the basin is dry.
     /// If >= spill_elevation, the basin is full/overflowing.
@@ -156,6 +162,7 @@ impl Hydrology {
         crust: &Crust,
         elevation: &Elevation,
         precipitation: &[f32],
+        temperature: &[f32],
     ) -> Self {
         // Use raw elevation directly - MIN_LAKE_DEPTH filters spurious puddles
         let raw_elevation = &elevation.values;
@@ -175,6 +182,11 @@ impl Hydrology {
         // Step 5: Accumulate flow (precipitation-weighted)
         let flow_accumulation =
             compute_flow_accumulation(tessellation, &drainage_dir, precipitation);
+        let catchment_cell_accumulation =
+            compute_flow_accumulation_with_sources(&drainage_dir, &vec![1.0; raw_elevation.len()]);
+        let temperature_accumulation =
+            compute_flow_accumulation_with_sources(&drainage_dir, temperature);
+        let global_mean_temperature = mean_temperature(temperature);
 
         // Step 6: Compute catchment budget for each basin
         compute_basin_catchments(
@@ -183,6 +195,10 @@ impl Hydrology {
             &drainage_dir,
             &flow_accumulation,
             precipitation,
+            &catchment_cell_accumulation,
+            &temperature_accumulation,
+            temperature,
+            global_mean_temperature,
         );
 
         // Step 7: Determine which basin each basin overflows into
@@ -602,6 +618,8 @@ fn priority_flood_with_basins(
                     spill_target_cell: cell, // The cell outside basin where overflow exits
                     overflow_target: None,   // Computed after all basins identified
                     catchment_area: 0.0,     // Computed later
+                    mean_temperature: 0.0,   // Computed later
+                    evaporation_factor: 1.0, // Computed later
                     water_level: f32::NEG_INFINITY, // Computed later (dry by default)
                 });
             }
@@ -621,6 +639,10 @@ fn compute_basin_catchments(
     drainage_dir: &[Option<usize>],
     flow_accumulation: &[f32],
     precipitation: &[f32],
+    catchment_cell_accumulation: &[f32],
+    temperature_accumulation: &[f32],
+    temperature: &[f32],
+    global_mean_temperature: f32,
 ) {
     // For each basin, find cells that drain INTO it (but aren't in it)
     // The catchment budget is the basin's own rainfall plus flow at entry points
@@ -628,6 +650,12 @@ fn compute_basin_catchments(
     for (idx, basin) in basins.iter_mut().enumerate() {
         // Start with the basin's own rainfall
         let mut catchment: f32 = basin.cells.iter().map(|&c| precipitation[c]).sum();
+        // Area-weighted catchment temperature: basin cells plus every upstream
+        // cell entering the basin through drainage. This deliberately follows
+        // catchment area rather than current lake cells so dry terminal basins
+        // still get the right evaporative climate.
+        let mut catchment_cells: f32 = basin.cells.len() as f32;
+        let mut temperature_sum: f32 = basin.cells.iter().map(|&c| temperature[c]).sum();
 
         // Also count cells that drain into the basin from outside
         for (cell, &downstream) in drainage_dir.iter().enumerate() {
@@ -636,11 +664,20 @@ fn compute_basin_catchments(
                 if basin_id[downstream] == Some(idx) && basin_id[cell] != Some(idx) {
                     // This cell's flow feeds into the basin
                     catchment += flow_accumulation[cell];
+                    catchment_cells += catchment_cell_accumulation[cell];
+                    temperature_sum += temperature_accumulation[cell];
                 }
             }
         }
 
         basin.catchment_area = catchment;
+        basin.mean_temperature = if catchment_cells > 0.0 {
+            temperature_sum / catchment_cells
+        } else {
+            global_mean_temperature
+        };
+        basin.evaporation_factor =
+            evaporation_factor_for_temperature(basin.mean_temperature, global_mean_temperature);
     }
 }
 
@@ -727,18 +764,23 @@ fn calculate_water_levels(basins: &mut [Basin], climate_ratio: f32) {
 
         // Target surface area (in cells) at equilibrium.
         // Using floor helps suppress tiny "on/off" lakes caused by rounding.
-        let target_surface = (effective_catchment * climate_ratio).floor() as usize;
+        let effective_ratio = if basin.evaporation_factor > 0.0 {
+            climate_ratio / basin.evaporation_factor
+        } else {
+            climate_ratio
+        };
+        let target_surface = (effective_catchment * effective_ratio).floor() as usize;
         let capacity = basin.cells.len();
 
         // Determine water level and potential overflow
-        let (water_level, _overflows) = if target_surface == 0 {
+        let (water_level, _overflows) = if target_surface == 0 || effective_ratio <= 0.0 {
             // No water - dry basin
             (basin.bottom_elevation - 1.0, false)
         } else if target_surface >= capacity {
             // Basin overflows - fills to spill point
             // Overflow amount = effective_catchment - catchment_needed_to_fill
-            // catchment_needed_to_fill = capacity / climate_ratio
-            let overflow_amount = effective_catchment - (capacity as f32 / climate_ratio);
+            // catchment_needed_to_fill = capacity / effective_ratio
+            let overflow_amount = effective_catchment - (capacity as f32 / effective_ratio);
 
             if let Some(downstream) = basin.overflow_target {
                 overflow_catchment[downstream] += overflow_amount.max(0.0);
@@ -828,6 +870,13 @@ fn compute_flow_accumulation(
     drainage_dir: &[Option<usize>],
     precipitation: &[f32],
 ) -> Vec<f32> {
+    compute_flow_accumulation_with_sources(drainage_dir, precipitation)
+}
+
+fn compute_flow_accumulation_with_sources(
+    drainage_dir: &[Option<usize>],
+    source: &[f32],
+) -> Vec<f32> {
     let n = drainage_dir.len();
 
     // Count how many cells drain into each cell (upstream count)
@@ -837,7 +886,7 @@ fn compute_flow_accumulation(
     }
 
     // Use topological sort: process cells with no remaining upstream dependencies
-    let mut flow = precipitation.to_vec(); // Each cell starts with its rainfall
+    let mut flow = source.to_vec(); // Each cell starts with its local source
     let mut remaining_upstream = upstream_count.clone();
     let mut ready: Vec<usize> = (0..n).filter(|&c| upstream_count[c] == 0).collect();
 
@@ -852,6 +901,18 @@ fn compute_flow_accumulation(
     }
 
     flow
+}
+
+fn mean_temperature(temperature: &[f32]) -> f32 {
+    if temperature.is_empty() {
+        0.0
+    } else {
+        temperature.iter().sum::<f32>() / temperature.len() as f32
+    }
+}
+
+fn evaporation_factor_for_temperature(mean_temp: f32, global_mean_temp: f32) -> f32 {
+    ((mean_temp - global_mean_temp) * EVAP_TEMP_SENSITIVITY).exp()
 }
 
 /// Extract connected water bodies from wet cells in basins.
@@ -939,4 +1000,38 @@ fn extract_water_bodies(
     }
 
     (water_bodies, cell_water_body)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_basin(evaporation_factor: f32) -> Basin {
+        Basin {
+            cells: (0..10).collect(),
+            sorted_elevations: (0..10).map(|i| i as f32).collect(),
+            spill_elevation: 10.0,
+            bottom_elevation: 0.0,
+            spill_target_cell: 0,
+            overflow_target: None,
+            catchment_area: 20.0,
+            mean_temperature: 0.5,
+            evaporation_factor,
+            water_level: f32::NEG_INFINITY,
+        }
+    }
+
+    #[test]
+    fn evaporation_factor_is_neutral_at_global_mean() {
+        assert_eq!(evaporation_factor_for_temperature(0.5, 0.5), 1.0);
+        assert!(evaporation_factor_for_temperature(0.7, 0.5) > 1.0);
+        assert!(evaporation_factor_for_temperature(0.3, 0.5) < 1.0);
+    }
+
+    #[test]
+    fn mean_temperature_basin_reproduces_global_ratio() {
+        let mut basins = vec![test_basin(1.0)];
+        calculate_water_levels(&mut basins, 0.2);
+        assert_eq!(basins[0].water_level, 3.5);
+    }
 }

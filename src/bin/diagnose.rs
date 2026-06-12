@@ -81,6 +81,29 @@ fn main() {
         tess.morans_i(&atmosphere.precipitation),
         tess.morans_i(&atmosphere.uplift)
     );
+    let land_temps: Vec<f32> = (0..n)
+        .filter(|&i| elevation[i] >= 0.0)
+        .map(|i| atmosphere.temperature[i])
+        .collect();
+    let ocean_temps: Vec<f32> = (0..n)
+        .filter(|&i| elevation[i] < 0.0)
+        .map(|i| atmosphere.temperature[i])
+        .collect();
+    let mean = |values: &[f32]| {
+        if values.is_empty() {
+            0.0
+        } else {
+            values.iter().sum::<f32>() / values.len() as f32
+        }
+    };
+    let land_temp_mean = mean(&land_temps);
+    let ocean_temp_mean = mean(&ocean_temps);
+    println!(
+        "thermal contrast: land mean {:+.3}, ocean mean {:+.3}, delta {:+.3}",
+        land_temp_mean,
+        ocean_temp_mean,
+        land_temp_mean - ocean_temp_mean
+    );
 
     // ---- Continents (connected continental crust) ----
     let cont_mask: Vec<bool> = (0..n).map(|i| crust.is_continental(i)).collect();
@@ -219,6 +242,21 @@ fn main() {
         "  deepest deflection {:.3} | strongest outer rise {:.3} | ratio {:.3} | outer-rise cells {}",
         deepest_deflection, strongest_outer_rise, flexure_ratio, outer_rise_cells
     );
+    let mut ridge_age: Vec<f32> = features
+        .ridge_age_distance
+        .iter()
+        .copied()
+        .filter(|d| d.is_finite())
+        .collect();
+    if !ridge_age.is_empty() {
+        ridge_age.sort_by(|a, b| a.total_cmp(b));
+        println!(
+            "  ridge age-distance rad: min {:.3} | median {:.3} | max {:.3}",
+            ridge_age[0],
+            ridge_age[ridge_age.len() / 2],
+            ridge_age[ridge_age.len() - 1]
+        );
+    }
 
     // ---- Rivers ----
     let max_flow = hydrology
@@ -259,5 +297,20 @@ fn main() {
                 .map(|wb| wb.cells.len())
                 .sum::<usize>() as f32
             / n as f32
+    );
+    let mean_evap = if hydrology.basins.is_empty() {
+        1.0
+    } else {
+        hydrology
+            .basins
+            .iter()
+            .map(|b| b.evaporation_factor)
+            .sum::<f32>()
+            / hydrology.basins.len() as f32
+    };
+    println!(
+        "  basin evaporation: mean factor {:.2} across {} basins",
+        mean_evap,
+        hydrology.basins.len()
     );
 }

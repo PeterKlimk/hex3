@@ -247,16 +247,18 @@ impl Elevation {
 
 /// Thermal elevation anomaly for oceanic crust (positive near ridges).
 /// Young lithosphere is hot and buoyant; depth approaches the abyssal
-/// reference as sqrt(age), with distance-from-ridge as the age proxy
-/// (Parsons-Sclater). This is thermal buoyancy, deliberately separate from
-/// crust thickness.
-fn thermal_anomaly(ridge_distance: f32) -> f32 {
-    if !ridge_distance.is_finite() {
+/// reference as sqrt(age), with spreading-adjusted ridge age distance as
+/// the age proxy (Parsons-Sclater). This is thermal buoyancy, deliberately
+/// separate from crust thickness.
+fn thermal_anomaly(ridge_age_distance: f32) -> f32 {
+    if !ridge_age_distance.is_finite() {
         // No ridge on this plate: old basin of unknown age, mild residual
         // anomaly so these basins are not uniformly maximal-depth.
         return NO_RIDGE_DEPTH - ABYSSAL_DEPTH;
     }
-    let thermal_factor = (ridge_distance / THERMAL_SUBSIDENCE_WIDTH).sqrt().min(1.0);
+    let thermal_factor = (ridge_age_distance / THERMAL_SUBSIDENCE_WIDTH)
+        .sqrt()
+        .min(1.0);
     (1.0 - thermal_factor) * (RIDGE_CREST_DEPTH - ABYSSAL_DEPTH)
 }
 
@@ -346,7 +348,7 @@ fn generate_heightmap_with_noise(
         // isostatic equilibrium, with signed outer-rise uplift); the small
         // ridge feature rides on the thermal swell.
         let structural_elevation = isostatic_elevation(thickness)
-            + thermal_anomaly(features.ridge_distance[i]) * (1.0 - cont)
+            + thermal_anomaly(features.ridge_age_distance[i]) * (1.0 - cont)
             + features.ridge[i]
             - features.trench[i];
 

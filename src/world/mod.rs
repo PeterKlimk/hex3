@@ -261,6 +261,7 @@ impl World {
             crust,
             elevation,
             &atmosphere.precipitation,
+            &atmosphere.temperature,
         ));
     }
 
