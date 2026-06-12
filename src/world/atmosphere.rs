@@ -9,6 +9,7 @@
 use glam::Vec3;
 
 use super::constants::*;
+use super::moisture::simulate_moisture;
 use super::{Elevation, Tessellation};
 
 /// Temperature lapse rate: temperature drop per unit elevation.
@@ -42,6 +43,13 @@ pub struct Atmosphere {
 
     /// Uplift per cell (proxy from convergence + orographic upslope flow).
     pub uplift: Vec<f32>,
+
+    /// Steady-state airborne moisture per cell.
+    pub moisture: Vec<f32>,
+
+    /// Precipitation per cell, normalized to mean 1.0 over the sphere.
+    /// Drives hydrology flow accumulation and lake equilibria.
+    pub precipitation: Vec<f32>,
 
     /// Correction potential from projection (for debugging/visualization).
     pub phi: Vec<f32>,
@@ -77,6 +85,15 @@ impl Atmosphere {
         // Step 8: Uplift proxy from convergence + orographic upslope flow
         let uplift = compute_uplift(tessellation, elevation, &wind_pre_projection, &wind);
 
+        // Step 9: Moisture transport and precipitation
+        let moisture_result = simulate_moisture(
+            tessellation,
+            &elevation.values,
+            &temperature,
+            &wind,
+            &uplift,
+        );
+
         Self {
             temperature,
             upper_temperature,
@@ -84,6 +101,8 @@ impl Atmosphere {
             upper_wind,
             wind,
             uplift,
+            moisture: moisture_result.moisture,
+            precipitation: moisture_result.precipitation,
             phi,
         }
     }

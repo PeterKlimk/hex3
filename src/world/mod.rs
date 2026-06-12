@@ -12,8 +12,8 @@
 //! - Elevation - Terrain height from features + noise
 //!
 //! **Stage 2: Atmosphere (Climate)**
-//! - Climate - Temperature from latitude + elevation lapse rate
-//! - (Future: precipitation, wind patterns)
+//! - Climate - Temperature, pressure, wind fields
+//! - Moisture - Advected moisture and precipitation
 //!
 //! **Stage 3: Hydrosphere**
 //! - Hydrology - Depression filling, drainage, rivers
@@ -28,6 +28,7 @@ mod dynamics;
 mod elevation;
 mod features;
 mod hydrology;
+mod moisture;
 mod plates;
 mod tessellation;
 
@@ -240,14 +241,23 @@ impl World {
     }
 
     /// Generate hydrology (drainage, rivers).
-    /// Requires crust and elevation to be generated first.
+    /// Requires crust, elevation, and atmosphere (for precipitation).
     pub fn generate_hydrology(&mut self) {
         let crust = self.crust.as_ref().expect("Crust must be generated first");
         let elevation = self
             .elevation
             .as_ref()
             .expect("Elevation must be generated first");
-        self.hydrology = Some(Hydrology::generate(&self.tessellation, crust, elevation));
+        let atmosphere = self
+            .atmosphere
+            .as_ref()
+            .expect("Atmosphere must be generated first");
+        self.hydrology = Some(Hydrology::generate(
+            &self.tessellation,
+            crust,
+            elevation,
+            &atmosphere.precipitation,
+        ));
     }
 
     /// Get the number of cells in this world.

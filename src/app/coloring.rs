@@ -487,6 +487,26 @@ fn temperature_to_color(temp: f32) -> Vec3 {
     }
 }
 
+/// Convert precipitation (mean ~1.0) to color (tan = arid, green = humid, blue = soaked).
+fn precipitation_to_color(precip: f32) -> Vec3 {
+    // Log-ish compression: the field is mean 1.0 with a long wet tail.
+    let t = (precip / 2.5).clamp(0.0, 1.0).sqrt();
+
+    if t < 0.35 {
+        // Arid: tan to dry grass
+        let s = t / 0.35;
+        Vec3::new(0.75, 0.65, 0.45).lerp(Vec3::new(0.55, 0.60, 0.30), s)
+    } else if t < 0.7 {
+        // Humid: dry grass to green
+        let s = (t - 0.35) / 0.35;
+        Vec3::new(0.55, 0.60, 0.30).lerp(Vec3::new(0.15, 0.50, 0.25), s)
+    } else {
+        // Soaked: green to blue-green
+        let s = (t - 0.7) / 0.3;
+        Vec3::new(0.15, 0.50, 0.25).lerp(Vec3::new(0.10, 0.35, 0.55), s)
+    }
+}
+
 /// Convert uplift to color (green = low, yellow/red = high).
 fn uplift_to_color(uplift: f32) -> Vec3 {
     // Uplift is normalized 0-1
@@ -524,6 +544,9 @@ pub fn cell_color_climate(world: &World, cell_idx: usize, layer: ClimateLayer) -
             // Wind layers: show terrain colors, particles visualize the wind
             ClimateLayer::Wind | ClimateLayer::UpperWind => cell_color_terrain(world, cell_idx),
             ClimateLayer::Uplift => uplift_to_color(atmosphere.uplift[cell_idx]),
+            ClimateLayer::Precipitation => {
+                precipitation_to_color(atmosphere.precipitation[cell_idx])
+            }
         }
     } else {
         // Fallback: use latitude-based approximation for temperature

@@ -158,6 +158,42 @@ def plot_plate_statistics(data: dict, ax: plt.Axes):
     ax.tick_params(axis='x', rotation=45)
 
 
+def plot_precipitation_by_latitude(data: dict, ax: plt.Axes):
+    """Area-weighted mean precipitation per latitude band, land vs ocean."""
+    cells = data["cells"]
+    atmosphere = cells.get("atmosphere")
+    if atmosphere is None:
+        ax.text(0.5, 0.5, "No atmosphere data", ha="center", va="center")
+        ax.set_title("Precipitation (none)")
+        return
+
+    precip = np.array(atmosphere["precipitation"])
+    lat = np.degrees(np.array(cells["latitude"]))
+    area = np.array(cells["area"])
+    elevation = np.array(cells["elevation"])
+
+    bands = np.linspace(-90, 90, 37)
+    centers = 0.5 * (bands[:-1] + bands[1:])
+    for mask, label, color in [
+        (elevation >= 0, "Land", "olivedrab"),
+        (elevation < 0, "Ocean", "steelblue"),
+    ]:
+        means = []
+        for lo, hi in zip(bands[:-1], bands[1:]):
+            band = mask & (lat >= lo) & (lat < hi)
+            w = area[band]
+            means.append(np.average(precip[band], weights=w) if w.sum() > 0 else np.nan)
+        ax.plot(centers, means, color=color, label=label)
+
+    ax.axhline(y=1.0, color="gray", linestyle="--", linewidth=0.8)
+    ax.axvline(x=30, color="tan", linestyle=":", linewidth=0.8)
+    ax.axvline(x=-30, color="tan", linestyle=":", linewidth=0.8)
+    ax.set_xlabel("Latitude (deg)")
+    ax.set_ylabel("Mean precipitation")
+    ax.set_title("Precipitation by Latitude")
+    ax.legend(fontsize=8)
+
+
 def plot_noise_distribution(data: dict, ax: plt.Axes):
     """Plot noise contribution distribution."""
     noise = np.array(data["cells"]["noise"]["combined"])
@@ -245,6 +281,23 @@ def compute_summary(data: dict) -> dict:
         "mean_neighbor_dist": meta["mean_neighbor_dist"],
         "mean_cell_area": meta["mean_cell_area"],
     }
+
+    # Precipitation stats (if atmosphere exported)
+    atmosphere = cells.get("atmosphere")
+    if atmosphere is not None:
+        precip = np.array(atmosphere["precipitation"])
+        land_precip = precip[land_mask]
+        land_w = area[land_mask]
+        if land_w.sum() > 0:
+            land_mean = float(np.average(land_precip, weights=land_w))
+            arid = float(land_w[land_precip < 0.35].sum() / land_w.sum())
+            humid = float(land_w[land_precip > 1.5].sum() / land_w.sum())
+            summary["precipitation"] = {
+                "land_mean": land_mean,
+                "land_arid_fraction": arid,
+                "land_humid_fraction": humid,
+                "max": float(precip.max()),
+            }
 
     # Histogram and hypsometric data
     summary["histogram"] = compute_histogram_bins(elevation, area)
@@ -400,6 +453,12 @@ def print_summary(data: dict):
     print(f"Mean neighbor distance: {s['mean_neighbor_dist']:.4f} rad")
     print(f"Mean cell area: {s['mean_cell_area']:.6f} sr")
     print()
+    if "precipitation" in s:
+        p = s["precipitation"]
+        print(f"Precipitation: land mean={p['land_mean']:.2f}, "
+              f"arid={100*p['land_arid_fraction']:.1f}% of land, "
+              f"humid={100*p['land_humid_fraction']:.1f}% of land")
+        print()
     print(f"Land coverage: {100*s['land_coverage']:.1f}%")
     print(f"Continental coverage: {100*s['continental_coverage']:.1f}%")
     print()
@@ -617,7 +676,10 @@ def analyze_single(data: dict, output_dir: Path, show: bool):
     plot_plate_statistics(data, ax8)
 
     ax9 = fig.add_subplot(3, 3, 9)
-    plot_noise_distribution(data, ax9)
+    if data["cells"].get("atmosphere") is not None:
+        plot_precipitation_by_latitude(data, ax9)
+    else:
+        plot_noise_distribution(data, ax9)
 
     fig.suptitle(f"Hex3 World Analysis - Seed {meta['seed']} ({meta['num_cells']:,} cells, Stage {meta['stage']})")
     plt.tight_layout()

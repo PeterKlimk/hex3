@@ -437,3 +437,62 @@ pub const PROJECTION_ITERATIONS: usize = 50;
 
 /// SOR relaxation factor (1.0-1.9, higher = faster but less stable).
 pub const SOR_OMEGA: f32 = 1.0;
+
+// Moisture & precipitation (worldbuilding knobs: crank EVAPORATION_RATE and
+// kill the desert belt for a jungle world, or the reverse for a dune world)
+
+/// Number of moisture advection iterations (steady-state relaxation).
+pub const MOISTURE_ITERATIONS: usize = 80;
+
+/// Iterations at the end of the run to average precipitation over.
+pub const MOISTURE_AVG_WINDOW: usize = 20;
+
+/// Fraction of a water cell's capacity deficit replenished per iteration.
+pub const EVAPORATION_RATE: f32 = 0.5;
+
+/// Moisture carrying capacity of cold air (temperature 0).
+pub const MOISTURE_CAP_COLD: f32 = 0.1;
+
+/// Moisture carrying capacity of warm air (temperature 1).
+pub const MOISTURE_CAP_WARM: f32 = 1.0;
+
+/// Baseline fraction of airborne moisture raining out per iteration.
+/// Controls how far moisture travels inland before drying out.
+pub const RAINOUT_BASE: f32 = 0.012;
+
+/// Additional rainout per unit of uplift (orographic + convergence rain).
+pub const RAINOUT_OROGRAPHIC: f32 = 0.15;
+
+/// Convective rainout coefficient: warm, humid air rains on its own.
+/// Applied as RAINOUT_CONVECTIVE * humidity^2 * temperature, so tropical
+/// moist air rains (rainforests) while cold or dry air does not.
+pub const RAINOUT_CONVECTIVE: f32 = 0.25;
+
+/// Fraction of land precipitation re-evaporated into the air column
+/// (evapotranspiration recycling; lets rain propagate into deep interiors).
+pub const MOISTURE_RECYCLE_FRACTION: f32 = 0.5;
+
+/// Converts wind speed to the fraction of moisture transported per iteration.
+pub const MOISTURE_ADVECTION_SCALE: f32 = 4.0;
+
+/// Maximum fraction of a cell's moisture transported per iteration.
+pub const MOISTURE_MAX_TRANSPORT: f32 = 0.9;
+
+/// Fraction of over-capacity moisture raining out per iteration.
+/// Below 1.0 so cold regions don't flash-dump all arriving moisture at once.
+pub const OVERFLOW_RAINOUT: f32 = 0.3;
+
+/// Center of the subsidence desert belt, as |sin(latitude)| (0.5 = 30°).
+pub const DESERT_BELT_SIN_LAT: f32 = 0.5;
+
+/// Width (sigma) of the subsidence belt in sin(latitude) units.
+pub const DESERT_BELT_WIDTH: f32 = 0.12;
+
+/// Rain suppression at the belt center (0 = off, 1 = no rain at the belt).
+pub const DESERT_BELT_STRENGTH: f32 = 0.7;
+
+/// Rain enhancement at the equator (ITCZ convergence band). 0 = off.
+pub const ITCZ_STRENGTH: f32 = 1.0;
+
+/// Width (sigma) of the ITCZ band in sin(latitude) units.
+pub const ITCZ_WIDTH: f32 = 0.15;

@@ -105,6 +105,8 @@ pub enum ClimateLayer {
     UpperWind,
     /// Uplift (convergence + orographic proxy)
     Uplift,
+    /// Precipitation (moisture transport rain field)
+    Precipitation,
 }
 
 impl FeatureLayer {
@@ -137,7 +139,8 @@ impl ClimateLayer {
             Self::Temperature => Self::Wind,
             Self::Wind => Self::UpperWind,
             Self::UpperWind => Self::Uplift,
-            Self::Uplift => Self::Temperature,
+            Self::Uplift => Self::Precipitation,
+            Self::Precipitation => Self::Temperature,
         }
     }
 
@@ -147,6 +150,7 @@ impl ClimateLayer {
             Self::Wind => "Wind (Surface)",
             Self::UpperWind => "Wind (Upper)",
             Self::Uplift => "Uplift",
+            Self::Precipitation => "Precipitation",
         }
     }
 }

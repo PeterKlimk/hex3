@@ -49,8 +49,9 @@ pub struct Basin {
     pub spill_target_cell: usize,
     /// Which basin this one overflows into (None = drains to ocean).
     pub overflow_target: Option<usize>,
-    /// Number of upstream cells that drain into this basin.
-    pub catchment_area: usize,
+    /// Precipitation-weighted upstream budget draining into this basin
+    /// (units: average-cell rainfall equivalents).
+    pub catchment_area: f32,
     /// Current water surface elevation.
     /// If < bottom_elevation, the basin is dry.
     /// If >= spill_elevation, the basin is full/overflowing.
@@ -145,8 +146,17 @@ pub const DEFAULT_CLIMATE_RATIO: f32 = 0.15;
 pub const MIN_LAKE_DEPTH: f32 = 0.01;
 
 impl Hydrology {
-    /// Generate hydrology from elevation and crust data.
-    pub fn generate(tessellation: &Tessellation, crust: &Crust, elevation: &Elevation) -> Self {
+    /// Generate hydrology from elevation, crust, and precipitation.
+    ///
+    /// `precipitation` is the per-cell rainfall weight (mean ~1.0); it drives
+    /// both flow accumulation and lake catchment budgets, so river density
+    /// and lake levels respond to climate.
+    pub fn generate(
+        tessellation: &Tessellation,
+        crust: &Crust,
+        elevation: &Elevation,
+        precipitation: &[f32],
+    ) -> Self {
         // Use raw elevation directly - MIN_LAKE_DEPTH filters spurious puddles
         let raw_elevation = &elevation.values;
 
@@ -162,11 +172,18 @@ impl Hydrology {
         let drainage_dir =
             compute_steepest_descent(tessellation, &filled_elevation, &is_ocean, &flood_parent);
 
-        // Step 5: Accumulate flow
-        let flow_accumulation = compute_flow_accumulation(tessellation, &drainage_dir);
+        // Step 5: Accumulate flow (precipitation-weighted)
+        let flow_accumulation =
+            compute_flow_accumulation(tessellation, &drainage_dir, precipitation);
 
-        // Step 6: Compute catchment area for each basin
-        compute_basin_catchments(&mut basins, &basin_id, &drainage_dir, &flow_accumulation);
+        // Step 6: Compute catchment budget for each basin
+        compute_basin_catchments(
+            &mut basins,
+            &basin_id,
+            &drainage_dir,
+            &flow_accumulation,
+            precipitation,
+        );
 
         // Step 7: Determine which basin each basin overflows into
         compute_overflow_targets(&mut basins, &drainage_dir, &basin_id, &is_ocean);
@@ -584,7 +601,7 @@ fn priority_flood_with_basins(
                     bottom_elevation,
                     spill_target_cell: cell, // The cell outside basin where overflow exits
                     overflow_target: None,   // Computed after all basins identified
-                    catchment_area: 0,       // Computed later
+                    catchment_area: 0.0,     // Computed later
                     water_level: f32::NEG_INFINITY, // Computed later (dry by default)
                 });
             }
@@ -603,13 +620,14 @@ fn compute_basin_catchments(
     basin_id: &[Option<usize>],
     drainage_dir: &[Option<usize>],
     flow_accumulation: &[f32],
+    precipitation: &[f32],
 ) {
     // For each basin, find cells that drain INTO it (but aren't in it)
-    // The catchment is the sum of flow at the entry points
+    // The catchment budget is the basin's own rainfall plus flow at entry points
 
     for (idx, basin) in basins.iter_mut().enumerate() {
-        // Start with basin area (each cell collects rainfall)
-        let mut catchment = basin.cells.len();
+        // Start with the basin's own rainfall
+        let mut catchment: f32 = basin.cells.iter().map(|&c| precipitation[c]).sum();
 
         // Also count cells that drain into the basin from outside
         for (cell, &downstream) in drainage_dir.iter().enumerate() {
@@ -617,7 +635,7 @@ fn compute_basin_catchments(
                 // If this cell drains into a basin cell, and isn't itself in the basin
                 if basin_id[downstream] == Some(idx) && basin_id[cell] != Some(idx) {
                     // This cell's flow feeds into the basin
-                    catchment += flow_accumulation[cell] as usize;
+                    catchment += flow_accumulation[cell];
                 }
             }
         }
@@ -705,7 +723,7 @@ fn calculate_water_levels(basins: &mut [Basin], climate_ratio: f32) {
         }
 
         // Effective catchment = own catchment + overflow from upstream basins
-        let effective_catchment = basin.catchment_area as f32 + overflow_catchment[i];
+        let effective_catchment = basin.catchment_area + overflow_catchment[i];
 
         // Target surface area (in cells) at equilibrium.
         // Using floor helps suppress tiny "on/off" lakes caused by rounding.
@@ -808,6 +826,7 @@ fn compute_steepest_descent(
 fn compute_flow_accumulation(
     _tessellation: &Tessellation,
     drainage_dir: &[Option<usize>],
+    precipitation: &[f32],
 ) -> Vec<f32> {
     let n = drainage_dir.len();
 
@@ -818,7 +837,7 @@ fn compute_flow_accumulation(
     }
 
     // Use topological sort: process cells with no remaining upstream dependencies
-    let mut flow = vec![1.0f32; n]; // Each cell starts with 1 unit
+    let mut flow = precipitation.to_vec(); // Each cell starts with its rainfall
     let mut remaining_upstream = upstream_count.clone();
     let mut ready: Vec<usize> = (0..n).filter(|&c| upstream_count[c] == 0).collect();
 

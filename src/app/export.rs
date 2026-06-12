@@ -63,7 +63,17 @@ struct CellData {
     noise: NoiseData,
 
     #[serde(skip_serializing_if = "Option::is_none")]
+    atmosphere: Option<AtmosphereData>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     hydrology: Option<HydrologyData>,
+}
+
+#[derive(Serialize)]
+struct AtmosphereData {
+    temperature: Vec<f32>,
+    uplift: Vec<f32>,
+    precipitation: Vec<f32>,
 }
 
 #[derive(Serialize)]
@@ -166,6 +176,12 @@ impl WorldExport {
         };
 
         // Hydrology (if available)
+        let atmosphere_data = world.atmosphere.as_ref().map(|a| AtmosphereData {
+            temperature: a.temperature.clone(),
+            uplift: a.uplift.clone(),
+            precipitation: a.precipitation.clone(),
+        });
+
         let hydrology_data = world.hydrology.as_ref().map(|h| {
             let mut flow_accumulation = Vec::with_capacity(num_cells);
             let mut is_lake = Vec::with_capacity(num_cells);
@@ -244,6 +260,7 @@ impl WorldExport {
                 latitude,
                 features: features_data,
                 noise,
+                atmosphere: atmosphere_data,
                 hydrology: hydrology_data,
             },
             plates: plates_data,
