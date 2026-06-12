@@ -6,7 +6,7 @@ use hex3::geometry::{
 };
 use hex3::render::{create_index_buffer, create_vertex_buffer, ElevationVertex};
 use hex3::util::Timed;
-use hex3::world::{PlateType, VoronoiBackend, World};
+use hex3::world::{VoronoiBackend, World};
 
 use super::coloring::{
     cell_color_climate, cell_color_elevation, cell_color_feature, cell_color_hydrology,
@@ -116,6 +116,11 @@ pub fn create_world_with_options(seed: u64, backend: VoronoiBackend) -> World {
     {
         let _t = Timed::info("Plates");
         world.generate_plates(NUM_PLATES);
+    }
+
+    {
+        let _t = Timed::info("Crust");
+        world.generate_crust();
     }
 
     {
@@ -1086,8 +1091,6 @@ fn generate_lake_outflow_quads(
 }
 
 fn print_world_stats(world: &World) {
-    let plates = world.plates.as_ref().unwrap();
-    let dynamics = world.dynamics.as_ref().unwrap();
     let elevation = world.elevation.as_ref().unwrap();
     let num_cells = world.num_cells();
 
@@ -1104,12 +1107,12 @@ fn print_world_stats(world: &World) {
         .iter()
         .copied()
         .fold(f32::NEG_INFINITY, f32::max);
-    let continental_cells = plates
-        .cell_plate
-        .iter()
-        .filter(|&&p| dynamics.plate_type(p as usize) == PlateType::Continental)
-        .count();
-    let continental_pct = 100.0 * continental_cells as f32 / num_cells as f32;
+    let continental_pct = 100.0
+        * world
+            .crust
+            .as_ref()
+            .map(|c| c.continental_fraction())
+            .unwrap_or(0.0);
 
     log::info!(
         "Stats: cells={}, water={:.1}%, continental={:.1}%, elev=[{:.3}, {:.3}], avg={:.3}",

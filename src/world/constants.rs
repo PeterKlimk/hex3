@@ -1,7 +1,34 @@
 //! Constants for world generation and simulation.
 
-/// Target fraction of surface area that should be continental.
+// Crust generation (continents are independent of plates)
+//
+// These are first-class worldbuilding knobs: one craton at high coverage is a
+// Pangaea world, many small cratons at low coverage is an archipelago world.
+
+/// Target fraction of surface area that should be continental crust.
 pub const CONTINENTAL_FRACTION: f32 = 0.30;
+
+/// Number of cratons (continental nuclei) to grow.
+pub const NUM_CRATONS: usize = 5;
+
+/// Log-normal sigma for craton target sizes. Higher = more varied continent sizes.
+pub const CRATON_SIZE_SIGMA: f32 = 0.6;
+
+/// Max ratio between largest and smallest craton target size.
+pub const CRATON_SIZE_MAX_RATIO: f32 = 6.0;
+
+/// Minimum spacing between craton seeds, as a fraction of the ideal spacing
+/// for evenly distributed seeds.
+pub const CRATON_SEED_SPACING_FRACTION: f32 = 0.6;
+
+/// fBm frequency for craton edge noise (coastline irregularity).
+pub const CRATON_NOISE_FREQUENCY: f64 = 2.5;
+
+/// fBm octaves for craton edge noise.
+pub const CRATON_NOISE_OCTAVES: usize = 4;
+
+/// Weight of noise in craton growth priority. Higher = more ragged coastlines.
+pub const CRATON_NOISE_WEIGHT: f32 = 1.2;
 
 /// Scale factor for boundary forcing used by tectonic features (arcs, trenches, ridges).
 pub const FEATURE_FORCE_SCALE: f32 = 35.0;
@@ -41,15 +68,25 @@ pub const THERMAL_SUBSIDENCE_WIDTH: f32 = 1.5;
 /// rises slightly toward the margin.
 pub const MARGIN_DEPTH: f32 = -0.035;
 
-/// Width of continental shelf transition (radians).
-/// 0.04 rad ≈ 255 km on Earth. Controls how far inland the shelf/coast
-/// transition extends before reaching full continental base elevation.
-pub const CONTINENTAL_SHELF_WIDTH: f32 = 0.04;
+/// Width of continental shelf transition on passive margins (radians).
+/// 0.05 rad ≈ 320 km on Earth (Atlantic-style wide shelf). Controls how far
+/// inland the shelf/coast transition extends before reaching full continental
+/// base elevation.
+pub const PASSIVE_SHELF_WIDTH: f32 = 0.05;
 
-/// Width of oceanic transition from margin to abyssal plain (radians).
-/// 0.08 rad ≈ 510 km on Earth. Represents continental slope (~100 km)
-/// plus continental rise (~400 km) - the gradual descent to abyssal depths.
-pub const OCEANIC_TRANSITION_WIDTH: f32 = 0.08;
+/// Width of continental shelf transition on active margins (radians).
+/// 0.015 rad ≈ 95 km on Earth (Andes-style narrow shelf). Used where the
+/// margin sits near a convergent plate boundary.
+pub const ACTIVE_SHELF_WIDTH: f32 = 0.015;
+
+/// Width of oceanic transition from margin to abyssal plain on passive
+/// margins (radians). 0.08 rad ≈ 510 km on Earth. Represents continental
+/// slope (~100 km) plus continental rise (~400 km).
+pub const PASSIVE_OCEANIC_TRANSITION_WIDTH: f32 = 0.08;
+
+/// Width of oceanic transition on active margins (radians).
+/// 0.03 rad ≈ 190 km. Steep descent where a trench sits offshore.
+pub const ACTIVE_OCEANIC_TRANSITION_WIDTH: f32 = 0.03;
 
 /// Angular velocity range for random Euler poles.
 pub const MAX_ANGULAR_VELOCITY: f32 = 1.0;

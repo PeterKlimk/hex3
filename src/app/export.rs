@@ -9,7 +9,7 @@ use flate2::write::GzEncoder;
 use flate2::Compression;
 use serde::Serialize;
 
-use hex3::world::{PlateType, World};
+use hex3::world::{CrustType, World};
 
 /// Export world data to a JSON file (optionally gzipped).
 pub fn export_world(world: &World, seed: u64, path: &Path) {
@@ -55,7 +55,7 @@ struct Metadata {
 struct CellData {
     elevation: Vec<f32>,
     plate_id: Vec<u32>,
-    plate_type: Vec<u8>, // 0 = continental, 1 = oceanic
+    crust_type: Vec<u8>, // 0 = continental, 1 = oceanic (per-cell, independent of plates)
     area: Vec<f32>,
     latitude: Vec<f32>,
 
@@ -99,7 +99,7 @@ struct HydrologyData {
 #[derive(Serialize)]
 struct PlateData {
     id: usize,
-    plate_type: String,
+    continental_fraction: f32,
     cell_count: usize,
     euler_pole: [f32; 3],
     angular_velocity: f32,
@@ -116,6 +116,7 @@ impl WorldExport {
 
         // Get references to required data (these should always be present after stage 1)
         let plates = world.plates.as_ref().expect("Plates not generated");
+        let crust = world.crust.as_ref().expect("Crust not generated");
         let dynamics = world.dynamics.as_ref().expect("Dynamics not generated");
         let features = world.features.as_ref().expect("Features not generated");
         let elevation = world.elevation.as_ref().expect("Elevation not generated");
@@ -123,15 +124,14 @@ impl WorldExport {
         // Build cell data arrays
         let mut elevation_vec = Vec::with_capacity(num_cells);
         let mut plate_id = Vec::with_capacity(num_cells);
-        let mut plate_type = Vec::with_capacity(num_cells);
+        let mut crust_type = Vec::with_capacity(num_cells);
         let mut latitude = Vec::with_capacity(num_cells);
 
         for i in 0..num_cells {
             elevation_vec.push(elevation.values[i]);
             plate_id.push(plates.cell_plate[i]);
 
-            let ptype = dynamics.plate_type(plates.cell_plate[i] as usize);
-            plate_type.push(if ptype == PlateType::Continental {
+            crust_type.push(if crust.crust_type(i) == CrustType::Continental {
                 0
             } else {
                 1
@@ -200,22 +200,26 @@ impl WorldExport {
         // Plate data
         let mut plates_data = Vec::with_capacity(plates.num_plates);
         for pid in 0..plates.num_plates {
-            let ptype = dynamics.plate_type(pid);
             let euler = dynamics.euler_pole(pid);
 
-            // Count cells in this plate
-            let cell_count = plates
-                .cell_plate
-                .iter()
-                .filter(|&&p| p as usize == pid)
-                .count();
+            // Count cells in this plate, and how many carry continental crust
+            let mut cell_count = 0usize;
+            let mut continental_count = 0usize;
+            for (i, &p) in plates.cell_plate.iter().enumerate() {
+                if p as usize == pid {
+                    cell_count += 1;
+                    if crust.is_continental(i) {
+                        continental_count += 1;
+                    }
+                }
+            }
 
             plates_data.push(PlateData {
                 id: pid,
-                plate_type: if ptype == PlateType::Continental {
-                    "continental".to_string()
+                continental_fraction: if cell_count > 0 {
+                    continental_count as f32 / cell_count as f32
                 } else {
-                    "oceanic".to_string()
+                    0.0
                 },
                 cell_count,
                 euler_pole: [euler.axis.x, euler.axis.y, euler.axis.z],
@@ -235,7 +239,7 @@ impl WorldExport {
             cells: CellData {
                 elevation: elevation_vec,
                 plate_id,
-                plate_type,
+                crust_type,
                 area: cell_areas,
                 latitude,
                 features: features_data,

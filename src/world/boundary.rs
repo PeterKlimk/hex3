@@ -13,7 +13,8 @@ use std::collections::HashMap;
 use glam::Vec3;
 
 use super::constants::{TRANSFORM_NORMAL_THRESHOLD, TRANSFORM_RATIO};
-use super::dynamics::{Dynamics, PlateType};
+use super::crust::{Crust, CrustType};
+use super::dynamics::Dynamics;
 use super::{Plates, Tessellation};
 
 /// Kinematic boundary classification based on relative motion across the boundary.
@@ -47,8 +48,10 @@ pub struct PlateBoundaryEdge {
     pub cell_b: usize,
     pub plate_a: usize,
     pub plate_b: usize,
-    pub type_a: PlateType,
-    pub type_b: PlateType,
+    /// Crust type of cell_a (per-cell, not per-plate: plates can be mixed).
+    pub type_a: CrustType,
+    /// Crust type of cell_b.
+    pub type_b: CrustType,
     /// Boundary midpoint (unit vector on the sphere).
     pub boundary_point: Vec3,
     /// Arc length of the shared Voronoi edge (radians).
@@ -159,19 +162,21 @@ fn classify_plate_pair(stats: PlatePairStats) -> BoundaryKind {
 fn compute_ocean_ocean_polarities(
     tessellation: &Tessellation,
     plates: &Plates,
+    crust: &Crust,
     dynamics: &Dynamics,
 ) -> HashMap<(usize, usize), SubductionPolarity> {
     let n = tessellation.num_cells();
 
-    // Accumulate weighted votes per plate pair
+    // Accumulate weighted votes per plate pair, over edges where both cells
+    // are oceanic crust (a mixed plate pair can still have ocean-ocean
+    // segments; the polarity vote covers exactly those segments).
     // Key: (min_plate, max_plate), Value: (votes_for_min_subducts, votes_for_max_subducts)
     let mut votes: HashMap<(usize, usize), (f32, f32)> = HashMap::new();
 
     for cell_a in 0..n {
         let plate_a = plates.cell_plate[cell_a] as usize;
-        let type_a = dynamics.plate_type(plate_a);
 
-        if type_a != PlateType::Oceanic {
+        if crust.crust_type(cell_a) != CrustType::Oceanic {
             continue;
         }
 
@@ -187,8 +192,7 @@ fn compute_ocean_ocean_polarities(
                 continue;
             }
 
-            let type_b = dynamics.plate_type(plate_b);
-            if type_b != PlateType::Oceanic {
+            if crust.crust_type(cell_b) != CrustType::Oceanic {
                 continue;
             }
 
@@ -257,8 +261,8 @@ fn compute_ocean_ocean_polarities(
 /// Look up subduction polarity, using pre-computed ocean-ocean polarities for stability.
 fn lookup_subduction_polarity(
     kind: BoundaryKind,
-    type_a: PlateType,
-    type_b: PlateType,
+    type_a: CrustType,
+    type_b: CrustType,
     plate_a: usize,
     plate_b: usize,
     ocean_ocean_polarities: &HashMap<(usize, usize), SubductionPolarity>,
@@ -269,11 +273,11 @@ fn lookup_subduction_polarity(
 
     match (type_a, type_b) {
         // Ocean–continent: oceanic side subducts (deterministic)
-        (PlateType::Oceanic, PlateType::Continental) => Some(SubductionPolarity::ASubducts),
-        (PlateType::Continental, PlateType::Oceanic) => Some(SubductionPolarity::BSubducts),
+        (CrustType::Oceanic, CrustType::Continental) => Some(SubductionPolarity::ASubducts),
+        (CrustType::Continental, CrustType::Oceanic) => Some(SubductionPolarity::BSubducts),
 
         // Ocean–ocean: use pre-computed stable polarity
-        (PlateType::Oceanic, PlateType::Oceanic) => {
+        (CrustType::Oceanic, CrustType::Oceanic) => {
             let key = plate_pair_key(plate_a, plate_b);
             let base_polarity = ocean_ocean_polarities
                 .get(&key)
@@ -293,7 +297,7 @@ fn lookup_subduction_polarity(
         }
 
         // Continent–continent: collision, no subduction
-        (PlateType::Continental, PlateType::Continental) => None,
+        (CrustType::Continental, CrustType::Continental) => None,
     }
 }
 
@@ -301,6 +305,7 @@ fn lookup_subduction_polarity(
 pub fn collect_plate_boundaries(
     tessellation: &Tessellation,
     plates: &Plates,
+    crust: &Crust,
     dynamics: &Dynamics,
 ) -> Vec<PlateBoundaryEdge> {
     let n = tessellation.num_cells();
@@ -311,7 +316,7 @@ pub fn collect_plate_boundaries(
     // Pass 1: compute kinematics for each boundary edge and aggregate per plate pair.
     for cell_a in 0..n {
         let plate_a = plates.cell_plate[cell_a] as usize;
-        let type_a = dynamics.plate_type(plate_a);
+        let type_a = crust.crust_type(cell_a);
         let pos_a = tessellation.cell_center(cell_a);
 
         for &cell_b in tessellation.neighbors(cell_a) {
@@ -324,7 +329,7 @@ pub fn collect_plate_boundaries(
                 continue;
             }
 
-            let type_b = dynamics.plate_type(plate_b);
+            let type_b = crust.crust_type(cell_b);
             let pos_b = tessellation.cell_center(cell_b);
 
             let boundary_point = (pos_a + pos_b).normalize();
@@ -379,7 +384,8 @@ pub fn collect_plate_boundaries(
         .collect();
 
     // Pre-compute stable ocean-ocean subduction polarities (used only for convergent edges).
-    let ocean_ocean_polarities = compute_ocean_ocean_polarities(tessellation, plates, dynamics);
+    let ocean_ocean_polarities =
+        compute_ocean_ocean_polarities(tessellation, plates, crust, dynamics);
 
     for b in &mut boundaries {
         let key = plate_pair_key(b.plate_a, b.plate_b);

@@ -13,7 +13,8 @@ use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
 
 use super::boundary::{collect_plate_boundaries, BoundaryKind, SubductionPolarity};
 use super::constants::*;
-use super::dynamics::{Dynamics, PlateType};
+use super::crust::{Crust, CrustType};
+use super::dynamics::Dynamics;
 use super::{Plates, Tessellation};
 
 /// Tectonic feature fields derived from plate boundaries.
@@ -78,8 +79,13 @@ pub struct FeatureFields {
 
 impl FeatureFields {
     /// Compute all feature fields from plate boundaries.
-    pub fn compute(tessellation: &Tessellation, plates: &Plates, dynamics: &Dynamics) -> Self {
-        let boundaries = collect_plate_boundaries(tessellation, plates, dynamics);
+    pub fn compute(
+        tessellation: &Tessellation,
+        plates: &Plates,
+        crust: &Crust,
+        dynamics: &Dynamics,
+    ) -> Self {
+        let boundaries = collect_plate_boundaries(tessellation, plates, crust, dynamics);
         let num_cells = tessellation.num_cells();
         let boundary_edge_midpoints = build_cell_pair_edge_midpoints(tessellation);
 
@@ -193,20 +199,20 @@ impl FeatureFields {
                         match polarity {
                             SubductionPolarity::ASubducts => {
                                 // A subducts: trench on A if oceanic; arc on B (overriding)
-                                if b.type_a == PlateType::Oceanic {
+                                if b.type_a == CrustType::Oceanic {
                                     trench_seed_strength[b.cell_a] +=
                                         subd_force_a * area_scale(b.cell_a);
                                     trench_seed_dist0[b.cell_a] =
                                         trench_seed_dist0[b.cell_a].min(dist0_a);
                                 }
                                 match b.type_b {
-                                    PlateType::Continental => {
+                                    CrustType::Continental => {
                                         arc_seed_strength_cont[b.cell_b] +=
                                             uplift_force_b * area_scale(b.cell_b);
                                         arc_seed_dist0_cont[b.cell_b] =
                                             arc_seed_dist0_cont[b.cell_b].min(dist0_b);
                                     }
-                                    PlateType::Oceanic => {
+                                    CrustType::Oceanic => {
                                         arc_seed_strength_ocean[b.cell_b] +=
                                             uplift_force_b * area_scale(b.cell_b);
                                         arc_seed_dist0_ocean[b.cell_b] =
@@ -215,20 +221,20 @@ impl FeatureFields {
                                 }
                             }
                             SubductionPolarity::BSubducts => {
-                                if b.type_b == PlateType::Oceanic {
+                                if b.type_b == CrustType::Oceanic {
                                     trench_seed_strength[b.cell_b] +=
                                         subd_force_b * area_scale(b.cell_b);
                                     trench_seed_dist0[b.cell_b] =
                                         trench_seed_dist0[b.cell_b].min(dist0_b);
                                 }
                                 match b.type_a {
-                                    PlateType::Continental => {
+                                    CrustType::Continental => {
                                         arc_seed_strength_cont[b.cell_a] +=
                                             uplift_force_a * area_scale(b.cell_a);
                                         arc_seed_dist0_cont[b.cell_a] =
                                             arc_seed_dist0_cont[b.cell_a].min(dist0_a);
                                     }
-                                    PlateType::Oceanic => {
+                                    CrustType::Oceanic => {
                                         arc_seed_strength_ocean[b.cell_a] +=
                                             uplift_force_a * area_scale(b.cell_a);
                                         arc_seed_dist0_ocean[b.cell_a] =
@@ -239,7 +245,7 @@ impl FeatureFields {
                         }
                     } else {
                         // No subduction polarity = continent-continent collision
-                        if b.type_a == PlateType::Continental && b.type_b == PlateType::Continental
+                        if b.type_a == CrustType::Continental && b.type_b == CrustType::Continental
                         {
                             collision_seed_strength[b.cell_a] +=
                                 uplift_force_a * area_scale(b.cell_a);
@@ -261,7 +267,7 @@ impl FeatureFields {
                     }
 
                     // Mid-ocean ridges for ocean-ocean divergence
-                    if b.type_a == PlateType::Oceanic && b.type_b == PlateType::Oceanic {
+                    if b.type_a == CrustType::Oceanic && b.type_b == CrustType::Oceanic {
                         let force = opening * DIV_OCEAN_OCEAN * b.edge_length * FEATURE_FORCE_SCALE;
                         ridge_seed_strength_ocean[b.cell_a] += force * area_scale(b.cell_a);
                         ridge_seed_dist0_ocean[b.cell_a] =
@@ -410,11 +416,11 @@ impl FeatureFields {
         let arc_noise_fbm: Fbm<Perlin> = Fbm::new(ARC_NOISE_SEED).set_octaves(ARC_NOISE_OCTAVES);
 
         for i in 0..num_cells {
-            let plate_type = dynamics.plate_type(plates.cell_plate[i] as usize);
-            let is_continental = plate_type == PlateType::Continental;
+            let crust_type = crust.crust_type(i);
+            let is_continental = crust_type == CrustType::Continental;
 
             // Trench: oceanic only
-            if plate_type == PlateType::Oceanic {
+            if crust_type == CrustType::Oceanic {
                 let d = trench_dist[i];
                 if d.is_finite() {
                     // Slab age modulation: older oceanic lithosphere tends to produce stronger
@@ -432,7 +438,7 @@ impl FeatureFields {
                 }
             }
 
-            // Arc uplift: continental or oceanic depending on plate type
+            // Arc uplift: continental or oceanic depending on crust type
             let (arc_dist_val, forcing) = if is_continental {
                 (arc_dist_cont[i], arc_forcing_cont[i])
             } else {
@@ -481,7 +487,7 @@ impl FeatureFields {
             }
 
             // Ridge: oceanic only
-            if plate_type == PlateType::Oceanic {
+            if crust_type == CrustType::Oceanic {
                 let d = ridge_dist[i];
                 if d.is_finite() {
                     let uplift =
@@ -721,20 +727,20 @@ fn distance_field_from_edge_seed_cells(
 }
 
 /// Get convergent boundary multiplier for uplift-style features.
-fn uplift_multiplier(my_type: PlateType, other_type: PlateType) -> f32 {
+fn uplift_multiplier(my_type: CrustType, other_type: CrustType) -> f32 {
     match (my_type, other_type) {
-        (PlateType::Continental, PlateType::Continental) => CONV_CONT_CONT,
-        (PlateType::Oceanic, PlateType::Oceanic) => CONV_OCEAN_OCEAN,
-        (PlateType::Continental, PlateType::Oceanic) => CONV_CONT_OCEAN,
-        (PlateType::Oceanic, PlateType::Continental) => CONV_OCEAN_CONT,
+        (CrustType::Continental, CrustType::Continental) => CONV_CONT_CONT,
+        (CrustType::Oceanic, CrustType::Oceanic) => CONV_OCEAN_OCEAN,
+        (CrustType::Continental, CrustType::Oceanic) => CONV_CONT_OCEAN,
+        (CrustType::Oceanic, CrustType::Continental) => CONV_OCEAN_CONT,
     }
 }
 
 /// Get subduction multiplier for trench forcing (subducting side).
-fn subduction_multiplier(subducting_type: PlateType, overriding_type: PlateType) -> f32 {
+fn subduction_multiplier(subducting_type: CrustType, overriding_type: CrustType) -> f32 {
     match (subducting_type, overriding_type) {
-        (PlateType::Oceanic, PlateType::Continental) => SUBD_OCEAN_CONT,
-        (PlateType::Oceanic, PlateType::Oceanic) => SUBD_OCEAN_OCEAN,
+        (CrustType::Oceanic, CrustType::Continental) => SUBD_OCEAN_CONT,
+        (CrustType::Oceanic, CrustType::Oceanic) => SUBD_OCEAN_OCEAN,
         _ => 0.0,
     }
 }

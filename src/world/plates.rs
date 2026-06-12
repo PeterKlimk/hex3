@@ -22,7 +22,7 @@ const SEED_SPACING_RELAXATION_STEP: f32 = 0.25;
 
 /// Range of the random per-plate noise-domain offset. Only needs to exceed the
 /// noise frequency scale so plates sample decorrelated regions of the noise field.
-const PLATE_NOISE_OFFSET_RANGE: f32 = 100.0;
+pub(super) const PLATE_NOISE_OFFSET_RANGE: f32 = 100.0;
 
 /// Tectonic plate assignments for each cell.
 pub struct Plates {
@@ -34,9 +34,6 @@ pub struct Plates {
 
     /// Indices of cells that are on plate boundaries.
     pub boundary_cells: Vec<usize>,
-
-    /// Target sizes used during generation (needed for type assignment).
-    pub(crate) target_sizes: Vec<f32>,
 }
 
 impl Plates {
@@ -58,7 +55,6 @@ impl Plates {
             cell_plate,
             num_plates,
             boundary_cells,
-            target_sizes,
         }
     }
 

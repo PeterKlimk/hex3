@@ -82,7 +82,8 @@ Hex3 is a spherical Voronoi-based planet generator with tectonic plate simulatio
 
 - **`src/world/`** - World generation and simulation
   - `tessellation.rs` - Spherical tessellation with Voronoi cells and adjacency
-  - `plates.rs` - Tectonic plate assignment via flood fill
+  - `plates.rs` - Tectonic plate assignment via flood fill (motion units)
+  - `crust.rs` - Per-cell continental/oceanic crust, grown as cratons independently of plates
   - `dynamics.rs` - Plate dynamics (Euler poles, velocities)
   - `boundary.rs` - Plate boundary classification and analysis
   - `features.rs` - Tectonic feature fields (trenches, arcs, ridges, collisions)
@@ -117,21 +118,23 @@ Hex3 is a spherical Voronoi-based planet generator with tectonic plate simulatio
 1. Random points on unit sphere → Lloyd relaxation → evenly distributed points
 2. Convex hull of points → dual graph → SphericalVoronoi (cells, vertices)
 3. Spaced seeds + varied target sizes → weighted flood fill → Plates (cell assignments)
-4. Euler pole velocities → plate dynamics → boundary classification
-5. Boundary analysis → feature fields (trench, arc, ridge, collision, activity)
-6. Features + plate type → elevation via decay functions + multi-layer fBm noise
-7. Elevation + latitude → atmosphere simulation → temperature, pressure, wind fields
-8. Elevation + atmosphere → hydrological simulation → rivers, lakes, drainage basins
-9. World state → hypsometric coloring → VoronoiMesh → GPU buffers
-10. Wind field → GPU particle system → animated wind visualization
-11. Relief view: vertices displaced radially by averaged elevation
+4. Craton seeds → capped noisy flood fill → per-cell Crust (independent of plates; overlay creates passive vs active margins)
+5. Euler pole velocities → plate dynamics → boundary classification (crust types per cell pair)
+6. Boundary analysis → feature fields (trench, arc, ridge, collision, activity)
+7. Features + crust type → elevation via decay functions + multi-layer fBm noise
+8. Elevation + latitude → atmosphere simulation → temperature, pressure, wind fields
+9. Elevation + atmosphere → hydrological simulation → rivers, lakes, drainage basins
+10. World state → hypsometric coloring → VoronoiMesh → GPU buffers
+11. Wind field → GPU particle system → animated wind visualization
+12. Relief view: vertices displaced radially by averaged elevation
 
 ### Core Types
 
 - `SphericalVoronoi` - Voronoi diagram with generators, vertices, and cells
 - `Tessellation` - Voronoi + adjacency graph + cell area computation
-- `Plates` - Cell-to-plate assignments
-- `Dynamics` - Plate types (Continental/Oceanic), Euler poles, velocities
+- `Plates` - Cell-to-plate assignments (motion units; plates carry mixed crust)
+- `Crust` - Per-cell crust type (Continental/Oceanic) + signed margin distance field
+- `Dynamics` - Euler poles, velocities
 - `FeatureFields` - Per-cell tectonic feature magnitudes (trench, arc, ridge, collision, activity)
 - `Atmosphere` - Temperature, pressure, wind vectors, uplift per cell
 - `Hydrology` - River network, drainage basins, lake levels
@@ -194,6 +197,7 @@ The knn-clipping backend uses the external `s2-voronoi` crate (https://github.co
 ## Common Edit Points
 
 - World resolution: `src/app/world.rs` (`NUM_CELLS`, `LLOYD_ITERATIONS`, `NUM_PLATES`)
+- Continent layout: `src/world/constants.rs` (`NUM_CRATONS`, `CONTINENTAL_FRACTION`, `CRATON_*` — one big craton at high coverage = Pangaea world, many small at low coverage = archipelago)
 - Tectonic feature tuning: `src/world/constants.rs`
 - Elevation & noise tuning: `src/world/constants.rs` (noise layers, feature sensitivities)
 - Plate generation heuristics: `src/world/plates.rs` (seed spacing, target sizes, noise)

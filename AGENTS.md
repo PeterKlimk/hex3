@@ -96,8 +96,9 @@ src/
 
 - `SphericalVoronoi` - Voronoi diagram: generators, vertices, cells with vertex_indices
 - `Tessellation` - Voronoi + adjacency graph + cell area computation
-- `Plates` - Cell-to-plate assignments
-- `Dynamics` - Plate types (Continental/Oceanic), Euler poles, velocities
+- `Plates` - Cell-to-plate assignments (motion units; plates carry mixed crust)
+- `Crust` - Per-cell crust type (Continental/Oceanic) + signed margin distance field
+- `Dynamics` - Euler poles, velocities
 - `FeatureFields` - Per-cell tectonic feature magnitudes
 - `Atmosphere` - Temperature, pressure, wind vectors, uplift per cell
 - `Hydrology` - River network, drainage basins, lake simulation

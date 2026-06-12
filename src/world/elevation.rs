@@ -16,8 +16,8 @@ use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
 use rand::Rng;
 
 use super::constants::*;
-use super::dynamics::{Dynamics, PlateType};
-use super::{FeatureFields, Plates, Tessellation};
+use super::crust::{Crust, CrustType};
+use super::{FeatureFields, Tessellation};
 
 /// Terrain elevation data.
 pub struct Elevation {
@@ -158,107 +158,18 @@ impl TerrainNoise {
     }
 }
 
-/// Compute distance from continent-ocean boundary for each cell.
-/// Returns raw arc distance in radians (not normalized).
-/// Used for asymmetric blending with different widths for continental vs oceanic.
-fn compute_margin_distances(
-    tessellation: &Tessellation,
-    plates: &Plates,
-    dynamics: &Dynamics,
-) -> Vec<f32> {
-    use std::cmp::Ordering;
-    use std::collections::BinaryHeap;
-
-    #[derive(PartialEq)]
-    struct State {
-        dist: f32,
-        cell: usize,
-    }
-
-    impl Eq for State {}
-
-    impl Ord for State {
-        fn cmp(&self, other: &Self) -> Ordering {
-            // Reverse for min-heap
-            other
-                .dist
-                .partial_cmp(&self.dist)
-                .unwrap_or(Ordering::Equal)
-        }
-    }
-
-    impl PartialOrd for State {
-        fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-            Some(self.cmp(other))
-        }
-    }
-
-    let num_cells = tessellation.num_cells();
-
-    // Determine plate type for each cell
-    let is_continental: Vec<bool> = (0..num_cells)
-        .map(|i| dynamics.plate_type(plates.cell_plate[i] as usize) == PlateType::Continental)
-        .collect();
-
-    // Dijkstra from boundary cells using arc distance
-    // Use max transition width as cutoff for propagation
-    let max_transition = CONTINENTAL_SHELF_WIDTH.max(OCEANIC_TRANSITION_WIDTH);
-    let mut distance: Vec<f32> = vec![f32::MAX; num_cells];
-    let mut heap = BinaryHeap::new();
-
-    // Seed: cells at continent-ocean boundaries
-    for i in 0..num_cells {
-        for &neighbor in tessellation.neighbors(i) {
-            if is_continental[i] != is_continental[neighbor] {
-                distance[i] = 0.0;
-                heap.push(State { dist: 0.0, cell: i });
-                break;
-            }
-        }
-    }
-
-    // Dijkstra to compute arc distance from boundary
-    while let Some(State { dist, cell }) = heap.pop() {
-        if dist > distance[cell] {
-            continue; // Already found a shorter path
-        }
-        if dist >= max_transition {
-            continue; // Don't propagate beyond max transition zone
-        }
-
-        let pos = tessellation.cell_center(cell);
-        for &neighbor in tessellation.neighbors(cell) {
-            let neighbor_pos = tessellation.cell_center(neighbor);
-            // Arc distance = angle between unit vectors
-            let arc_dist = pos.dot(neighbor_pos).clamp(-1.0, 1.0).acos();
-            let new_dist = dist + arc_dist;
-
-            if new_dist < distance[neighbor] {
-                distance[neighbor] = new_dist;
-                heap.push(State {
-                    dist: new_dist,
-                    cell: neighbor,
-                });
-            }
-        }
-    }
-
-    distance
-}
-
 impl Elevation {
-    /// Generate elevation from tectonic features and plate types.
+    /// Generate elevation from tectonic features and crust.
     pub fn generate<R: Rng>(
         tessellation: &Tessellation,
-        plates: &Plates,
-        dynamics: &Dynamics,
+        crust: &Crust,
         features: &FeatureFields,
         rng: &mut R,
     ) -> Self {
         let noise = TerrainNoise::new(rng);
 
         let (values, noise_contribution, noise_layers) =
-            generate_heightmap_with_noise(tessellation, plates, dynamics, features, &noise);
+            generate_heightmap_with_noise(tessellation, crust, features, &noise);
 
         Self {
             values,
@@ -347,19 +258,33 @@ fn thermal_oceanic_depth(ridge_distance: f32) -> f32 {
 ///
 /// Continental: blends from MARGIN_DEPTH at coast to CONTINENTAL_BASE inland.
 /// Oceanic: thermal subsidence based on ridge distance, with margin effect near continents.
-fn isostatic_base(plate_type: PlateType, margin_distance: f32, ridge_distance: f32) -> f32 {
-    match plate_type {
-        PlateType::Continental => {
+///
+/// `convergent_influence` (0-1, from boundary kinematics) selects the margin
+/// regime: passive margins (mid-plate craton edges) get wide gentle shelves,
+/// active margins (near convergent plate boundaries) get narrow steep ones.
+fn isostatic_base(
+    crust_type: CrustType,
+    margin_distance: f32,
+    ridge_distance: f32,
+    convergent_influence: f32,
+) -> f32 {
+    let activity = convergent_influence.clamp(0.0, 1.0);
+    match crust_type {
+        CrustType::Continental => {
+            let shelf_width =
+                PASSIVE_SHELF_WIDTH + activity * (ACTIVE_SHELF_WIDTH - PASSIVE_SHELF_WIDTH);
             // Continental: blend from margin depth to continental base
-            let interior_factor = (margin_distance / CONTINENTAL_SHELF_WIDTH).min(1.0);
+            let interior_factor = (margin_distance / shelf_width).min(1.0);
             MARGIN_DEPTH + interior_factor * (CONTINENTAL_BASE - MARGIN_DEPTH)
         }
-        PlateType::Oceanic => {
+        CrustType::Oceanic => {
             // Oceanic: thermal depth based on ridge distance
             let thermal_depth = thermal_oceanic_depth(ridge_distance);
 
+            let transition_width = PASSIVE_OCEANIC_TRANSITION_WIDTH
+                + activity * (ACTIVE_OCEANIC_TRANSITION_WIDTH - PASSIVE_OCEANIC_TRANSITION_WIDTH);
             // Near margins, blend toward MARGIN_DEPTH (continental rise effect)
-            let margin_factor = (margin_distance / OCEANIC_TRANSITION_WIDTH).min(1.0);
+            let margin_factor = (margin_distance / transition_width).min(1.0);
             // At margin (factor=0): use MARGIN_DEPTH
             // At interior (factor=1): use thermal_depth
             MARGIN_DEPTH + margin_factor * (thermal_depth - MARGIN_DEPTH)
@@ -370,15 +295,11 @@ fn isostatic_base(plate_type: PlateType, margin_distance: f32, ridge_distance: f
 /// Generate heightmap using tectonic features and multi-layer noise.
 fn generate_heightmap_with_noise(
     tessellation: &Tessellation,
-    plates: &Plates,
-    dynamics: &Dynamics,
+    crust: &Crust,
     features: &FeatureFields,
     noise: &TerrainNoise,
 ) -> (Vec<f32>, Vec<f32>, NoiseLayerData) {
     let num_cells = tessellation.num_cells();
-
-    // Pre-compute distances from continent-ocean margins
-    let margin_distances = compute_margin_distances(tessellation, plates, dynamics);
 
     let mut elevations = Vec::with_capacity(num_cells);
     let mut noise_contributions = Vec::with_capacity(num_cells);
@@ -388,13 +309,18 @@ fn generate_heightmap_with_noise(
     let mut micro_layer = Vec::with_capacity(num_cells);
 
     for i in 0..num_cells {
-        let plate_type = dynamics.plate_type(plates.cell_plate[i] as usize);
-        let is_continental = plate_type == PlateType::Continental;
+        let crust_type = crust.crust_type(i);
+        let is_continental = crust_type == CrustType::Continental;
 
         // 1. Isostatic base elevation
-        // Continental: margin-based shelf transition
+        // Continental: margin-based shelf transition (narrow on active margins)
         // Oceanic: thermal subsidence from ridge distance + margin effect
-        let base = isostatic_base(plate_type, margin_distances[i], features.ridge_distance[i]);
+        let base = isostatic_base(
+            crust_type,
+            crust.margin_distance(i),
+            features.ridge_distance[i],
+            features.convergent[i],
+        );
 
         // 2. Tectonic feature contributions (from FeatureFields)
         // Trench is negative (depression), others are positive (uplift)

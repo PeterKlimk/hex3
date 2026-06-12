@@ -5,8 +5,9 @@
 //!
 //! **Stage 1: Lithosphere (Tectonics)**
 //! - Tessellation - Spherical Voronoi cells + adjacency graph
-//! - Plates - Tectonic plate assignment via flood fill
-//! - Dynamics - Plate motion (Euler poles) and types (continental/oceanic)
+//! - Plates - Tectonic plate assignment via flood fill (motion units)
+//! - Crust - Per-cell continental/oceanic crust, grown independently of plates
+//! - Dynamics - Plate motion (Euler poles)
 //! - Features - Boundary-driven terrain features (trenches, arcs, ridges, collision zones)
 //! - Elevation - Terrain height from features + noise
 //!
@@ -22,6 +23,7 @@
 mod atmosphere;
 mod boundary;
 mod constants;
+mod crust;
 mod dynamics;
 mod elevation;
 mod features;
@@ -32,7 +34,8 @@ mod tessellation;
 pub use atmosphere::Atmosphere;
 pub use boundary::{collect_plate_boundaries, BoundaryKind, PlateBoundaryEdge, SubductionPolarity};
 pub use constants::*;
-pub use dynamics::{Dynamics, EulerPole, PlateType};
+pub use crust::{Crust, CrustType};
+pub use dynamics::{Dynamics, EulerPole};
 pub use elevation::{Elevation, NoiseLayerData};
 pub use features::FeatureFields;
 pub use hydrology::{Basin, CellWaterState, Hydrology, WaterBody, DEFAULT_CLIMATE_RATIO};
@@ -77,7 +80,10 @@ pub struct World {
     /// Tectonic plate assignments.
     pub plates: Option<Plates>,
 
-    /// Plate dynamics (motion and types).
+    /// Per-cell crust type (continental vs oceanic), independent of plates.
+    pub crust: Option<Crust>,
+
+    /// Plate dynamics (motion).
     pub dynamics: Option<Dynamics>,
 
     /// Tectonic feature fields (trench, arc, ridge, collision, activity).
@@ -132,6 +138,7 @@ impl World {
             seed,
             tessellation,
             plates: None,
+            crust: None,
             dynamics: None,
             features: None,
             elevation: None,
@@ -151,6 +158,7 @@ impl World {
         );
 
         self.generate_plates(num_plates);
+        self.generate_crust();
         self.generate_dynamics();
         self.generate_features();
         self.generate_elevation();
@@ -162,7 +170,18 @@ impl World {
         self.plates = Some(Plates::generate(&self.tessellation, num_plates, &mut rng));
     }
 
-    /// Generate plate dynamics (Euler poles and types).
+    /// Generate per-cell crust (continents grown independently of plates).
+    pub fn generate_crust(&mut self) {
+        let mut rng = ChaCha8Rng::seed_from_u64(self.seed.wrapping_add(4));
+        self.crust = Some(Crust::generate(
+            &self.tessellation,
+            NUM_CRATONS,
+            CONTINENTAL_FRACTION,
+            &mut rng,
+        ));
+    }
+
+    /// Generate plate dynamics (Euler poles).
     /// Requires plates to be generated first.
     pub fn generate_dynamics(&mut self) {
         let plates = self
@@ -174,30 +193,29 @@ impl World {
     }
 
     /// Generate tectonic feature fields (trench, arc, ridge, collision, activity).
-    /// Requires plates and dynamics to be generated first.
+    /// Requires plates, crust, and dynamics to be generated first.
     pub fn generate_features(&mut self) {
         let plates = self
             .plates
             .as_ref()
             .expect("Plates must be generated first");
+        let crust = self.crust.as_ref().expect("Crust must be generated first");
         let dynamics = self
             .dynamics
             .as_ref()
             .expect("Dynamics must be generated first");
-        self.features = Some(FeatureFields::compute(&self.tessellation, plates, dynamics));
+        self.features = Some(FeatureFields::compute(
+            &self.tessellation,
+            plates,
+            crust,
+            dynamics,
+        ));
     }
 
     /// Generate elevation from tectonic features.
-    /// Requires features and dynamics to be generated first.
+    /// Requires crust and features to be generated first.
     pub fn generate_elevation(&mut self) {
-        let plates = self
-            .plates
-            .as_ref()
-            .expect("Plates must be generated first");
-        let dynamics = self
-            .dynamics
-            .as_ref()
-            .expect("Dynamics must be generated first");
+        let crust = self.crust.as_ref().expect("Crust must be generated first");
         let features = self
             .features
             .as_ref()
@@ -205,8 +223,7 @@ impl World {
         let mut rng = ChaCha8Rng::seed_from_u64(self.seed.wrapping_add(3));
         self.elevation = Some(Elevation::generate(
             &self.tessellation,
-            plates,
-            dynamics,
+            crust,
             features,
             &mut rng,
         ));
@@ -223,26 +240,14 @@ impl World {
     }
 
     /// Generate hydrology (drainage, rivers).
-    /// Requires plates, dynamics, and elevation to be generated first.
+    /// Requires crust and elevation to be generated first.
     pub fn generate_hydrology(&mut self) {
-        let plates = self
-            .plates
-            .as_ref()
-            .expect("Plates must be generated first");
-        let dynamics = self
-            .dynamics
-            .as_ref()
-            .expect("Dynamics must be generated first");
+        let crust = self.crust.as_ref().expect("Crust must be generated first");
         let elevation = self
             .elevation
             .as_ref()
             .expect("Elevation must be generated first");
-        self.hydrology = Some(Hydrology::generate(
-            &self.tessellation,
-            plates,
-            dynamics,
-            elevation,
-        ));
+        self.hydrology = Some(Hydrology::generate(&self.tessellation, crust, elevation));
     }
 
     /// Get the number of cells in this world.

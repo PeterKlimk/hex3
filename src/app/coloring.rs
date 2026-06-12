@@ -7,7 +7,7 @@ use glam::Vec3;
 
 use super::view::{ClimateLayer, FeatureLayer, NoiseLayer};
 use hex3::geometry::Material;
-use hex3::world::{CellWaterState, PlateType, World};
+use hex3::world::{CellWaterState, World};
 
 /// Convert HSL to RGB.
 pub fn hsl_to_rgb(h: f32, s: f32, l: f32) -> Vec3 {
@@ -332,47 +332,27 @@ pub fn cell_color_noise(world: &World, cell_idx: usize, layer: NoiseLayer) -> Ve
 }
 
 /// Get the color for a cell based on its plate assignment.
+///
+/// Plate identity sets the hue; per-cell crust type sets lightness/saturation,
+/// so mixed plates show their embedded continents (craton outlines are visible
+/// crossing plate interiors).
 pub fn cell_color_plate(world: &World, cell_idx: usize) -> Vec3 {
     let plates = world.plates.as_ref().expect("Plates must be generated");
-    let dynamics = world.dynamics.as_ref().expect("Dynamics must be generated");
+    let crust = world.crust.as_ref().expect("Crust must be generated");
 
     let plate_id = plates.cell_plate[cell_idx] as usize;
-    let plate_type = dynamics.plate_type(plate_id);
+    let t = if plates.num_plates > 1 {
+        plate_id as f32 / (plates.num_plates - 1) as f32
+    } else {
+        0.5
+    };
+    // Spread hues short of a full wrap so plate 0 and plate N-1 stay distinct.
+    let hue = t * 300.0;
 
-    let continental_plates: Vec<usize> = (0..plates.num_plates)
-        .filter(|&p| dynamics.plate_type(p) == PlateType::Continental)
-        .collect();
-    let oceanic_plates: Vec<usize> = (0..plates.num_plates)
-        .filter(|&p| dynamics.plate_type(p) == PlateType::Oceanic)
-        .collect();
-
-    match plate_type {
-        PlateType::Continental => {
-            let idx = continental_plates
-                .iter()
-                .position(|&p| p == plate_id)
-                .unwrap_or(0);
-            let t = if continental_plates.len() > 1 {
-                idx as f32 / (continental_plates.len() - 1) as f32
-            } else {
-                0.5
-            };
-            let hue = 30.0 + t * 60.0;
-            hsl_to_rgb(hue, 0.5, 0.5)
-        }
-        PlateType::Oceanic => {
-            let idx = oceanic_plates
-                .iter()
-                .position(|&p| p == plate_id)
-                .unwrap_or(0);
-            let t = if oceanic_plates.len() > 1 {
-                idx as f32 / (oceanic_plates.len() - 1) as f32
-            } else {
-                0.5
-            };
-            let hue = 180.0 + t * 60.0;
-            hsl_to_rgb(hue, 0.5, 0.4)
-        }
+    if crust.is_continental(cell_idx) {
+        hsl_to_rgb(hue, 0.45, 0.62)
+    } else {
+        hsl_to_rgb(hue, 0.5, 0.32)
     }
 }
 

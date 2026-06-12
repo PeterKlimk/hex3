@@ -13,7 +13,7 @@ use std::collections::{BinaryHeap, VecDeque};
 
 use ordered_float::OrderedFloat;
 
-use super::{Dynamics, Elevation, PlateType, Plates, Tessellation};
+use super::{Crust, CrustType, Elevation, Tessellation};
 
 /// Water state of a cell.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -145,18 +145,13 @@ pub const DEFAULT_CLIMATE_RATIO: f32 = 0.15;
 pub const MIN_LAKE_DEPTH: f32 = 0.01;
 
 impl Hydrology {
-    /// Generate hydrology from elevation and plate data.
-    pub fn generate(
-        tessellation: &Tessellation,
-        plates: &Plates,
-        dynamics: &Dynamics,
-        elevation: &Elevation,
-    ) -> Self {
+    /// Generate hydrology from elevation and crust data.
+    pub fn generate(tessellation: &Tessellation, crust: &Crust, elevation: &Elevation) -> Self {
         // Use raw elevation directly - MIN_LAKE_DEPTH filters spurious puddles
         let raw_elevation = &elevation.values;
 
         // Step 1: Identify ocean cells (connected below-sea-level touching oceanic crust)
-        let is_ocean = identify_ocean_cells(tessellation, plates, dynamics, raw_elevation);
+        let is_ocean = identify_ocean_cells(tessellation, crust, raw_elevation);
 
         // Step 2: Priority-flood from ocean to detect all basins
         let (filled_elevation, basin_id, mut basins, flood_parent) =
@@ -430,12 +425,11 @@ impl Hydrology {
 /// Identify ocean cells: connected below-sea-level regions that touch oceanic crust.
 ///
 /// A connected component of elevation < 0 cells qualifies as ocean if:
-/// - It contains at least one cell on oceanic plate crust
+/// - It contains at least one cell of oceanic crust
 /// - It meets the minimum area threshold (fraction of total cells)
 fn identify_ocean_cells(
     tessellation: &Tessellation,
-    plates: &Plates,
-    dynamics: &Dynamics,
+    crust: &Crust,
     elevation: &[f32],
 ) -> Vec<bool> {
     let n = tessellation.num_cells();
@@ -461,8 +455,7 @@ fn identify_ocean_cells(
             component.push(cell);
 
             // Check if this cell is on oceanic crust
-            let plate_id = plates.cell_plate[cell] as usize;
-            if dynamics.plate_type(plate_id) == PlateType::Oceanic {
+            if crust.crust_type(cell) == CrustType::Oceanic {
                 touches_oceanic = true;
             }
 

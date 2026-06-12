@@ -147,13 +147,14 @@ def plot_plate_statistics(data: dict, ax: plt.Axes):
 
     names = [f"P{p['id']}" for p in plates_sorted]
     sizes = [p["cell_count"] for p in plates_sorted]
-    colors = ["olivedrab" if p["plate_type"] == "continental" else "steelblue"
-              for p in plates_sorted]
+    # Color by each plate's continental crust fraction (plates are mixed now)
+    cmap = plt.get_cmap("YlGnBu_r")
+    colors = [cmap(0.15 + 0.7 * (1.0 - p["continental_fraction"])) for p in plates_sorted]
 
-    ax.bar(names, sizes, color=colors, alpha=0.7)
+    ax.bar(names, sizes, color=colors, alpha=0.85)
     ax.set_xlabel("Plate")
     ax.set_ylabel("Cell Count")
-    ax.set_title("Plate Sizes (green=continental, blue=oceanic)")
+    ax.set_title("Plate Sizes (shaded by continental fraction)")
     ax.tick_params(axis='x', rotation=45)
 
 
@@ -227,11 +228,11 @@ def compute_summary(data: dict) -> dict:
 
     elevation = np.array(cells["elevation"])
     area = np.array(cells["area"])
-    plate_type = np.array(cells["plate_type"])
+    crust_type = np.array(cells["crust_type"])
 
     land_mask = elevation >= 0
     ocean_mask = ~land_mask
-    continental_mask = plate_type == 0
+    continental_mask = crust_type == 0
 
     total_area = area.sum()
 
@@ -255,7 +256,7 @@ def compute_summary(data: dict) -> dict:
     summary["continental_coverage"] = area[continental_mask].sum() / total_area
 
     # Island stats (oceanic crust with elevation >= 0)
-    oceanic_mask = plate_type == 1
+    oceanic_mask = crust_type == 1
     island_mask = oceanic_mask & land_mask
     island_area = area[island_mask].sum()
     island_count = island_mask.sum()
@@ -309,7 +310,7 @@ def compute_summary(data: dict) -> dict:
     ridge_dist = features.get("ridge_distance")
     if ridge_dist is not None:
         ridge_dist = np.array(ridge_dist, dtype=np.float32)
-        oceanic_cells = plate_type == 1
+        oceanic_cells = crust_type == 1
         oceanic_ridge_dist = ridge_dist[oceanic_cells]
         oceanic_area = area[oceanic_cells]
 
@@ -372,13 +373,14 @@ def compute_summary(data: dict) -> dict:
             "lake_cells": int(is_lake.sum()),
         }
 
-    # Plate stats
+    # Plate stats (plates carry mixed crust; count by majority crust type)
     plates = data["plates"]
-    continental_plates = [p for p in plates if p["plate_type"] == "continental"]
-    oceanic_plates = [p for p in plates if p["plate_type"] == "oceanic"]
+    mixed_plates = [p for p in plates if 0.1 <= p["continental_fraction"] <= 0.9]
     summary["plates"] = {
-        "continental_count": len(continental_plates),
-        "oceanic_count": len(oceanic_plates),
+        "mixed_count": len(mixed_plates),
+        "majority_continental_count": sum(
+            1 for p in plates if p["continental_fraction"] > 0.5
+        ),
         "largest_plate_cells": max(p["cell_count"] for p in plates),
         "smallest_plate_cells": min(p["cell_count"] for p in plates),
     }
@@ -441,7 +443,7 @@ def write_summary_markdown(data: dict, output_path: Path):
         f"| Seed | {s['seed']} |",
         f"| Stage | {s['stage']} |",
         f"| Cells | {s['num_cells']:,} |",
-        f"| Plates | {s['num_plates']} ({s['plates']['continental_count']} continental, {s['plates']['oceanic_count']} oceanic) |",
+        f"| Plates | {s['num_plates']} ({s['plates']['mixed_count']} mixed continent/ocean) |",
         f"| Mean neighbor distance | {s['mean_neighbor_dist']:.4f} rad |",
         f"| Mean cell area | {s['mean_cell_area']:.6f} sr |",
         f"",
