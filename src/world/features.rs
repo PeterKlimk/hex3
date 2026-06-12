@@ -25,8 +25,6 @@ use super::{Plates, Tessellation};
 pub struct FeatureFields {
     /// Signed trench dynamic-topography field.
     /// Positive values are downward deflection; negative values are outer-rise uplift.
-    // SPEC: scripts/analyze_terrain.py still treats trench as a positive-only field;
-    // scripts changes are out of scope for the flexure spec.
     pub trench: Vec<f32>,
 
     /// Volcanic arc uplift (overriding side of subduction).

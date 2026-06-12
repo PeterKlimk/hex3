@@ -210,8 +210,8 @@ Acceptance on seed 12345:
 - all existing tests pass, including `tests/field_smoothness.rs` (Moran's I
   guards — flexure must not introduce speckle)
 - diagnose: outer-rise cells > 0; deflection ratio in [0.02, 0.12]
-- land fraction unchanged at 24.0% (sea-level solve should absorb the small
-  volume change)
+- land fraction unchanged at the `LAND_FRACTION` target, 26.0% (sea-level
+  solve should absorb the small volume change)
 - arc-trench gap diagnostic still in its previous range (forearc must not
   shift the arc crest)
 

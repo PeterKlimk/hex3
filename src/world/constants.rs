@@ -98,8 +98,6 @@ pub const RIFT_SHOULDER_RATIO: f32 = 0.4;
 /// (uniform elevation shift) so the coastline lands here exactly,
 /// independent of seed. Distinct from CONTINENTAL_FRACTION (crust area):
 /// the difference is submerged shelf.
-// SPEC: docs/specs/flexure.md acceptance says land fraction remains 24.0%,
-// but this repository currently targets 26.0%; left unchanged per no-retuning.
 pub const LAND_FRACTION: f32 = 0.26;
 
 /// Depth at mid-ocean ridge crests (young, hot oceanic crust).
