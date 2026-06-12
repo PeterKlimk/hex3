@@ -58,6 +58,7 @@ struct CellData {
     crust_type: Vec<u8>, // 0 = continental, 1 = oceanic (per-cell, independent of plates)
     area: Vec<f32>,
     latitude: Vec<f32>,
+    longitude: Vec<f32>,
 
     features: FeatureData,
     noise: NoiseData,
@@ -136,6 +137,7 @@ impl WorldExport {
         let mut plate_id = Vec::with_capacity(num_cells);
         let mut crust_type = Vec::with_capacity(num_cells);
         let mut latitude = Vec::with_capacity(num_cells);
+        let mut longitude = Vec::with_capacity(num_cells);
 
         for i in 0..num_cells {
             elevation_vec.push(elevation.values[i]);
@@ -147,9 +149,10 @@ impl WorldExport {
                 1
             });
 
-            // Latitude from cell center (z coordinate on unit sphere)
+            // y is the pole axis (matches the simulation and map projection)
             let center = world.tessellation.cell_center(i);
-            latitude.push(center.z.asin());
+            latitude.push(center.y.asin());
+            longitude.push(center.z.atan2(center.x));
         }
 
         // Features
@@ -258,6 +261,7 @@ impl WorldExport {
                 crust_type,
                 area: cell_areas,
                 latitude,
+                longitude,
                 features: features_data,
                 noise,
                 atmosphere: atmosphere_data,

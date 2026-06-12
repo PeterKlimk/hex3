@@ -451,14 +451,14 @@ pub const MOISTURE_AVG_WINDOW: usize = 20;
 pub const EVAPORATION_RATE: f32 = 0.5;
 
 /// Moisture carrying capacity of cold air (temperature 0).
-pub const MOISTURE_CAP_COLD: f32 = 0.1;
+pub const MOISTURE_CAP_COLD: f32 = 0.35;
 
 /// Moisture carrying capacity of warm air (temperature 1).
 pub const MOISTURE_CAP_WARM: f32 = 1.0;
 
 /// Baseline fraction of airborne moisture raining out per iteration.
 /// Controls how far moisture travels inland before drying out.
-pub const RAINOUT_BASE: f32 = 0.012;
+pub const RAINOUT_BASE: f32 = 0.025;
 
 /// Additional rainout per unit of uplift (orographic + convergence rain).
 pub const RAINOUT_OROGRAPHIC: f32 = 0.15;
@@ -466,7 +466,7 @@ pub const RAINOUT_OROGRAPHIC: f32 = 0.15;
 /// Convective rainout coefficient: warm, humid air rains on its own.
 /// Applied as RAINOUT_CONVECTIVE * humidity^2 * temperature, so tropical
 /// moist air rains (rainforests) while cold or dry air does not.
-pub const RAINOUT_CONVECTIVE: f32 = 0.25;
+pub const RAINOUT_CONVECTIVE: f32 = 0.12;
 
 /// Fraction of land precipitation re-evaporated into the air column
 /// (evapotranspiration recycling; lets rain propagate into deep interiors).
@@ -492,7 +492,7 @@ pub const DESERT_BELT_WIDTH: f32 = 0.12;
 pub const DESERT_BELT_STRENGTH: f32 = 0.7;
 
 /// Rain enhancement at the equator (ITCZ convergence band). 0 = off.
-pub const ITCZ_STRENGTH: f32 = 1.0;
+pub const ITCZ_STRENGTH: f32 = 0.4;
 
 /// Width (sigma) of the ITCZ band in sin(latitude) units.
 pub const ITCZ_WIDTH: f32 = 0.15;
