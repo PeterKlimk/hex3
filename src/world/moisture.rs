@@ -79,43 +79,65 @@ pub fn simulate_moisture(
         .collect();
     let temp01: Vec<f32> = temperature.iter().map(|&t| t.clamp(0.0, 1.0)).collect();
 
-    // Downwind transport: per cell, the fraction of moisture leaving per step
-    // and its distribution over downwind neighbors.
-    let mut transport_frac = vec![0.0f32; num_cells];
-    let mut transport_targets: Vec<Vec<(usize, f32)>> = vec![Vec::new(); num_cells];
+    // Finite-volume upwind transport over shared Voronoi edges.
+    //
+    // For each edge (i, j) the volume flux is u_n * L (edge-normal wind times
+    // edge length); the moisture carried is the upwind cell's. This is the
+    // standard consistent FV discretization: for the (divergence-free,
+    // post-projection) wind field the net transport per cell vanishes by
+    // construction, instead of manufacturing cell-scale convergence noise
+    // the way per-donor alignment weights do.
+    struct Edge {
+        a: usize,
+        b: usize,
+        /// Signed volume flux a->b: edge-normal wind (face-averaged) x length.
+        flux: f32,
+    }
 
-    for i in 0..num_cells {
-        let pos = tessellation.cell_center(i);
-        let w = wind[i];
-        let speed = w.length();
-        if speed < 1e-6 {
-            continue;
-        }
-        let wind_dir = w / speed;
+    let areas = tessellation.cell_areas();
+    let mut edges: Vec<Edge> = Vec::new();
+    let mut outflow_rate = vec![0.0f32; num_cells]; // sum of outgoing flux / area
 
-        let mut weights: Vec<(usize, f32)> = Vec::new();
-        let mut total = 0.0f32;
-        for &n in tessellation.neighbors(i) {
-            let to_n = tessellation.cell_center(n) - pos;
-            let tangent = to_n - pos * pos.dot(to_n);
-            let len = tangent.length();
-            if len < 1e-6 {
+    for a in 0..num_cells {
+        let pos_a = tessellation.cell_center(a);
+        for &b in tessellation.neighbors(a) {
+            if b <= a {
                 continue;
             }
-            let alignment = wind_dir.dot(tangent / len).max(0.0);
-            if alignment > 0.0 {
-                weights.push((n, alignment));
-                total += alignment;
+            let pos_b = tessellation.cell_center(b);
+            // Outward edge normal at the shared face (tangent-plane component
+            // of the direction a -> b).
+            let chord = pos_b - pos_a;
+            let mid = (pos_a + pos_b).normalize();
+            let normal = chord - mid * chord.dot(mid);
+            let len = normal.length();
+            if len < 1e-9 {
+                continue;
             }
-        }
-        if total > 0.0 {
-            for (_, w) in &mut weights {
-                *w /= total;
+            let normal = normal / len;
+
+            let u_n = 0.5 * (wind[a] + wind[b]).dot(normal);
+            let flux = u_n * tessellation.shared_edge_length(a, b);
+            if flux.abs() < 1e-12 {
+                continue;
             }
-            transport_frac[i] = (speed * MOISTURE_ADVECTION_SCALE).min(MOISTURE_MAX_TRANSPORT);
-            transport_targets[i] = weights;
+            if flux > 0.0 {
+                outflow_rate[a] += flux / areas[a].max(1e-12);
+            } else {
+                outflow_rate[b] += -flux / areas[b].max(1e-12);
+            }
+            edges.push(Edge { a, b, flux });
         }
     }
+
+    // CFL-limited timestep: no cell may export more than MOISTURE_CFL of its
+    // content per iteration.
+    let max_outflow = outflow_rate.iter().cloned().fold(0.0f32, f32::max);
+    let dt = if max_outflow > 0.0 {
+        MOISTURE_CFL / max_outflow
+    } else {
+        0.0
+    };
 
     // --- Iterate to steady state ---
     let mut moisture = vec![0.0f32; num_cells];
@@ -160,18 +182,20 @@ pub fn simulate_moisture(
             moisture[i] = m;
         }
 
-        // Transport pass (separate so all rain/evaporation uses pre-transport values).
+        // Transport pass: upwind edge fluxes (separate so all rain and
+        // evaporation uses pre-transport values).
         next.copy_from_slice(&moisture);
-        for i in 0..num_cells {
-            let frac = transport_frac[i];
-            if frac <= 0.0 {
-                continue;
-            }
-            let outgoing = moisture[i] * frac;
-            next[i] -= outgoing;
-            for &(target, weight) in &transport_targets[i] {
-                next[target] += outgoing * weight;
-            }
+        for e in &edges {
+            // Upwind donor: the cell the flux leaves.
+            let (donor, amount) = if e.flux > 0.0 {
+                (e.a, e.flux * moisture[e.a])
+            } else {
+                (e.b, -e.flux * moisture[e.b])
+            };
+            let receiver = e.a + e.b - donor;
+            let transported = dt * amount;
+            next[donor] -= transported / areas[donor].max(1e-12);
+            next[receiver] += transported / areas[receiver].max(1e-12);
         }
         std::mem::swap(&mut moisture, &mut next);
 

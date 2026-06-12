@@ -482,11 +482,10 @@ pub const RAINOUT_CONVECTIVE: f32 = 0.12;
 /// (evapotranspiration recycling; lets rain propagate into deep interiors).
 pub const MOISTURE_RECYCLE_FRACTION: f32 = 0.5;
 
-/// Converts wind speed to the fraction of moisture transported per iteration.
-pub const MOISTURE_ADVECTION_SCALE: f32 = 4.0;
-
-/// Maximum fraction of a cell's moisture transported per iteration.
-pub const MOISTURE_MAX_TRANSPORT: f32 = 0.9;
+/// CFL number for moisture advection: the largest fraction of any cell's
+/// moisture that may be exported per iteration. Controls the effective
+/// timestep (dt = CFL / max outflow rate).
+pub const MOISTURE_CFL: f32 = 0.8;
 
 /// Fraction of over-capacity moisture raining out per iteration.
 /// Below 1.0 so cold regions don't flash-dump all arriving moisture at once.
