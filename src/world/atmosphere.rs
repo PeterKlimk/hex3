@@ -7,6 +7,8 @@
 //! - Uplift: proxy from convergence (pre-projection) + orographic upslope flow
 
 use glam::Vec3;
+use std::cmp::Ordering;
+use std::collections::BinaryHeap;
 
 use super::constants::*;
 use super::moisture::simulate_moisture;
@@ -28,6 +30,9 @@ pub const POLAR_TEMP: f32 = 0.0;
 pub struct Atmosphere {
     /// Surface temperature per cell (normalized 0-1, can go negative at high elevation).
     pub temperature: Vec<f32>,
+
+    /// Land-ocean thermal contrast factor: 0 at ocean cells, saturating inland.
+    pub continentality: Vec<f32>,
 
     /// Upper-layer temperature used to derive pressure forcing (latitude-only).
     pub upper_temperature: Vec<f32>,
@@ -59,7 +64,8 @@ impl Atmosphere {
     /// Generate atmosphere data from tessellation and elevation.
     pub fn generate(tessellation: &Tessellation, elevation: &Elevation) -> Self {
         // Step 1: Surface temperature from latitude + elevation lapse (display/climate field)
-        let temperature = generate_surface_temperature(tessellation, &elevation.values);
+        let (temperature, continentality) =
+            generate_surface_temperature(tessellation, &elevation.values);
 
         // Step 2: Upper-layer temperature (latitude-only; avoids "mountain high pressure" artifacts)
         let upper_temperature = generate_upper_temperature(tessellation);
@@ -105,6 +111,7 @@ impl Atmosphere {
 
         Self {
             temperature,
+            continentality,
             upper_temperature,
             pressure,
             upper_wind,
@@ -166,10 +173,15 @@ pub struct AtmosphereStats {
     pub max_uplift: f32,
 }
 
-/// Generate temperature field from latitude and elevation.
-fn generate_surface_temperature(tessellation: &Tessellation, elevation: &[f32]) -> Vec<f32> {
+/// Generate temperature field from latitude, land-ocean contrast, and elevation.
+fn generate_surface_temperature(
+    tessellation: &Tessellation,
+    elevation: &[f32],
+) -> (Vec<f32>, Vec<f32>) {
     let num_cells = tessellation.num_cells();
     let mut temperature = vec![0.0; num_cells];
+    let continentality = compute_continentality(tessellation, elevation);
+    let reference_temp = latitude_reference_temperature(tessellation);
 
     for i in 0..num_cells {
         let pos = tessellation.cell_center(i);
@@ -180,15 +192,113 @@ fn generate_surface_temperature(tessellation: &Tessellation, elevation: &[f32]) 
 
         // Base temperature from latitude (cos²-like distribution)
         let base_temp = EQUATOR_TEMP - (EQUATOR_TEMP - POLAR_TEMP) * lat_factor * lat_factor;
+        let deviation = base_temp - reference_temp;
+        let contrast = 1.0 + CONTINENTALITY_AMP * continentality[i];
+        let contrasted_base = reference_temp + deviation * contrast;
 
         // Elevation lapse rate (only for positive elevation)
         let elev = elevation[i].max(0.0);
         let lapse = elev * LAPSE_RATE;
 
-        temperature[i] = base_temp - lapse;
+        temperature[i] = contrasted_base - lapse;
     }
 
-    temperature
+    // Land-driven pressure anomalies are intentionally not fed into
+    // upper_temperature/pressure yet; keeping the wind solve latitude-driven
+    // isolates this cheap thermal-contrast mechanism.
+    (temperature, continentality)
+}
+
+fn latitude_reference_temperature(tessellation: &Tessellation) -> f32 {
+    let num_cells = tessellation.num_cells();
+    if num_cells == 0 {
+        return 0.0;
+    }
+
+    let sum: f32 = (0..num_cells)
+        .map(|i| {
+            let lat_factor = tessellation.cell_center(i).y.abs();
+            EQUATOR_TEMP - (EQUATOR_TEMP - POLAR_TEMP) * lat_factor * lat_factor
+        })
+        .sum();
+    sum / num_cells as f32
+}
+
+fn compute_continentality(tessellation: &Tessellation, elevation: &[f32]) -> Vec<f32> {
+    let ocean_distance = distance_from_ocean_cells(tessellation, elevation);
+    ocean_distance
+        .iter()
+        .map(|&d| continentality_from_ocean_distance(d, CONTINENTALITY_DISTANCE_SCALE))
+        .collect()
+}
+
+fn continentality_from_ocean_distance(dist: f32, scale: f32) -> f32 {
+    if !dist.is_finite() {
+        return 1.0;
+    }
+    if dist <= 0.0 {
+        return 0.0;
+    }
+    let scale = scale.max(1e-6);
+    (1.0 - (-(dist / scale)).exp()).clamp(0.0, 1.0)
+}
+
+fn distance_from_ocean_cells(tessellation: &Tessellation, elevation: &[f32]) -> Vec<f32> {
+    #[derive(Clone, Copy, PartialEq)]
+    struct State {
+        dist: f32,
+        cell: usize,
+    }
+
+    impl Eq for State {}
+
+    impl Ord for State {
+        fn cmp(&self, other: &Self) -> Ordering {
+            other
+                .dist
+                .partial_cmp(&self.dist)
+                .unwrap_or(Ordering::Equal)
+        }
+    }
+
+    impl PartialOrd for State {
+        fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+            Some(self.cmp(other))
+        }
+    }
+
+    let n = tessellation.num_cells();
+    let mut dist = vec![f32::INFINITY; n];
+    let mut heap = BinaryHeap::new();
+
+    for (cell, &elev) in elevation.iter().enumerate().take(n) {
+        if elev < 0.0 {
+            dist[cell] = 0.0;
+            heap.push(State { dist: 0.0, cell });
+        }
+    }
+
+    while let Some(State { dist: d, cell }) = heap.pop() {
+        if d > dist[cell] {
+            continue;
+        }
+
+        let pos = tessellation.cell_center(cell);
+        for &neighbor in tessellation.neighbors(cell) {
+            let neighbor_pos = tessellation.cell_center(neighbor);
+            let step = pos.dot(neighbor_pos).clamp(-1.0, 1.0).acos();
+            let nd = d + step;
+            if nd < dist[neighbor] {
+                dist[neighbor] = nd;
+                heap.push(State {
+                    dist: nd,
+                    cell: neighbor,
+                });
+            }
+        }
+    }
+
+    dist
 }
 
 /// Generate an upper-layer temperature field from latitude only.
@@ -909,6 +1019,20 @@ mod tests {
         assert!(
             after < before * 0.5,
             "projection should significantly reduce divergence (before={before:.4}, after={after:.4})"
+        );
+    }
+
+    #[test]
+    fn continentality_is_zero_at_ocean_and_saturates_inland() {
+        assert_eq!(
+            continentality_from_ocean_distance(0.0, CONTINENTALITY_DISTANCE_SCALE),
+            0.0
+        );
+        assert!(
+            continentality_from_ocean_distance(
+                10.0 * CONTINENTALITY_DISTANCE_SCALE,
+                CONTINENTALITY_DISTANCE_SCALE,
+            ) > 0.99
         );
     }
 }
