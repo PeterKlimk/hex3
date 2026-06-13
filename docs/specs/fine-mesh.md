@@ -23,11 +23,13 @@ denser — erosion (separate spec) is what will make it look *better*.
        density = OCEAN below sea level;
                  on land: BASE + slope term + flow term
 
-   with the slope term from the coarse elevation gradient and the flow term
+   with the slope term from the coarse elevation gradient, the flow term
    from log-scaled coarse flow accumulation (river corridors attract
-   resolution). Knobs: total budget `FINE_NUM_CELLS`, ocean-vs-land base
-   ratio, slope/flow weights, and a max:min density ratio (default ~50x).
-   The coarse hydrology preview is discarded afterward.
+   resolution), and an optional tectonic-activity term (uplift forcing) —
+   pre-erosion slopes understate where erosion will carve detail, e.g. on
+   active plateaus. Knobs: total budget `FINE_NUM_CELLS`, ocean-vs-land
+   base ratio, slope/flow/activity weights, and a max:min density ratio
+   (default ~50x). The coarse hydrology preview is discarded afterward.
 
 2. **Weighted sampling, no Lloyd.** Generate fine points with density
    proportional to the prior: jittered-Fibonacci candidates thinned by
@@ -37,13 +39,13 @@ denser — erosion (separate spec) is what will make it look *better*.
    knn-clipping backend (native adjacency landed in `04b30a5`).
 
 3. **Fine-to-coarse mapping.** Store, per fine cell, its nearest coarse
-   generator (and use the coarse adjacency for the k-nearest interpolation
-   below). This mapping is a keeper — render modes that color by
+   generator. This mapping is a keeper — render modes that color by
    plate/feature at stage 3 use it too.
 
 4. **Field transfer.** Two classes, no exceptions:
-   - *Smooth fields*: interpolate (inverse-distance over the nearest coarse
-     cell + its neighbors). Transfer what elevation reassembly and the
+   - *Smooth fields*: interpolate (inverse-distance over a small coarse
+     neighborhood — k-nearest generators or nearest-cell-plus-neighbors,
+     implementer's choice). Transfer what elevation reassembly and the
      later erosion/hydrology need: crust thickness, continentality fraction,
      ridge_age_distance, signed trench/flexure, ridge feature, the noise
      modulation fields (stress/regime weights), temperature, precipitation,
@@ -63,26 +65,36 @@ denser — erosion (separate spec) is what will make it look *better*.
    Sea level: re-solve once on the fine pre-erosion elevation (same
    LAND_FRACTION machinery), then treat as fixed.
 
-6. **Hydrology moves to the fine mesh.** The existing Hydrology::generate
-   runs on the fine tessellation with transferred precipitation/temperature.
-   Rivers, basins, lakes, and the V-key river rendering all come from the
-   fine world at stage 3+. Coarse hydrology no longer ships in the final
-   World.
+6. **Hydrology moves to the fine mesh.** Hydrology runs on the fine
+   tessellation with transferred precipitation/temperature. Do NOT
+   synthesize a fake fine `Crust` to satisfy the current signature:
+   refactor Hydrology to take the specific inputs it actually uses (and
+   derive what's needed, e.g. continental/oceanic from the transferred
+   continentality fraction). Rivers, basins, lakes, and the V-key river
+   rendering all come from the fine world at stage 3+. Coarse hydrology no
+   longer ships in the final World.
 
 7. **Integration.** World carries the fine tessellation + fine fields from
    stage 3 on; rendering and export switch to the fine mesh at stage 3
-   (relief view, terrain coloring, rivers). Mesh build and GPU buffers are
-   the same machinery at higher counts. Climate views (temperature, wind,
-   uplift) may render interpolated fine values via the transfer — they're
-   smooth either way. Wind particles keep using the coarse wind field.
+   (relief view, terrain coloring, rivers). The fine mesh renders as a
+   SHARED-VERTEX, vertex-colored mesh (colors averaged from adjacent
+   cells): per-cell flat coloring duplicates ~6 vertices per cell, which at
+   2.5M cells is over a GB of vertex data for cell edges that are subpixel
+   anyway. Shared vertices are ~5x smaller and relief displacement is
+   already per-vertex. The coarse mesh path (stages 1-2, plate/feature
+   views) keeps its current representation. Climate views may render
+   interpolated fine values via the transfer — they're smooth either way.
+   Wind particles keep using the coarse wind field.
 
 ## Performance contract
 
 Benchmarked budget on the user's machine (see `bench_mesh`): tessellation
 + native adjacency ~2.5s at 2.5M. The whole refinement stage (density,
 sampling, tessellation, transfer, reassembly, fine hydrology) should land
-in roughly 10s at the default budget; log a per-phase timing breakdown at
-info level. No phase may be accidentally quadratic in cell count.
+in roughly 10s at the default budget; log at info level: per-phase
+timings, fine cell count, achieved max:min density ratio, and GPU buffer
+sizes (vertex/index bytes) for the fine mesh. No phase may be accidentally
+quadratic in cell count.
 
 ## Validation
 
