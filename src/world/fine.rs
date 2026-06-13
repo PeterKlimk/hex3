@@ -3,7 +3,7 @@
 use std::time::Instant;
 
 use glam::Vec3;
-use kiddo::{ImmutableKdTree, SquaredEuclidean};
+use kiddo::{ImmutableKdTree, KdTree, SquaredEuclidean};
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
@@ -316,7 +316,132 @@ fn sample_fine_points<R: Rng>(
         "fine mesh: sampling filled/shuffled target in {:.2?}",
         t0.elapsed()
     );
-    accepted
+
+    relax_fine_points(accepted, density, tree, mean_density, target)
+}
+
+const RELAX_K: usize = 8;
+
+/// Target nearest-neighbour spacing at a given density, for `target` total
+/// points distributed with areal density proportional to the field.
+fn target_spacing(density_value: f32, mean_density: f32, target: usize) -> f32 {
+    let g = target as f32 * density_value / (mean_density * 4.0 * std::f32::consts::PI);
+    (1.0 / g.max(1e-12)).sqrt()
+}
+
+/// One density-aware particle-repulsion step for point `i`: push off neighbours
+/// closer than its target spacing, projected onto the sphere's tangent plane.
+fn relax_step(
+    i: usize,
+    p: Vec3,
+    tree: &KdTree<f32, 3>,
+    entries: &[[f32; 3]],
+    points: &[Vec3],
+    point_spacing: &[f32],
+) -> Vec3 {
+    let sep = point_spacing[i];
+    let mut push = Vec3::ZERO;
+    // Bounded nearest-K (not radius-within): keeps per-point work constant even
+    // where the thinned input clumps, which is what blows up an unbounded radius
+    // query on white-noise points.
+    for nb in tree.nearest_n::<SquaredEuclidean>(&entries[i], RELAX_K + 1) {
+        let j = nb.item as usize;
+        if j == i {
+            continue;
+        }
+        let d = nb.distance.sqrt();
+        if d > 1e-7 && d < sep {
+            push += (p - points[j]) / d * (sep - d) / sep;
+        }
+    }
+    if push == Vec3::ZERO {
+        return p;
+    }
+    let tangent = push - p * push.dot(p);
+    (p + tangent * (0.4 * sep)).normalize()
+}
+
+/// Turn the white-noise (sliver-prone) thinned points into adaptive blue noise
+/// via `FINE_RELAX_PASSES` Jacobi repulsion passes. Each pass rebuilds a mutable
+/// kd-tree (a 0.4*sep move per pass makes the neighbour set too stale to reuse)
+/// and moves every point off its too-close neighbours. Point count is preserved.
+fn relax_fine_points(
+    mut points: Vec<Vec3>,
+    density: &[f32],
+    coarse_tree: &CoarseTree,
+    mean_density: f32,
+    target: usize,
+) -> Vec<Vec3> {
+    if FINE_RELAX_PASSES == 0 {
+        return points;
+    }
+    let t0 = Instant::now();
+
+    // Fix each point's target spacing from its initial coarse cell once: points
+    // move only ~0.4*spacing per pass, so re-deriving density mid-relax isn't
+    // worth a coarse-tree query per point per pass.
+    let point_spacing: Vec<f32> = {
+        #[cfg(not(feature = "single-threaded"))]
+        {
+            points
+                .par_iter()
+                .map(|&p| {
+                    target_spacing(
+                        density[nearest_coarse(coarse_tree, p)],
+                        mean_density,
+                        target,
+                    )
+                })
+                .collect()
+        }
+        #[cfg(feature = "single-threaded")]
+        {
+            points
+                .iter()
+                .map(|&p| {
+                    target_spacing(
+                        density[nearest_coarse(coarse_tree, p)],
+                        mean_density,
+                        target,
+                    )
+                })
+                .collect()
+        }
+    };
+
+    for _ in 0..FINE_RELAX_PASSES {
+        let entries: Vec<[f32; 3]> = points.iter().map(|p| p.to_array()).collect();
+        let mut tree = KdTree::<f32, 3>::with_capacity(entries.len());
+        for (i, e) in entries.iter().enumerate() {
+            tree.add(e, i as u64);
+        }
+        let new_points: Vec<Vec3> = {
+            #[cfg(not(feature = "single-threaded"))]
+            {
+                points
+                    .par_iter()
+                    .enumerate()
+                    .map(|(i, &p)| relax_step(i, p, &tree, &entries, &points, &point_spacing))
+                    .collect()
+            }
+            #[cfg(feature = "single-threaded")]
+            {
+                points
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &p)| relax_step(i, p, &tree, &entries, &points, &point_spacing))
+                    .collect()
+            }
+        };
+        points = new_points;
+    }
+
+    log::info!(
+        "fine mesh: relaxation {} passes {:.2?}",
+        FINE_RELAX_PASSES,
+        t0.elapsed()
+    );
+    points
 }
 
 fn area_weighted_mean_density(coarse: &Tessellation, density: &[f32]) -> f32 {

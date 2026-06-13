@@ -616,3 +616,11 @@ pub const FINE_ACTIVITY_DENSITY_WEIGHT: f32 = 6.0;
 
 /// Maximum ratio between densest and sparsest fine sampling regions.
 pub const FINE_MAX_DENSITY_RATIO: f32 = 50.0;
+
+/// Particle-repulsion relaxation passes applied to the thinned fine points to
+/// turn white-noise (sliver-prone) sampling into adaptive blue noise. 0 = off
+/// (raw thinning). Each pass rebuilds a kd-tree and does a density-aware tangent
+/// push; ~2s/pass at 2.5M. 5 takes slivers (rho<0.5) from ~85% to ~0.4% while
+/// the cleaner input also tessellates faster, offsetting most of the cost. See
+/// src/bin/sample_experiment.rs for the algorithm comparison this was tuned on.
+pub const FINE_RELAX_PASSES: usize = 5;

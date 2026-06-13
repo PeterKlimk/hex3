@@ -30,7 +30,7 @@
 //!   cargo run --release --bin sample_experiment -- --target 2500000 --only elimination
 
 use std::cmp::Ordering;
-use std::collections::BinaryHeap;
+use std::collections::{BinaryHeap, HashMap};
 use std::time::{Duration, Instant};
 
 use clap::Parser;
@@ -59,12 +59,33 @@ struct Cli {
     target: usize,
     #[arg(long, default_value_t = 12345)]
     seed: u64,
-    /// Run only one algorithm (thin-piecewise | thin-continuous | elimination | relax).
+    /// Run only one algorithm (thin-piecewise | thin-continuous | elimination |
+    /// relax | poisson-tree | poisson-grid). Comma-separated list also accepted.
     #[arg(long)]
     only: Option<String>,
     /// Relaxation passes for the relax algorithm.
     #[arg(long, default_value_t = 3)]
     relax_passes: usize,
+    /// Poisson-disk packing factor: target NN spacing = poisson_rho *
+    /// target_spacing(density). Lower = denser packing = more cells. Tune to
+    /// land the cell count near --target (~0.8 is a good start).
+    #[arg(long, default_value_t = 0.8)]
+    poisson_rho: f32,
+    /// Relax repulsion falloff: "linear" = (sep-d)/sep (gentle), "inverse" =
+    /// (sep-d)/d capped (blows up for close pairs -> kills slivers fast).
+    #[arg(long, default_value = "linear")]
+    relax_falloff: String,
+    /// Relax step fraction (move = step * sep along the tangent push).
+    #[arg(long, default_value_t = 0.4)]
+    relax_step: f32,
+    /// Relax neighbour cap (nearest-K used for the repulsion sum).
+    #[arg(long, default_value_t = 8)]
+    relax_k: usize,
+    /// Rebuild the kd-tree every N relax passes (1 = every pass). >1 reuses a
+    /// stale tree (neighbour set barely changes per 0.4*sep move) to cut the
+    /// ~870ms/pass build; push is still computed from current positions.
+    #[arg(long, default_value_t = 1)]
+    relax_rebuild_every: usize,
     /// Coarse-cell count for the piecewise-constant density path (production: 100k).
     #[arg(long, default_value_t = 100_000)]
     coarse: usize,
@@ -72,6 +93,11 @@ struct Cli {
     /// (qhull) on identical points. Use a modest --target; qhull is heavy.
     #[arg(long, default_value_t = false)]
     cross_check: bool,
+    /// Scale on the density-field feature contributions: 0 = uniform (ratio
+    /// 1:1), 1 = full contrast. Use to measure how tessellation cost depends on
+    /// density variation.
+    #[arg(long, default_value_t = 1.0)]
+    density_scale: f32,
 }
 
 fn main() {
@@ -79,14 +105,26 @@ fn main() {
     let seed = cli.seed;
     let target = cli.target;
 
-    let density = DensityField::new(seed);
+    let density = DensityField::new(seed, cli.density_scale);
     let mean_density = density.area_weighted_mean();
+    // Achieved field extent over a fibonacci sample (scale clamps the contrast).
+    let (fmin, fmax) = (0..200_000usize)
+        .into_par_iter()
+        .map(|i| {
+            let v = density.value(fibonacci_point(i, 200_000));
+            (v, v)
+        })
+        .reduce(
+            || (f32::INFINITY, f32::NEG_INFINITY),
+            |a, b| (a.0.min(b.0), a.1.max(b.1)),
+        );
     println!(
-        "density field: base={:.2} max={:.2} mean={:.3} intended_ratio={:.0}:1  ({} blobs, {} arcs)",
-        density.base,
-        density.max,
+        "density field: scale={:.2} achieved min={:.2} mean={:.3} max={:.2} ratio={:.1}:1  ({} blobs, {} arcs)",
+        cli.density_scale,
+        fmin,
         mean_density,
-        density.max / density.base,
+        fmax,
+        fmax / fmin.max(1e-6),
         density.blobs.len(),
         density.arcs.len(),
     );
@@ -116,13 +154,27 @@ fn main() {
         let t = Instant::now();
         let pts = sample_thinning(seed, &density, mean_density, target, Some(&coarse));
         let t_sample = t.elapsed();
-        evaluate("thin-piecewise", pts, &density, mean_density, target, t_sample);
+        evaluate(
+            "thin-piecewise",
+            pts,
+            &density,
+            mean_density,
+            target,
+            t_sample,
+        );
     }
     if want("thin-continuous") {
         let t = Instant::now();
         let pts = sample_thinning(seed, &density, mean_density, target, None);
         let t_sample = t.elapsed();
-        evaluate("thin-continuous", pts, &density, mean_density, target, t_sample);
+        evaluate(
+            "thin-continuous",
+            pts,
+            &density,
+            mean_density,
+            target,
+            t_sample,
+        );
     }
     if want("elimination") {
         let t = Instant::now();
@@ -131,11 +183,65 @@ fn main() {
         evaluate("elimination", pts, &density, mean_density, target, t_sample);
     }
     if want("relax") {
+        let cfg = RelaxConfig {
+            passes: cli.relax_passes,
+            falloff: match cli.relax_falloff.as_str() {
+                "inverse" => RelaxFalloff::Inverse,
+                _ => RelaxFalloff::Linear,
+            },
+            step: cli.relax_step,
+            k: cli.relax_k,
+            rebuild_every: cli.relax_rebuild_every.max(1),
+        };
         let t = Instant::now();
-        let pts = sample_relaxed(seed, &density, mean_density, target, cli.relax_passes);
+        let pts = sample_relaxed(seed, &density, mean_density, target, cfg);
         let t_sample = t.elapsed();
         evaluate(
-            &format!("relax-{}", cli.relax_passes),
+            &format!(
+                "relax-{}-{}",
+                cli.relax_falloff.chars().next().unwrap_or('l'),
+                cli.relax_passes
+            ),
+            pts,
+            &density,
+            mean_density,
+            target,
+            t_sample,
+        );
+    }
+    if want("poisson-tree") {
+        let t = Instant::now();
+        let pts = sample_poisson(
+            seed,
+            &density,
+            mean_density,
+            target,
+            cli.poisson_rho,
+            PoissonBackend::Tree,
+        );
+        let t_sample = t.elapsed();
+        evaluate(
+            "poisson-tree",
+            pts,
+            &density,
+            mean_density,
+            target,
+            t_sample,
+        );
+    }
+    if want("poisson-grid") {
+        let t = Instant::now();
+        let pts = sample_poisson(
+            seed,
+            &density,
+            mean_density,
+            target,
+            cli.poisson_rho,
+            PoissonBackend::Grid,
+        );
+        let t_sample = t.elapsed();
+        evaluate(
+            "poisson-grid",
             pts,
             &density,
             mean_density,
@@ -152,12 +258,14 @@ fn main() {
 struct DensityField {
     base: f32,
     max: f32,
+    scale: f32, // multiplier on the feature contributions; 0 => uniform (ratio 1:1)
+    peak: f32,  // achieved max over the sphere (<= max); used to normalize sampling
     blobs: Vec<(Vec3, f32, f32)>, // center, amplitude, sigma (radians)
-    arcs: Vec<(Vec3, f32, f32)>,  // great-circle normal, amplitude, sigma (radians)
+    arcs: Vec<(Vec3, f32, f32)>, // great-circle normal, amplitude, sigma (radians)
 }
 
 impl DensityField {
-    fn new(seed: u64) -> Self {
+    fn new(seed: u64, scale: f32) -> Self {
         let mut rng = ChaCha8Rng::seed_from_u64(seed ^ 0xDED1_7777);
         let blobs = (0..6)
             .map(|_| {
@@ -175,28 +283,36 @@ impl DensityField {
                 (n, amp, sigma)
             })
             .collect();
-        Self {
+        let mut field = Self {
             base: 1.0,
             max: 50.0,
+            scale,
+            peak: 50.0,
             blobs,
             arcs,
-        }
+        };
+        // Achieved peak over a fibonacci sample (the clamp/scale may cap it).
+        field.peak = (0..200_000usize)
+            .into_par_iter()
+            .map(|i| field.value(fibonacci_point(i, 200_000)))
+            .reduce(|| field.base, f32::max);
+        field
     }
 
     fn value(&self, p: Vec3) -> f32 {
-        let mut d = self.base;
+        let mut feat = 0.0;
         for &(c, amp, sigma) in &self.blobs {
             let ang = c.dot(p).clamp(-1.0, 1.0).acos();
             let t = ang / sigma;
-            d += amp * (-t * t).exp();
+            feat += amp * (-t * t).exp();
         }
         for &(n, amp, sigma) in &self.arcs {
             // angular distance from p to the great circle with normal n
             let ang = (n.dot(p).clamp(-1.0, 1.0).abs()).asin();
             let t = ang / sigma;
-            d += amp * (-t * t).exp();
+            feat += amp * (-t * t).exp();
         }
-        d.clamp(self.base, self.max)
+        (self.base + self.scale * feat).clamp(self.base, self.max)
     }
 
     fn area_weighted_mean(&self) -> f32 {
@@ -225,7 +341,7 @@ fn sample_thinning(
     target: usize,
     coarse: Option<&CoarseDensity>,
 ) -> Vec<Vec3> {
-    let max_density = density.max;
+    let max_density = density.peak;
     let candidate_count =
         ((target as f32 * max_density / mean_density) * THIN_OVERSHOOT).ceil() as usize;
     let mean_spacing = (FOUR_PI / candidate_count as f32).sqrt();
@@ -365,6 +481,21 @@ fn sample_elimination(
         .collect()
 }
 
+#[derive(Clone, Copy)]
+enum RelaxFalloff {
+    Linear,
+    Inverse,
+}
+
+#[derive(Clone, Copy)]
+struct RelaxConfig {
+    passes: usize,
+    falloff: RelaxFalloff,
+    step: f32,
+    k: usize,
+    rebuild_every: usize,
+}
+
 /// Thinning followed by N passes of density-aware particle repulsion. Each pass
 /// pushes a point off neighbours closer than its target spacing, tangent to the
 /// sphere (Jacobi update from a freshly built tree). No Voronoi recompute.
@@ -373,33 +504,42 @@ fn sample_relaxed(
     density: &DensityField,
     mean_density: f32,
     target: usize,
-    passes: usize,
+    cfg: RelaxConfig,
 ) -> Vec<Vec3> {
     let mut points = sample_thinning(seed, density, mean_density, target, None);
 
-    for _ in 0..passes {
-        let entries: Vec<[f32; 3]> = points.iter().map(|p| p.to_array()).collect();
-        let tb = Instant::now();
-        // Mutable KdTree: incremental build is ~20x faster than ImmutableKdTree's
-        // optimal-layout build at millions of points, and we rebuild every pass.
-        let mut tree = kiddo::KdTree::<f32, 3>::with_capacity(entries.len());
-        for (i, e) in entries.iter().enumerate() {
-            tree.add(e, i as u64);
+    // Tree + the positions it was built from. Rebuilt every `rebuild_every`
+    // passes; in between we query this stale tree (with its own stale `entries`,
+    // so the lookup is self-consistent) and compute the push from current
+    // positions. Cheap because a 0.4*sep move leaves the neighbour set ~unchanged.
+    let mut tree = kiddo::KdTree::<f32, 3>::new();
+    let mut entries: Vec<[f32; 3]> = Vec::new();
+
+    for pass in 0..cfg.passes {
+        let mut t_build = Duration::ZERO;
+        if pass % cfg.rebuild_every == 0 {
+            entries = points.iter().map(|p| p.to_array()).collect();
+            let tb = Instant::now();
+            // Mutable KdTree: incremental build is ~20x faster than
+            // ImmutableKdTree's optimal-layout build at millions of points.
+            tree = kiddo::KdTree::<f32, 3>::with_capacity(entries.len());
+            for (i, e) in entries.iter().enumerate() {
+                tree.add(e, i as u64);
+            }
+            t_build = tb.elapsed();
         }
-        let t_build = tb.elapsed();
         let tq = Instant::now();
 
         // Bounded k-nearest query (not radius-within): keeps per-point work
         // constant even where the input clumps, which is what blows up an
         // unbounded radius query on Poisson-clumped points.
-        const RELAX_K: usize = 8;
         points = points
             .par_iter()
             .enumerate()
             .map(|(i, &p)| {
                 let sep = target_spacing(density.value(p), mean_density, target);
                 let mut push = Vec3::ZERO;
-                for nb in tree.nearest_n::<SquaredEuclidean>(&entries[i], RELAX_K + 1) {
+                for nb in tree.nearest_n::<SquaredEuclidean>(&entries[i], cfg.k + 1) {
                     let j = nb.item as usize;
                     if j == i {
                         continue;
@@ -407,7 +547,15 @@ fn sample_relaxed(
                     let d = nb.distance.sqrt();
                     if d > 1e-7 && d < sep {
                         let dir = (p - points[j]) / d;
-                        push += dir * (sep - d) / sep;
+                        // Linear: gentle, ~0.4*sep separation/pass. Inverse:
+                        // grows as d->0 (capped), so close pairs (slivers) fly
+                        // apart in one pass. Capped at the linear max (=1) times
+                        // a factor so a normal-spaced neighbour behaves the same.
+                        let strength = match cfg.falloff {
+                            RelaxFalloff::Linear => (sep - d) / sep,
+                            RelaxFalloff::Inverse => ((sep - d) / d).min(4.0),
+                        };
+                        push += dir * strength;
                     }
                 }
                 if push == Vec3::ZERO {
@@ -415,13 +563,20 @@ fn sample_relaxed(
                 }
                 // project the push onto the tangent plane and step
                 let tangent = push - p * push.dot(p);
-                (p + tangent * (0.4 * sep)).normalize()
+                (p + tangent * (cfg.step * sep)).normalize()
             })
             .collect();
+        let moved = points
+            .par_iter()
+            .zip(entries.par_iter())
+            .filter(|(p, e)| p.x != e[0] || p.y != e[1] || p.z != e[2])
+            .count();
         eprintln!(
-            "    relax pass: tree build {:.2?}, queries+move {:.2?}",
+            "    relax pass: tree build {:.2?}, queries+move {:.2?}, moved {} ({:.1}%)",
             t_build,
-            tq.elapsed()
+            tq.elapsed(),
+            moved,
+            moved as f32 / points.len().max(1) as f32 * 100.0,
         );
     }
 
@@ -434,6 +589,230 @@ fn target_spacing(density_value: f32, mean_density: f32, target: usize) -> f32 {
     // areal point density g = target * d / (mean * 4pi); expected area = 1/g.
     let g = target as f32 * density_value / (mean_density * FOUR_PI);
     (1.0 / g.max(1e-12)).sqrt()
+}
+
+// ----------------------------------------------------------------------------
+// Variable-radius Poisson-disk (Bridson) sampler
+// ----------------------------------------------------------------------------
+//
+// A maximal Poisson-disk set with a position-dependent radius r(p) = rho *
+// target_spacing(density(p)). Every accepted point is >= min(r_i, r_j) from
+// every other point, so close-pair slivers are impossible by construction --
+// the failure mode that produces jagged/tiny cells at density transitions.
+//
+// Bridson's dart-throwing maintains an "active front": pick a random active
+// point, throw K candidates into its [r, 2r] annulus, accept the first that
+// clears the min-distance test, else retire the point. It terminates when the
+// front empties (the set is maximal). Inherently sequential.
+//
+// Two spatial backends behind the same loop, to test the Q2 thesis that a
+// single-resolution uniform grid loses to an output-sensitive tree once the
+// radius varies ~7:1 (50:1 density):
+//   Tree -- mutable kd-tree `within`-radius (scans points-in-radius)
+//   Grid -- sparse hash sized to r_min      (scans cells-in-radius)
+
+const POISSON_K: usize = 30;
+
+enum PoissonBackend {
+    Tree,
+    Grid,
+}
+
+/// Spatial index over already-accepted points. `conflicts` answers: is `c`
+/// (with radius `rc`) closer than min(rc, r_q) to any existing point q?
+trait SpatialIndex {
+    fn insert(&mut self, p: Vec3, idx: u32);
+    fn conflicts(&self, c: Vec3, rc: f32, points: &[Vec3], radii: &[f32]) -> bool;
+}
+
+/// Mutable kd-tree backend. `within`-radius is output-sensitive: it returns the
+/// handful of points actually near `c`, paying nothing for empty space -- which
+/// is exactly where a sparse-region candidate (large rc, few neighbours) hurts
+/// the grid.
+struct TreeIndex {
+    tree: kiddo::KdTree<f32, 3>,
+}
+
+impl TreeIndex {
+    fn new() -> Self {
+        Self {
+            tree: kiddo::KdTree::new(),
+        }
+    }
+}
+
+impl SpatialIndex for TreeIndex {
+    fn insert(&mut self, p: Vec3, idx: u32) {
+        self.tree.add(&p.to_array(), idx as u64);
+    }
+
+    fn conflicts(&self, c: Vec3, rc: f32, _points: &[Vec3], radii: &[f32]) -> bool {
+        // Any conflict has dist < min(rc, r_q) <= rc, so querying within rc is
+        // exact for the min rule; then filter by the neighbour's own radius.
+        for nb in self
+            .tree
+            .within_unsorted::<SquaredEuclidean>(&c.to_array(), rc * rc)
+        {
+            let q = nb.item as usize;
+            if nb.distance.sqrt() < rc.min(radii[q]) {
+                return true;
+            }
+        }
+        false
+    }
+}
+
+/// Sparse uniform-grid backend. Cell side = r_min (the finest spacing), so a
+/// dense-region check is a 3x3x3 sweep. A sparse-region candidate has rc up to
+/// ~7*r_min, so it sweeps ~15^3 mostly-empty cells -- the cost the tree avoids.
+/// Stored sparsely (HashMap) because a dense array at r_min resolution is ~1e12
+/// cells.
+struct GridIndex {
+    h: f32,
+    cells: HashMap<(i32, i32, i32), Vec<u32>>,
+}
+
+impl GridIndex {
+    fn new(r_min: f32) -> Self {
+        Self {
+            h: r_min.max(1e-9),
+            cells: HashMap::new(),
+        }
+    }
+
+    fn cell_of(&self, p: Vec3) -> (i32, i32, i32) {
+        (
+            (p.x / self.h).floor() as i32,
+            (p.y / self.h).floor() as i32,
+            (p.z / self.h).floor() as i32,
+        )
+    }
+}
+
+impl SpatialIndex for GridIndex {
+    fn insert(&mut self, p: Vec3, idx: u32) {
+        let key = self.cell_of(p);
+        self.cells.entry(key).or_default().push(idx);
+    }
+
+    fn conflicts(&self, c: Vec3, rc: f32, points: &[Vec3], radii: &[f32]) -> bool {
+        let reach = (rc / self.h).ceil() as i32;
+        let (cx, cy, cz) = self.cell_of(c);
+        for dx in -reach..=reach {
+            for dy in -reach..=reach {
+                for dz in -reach..=reach {
+                    if let Some(bucket) = self.cells.get(&(cx + dx, cy + dy, cz + dz)) {
+                        for &q in bucket {
+                            let d = (c - points[q as usize]).length();
+                            if d < rc.min(radii[q as usize]) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
+}
+
+fn sample_poisson(
+    seed: u64,
+    density: &DensityField,
+    mean_density: f32,
+    target: usize,
+    rho: f32,
+    backend: PoissonBackend,
+) -> Vec<Vec3> {
+    let r_min = rho * target_spacing(density.peak, mean_density, target);
+    match backend {
+        PoissonBackend::Tree => {
+            poisson_core(TreeIndex::new(), seed, density, mean_density, target, rho)
+        }
+        PoissonBackend::Grid => poisson_core(
+            GridIndex::new(r_min),
+            seed,
+            density,
+            mean_density,
+            target,
+            rho,
+        ),
+    }
+}
+
+fn poisson_core<I: SpatialIndex>(
+    mut index: I,
+    seed: u64,
+    density: &DensityField,
+    mean_density: f32,
+    target: usize,
+    rho: f32,
+) -> Vec<Vec3> {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed ^ 0xB12D_0D15);
+    let r_at = |p: Vec3| rho * target_spacing(density.value(p), mean_density, target);
+
+    let mut points: Vec<Vec3> = Vec::with_capacity(target * 2);
+    let mut radii: Vec<f32> = Vec::with_capacity(target * 2);
+    let mut active: Vec<u32> = Vec::new();
+
+    let p0 = random_unit(&mut rng);
+    points.push(p0);
+    radii.push(r_at(p0));
+    index.insert(p0, 0);
+    active.push(0);
+
+    let mut darts = 0u64;
+    while !active.is_empty() {
+        let a = rng.gen_range(0..active.len());
+        let parent = active[a] as usize;
+        let p = points[parent];
+        let r = radii[parent];
+
+        let mut placed = false;
+        for _ in 0..POISSON_K {
+            darts += 1;
+            let c = annulus_candidate(p, r, &mut rng);
+            let rc = r_at(c);
+            if !index.conflicts(c, rc, &points, &radii) {
+                let idx = points.len() as u32;
+                points.push(c);
+                radii.push(rc);
+                index.insert(c, idx);
+                active.push(idx);
+                placed = true;
+                break;
+            }
+        }
+        if !placed {
+            active.swap_remove(a);
+        }
+    }
+
+    eprintln!(
+        "    poisson: {} points from {} darts ({:.1} darts/pt)",
+        points.len(),
+        darts,
+        darts as f64 / points.len().max(1) as f64,
+    );
+
+    // Maximal set: count is what the radius field yields (tune --poisson-rho to
+    // hit --target). Shuffle+truncate only if we overshot; never top up with
+    // random points (that would reintroduce the slivers we just avoided).
+    fisher_yates(&mut points, &mut rng);
+    points.truncate(target);
+    points
+}
+
+/// A candidate at geodesic distance [r, 2r] from `p`, at a random bearing,
+/// projected back onto the sphere via the tangent frame at `p`.
+fn annulus_candidate<R: Rng>(p: Vec3, r: f32, rng: &mut R) -> Vec3 {
+    let arbitrary = if p.x.abs() < 0.9 { Vec3::X } else { Vec3::Y };
+    let u = p.cross(arbitrary).normalize();
+    let v = p.cross(u);
+    let bearing = rng.gen::<f32>() * std::f32::consts::TAU;
+    let dir = u * bearing.cos() + v * bearing.sin();
+    let delta = r * (1.0 + rng.gen::<f32>()); // angle in [r, 2r]
+    (p * delta.cos() + dir * delta.sin()).normalize()
 }
 
 // ----------------------------------------------------------------------------
@@ -477,7 +856,12 @@ fn build_coarse(density: &DensityField, coarse_cells: usize) -> CoarseDensity {
 /// degeneracy. A bounded Voronoi cell is always a >=3-gon; vertex count < 3 means
 /// the backend failed to produce the polygon. The decisive number is
 /// "knn-only": cells the exact backend resolves but s2-voronoi does not.
-fn cross_check_backends(points: Vec<Vec3>, density: &DensityField, mean_density: f32, target: usize) {
+fn cross_check_backends(
+    points: Vec<Vec3>,
+    density: &DensityField,
+    mean_density: f32,
+    target: usize,
+) {
     let n = points.len();
     println!("cross-check: {} points, both backends\n", n);
 
@@ -531,7 +915,8 @@ fn cross_check_backends(points: Vec<Vec3>, density: &DensityField, mean_density:
                 knn_only += 1;
                 let nn = pt_tree.nearest_n::<SquaredEuclidean>(&pt_entries[i], 2);
                 let d = nn.get(1).map(|x| x.distance.sqrt()).unwrap_or(0.0);
-                knn_only_rho.push(d / target_spacing(density.value(points[i]), mean_density, target));
+                knn_only_rho
+                    .push(d / target_spacing(density.value(points[i]), mean_density, target));
             }
             (false, true) => ch_only += 1,
             (false, false) => {}
@@ -541,15 +926,29 @@ fn cross_check_backends(points: Vec<Vec3>, density: &DensityField, mean_density:
     let knn_total = knn_degen.iter().filter(|&&d| d).count();
     let ch_total = ch_degen.iter().filter(|&&d| d).count();
     knn_only_rho.sort_by(f32::total_cmp);
-    let med_rho = knn_only_rho.get(knn_only_rho.len() / 2).copied().unwrap_or(f32::NAN);
+    let med_rho = knn_only_rho
+        .get(knn_only_rho.len() / 2)
+        .copied()
+        .unwrap_or(f32::NAN);
 
     println!();
     println!("  degenerate (vertex count < 3):");
-    println!("    s2-voronoi (knn): {} ({:.3}%)", knn_total, knn_total as f32 / n as f32 * 100.0);
-    println!("    convex-hull     : {} ({:.3}%)", ch_total, ch_total as f32 / n as f32 * 100.0);
+    println!(
+        "    s2-voronoi (knn): {} ({:.3}%)",
+        knn_total,
+        knn_total as f32 / n as f32 * 100.0
+    );
+    println!(
+        "    convex-hull     : {} ({:.3}%)",
+        ch_total,
+        ch_total as f32 / n as f32 * 100.0
+    );
     println!("  cross-tab:");
     println!("    both degenerate           : {}", both);
-    println!("    knn-only (s2-voronoi fails, exact OK): {}  <-- s2-voronoi 'wrong'", knn_only);
+    println!(
+        "    knn-only (s2-voronoi fails, exact OK): {}  <-- s2-voronoi 'wrong'",
+        knn_only
+    );
     println!("    convex-hull-only          : {}", ch_only);
     println!(
         "  of the knn-only cells: median rho = {:.2} (rho<<1 => still genuine slivers, just ones qhull resolved)",
@@ -749,8 +1148,7 @@ fn evaluate(
     let sliver_50 = rho.iter().filter(|&&r| r < 0.50).count() as f32 / cells as f32;
     let sliver_30 = rho.iter().filter(|&&r| r < 0.30).count() as f32 / cells as f32;
 
-    let (band_cov, area_ratio_achieved, area_ratio_intended) =
-        band_stats(&areas, &cell_density);
+    let (band_cov, area_ratio_achieved, area_ratio_intended) = band_stats(&areas, &cell_density);
 
     let count_err = (n as f32 - target as f32) / target as f32 * 100.0;
 
@@ -784,7 +1182,10 @@ fn evaluate(
         .map(|i| nn_dist[i])
         .collect();
     degen_nn.sort_by(f32::total_cmp);
-    let degen_nn_med = degen_nn.get(degen_nn.len() / 2).copied().unwrap_or(f32::NAN);
+    let degen_nn_med = degen_nn
+        .get(degen_nn.len() / 2)
+        .copied()
+        .unwrap_or(f32::NAN);
     let degen_nn_max = degen_nn.last().copied().unwrap_or(f32::NAN);
     let degen_below_1e6 = degen_nn.iter().filter(|&&d| d < 1e-6).count();
     // Attribution: each degenerate cell's spacing RELATIVE to its local target.
@@ -796,7 +1197,10 @@ fn evaluate(
         .map(|i| rho[i])
         .collect();
     degen_rho.sort_by(f32::total_cmp);
-    let degen_rho_med = degen_rho.get(degen_rho.len() / 2).copied().unwrap_or(f32::NAN);
+    let degen_rho_med = degen_rho
+        .get(degen_rho.len() / 2)
+        .copied()
+        .unwrap_or(f32::NAN);
     let degen_rho_ge_07 = degen_rho.iter().filter(|&&r| r >= 0.7).count();
     println!(
         "    weld-probe: nn<1e-6={} nn<1e-5={} nn<1e-4={} | degen={} (nn<1e-6: {}, median nn={:.2e}, max nn={:.2e})",
@@ -830,7 +1234,11 @@ fn print_header() {
 /// intended coarse:fine area ratio between the lowest and highest density bands.
 fn band_stats(areas: &[f32], density: &[f32]) -> (f32, f32, f32) {
     const BANDS: usize = 8;
-    let dmin = density.iter().copied().fold(f32::INFINITY, f32::min).max(1e-6);
+    let dmin = density
+        .iter()
+        .copied()
+        .fold(f32::INFINITY, f32::min)
+        .max(1e-6);
     let dmax = density.iter().copied().fold(f32::NEG_INFINITY, f32::max);
     let log_min = dmin.ln();
     let log_span = (dmax.ln() - log_min).max(1e-6);
@@ -902,7 +1310,11 @@ fn cov(values: &[f32]) -> f32 {
     }
     let n = values.len() as f64;
     let mean = values.iter().map(|&v| v as f64).sum::<f64>() / n;
-    let var = values.iter().map(|&v| (v as f64 - mean).powi(2)).sum::<f64>() / n;
+    let var = values
+        .iter()
+        .map(|&v| (v as f64 - mean).powi(2))
+        .sum::<f64>()
+        / n;
     if mean > 0.0 {
         (var.sqrt() / mean) as f32
     } else {
