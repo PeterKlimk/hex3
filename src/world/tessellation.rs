@@ -90,14 +90,34 @@ impl Tessellation {
             lloyd_relax_kmeans(&mut points, LLOYD_ITERATIONS, LLOYD_SAMPLES_PER_SITE, rng);
         }
 
-        let voronoi = {
+        // Pass plain arrays so hex3's glam version stays independent of the crate's
+        let raw_points: Vec<[f32; 3]> = points.iter().map(|p| p.to_array()).collect();
+        let diagram = {
             let _t = Timed::debug("  s2-voronoi computation");
+            s2_voronoi::compute(&raw_points).expect("Voronoi computation failed")
+        };
 
-            // Pass plain arrays so hex3's glam version stays independent of the crate's
-            let raw_points: Vec<[f32; 3]> = points.iter().map(|p| p.to_array()).collect();
-            let diagram = s2_voronoi::compute(&raw_points).expect("Voronoi computation failed");
+        // Use s2-voronoi's native adjacency (one sorted pass over boundary
+        // edges) rather than rebuilding it with a hash map: ~11x faster at
+        // millions of cells. Defective edges carry NO_NEIGHBOR; drop them.
+        let adjacency = {
+            let _t = Timed::debug("  Build adjacency (native)");
+            let native = diagram.build_adjacency();
+            (0..diagram.num_cells())
+                .map(|i| {
+                    native
+                        .neighbors_of(i)
+                        .iter()
+                        .filter(|&&n| n != s2_voronoi::adjacency::NO_NEIGHBOR)
+                        .map(|&n| n as usize)
+                        .collect::<Vec<usize>>()
+                })
+                .collect::<Vec<_>>()
+        };
 
-            // Convert s2-voronoi output to hex3's SphericalVoronoi
+        let voronoi = {
+            let _t = Timed::debug("  Convert diagram");
+
             let generators: Vec<Vec3> = diagram
                 .generators()
                 .iter()
@@ -120,11 +140,6 @@ impl Tessellation {
             }
 
             SphericalVoronoi::from_raw_parts(generators, vertices, cells, cell_indices)
-        };
-
-        let adjacency = {
-            let _t = Timed::debug("  Build adjacency");
-            build_adjacency(&voronoi)
         };
 
         // Diagnostic: count orphan cells (no neighbors)
