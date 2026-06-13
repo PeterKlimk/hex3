@@ -402,7 +402,7 @@ impl Renderer {
 
             if let Some(edges) = scene.edges {
                 match edges {
-                    EdgeDraw::GlobeColored(draw) => {
+                    EdgeDraw::GlobeColored(draw) if draw.vertex_count > 0 => {
                         render_pass.set_pipeline(&self.colored_line_pipeline);
                         render_pass.set_vertex_buffer(0, draw.vertex_buffer.slice(..));
                         render_pass.draw(0..draw.vertex_count, 0..1);
@@ -411,23 +411,24 @@ impl Renderer {
                         vertex_buffer,
                         index_buffer,
                         index_count,
-                    } => {
+                    } if index_count > 0 => {
                         render_pass.set_pipeline(&self.map_edge_pipeline);
                         render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
                         render_pass
                             .set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                         render_pass.draw_indexed(0..index_count, 0, 0..1);
                     }
+                    _ => {}
                 }
             }
 
-            if let Some(arrows) = scene.arrows {
+            if let Some(arrows) = scene.arrows.filter(|draw| draw.vertex_count > 0) {
                 render_pass.set_pipeline(&self.colored_line_pipeline);
                 render_pass.set_vertex_buffer(0, arrows.vertex_buffer.slice(..));
                 render_pass.draw(0..arrows.vertex_count, 0..1);
             }
 
-            if let Some(pole_markers) = scene.pole_markers {
+            if let Some(pole_markers) = scene.pole_markers.filter(|draw| draw.index_count > 0) {
                 render_pass.set_pipeline(&self.fill_pipeline);
                 render_pass.set_vertex_buffer(0, pole_markers.vertex_buffer.slice(..));
                 render_pass.set_index_buffer(
@@ -437,14 +438,14 @@ impl Renderer {
                 render_pass.draw_indexed(0..pole_markers.index_count, 0, 0..1);
             }
 
-            if let Some(rivers) = scene.rivers {
+            if let Some(rivers) = scene.rivers.filter(|draw| draw.vertex_count > 0) {
                 render_pass.set_pipeline(&self.surface_line_pipeline);
                 render_pass.set_vertex_buffer(0, rivers.vertex_buffer.slice(..));
                 render_pass.draw(0..rivers.vertex_count, 0..1);
             }
 
             // Triangle-based rivers (uses unified pipeline for material-aware lighting)
-            if let Some(river_mesh) = scene.river_mesh {
+            if let Some(river_mesh) = scene.river_mesh.filter(|draw| draw.index_count > 0) {
                 render_pass.set_pipeline(&self.unified_fill_pipeline);
                 render_pass.set_vertex_buffer(0, river_mesh.vertex_buffer.slice(..));
                 render_pass
@@ -453,7 +454,8 @@ impl Renderer {
             }
 
             // Wind particle trails (legacy CPU particles)
-            if let Some(wind_particles) = scene.wind_particles {
+            if let Some(wind_particles) = scene.wind_particles.filter(|draw| draw.vertex_count > 0)
+            {
                 render_pass.set_pipeline(&self.colored_line_pipeline);
                 render_pass.set_vertex_buffer(0, wind_particles.vertex_buffer.slice(..));
                 render_pass.draw(0..wind_particles.vertex_count, 0..1);
