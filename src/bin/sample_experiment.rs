@@ -555,6 +555,92 @@ fn cross_check_backends(points: Vec<Vec3>, density: &DensityField, mean_density:
         "  of the knn-only cells: median rho = {:.2} (rho<<1 => still genuine slivers, just ones qhull resolved)",
         med_rho
     );
+
+    // ---- "nearly correct" geometry check: do the two backends agree on f64
+    // cell area where BOTH resolve the cell? s2-voronoi promises a valid
+    // subdivision that is *nearly* the true Voronoi, with no robustness
+    // guarantee on epsilon edges -- so we expect tight agreement on normal
+    // cells and a tail of disagreement concentrated on tiny/close-pair cells.
+    let knn_area: Vec<f64> = knn_idx
+        .par_iter()
+        .map(|&c| spherical_polygon_area_f64(&knn.voronoi, c))
+        .collect();
+    let ch_area: Vec<f64> = ch_idx
+        .par_iter()
+        .map(|&c| spherical_polygon_area_f64(&ch, c))
+        .collect();
+
+    // Points that qhull welded into a shared cell (ch_idx not injective).
+    let mut seen = vec![false; ch.num_cells()];
+    let mut ch_welded = 0usize;
+    for &c in &ch_idx {
+        if seen[c] {
+            ch_welded += 1;
+        }
+        seen[c] = true;
+    }
+
+    // Relative area error per point, paired with the cell's spacing rho, only
+    // where both backends resolve the cell. Stratifying by rho separates an
+    // f32 vertex-precision effect (relative area error grows as cells shrink)
+    // from a genuine algorithmic disagreement (uniform across cell sizes).
+    let mut rel: Vec<(f64, f32)> = Vec::with_capacity(n);
+    let mut signed_sum = 0.0f64;
+    for i in 0..n {
+        if knn_degen[i] || ch_degen[i] {
+            continue;
+        }
+        let m = knn_area[i].max(ch_area[i]);
+        if m <= 0.0 {
+            continue;
+        }
+        let nn = pt_tree.nearest_n::<SquaredEuclidean>(&pt_entries[i], 2);
+        let d = nn.get(1).map(|x| x.distance.sqrt()).unwrap_or(0.0);
+        let rho = d / target_spacing(density.value(points[i]), mean_density, target);
+        rel.push(((knn_area[i] - ch_area[i]).abs() / m, rho));
+        signed_sum += (knn_area[i] - ch_area[i]) / m; // +ve => knn cells larger
+    }
+    let mut errs: Vec<f64> = rel.iter().map(|x| x.0).collect();
+    errs.sort_by(f64::total_cmp);
+    let pct = |p: f64| {
+        errs.get(((errs.len().max(1) as f64 - 1.0) * p) as usize)
+            .copied()
+            .unwrap_or(f64::NAN)
+    };
+    let band_med = |lo: f32, hi: f32| {
+        let mut v: Vec<f64> = rel
+            .iter()
+            .filter(|(_, r)| *r >= lo && *r < hi)
+            .map(|x| x.0)
+            .collect();
+        v.sort_by(f64::total_cmp);
+        let med = v.get(v.len() / 2).copied().unwrap_or(f64::NAN);
+        (v.len(), med)
+    };
+
+    println!();
+    println!(
+        "  geometry agreement (f64 cell area, {} cells both resolve):",
+        rel.len()
+    );
+    println!(
+        "    rel-err overall: median={:.1e} p90={:.1e} p99={:.1e} max={:.1e}; mean signed (knn-ch)={:+.1e}",
+        pct(0.5),
+        pct(0.9),
+        pct(0.99),
+        errs.last().copied().unwrap_or(f64::NAN),
+        signed_sum / rel.len().max(1) as f64,
+    );
+    for (lo, hi, label) in [
+        (0.0f32, 0.3f32, "rho<0.3  (tiny)   "),
+        (0.3, 0.6, "rho 0.3-0.6 (small)"),
+        (0.6, 0.9, "rho 0.6-0.9 (normal)"),
+        (0.9, f32::INFINITY, "rho>=0.9 (well-spaced)"),
+    ] {
+        let (count, med) = band_med(lo, hi);
+        println!("    {label}: n={count:>7} median rel-err={med:.1e}");
+    }
+    println!("    (qhull welded {} points into shared cells)", ch_welded);
 }
 
 /// Spherical polygon area in f64 (Van Oosterom–Strackee per triangle), summed
