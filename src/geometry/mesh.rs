@@ -614,6 +614,89 @@ impl UnifiedMesh {
         }
     }
 
+    /// Generate a compact shared-vertex mesh for very large fine meshes.
+    ///
+    /// Colors and elevations are averaged from adjacent cells. Materials are
+    /// vertex-local, so this is intended for fine terrain rendering where cell
+    /// boundaries are subpixel and per-cell flat materials would be too large.
+    pub fn from_voronoi_shared_vertices<C, M, E>(
+        voronoi: &SphericalVoronoi,
+        color_fn: C,
+        material_fn: M,
+        elevation_fn: E,
+    ) -> Self
+    where
+        C: Fn(usize) -> Vec3,
+        M: Fn(usize) -> Material,
+        E: Fn(usize) -> f32,
+    {
+        let mut color_sum = vec![Vec3::ZERO; voronoi.vertices.len()];
+        let mut elevation_sum = vec![0.0f32; voronoi.vertices.len()];
+        let mut count = vec![0u32; voronoi.vertices.len()];
+        let mut water_count = vec![0u32; voronoi.vertices.len()];
+        let mut lake_count = vec![0u32; voronoi.vertices.len()];
+
+        for cell_idx in 0..voronoi.num_cells() {
+            let color = color_fn(cell_idx);
+            let material = material_fn(cell_idx);
+            let elevation = elevation_fn(cell_idx);
+            let cell = voronoi.cell(cell_idx);
+            for &vertex_idx in cell.vertex_indices {
+                let vi = vertex_idx as usize;
+                color_sum[vi] += color;
+                elevation_sum[vi] += elevation;
+                count[vi] += 1;
+                if matches!(material, Material::Ocean | Material::Lake) {
+                    water_count[vi] += 1;
+                }
+                if material == Material::Lake {
+                    lake_count[vi] += 1;
+                }
+            }
+        }
+
+        let vertices: Vec<UnifiedVertex> = voronoi
+            .vertices
+            .iter()
+            .enumerate()
+            .map(|(i, &pos)| {
+                let n = count[i].max(1) as f32;
+                let color = color_sum[i] / n;
+                let elevation = elevation_sum[i] / n;
+                let material = if water_count[i] > 0 {
+                    if lake_count[i] > 0 {
+                        Material::Lake
+                    } else {
+                        Material::Ocean
+                    }
+                } else {
+                    Material::Land
+                };
+                UnifiedVertex::new(pos, pos, color, elevation, material)
+            })
+            .collect();
+
+        let mut indices = Vec::new();
+        for cell_idx in 0..voronoi.num_cells() {
+            let cell = voronoi.cell(cell_idx);
+            let n = cell.vertex_indices.len();
+            if n < 3 {
+                continue;
+            }
+            for i in 1..n - 1 {
+                indices.push(cell.vertex_indices[0]);
+                indices.push(cell.vertex_indices[i]);
+                indices.push(cell.vertex_indices[i + 1]);
+            }
+        }
+
+        Self {
+            vertices,
+            indices,
+            edge_indices: Vec::new(),
+        }
+    }
+
     /// Project vertices to 2D equirectangular map coordinates.
     pub fn to_map_vertices(&self) -> (Vec<UnifiedVertex>, Vec<u32>) {
         // First pass: project all vertices
@@ -937,6 +1020,53 @@ impl VoronoiMesh {
         F: Fn(usize) -> Vec3,
     {
         Self::from_voronoi_with_elevation(voronoi, color_fn, |_| 0.0)
+    }
+
+    /// Generate a compact shared-vertex colored mesh for fine meshes.
+    pub fn from_voronoi_shared_vertices<F>(voronoi: &SphericalVoronoi, color_fn: F) -> Self
+    where
+        F: Fn(usize) -> Vec3,
+    {
+        let mut color_sum = vec![Vec3::ZERO; voronoi.vertices.len()];
+        let mut count = vec![0u32; voronoi.vertices.len()];
+        for cell_idx in 0..voronoi.num_cells() {
+            let color = color_fn(cell_idx);
+            for &vertex_idx in voronoi.cell(cell_idx).vertex_indices {
+                let vi = vertex_idx as usize;
+                color_sum[vi] += color;
+                count[vi] += 1;
+            }
+        }
+
+        let vertices: Vec<MeshVertex> = voronoi
+            .vertices
+            .iter()
+            .enumerate()
+            .map(|(i, &pos)| {
+                let color = color_sum[i] / count[i].max(1) as f32;
+                MeshVertex::new(pos, pos, color)
+            })
+            .collect();
+
+        let mut indices = Vec::new();
+        for cell_idx in 0..voronoi.num_cells() {
+            let cell = voronoi.cell(cell_idx);
+            let n = cell.vertex_indices.len();
+            if n < 3 {
+                continue;
+            }
+            for i in 1..n - 1 {
+                indices.push(cell.vertex_indices[0]);
+                indices.push(cell.vertex_indices[i]);
+                indices.push(cell.vertex_indices[i + 1]);
+            }
+        }
+
+        Self {
+            vertices,
+            indices,
+            edge_indices: Vec::new(),
+        }
     }
 
     /// Generate a mesh with elevation displacement and custom colors.

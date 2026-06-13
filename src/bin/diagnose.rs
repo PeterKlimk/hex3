@@ -40,13 +40,56 @@ fn main() {
     world.generate_atmosphere();
     world.generate_hydrology();
 
-    let tess = &world.tessellation;
+    let tess = world.active_tessellation();
     let n = tess.num_cells();
     let crust = world.crust.as_ref().unwrap();
     let features = world.features.as_ref().unwrap();
-    let elevation = &world.elevation.as_ref().unwrap().values;
-    let atmosphere = world.atmosphere.as_ref().unwrap();
-    let hydrology = world.hydrology.as_ref().unwrap();
+    let elevation = &world.active_elevation().unwrap().values;
+    let hydrology = world.active_hydrology().unwrap();
+    let temperature = world.active_temperature().unwrap();
+    let precipitation = world.active_precipitation().unwrap();
+    let uplift = world.active_uplift().unwrap();
+    let coarse_of = |i: usize| -> usize {
+        world
+            .fine
+            .as_ref()
+            .map(|fine| fine.coarse_cell[i])
+            .unwrap_or(i)
+    };
+    let cont_mask: Vec<bool> = (0..n)
+        .map(|i| {
+            world
+                .fine
+                .as_ref()
+                .map(|fine| fine.fields.elevation_fields.continentality[i] >= 0.5)
+                .unwrap_or_else(|| crust.is_continental(i))
+        })
+        .collect();
+    let margin_distance: Vec<f32> = (0..n)
+        .map(|i| {
+            world
+                .fine
+                .as_ref()
+                .map(|fine| {
+                    let cont = fine.fields.elevation_fields.continentality[i];
+                    (cont - 0.5).abs() * 0.1
+                })
+                .unwrap_or_else(|| crust.margin_distance(i))
+        })
+        .collect();
+    let feature_divergent: Vec<f32> = (0..n).map(|i| features.divergent[coarse_of(i)]).collect();
+    let feature_collision: Vec<f32> = (0..n).map(|i| features.collision[coarse_of(i)]).collect();
+    let feature_arc: Vec<f32> = (0..n).map(|i| features.arc[coarse_of(i)]).collect();
+    let feature_trench: Vec<f32> = world
+        .fine
+        .as_ref()
+        .map(|fine| fine.fields.elevation_fields.trench.clone())
+        .unwrap_or_else(|| features.trench.clone());
+    let feature_ridge_age: Vec<f32> = world
+        .fine
+        .as_ref()
+        .map(|fine| fine.fields.elevation_fields.ridge_age_distance.clone())
+        .unwrap_or_else(|| features.ridge_age_distance.clone());
 
     let cell_km2 = tess.mean_cell_area() * EARTH_RADIUS_KM * EARTH_RADIUS_KM;
     println!(
@@ -59,6 +102,14 @@ fn main() {
         (tess.mean_cell_area()).sqrt() * EARTH_RADIUS_KM,
         cell_km2
     );
+    if let Some(fine) = &world.fine {
+        println!(
+            "fine mesh: coarse {} -> fine {} cells | density ratio {:.1}:1",
+            world.tessellation.num_cells(),
+            fine.tessellation.num_cells(),
+            fine.achieved_density_ratio
+        );
+    }
 
     // ---- Global elevation structure ----
     let land: Vec<bool> = elevation.iter().map(|&e| e >= 0.0).collect();
@@ -78,16 +129,16 @@ fn main() {
     println!(
         "field smoothness (Moran's I): elevation {:.3}, precipitation {:.3}, uplift {:.3}",
         tess.morans_i(elevation),
-        tess.morans_i(&atmosphere.precipitation),
-        tess.morans_i(&atmosphere.uplift)
+        tess.morans_i(precipitation),
+        tess.morans_i(uplift)
     );
     let land_temps: Vec<f32> = (0..n)
         .filter(|&i| elevation[i] >= 0.0)
-        .map(|i| atmosphere.temperature[i])
+        .map(|i| temperature[i])
         .collect();
     let ocean_temps: Vec<f32> = (0..n)
         .filter(|&i| elevation[i] < 0.0)
-        .map(|i| atmosphere.temperature[i])
+        .map(|i| temperature[i])
         .collect();
     let mean = |values: &[f32]| {
         if values.is_empty() {
@@ -106,7 +157,6 @@ fn main() {
     );
 
     // ---- Continents (connected continental crust) ----
-    let cont_mask: Vec<bool> = (0..n).map(|i| crust.is_continental(i)).collect();
     let continents = measure_components(tess, &cont_mask);
     println!("\n-- Continents (connected continental crust) --   [Earth: Afro-Eurasia 85M km², Americas 42M, Australia 7.7M, Greenland 2.1M]");
     for c in continents.iter().take(cli.top) {
@@ -123,8 +173,8 @@ fn main() {
     // ---- Interior continental water (rift seaways, inland seas, lakes) ----
     let interior_water: Vec<bool> = (0..n)
         .map(|i| {
-            crust.is_continental(i)
-                && crust.margin_distance(i) > 0.03
+            cont_mask[i]
+                && margin_distance[i] > 0.03
                 && matches!(
                     hydrology.water_state(i),
                     CellWaterState::Ocean | CellWaterState::LakeWater
@@ -136,7 +186,7 @@ fn main() {
     for w in waters.iter().take(cli.top) {
         let connected_to_ocean =
             w.fraction_where(|i| hydrology.water_state(i) == CellWaterState::Ocean);
-        let mean_div = w.mean_of(&features.divergent);
+        let mean_div = w.mean_of(&feature_divergent);
         let (min_e, _) = w.range_of(elevation);
         println!(
             "  {:>9.0} km²  {:>5.0} x {:>4.0} km (elong {:>4.1})  depth_max {:>5.2}  divergent {:.2}  {}",
@@ -159,7 +209,7 @@ fn main() {
 
     // ---- Islands (oceanic-crust land) ----
     let island_mask: Vec<bool> = (0..n)
-        .map(|i| !crust.is_continental(i) && elevation[i] >= 0.0)
+        .map(|i| !cont_mask[i] && elevation[i] >= 0.0)
         .collect();
     let islands = measure_components(tess, &island_mask);
     println!("\n-- Islands (oceanic-crust land) --   [Earth: Greenland 2.1M km² (continental), Honshu 228k, Iceland 103k, Hawaii Big Island 10k]");
@@ -184,8 +234,8 @@ fn main() {
     println!("\n-- Mountain ranges (elevation > {RANGE_ELEV}) --   [Earth: Andes 7000x300 km, Himalaya+Tibet 2400x1000, Alps 1200x200]");
     for r in ranges.iter().take(cli.top) {
         let (_, peak) = r.range_of(elevation);
-        let collision_frac = r.fraction_where(|i| features.collision[i] > 0.02);
-        let arc_frac = r.fraction_where(|i| features.arc[i] > 0.02);
+        let collision_frac = r.fraction_where(|i| feature_collision[i] > 0.02);
+        let arc_frac = r.fraction_where(|i| feature_arc[i] > 0.02);
         println!(
             "  {:>8.0} km²  {:>5.0} x {:>4.0} km  peak {:+.2}  driver: collision {:>3.0}% arc {:>3.0}%",
             r.area_km2,
@@ -199,17 +249,16 @@ fn main() {
     println!("  ({} ranges)", ranges.len());
 
     // ---- Arc-trench gap ----
-    let trench_peak = features.trench.iter().cloned().fold(0.0f32, f32::max);
-    let arc_peak = features.arc.iter().cloned().fold(0.0f32, f32::max);
+    let trench_peak = feature_trench.iter().cloned().fold(0.0f32, f32::max);
+    let arc_peak = feature_arc.iter().cloned().fold(0.0f32, f32::max);
     if trench_peak > 0.0 && arc_peak > 0.0 {
-        let trench_mask: Vec<bool> = features
-            .trench
+        let trench_mask: Vec<bool> = feature_trench
             .iter()
             .map(|&t| t > 0.3 * trench_peak)
             .collect();
         let dist = distance_from_mask(tess, &trench_mask);
         let mut gaps: Vec<f32> = (0..n)
-            .filter(|&i| features.arc[i] > 0.5 * arc_peak && dist[i].is_finite())
+            .filter(|&i| feature_arc[i] > 0.5 * arc_peak && dist[i].is_finite())
             .map(|i| dist[i] * EARTH_RADIUS_KM)
             .collect();
         if !gaps.is_empty() {
@@ -227,14 +276,14 @@ fn main() {
     }
 
     // ---- Flexure profile ----
-    let deepest_deflection = features.trench.iter().cloned().fold(0.0f32, f32::max);
-    let strongest_outer_rise = -features.trench.iter().cloned().fold(0.0f32, f32::min);
+    let deepest_deflection = feature_trench.iter().cloned().fold(0.0f32, f32::max);
+    let strongest_outer_rise = -feature_trench.iter().cloned().fold(0.0f32, f32::min);
     let flexure_ratio = if deepest_deflection > 0.0 {
         strongest_outer_rise / deepest_deflection
     } else {
         0.0
     };
-    let outer_rise_cells = features.trench.iter().filter(|&&t| t < 0.0).count();
+    let outer_rise_cells = feature_trench.iter().filter(|&&t| t < 0.0).count();
     println!(
         "\n-- Flexure profile --   [Earth: outer rise ~200-500 m vs trenches 2-8 km -> ~0.05]"
     );
@@ -242,8 +291,7 @@ fn main() {
         "  deepest deflection {:.3} | strongest outer rise {:.3} | ratio {:.3} | outer-rise cells {}",
         deepest_deflection, strongest_outer_rise, flexure_ratio, outer_rise_cells
     );
-    let mut ridge_age: Vec<f32> = features
-        .ridge_age_distance
+    let mut ridge_age: Vec<f32> = feature_ridge_age
         .iter()
         .copied()
         .filter(|d| d.is_finite())
@@ -279,7 +327,7 @@ fn main() {
     // ---- Climate ----
     let land_precip: Vec<f32> = (0..n)
         .filter(|&i| land[i])
-        .map(|i| atmosphere.precipitation[i])
+        .map(|i| precipitation[i])
         .collect();
     let arid =
         land_precip.iter().filter(|&&p| p < 0.35).count() as f32 / land_precip.len().max(1) as f32;

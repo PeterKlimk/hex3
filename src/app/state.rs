@@ -220,7 +220,7 @@ impl AppState {
     /// Returns true if climate was changed.
     pub fn adjust_climate(&mut self, delta: f32) -> bool {
         // Check if hydrology exists and get current ratio
-        let Some(hydrology) = &mut self.world_data.hydrology else {
+        let Some(hydrology) = self.world_data.active_hydrology() else {
             return false;
         };
 
@@ -231,9 +231,10 @@ impl AppState {
             return false;
         }
 
-        hydrology.set_climate_ratio(&self.world_data.tessellation, new_ratio);
+        self.world_data.set_active_climate_ratio(new_ratio);
 
         // Count stats before releasing the borrow
+        let hydrology = self.world_data.active_hydrology().unwrap();
         let overflowing = hydrology
             .basins
             .iter()

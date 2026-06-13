@@ -136,13 +136,13 @@ fn apply_snow_cap(base_color: Vec3, elevation: f32) -> Vec3 {
 /// Returns a value from 0.0 (flat) to 1.0 (very steep).
 pub fn compute_slope(world: &World, cell_idx: usize) -> f32 {
     let elevation = world
-        .elevation
-        .as_ref()
+        .active_elevation()
         .expect("Elevation must be generated");
 
     let cell_elev = elevation.values[cell_idx];
-    let cell_pos = world.tessellation.cell_center(cell_idx);
-    let neighbors = world.tessellation.neighbors(cell_idx);
+    let tessellation = world.active_tessellation();
+    let cell_pos = tessellation.cell_center(cell_idx);
+    let neighbors = tessellation.neighbors(cell_idx);
 
     if neighbors.is_empty() {
         return 0.0;
@@ -152,7 +152,7 @@ pub fn compute_slope(world: &World, cell_idx: usize) -> f32 {
     let mut max_slope = 0.0f32;
     for &n in neighbors {
         let neighbor_elev = elevation.values[n];
-        let neighbor_pos = world.tessellation.cell_center(n);
+        let neighbor_pos = tessellation.cell_center(n);
 
         // Arc distance between cell centers
         let dist = cell_pos.dot(neighbor_pos).clamp(-1.0, 1.0).acos();
@@ -179,12 +179,11 @@ pub fn compute_slope(world: &World, cell_idx: usize) -> f32 {
 /// Snow caps are applied based on elevation and latitude.
 pub fn cell_color_terrain(world: &World, cell_idx: usize) -> Vec3 {
     let elevation = world
-        .elevation
-        .as_ref()
+        .active_elevation()
         .expect("Elevation must be generated");
 
     // Check water state if hydrology is available
-    if let Some(hydrology) = &world.hydrology {
+    if let Some(hydrology) = world.active_hydrology() {
         let depth = hydrology.water_depth(cell_idx);
         match hydrology.water_state(cell_idx) {
             CellWaterState::Ocean => return ocean_color(depth),
@@ -209,7 +208,7 @@ pub fn cell_color_terrain(world: &World, cell_idx: usize) -> Vec3 {
 
     // Cheap moisture proxy: flow accumulation (if hydrology exists).
     // Purposefully subtle: greener valleys without requiring a full climate model.
-    let moisture = world.hydrology.as_ref().map_or(0.0, |hydrology| {
+    let moisture = world.active_hydrology().map_or(0.0, |hydrology| {
         let flow = hydrology.flow_accumulation[cell_idx].max(1.0);
         let ln_flow = flow.ln();
         let ln_n = (world.num_cells() as f32).ln().max(1.0);
@@ -284,8 +283,7 @@ pub fn elevation_to_color(elevation: f32) -> Vec3 {
 /// Get the color for a cell based on its elevation (hypsometric tinting).
 pub fn cell_color_elevation(world: &World, cell_idx: usize) -> Vec3 {
     let elevation = world
-        .elevation
-        .as_ref()
+        .active_elevation()
         .expect("Elevation must be generated")
         .values[cell_idx];
     elevation_to_color(elevation)
@@ -365,7 +363,7 @@ pub fn cell_color_plate(world: &World, cell_idx: usize) -> Vec3 {
 /// - Land: green/brown tinted by flow accumulation
 pub fn cell_color_hydrology(world: &World, cell_idx: usize) -> Vec3 {
     // Hydrology view requires hydrology to be generated
-    let Some(hydrology) = &world.hydrology else {
+    let Some(hydrology) = world.active_hydrology() else {
         // Fallback to basic land color
         return Vec3::new(0.3, 0.5, 0.3);
     };
@@ -398,7 +396,7 @@ pub fn cell_color_hydrology(world: &World, cell_idx: usize) -> Vec3 {
 /// - Ocean: diffuse + specular + fresnel
 /// - Lake: diffuse + specular + fresnel (subtler)
 pub fn cell_material(world: &World, cell_idx: usize) -> Material {
-    if let Some(hydrology) = &world.hydrology {
+    if let Some(hydrology) = world.active_hydrology() {
         match hydrology.water_state(cell_idx) {
             CellWaterState::Ocean => Material::Ocean,
             CellWaterState::LakeWater => Material::Lake,
@@ -407,8 +405,7 @@ pub fn cell_material(world: &World, cell_idx: usize) -> Material {
     } else {
         // Without hydrology, use simple elevation test
         let elevation = world
-            .elevation
-            .as_ref()
+            .active_elevation()
             .expect("Elevation must be generated")
             .values[cell_idx];
         if elevation < 0.0 {
@@ -525,14 +522,14 @@ fn uplift_to_color(uplift: f32) -> Vec3 {
 /// Get the color for a cell based on climate/atmosphere data.
 /// Falls back to latitude-based coloring if atmosphere not generated.
 pub fn cell_color_climate(world: &World, cell_idx: usize, layer: ClimateLayer) -> Vec3 {
-    if let Some(atmosphere) = &world.atmosphere {
+    if let Some(temperature) = world.active_temperature() {
         match layer {
-            ClimateLayer::Temperature => temperature_to_color(atmosphere.temperature[cell_idx]),
+            ClimateLayer::Temperature => temperature_to_color(temperature[cell_idx]),
             // Wind layers: show terrain colors, particles visualize the wind
             ClimateLayer::Wind | ClimateLayer::UpperWind => cell_color_terrain(world, cell_idx),
-            ClimateLayer::Uplift => uplift_to_color(atmosphere.uplift[cell_idx]),
+            ClimateLayer::Uplift => uplift_to_color(world.active_uplift().unwrap()[cell_idx]),
             ClimateLayer::Precipitation => {
-                precipitation_to_color(atmosphere.precipitation[cell_idx])
+                precipitation_to_color(world.active_precipitation().unwrap()[cell_idx])
             }
         }
     } else {

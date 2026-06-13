@@ -591,3 +591,28 @@ pub const OVERFLOW_RAINOUT: f32 = 0.3;
 /// for stability, so very high resolutions under-diffuse slightly rather
 /// than going unstable).
 pub const MOISTURE_DIFFUSIVITY: f32 = 5.0e-5;
+
+// =============================================================================
+// Fine mesh refinement (Stage 3 erosion infrastructure)
+// =============================================================================
+
+/// Target fine mesh cell count for Stage 3 hydrology/erosion infrastructure.
+pub const FINE_NUM_CELLS: usize = 2_500_000;
+
+/// Ocean base density relative to land base density.
+pub const FINE_OCEAN_DENSITY_RATIO: f32 = 0.35;
+
+/// Baseline land density before slope/flow/activity attraction.
+pub const FINE_LAND_BASE_DENSITY: f32 = 1.0;
+
+/// Weight of normalized coarse slope in the fine density prior.
+pub const FINE_SLOPE_DENSITY_WEIGHT: f32 = 8.0;
+
+/// Weight of log-scaled coarse flow accumulation in the fine density prior.
+pub const FINE_FLOW_DENSITY_WEIGHT: f32 = 18.0;
+
+/// Weight of tectonic activity/uplift forcing in the fine density prior.
+pub const FINE_ACTIVITY_DENSITY_WEIGHT: f32 = 6.0;
+
+/// Maximum ratio between densest and sparsest fine sampling regions.
+pub const FINE_MAX_DENSITY_RATIO: f32 = 50.0;

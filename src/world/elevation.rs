@@ -25,6 +25,8 @@
 use glam::Vec3;
 use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
 use rand::Rng;
+#[cfg(not(feature = "single-threaded"))]
+use rayon::prelude::*;
 
 use super::constants::*;
 use super::crust::{Crust, CrustType};
@@ -62,6 +64,30 @@ struct TerrainNoise {
     hills_fbm: Fbm<Perlin>,
     ridge_fbm: Fbm<Perlin>,
     micro_fbm: Fbm<Perlin>,
+}
+
+/// Structural inputs to elevation assembly.
+///
+/// These are deliberately separated from mesh-native `Crust`/`FeatureFields`
+/// so the fine mesh can rebuild elevation from transferred physical fields
+/// without fabricating coarse-only domain objects.
+pub struct ElevationFields {
+    pub crust_thickness: Vec<f32>,
+    pub continentality: Vec<f32>,
+    pub ridge_age_distance: Vec<f32>,
+    pub trench: Vec<f32>,
+    pub ridge: Vec<f32>,
+    pub convergent: Vec<f32>,
+    pub divergent: Vec<f32>,
+    pub is_continental: Vec<bool>,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum NoiseAssembly {
+    /// Coarse world: macro + hills + ridge are simulation elevation; micro is cosmetic.
+    Coarse,
+    /// Fine world: macro only in simulation elevation; micro remains cosmetic.
+    FineMacroMicroOnly,
 }
 
 impl TerrainNoise {
@@ -173,6 +199,23 @@ impl Elevation {
 
         let (values, noise_contribution, noise_layers) =
             generate_heightmap_with_noise(tessellation, crust, features, &noise);
+
+        Self {
+            values,
+            noise_contribution,
+            noise_layers,
+        }
+    }
+
+    pub(crate) fn generate_from_fields<R: Rng>(
+        tessellation: &Tessellation,
+        fields: &ElevationFields,
+        rng: &mut R,
+        assembly: NoiseAssembly,
+    ) -> Self {
+        let noise = TerrainNoise::new(rng);
+        let (values, noise_contribution, noise_layers) =
+            assemble_heightmap_with_noise(tessellation, fields, &noise, assembly);
 
         Self {
             values,
@@ -294,6 +337,52 @@ fn continentality(signed_margin_distance: f32, convergent_influence: f32) -> f32
     smoothstep((signed_margin_distance + ocean_width) / (ocean_width + land_width))
 }
 
+pub(crate) fn coarse_elevation_fields(
+    tessellation: &Tessellation,
+    crust: &Crust,
+    features: &FeatureFields,
+) -> ElevationFields {
+    let num_cells = tessellation.num_cells();
+    let slope = isostasy_slope();
+
+    let mut crust_thickness = Vec::with_capacity(num_cells);
+    let mut continentality_field = Vec::with_capacity(num_cells);
+    let mut is_continental = Vec::with_capacity(num_cells);
+
+    for i in 0..num_cells {
+        let crust_type = crust.crust_type(i);
+        let continental = crust_type == CrustType::Continental;
+        let pos = tessellation.cell_center(i);
+        let convergent = features.convergent[i];
+
+        let cont = continentality(crust.signed_margin_distance[i], convergent);
+        let base_thickness = CRUST_THICKNESS_OCEANIC
+            + cont * (CRUST_THICKNESS_CONTINENTAL - CRUST_THICKNESS_OCEANIC);
+        let macro_dt = 0.0;
+        let thickening = (features.arc[i] + features.collision[i]) / slope;
+        let rift = features.rift_delta[i] * cont;
+        let thickness = (base_thickness + macro_dt + thickening + rift).max(0.05);
+
+        // `pos` is intentionally touched here so the loop mirrors the full
+        // assembly inputs; macro thickness is added in the noise assembly step.
+        let _ = pos;
+        crust_thickness.push(thickness);
+        continentality_field.push(cont);
+        is_continental.push(continental);
+    }
+
+    ElevationFields {
+        crust_thickness,
+        continentality: continentality_field,
+        ridge_age_distance: features.ridge_age_distance.clone(),
+        trench: features.trench.clone(),
+        ridge: features.ridge.clone(),
+        convergent: features.convergent.clone(),
+        divergent: features.divergent.clone(),
+        is_continental,
+    }
+}
+
 /// Generate heightmap: thickness field -> isostasy -> thermal/dynamic
 /// terms -> surface noise -> sea-level solve.
 fn generate_heightmap_with_noise(
@@ -302,8 +391,29 @@ fn generate_heightmap_with_noise(
     features: &FeatureFields,
     noise: &TerrainNoise,
 ) -> (Vec<f32>, Vec<f32>, NoiseLayerData) {
+    let fields = coarse_elevation_fields(tessellation, crust, features);
+    assemble_heightmap_with_noise(tessellation, &fields, noise, NoiseAssembly::Coarse)
+}
+
+fn assemble_heightmap_with_noise(
+    tessellation: &Tessellation,
+    fields: &ElevationFields,
+    noise: &TerrainNoise,
+    assembly: NoiseAssembly,
+) -> (Vec<f32>, Vec<f32>, NoiseLayerData) {
     let num_cells = tessellation.num_cells();
     let slope = isostasy_slope();
+
+    #[cfg(not(feature = "single-threaded"))]
+    let assembled: Vec<AssembledElevationCell> = (0..num_cells)
+        .into_par_iter()
+        .map(|i| assemble_elevation_cell(tessellation, fields, noise, assembly, slope, i))
+        .collect();
+
+    #[cfg(feature = "single-threaded")]
+    let assembled: Vec<AssembledElevationCell> = (0..num_cells)
+        .map(|i| assemble_elevation_cell(tessellation, fields, noise, assembly, slope, i))
+        .collect();
 
     let mut elevations = Vec::with_capacity(num_cells);
     let mut noise_contributions = Vec::with_capacity(num_cells);
@@ -311,65 +421,14 @@ fn generate_heightmap_with_noise(
     let mut hills_layer = Vec::with_capacity(num_cells);
     let mut ridge_layer = Vec::with_capacity(num_cells);
     let mut micro_layer = Vec::with_capacity(num_cells);
-    let mut is_continental_cells = Vec::with_capacity(num_cells);
 
-    for i in 0..num_cells {
-        let crust_type = crust.crust_type(i);
-        let is_continental = crust_type == CrustType::Continental;
-        is_continental_cells.push(is_continental);
-        let pos = tessellation.cell_center(i);
-        let convergent = features.convergent[i];
-        let divergent = features.divergent[i];
-
-        // --- 1. Crust thickness ---
-        let cont = continentality(crust.signed_margin_distance[i], convergent);
-        let base_thickness = CRUST_THICKNESS_OCEANIC
-            + cont * (CRUST_THICKNESS_CONTINENTAL - CRUST_THICKNESS_OCEANIC);
-
-        // Macro-scale thickness variation: cratonic cores and interior basins.
-        let macro_dt = noise.macro_thickness(pos, cont);
-
-        // Tectonic thickening. Feature magnitudes are calibrated in elevation
-        // units, so divide by the Airy slope: same end elevation, but now a
-        // crustal-thickness state change (plateaus emerge over the full
-        // thickened extent; ready for future time evolution).
-        let thickening = (features.arc[i] + features.collision[i]) / slope;
-
-        // Rifting: signed thickness change from features (necking-localized
-        // axial thinning + shoulder uplift, driven by boundary opening
-        // rates). Confined to the continental part of the column.
-        let rift = features.rift_delta[i] * cont;
-
-        let thickness = (base_thickness + macro_dt + thickening + rift).max(0.05);
-
-        // --- 2. Isostatic base + thermal + dynamic terms ---
-        // Thermal anomaly applies to the oceanic part of the column;
-        // trench flexure is dynamic topography (slab pull holds it out of
-        // isostatic equilibrium, with signed outer-rise uplift); the small
-        // ridge feature rides on the thermal swell.
-        let structural_elevation = isostatic_elevation(thickness)
-            + thermal_anomaly(features.ridge_age_distance[i]) * (1.0 - cont)
-            + features.ridge[i]
-            - features.trench[i];
-
-        // --- 3. Surface noise (hills / ridge / micro) ---
-        let is_underwater = structural_elevation < 0.0;
-        let (hills_c, ridge_c, micro_c) =
-            noise.sample(pos, convergent, divergent, is_continental, is_underwater);
-
-        // Simulation elevation excludes micro noise (micro is cosmetic only).
-        // The macro layer is reported as its isostatic elevation contribution
-        // for visualization continuity.
-        let macro_c = macro_dt * slope;
-        let simulation_noise = macro_c + hills_c + ridge_c;
-        let elevation = structural_elevation + hills_c + ridge_c;
-
-        elevations.push(elevation);
-        noise_contributions.push(simulation_noise);
-        macro_layer.push(macro_c);
-        hills_layer.push(hills_c);
-        ridge_layer.push(ridge_c);
-        micro_layer.push(micro_c);
+    for cell in assembled {
+        elevations.push(cell.elevation);
+        noise_contributions.push(cell.noise_contribution);
+        macro_layer.push(cell.macro_layer);
+        hills_layer.push(cell.hills_layer);
+        ridge_layer.push(cell.ridge_layer);
+        micro_layer.push(cell.micro_layer);
     }
 
     // --- 4. Sea-level solve: uniform shift so land fraction is exact ---
@@ -387,7 +446,7 @@ fn generate_heightmap_with_noise(
     // Oceanic crust above sea level can't grow indefinitely; erosion and
     // subsidence limit island height. Kept as a transitional safeguard.
     for i in 0..num_cells {
-        if !is_continental_cells[i] && elevations[i] > 0.0 {
+        if !fields.is_continental[i] && elevations[i] > 0.0 {
             let max_island = VOLCANIC_ISLAND_MAX_HEIGHT;
             elevations[i] = max_island * (elevations[i] / max_island).tanh();
         }
@@ -401,4 +460,71 @@ fn generate_heightmap_with_noise(
     };
 
     (elevations, noise_contributions, noise_layers)
+}
+
+struct AssembledElevationCell {
+    elevation: f32,
+    noise_contribution: f32,
+    macro_layer: f32,
+    hills_layer: f32,
+    ridge_layer: f32,
+    micro_layer: f32,
+}
+
+fn assemble_elevation_cell(
+    tessellation: &Tessellation,
+    fields: &ElevationFields,
+    noise: &TerrainNoise,
+    assembly: NoiseAssembly,
+    slope: f32,
+    i: usize,
+) -> AssembledElevationCell {
+    let is_continental = fields.is_continental[i];
+    let pos = tessellation.cell_center(i);
+    let convergent = fields.convergent[i];
+    let divergent = fields.divergent[i];
+
+    // --- 1. Crust thickness ---
+    let cont = fields.continentality[i];
+    let base_thickness = fields.crust_thickness[i];
+
+    // Macro-scale thickness variation: cratonic cores and interior basins.
+    let macro_dt = noise.macro_thickness(pos, cont);
+
+    let thickness = (base_thickness + macro_dt).max(0.05);
+
+    // --- 2. Isostatic base + thermal + dynamic terms ---
+    // Thermal anomaly applies to the oceanic part of the column;
+    // trench flexure is dynamic topography (slab pull holds it out of
+    // isostatic equilibrium, with signed outer-rise uplift); the small
+    // ridge feature rides on the thermal swell.
+    let structural_elevation = isostatic_elevation(thickness)
+        + thermal_anomaly(fields.ridge_age_distance[i]) * (1.0 - cont)
+        + fields.ridge[i]
+        - fields.trench[i];
+
+    // --- 3. Surface noise (hills / ridge / micro) ---
+    let is_underwater = structural_elevation < 0.0;
+    let (hills_c, ridge_c, micro_c) =
+        noise.sample(pos, convergent, divergent, is_continental, is_underwater);
+
+    // Simulation elevation excludes micro noise (micro is cosmetic only).
+    // The macro layer is reported as its isostatic elevation contribution
+    // for visualization continuity.
+    let macro_c = macro_dt * slope;
+    let (hills_sim, ridge_sim) = match assembly {
+        NoiseAssembly::Coarse => (hills_c, ridge_c),
+        NoiseAssembly::FineMacroMicroOnly => (0.0, 0.0),
+    };
+    let simulation_noise = macro_c + hills_sim + ridge_sim;
+    let elevation = structural_elevation + hills_sim + ridge_sim;
+
+    AssembledElevationCell {
+        elevation,
+        noise_contribution: simulation_noise,
+        macro_layer: macro_c,
+        hills_layer: hills_c,
+        ridge_layer: ridge_c,
+        micro_layer: micro_c,
+    }
 }

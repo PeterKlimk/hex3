@@ -40,6 +40,10 @@ const RIVER_MIN_WIDTH: f32 = 0.003;
 /// Maximum river width (major rivers)
 const RIVER_MAX_WIDTH: f32 = 0.015;
 
+fn buffer_bytes<T>(items: &[T]) -> usize {
+    items.len() * std::mem::size_of::<T>()
+}
+
 /// All GPU buffers for world rendering.
 /// Simplified: one dynamic colored mesh + specialized buffers for Relief/rivers/overlays.
 pub struct WorldBuffers {
@@ -196,7 +200,7 @@ pub fn advance_to_stage_3(world: &mut World) {
     }
 
     // Print hydrology stats
-    if let Some(hydrology) = &world.hydrology {
+    if let Some(hydrology) = world.active_hydrology() {
         let num_cells = world.num_cells();
 
         let ocean_cells = (0..num_cells).filter(|&i| hydrology.is_ocean(i)).count();
@@ -246,6 +250,14 @@ pub fn advance_to_stage_3(world: &mut World) {
             river_min_flow,
             max_flow
         );
+        if let Some(fine) = &world.fine {
+            log::info!(
+                "Fine mesh: coarse_cells={}, fine_cells={}, density_ratio={:.1}:1",
+                world.tessellation.num_cells(),
+                fine.tessellation.num_cells(),
+                fine.achieved_density_ratio
+            );
+        }
     }
 }
 
@@ -289,6 +301,18 @@ fn river_thresholds(num_cells: usize) -> (f32, f32, f32) {
     (min_flow, outlet_threshold, branch_threshold)
 }
 
+fn mode_uses_fine_mesh(world: &World, mode: RenderMode) -> bool {
+    world.fine.is_some()
+        && matches!(
+            mode,
+            RenderMode::Relief
+                | RenderMode::Terrain
+                | RenderMode::Elevation
+                | RenderMode::Hydrology
+                | RenderMode::Climate
+        )
+}
+
 /// Generate a colored mesh for a specific render mode and layer settings.
 /// This is fast (~5-10ms for 80k cells) and called on mode/layer switch.
 pub fn generate_colored_mesh(
@@ -299,14 +323,29 @@ pub fn generate_colored_mesh(
     feature_layer: FeatureLayer,
     climate_layer: ClimateLayer,
 ) -> (wgpu::Buffer, wgpu::Buffer, u32) {
-    let voronoi = &world.tessellation.voronoi;
+    let use_fine = mode_uses_fine_mesh(world, mode);
+    let voronoi = if use_fine {
+        &world.active_tessellation().voronoi
+    } else {
+        &world.tessellation.voronoi
+    };
 
     let mesh = match mode {
         RenderMode::Relief | RenderMode::Terrain => {
-            VoronoiMesh::from_voronoi_with_colors(voronoi, |i| cell_color_terrain(world, i))
+            if use_fine {
+                VoronoiMesh::from_voronoi_shared_vertices(voronoi, |i| cell_color_terrain(world, i))
+            } else {
+                VoronoiMesh::from_voronoi_with_colors(voronoi, |i| cell_color_terrain(world, i))
+            }
         }
         RenderMode::Elevation => {
-            VoronoiMesh::from_voronoi_with_colors(voronoi, |i| cell_color_elevation(world, i))
+            if use_fine {
+                VoronoiMesh::from_voronoi_shared_vertices(voronoi, |i| {
+                    cell_color_elevation(world, i)
+                })
+            } else {
+                VoronoiMesh::from_voronoi_with_colors(voronoi, |i| cell_color_elevation(world, i))
+            }
         }
         RenderMode::Plates => {
             VoronoiMesh::from_voronoi_with_colors(voronoi, |i| cell_color_plate(world, i))
@@ -315,19 +354,46 @@ pub fn generate_colored_mesh(
             cell_color_noise(world, i, noise_layer)
         }),
         RenderMode::Hydrology => {
-            VoronoiMesh::from_voronoi_with_colors(voronoi, |i| cell_color_hydrology(world, i))
+            if use_fine {
+                VoronoiMesh::from_voronoi_shared_vertices(voronoi, |i| {
+                    cell_color_hydrology(world, i)
+                })
+            } else {
+                VoronoiMesh::from_voronoi_with_colors(voronoi, |i| cell_color_hydrology(world, i))
+            }
         }
         RenderMode::Features => VoronoiMesh::from_voronoi_with_colors(voronoi, |i| {
             cell_color_feature(world, i, feature_layer)
         }),
-        RenderMode::Climate => VoronoiMesh::from_voronoi_with_colors(voronoi, |i| {
-            cell_color_climate(world, i, climate_layer)
-        }),
+        RenderMode::Climate => {
+            if use_fine {
+                VoronoiMesh::from_voronoi_shared_vertices(voronoi, |i| {
+                    cell_color_climate(world, i, climate_layer)
+                })
+            } else {
+                VoronoiMesh::from_voronoi_with_colors(voronoi, |i| {
+                    cell_color_climate(world, i, climate_layer)
+                })
+            }
+        }
     };
 
     let vertex_buffer = create_vertex_buffer(device, &mesh.vertices, "colored_vertex");
     let index_buffer = create_index_buffer(device, &mesh.indices, "colored_index");
     let num_indices = mesh.indices.len() as u32;
+    if use_fine {
+        let vertex_bytes = buffer_bytes(&mesh.vertices);
+        let index_bytes = buffer_bytes(&mesh.indices);
+        log::info!(
+            "fine mesh GPU colored mesh ({}): vertices={}, indices={}, vertex_bytes={:.1} MiB, index_bytes={:.1} MiB, total={:.1} MiB",
+            mode.name(),
+            mesh.vertices.len(),
+            mesh.indices.len(),
+            vertex_bytes as f64 / 1_048_576.0,
+            index_bytes as f64 / 1_048_576.0,
+            (vertex_bytes + index_bytes) as f64 / 1_048_576.0,
+        );
+    }
 
     (vertex_buffer, index_buffer, num_indices)
 }
@@ -335,8 +401,9 @@ pub fn generate_colored_mesh(
 /// Generate GPU buffers from a World.
 /// Creates one dynamic colored mesh (initially Terrain mode) plus specialized buffers.
 pub fn generate_world_buffers(device: &wgpu::Device, world: &World) -> WorldBuffers {
-    let voronoi = &world.tessellation.voronoi;
-    let elevation = world.elevation.as_ref().unwrap();
+    let use_fine = world.fine.is_some();
+    let voronoi = &world.active_tessellation().voronoi;
+    let elevation = world.active_elevation().unwrap();
 
     let _t = Timed::debug("Build world buffers");
 
@@ -351,53 +418,63 @@ pub fn generate_world_buffers(device: &wgpu::Device, world: &World) -> WorldBuff
     );
 
     // Unified mesh with material-aware lighting for Relief mode
-    let unified_mesh = UnifiedMesh::from_voronoi_with_elevation(
-        voronoi,
-        |i| cell_color_terrain(world, i),
-        |i| cell_material(world, i),
-        |i| {
-            if let Some(hydrology) = &world.hydrology {
-                if hydrology.is_ocean(i) {
-                    return 0.0;
-                }
-                if hydrology.is_lake_water(i) {
-                    return hydrology.basin(i).map(|b| b.water_level).unwrap_or(0.0);
-                }
+    let elevation_for_cell = |i| {
+        if let Some(hydrology) = world.active_hydrology() {
+            if hydrology.is_ocean(i) {
+                return 0.0;
             }
-            elevation.values[i].max(0.0)
-        },
-    );
+            if hydrology.is_lake_water(i) {
+                return hydrology.basin(i).map(|b| b.water_level).unwrap_or(0.0);
+            }
+        }
+        elevation.values[i].max(0.0)
+    };
+
+    let unified_mesh = if use_fine {
+        UnifiedMesh::from_voronoi_shared_vertices(
+            voronoi,
+            |i| cell_color_terrain(world, i),
+            |i| cell_material(world, i),
+            elevation_for_cell,
+        )
+    } else {
+        UnifiedMesh::from_voronoi_with_elevation(
+            voronoi,
+            |i| cell_color_terrain(world, i),
+            |i| cell_material(world, i),
+            elevation_for_cell,
+        )
+    };
 
     // Edge lines: default gray + plates with colored boundaries
     let edge_color = Vec3::new(0.35, 0.35, 0.35);
-    let edge_vertices_default = VoronoiMesh::edge_lines_with_colors(voronoi, |_, _| edge_color);
+    let edge_vertices_default = if use_fine {
+        Vec::new()
+    } else {
+        VoronoiMesh::edge_lines_with_colors(voronoi, |_, _| edge_color)
+    };
 
     let boundary_edge_colors = build_boundary_edge_colors(world);
-    let edge_vertices_plates = VoronoiMesh::edge_lines_with_colors(voronoi, |a, b| {
-        let key = if a < b { (a, b) } else { (b, a) };
-        boundary_edge_colors
-            .get(&key)
-            .copied()
-            .unwrap_or(edge_color)
-    });
+    let edge_vertices_plates =
+        VoronoiMesh::edge_lines_with_colors(&world.tessellation.voronoi, |a, b| {
+            let key = if a < b { (a, b) } else { (b, a) };
+            boundary_edge_colors
+                .get(&key)
+                .copied()
+                .unwrap_or(edge_color)
+        });
 
     // Relief edges with elevation
-    let edge_vertices_relief = VoronoiMesh::edge_lines_with_elevation(
-        voronoi,
-        |_, _| edge_color,
-        |i| {
-            if let Some(hydrology) = &world.hydrology {
-                if hydrology.is_ocean(i) {
-                    return 0.0;
-                }
-                if hydrology.is_lake_water(i) {
-                    return hydrology.basin(i).map(|b| b.water_level).unwrap_or(0.0);
-                }
-            }
-            elevation.values[i].max(0.0)
-        },
-        |i| cell_material(world, i),
-    );
+    let edge_vertices_relief = if use_fine {
+        Vec::new()
+    } else {
+        VoronoiMesh::edge_lines_with_elevation(
+            voronoi,
+            |_, _| edge_color,
+            elevation_for_cell,
+            |i| cell_material(world, i),
+        )
+    };
 
     // Plate overlays
     let arrows = generate_velocity_arrows(world);
@@ -439,6 +516,31 @@ pub fn generate_world_buffers(device: &wgpu::Device, world: &World) -> WorldBuff
             river_mesh_all.indices.len() / 3,
             river_major_vertices.len() / 2,
             river_mesh_major.indices.len() / 3,
+        );
+    }
+
+    if use_fine {
+        let unified_vertex_bytes = buffer_bytes(&unified_mesh.vertices);
+        let unified_index_bytes = buffer_bytes(&unified_mesh.indices);
+        let river_vertex_bytes =
+            buffer_bytes(&river_mesh_all.vertices) + buffer_bytes(&river_mesh_major.vertices);
+        let river_index_bytes =
+            buffer_bytes(&river_mesh_all.indices) + buffer_bytes(&river_mesh_major.indices);
+        log::info!(
+            "fine mesh GPU relief mesh: vertices={}, indices={}, vertex_bytes={:.1} MiB, index_bytes={:.1} MiB, total={:.1} MiB",
+            unified_mesh.vertices.len(),
+            unified_mesh.indices.len(),
+            unified_vertex_bytes as f64 / 1_048_576.0,
+            unified_index_bytes as f64 / 1_048_576.0,
+            (unified_vertex_bytes + unified_index_bytes) as f64 / 1_048_576.0,
+        );
+        log::info!(
+            "fine mesh GPU river meshes: all_indices={}, major_indices={}, vertex_bytes={:.1} MiB, index_bytes={:.1} MiB, total={:.1} MiB",
+            river_mesh_all.indices.len(),
+            river_mesh_major.indices.len(),
+            river_vertex_bytes as f64 / 1_048_576.0,
+            river_index_bytes as f64 / 1_048_576.0,
+            (river_vertex_bytes + river_index_bytes) as f64 / 1_048_576.0,
         );
     }
 
@@ -539,13 +641,14 @@ pub fn generate_elevation_mesh_buffers(
     device: &wgpu::Device,
     world: &World,
 ) -> (wgpu::Buffer, wgpu::Buffer, u32) {
-    let voronoi = &world.tessellation.voronoi;
-    let elevation = world.elevation.as_ref().unwrap();
+    let tessellation = world.active_tessellation();
+    let voronoi = &tessellation.voronoi;
+    let elevation = world.active_elevation().unwrap();
 
     // Step 1: Compute per-cell elevation and water status
     let cell_elevations: Vec<f32> = (0..voronoi.num_cells())
         .map(|cell_idx| {
-            if let Some(hydrology) = &world.hydrology {
+            if let Some(hydrology) = world.active_hydrology() {
                 if hydrology.is_ocean(cell_idx) {
                     0.0
                 } else if hydrology.is_lake_water(cell_idx) {
@@ -564,7 +667,7 @@ pub fn generate_elevation_mesh_buffers(
 
     let cell_is_water: Vec<bool> = (0..voronoi.num_cells())
         .map(|cell_idx| {
-            if let Some(hydrology) = &world.hydrology {
+            if let Some(hydrology) = world.active_hydrology() {
                 hydrology.is_ocean(cell_idx) || hydrology.is_lake_water(cell_idx)
             } else {
                 elevation.values[cell_idx] <= 0.0
@@ -620,8 +723,14 @@ pub fn generate_elevation_mesh_buffers(
         })
         .collect();
 
-    // Step 4: Build mesh with proper coastal elevation handling
-    let mut vertices = Vec::new();
+    // Step 4: Build a shared-vertex mesh with proper coastal elevation handling.
+    let mut vertices = Vec::with_capacity(voronoi.vertices.len());
+    for (vi, &pos) in voronoi.vertices.iter().enumerate() {
+        vertices.push(ElevationVertex {
+            position: [pos.x, pos.y, pos.z],
+            elevation: vertex_elevations[vi],
+        });
+    }
     let mut indices = Vec::new();
 
     for cell_idx in 0..voronoi.num_cells() {
@@ -630,39 +739,12 @@ pub fn generate_elevation_mesh_buffers(
             continue;
         }
 
-        let is_water = cell_is_water[cell_idx];
-        let cell_water_level = cell_elevations[cell_idx];
-
-        let base_idx = vertices.len() as u32;
-
-        // Add vertices with proper elevation handling
-        for &vertex_idx in cell.vertex_indices {
-            let vi = vertex_idx as usize;
-            let pos = voronoi.vertices[vi];
-
-            let elev = if is_water {
-                // Water cells are flat at their water level
-                cell_water_level
-            } else if vertex_water_level[vi].is_some() {
-                // Land vertex touching water: use water level for seamless coast
-                vertex_water_level[vi].unwrap()
-            } else {
-                // Interior land vertex: use averaged elevation
-                vertex_elevations[vi]
-            };
-
-            vertices.push(ElevationVertex {
-                position: [pos.x, pos.y, pos.z],
-                elevation: elev,
-            });
-        }
-
         // Fan triangulation
         let n = cell.vertex_indices.len();
         for i in 1..n - 1 {
-            indices.push(base_idx);
-            indices.push(base_idx + i as u32);
-            indices.push(base_idx + (i + 1) as u32);
+            indices.push(cell.vertex_indices[0]);
+            indices.push(cell.vertex_indices[i]);
+            indices.push(cell.vertex_indices[i + 1]);
         }
     }
 
@@ -684,11 +766,11 @@ pub fn generate_elevation_mesh_buffers(
 /// Generate line-based river vertices (used outside Relief mode).
 /// Alpha encodes flow magnitude on a log scale.
 fn generate_river_vertices(world: &World, set: RiverSet) -> Vec<SurfaceVertex> {
-    let Some(hydrology) = &world.hydrology else {
+    let Some(hydrology) = world.active_hydrology() else {
         return Vec::new();
     };
-    let elevation = world.elevation.as_ref().unwrap();
-    let tessellation = &world.tessellation;
+    let elevation = world.active_elevation().unwrap();
+    let tessellation = world.active_tessellation();
 
     let include = river_cell_mask(hydrology, tessellation.num_cells(), set);
 
@@ -774,11 +856,11 @@ fn generate_lake_outflow_vertices(
     vertices: &mut Vec<SurfaceVertex>,
     river_color: Vec3,
 ) {
-    let Some(hydrology) = &world.hydrology else {
+    let Some(hydrology) = world.active_hydrology() else {
         return;
     };
-    let elevation = world.elevation.as_ref().unwrap();
-    let tessellation = &world.tessellation;
+    let elevation = world.active_elevation().unwrap();
+    let tessellation = world.active_tessellation();
 
     // Lake outflows are significant rivers - use high alpha
     let outflow_alpha = 0.7;
@@ -860,14 +942,14 @@ fn flow_to_width(flow: f32, max_flow: f32) -> f32 {
 /// Generate a triangle-strip river mesh (used in Relief mode).
 /// Each segment is a quad (2 triangles) with width based on flow.
 fn generate_river_mesh(world: &World, set: RiverSet) -> RiverMesh {
-    let Some(hydrology) = &world.hydrology else {
+    let Some(hydrology) = world.active_hydrology() else {
         return RiverMesh {
             vertices: Vec::new(),
             indices: Vec::new(),
         };
     };
-    let elevation = world.elevation.as_ref().unwrap();
-    let tessellation = &world.tessellation;
+    let elevation = world.active_elevation().unwrap();
+    let tessellation = world.active_tessellation();
 
     let include = river_cell_mask(hydrology, tessellation.num_cells(), set);
 
@@ -1040,11 +1122,11 @@ fn generate_lake_outflow_quads(
     vertices: &mut Vec<UnifiedVertex>,
     indices: &mut Vec<u32>,
 ) {
-    let Some(hydrology) = &world.hydrology else {
+    let Some(hydrology) = world.active_hydrology() else {
         return;
     };
-    let elevation = world.elevation.as_ref().unwrap();
-    let tessellation = &world.tessellation;
+    let elevation = world.active_elevation().unwrap();
+    let tessellation = world.active_tessellation();
 
     // Lake outflows use a high flow value for width
     let outflow_flow = max_flow * 0.5;

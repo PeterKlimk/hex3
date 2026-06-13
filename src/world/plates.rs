@@ -11,7 +11,7 @@ use rand::Rng;
 use rand_distr::{Distribution, Normal};
 
 use super::constants::*;
-use super::Tessellation;
+use super::{CellAdjacency, Tessellation};
 
 /// Initial fraction of the base seed-spacing requirement when relaxing the
 /// distance constraint (the ideal spacing rarely fits all plates).
@@ -65,7 +65,7 @@ impl Plates {
 }
 
 /// Find cells that are on plate boundaries (adjacent to cells on different plates).
-fn find_boundary_cells(adjacency: &[Vec<usize>], cell_plate: &[u32]) -> Vec<usize> {
+fn find_boundary_cells(adjacency: &CellAdjacency, cell_plate: &[u32]) -> Vec<usize> {
     let mut boundary = Vec::new();
     for (cell_idx, neighbors) in adjacency.iter().enumerate() {
         let my_plate = cell_plate[cell_idx];
@@ -223,11 +223,10 @@ fn compute_priority(
     same_plate_neighbors: usize,
     cell_plate: &[u32],
     plate_id: usize,
-    adjacency: &[Vec<usize>],
     cell_idx: usize,
     fbm: &Fbm<Perlin>,
 ) -> f32 {
-    let _ = (cell_plate, adjacency, cell_idx); // Mark as intentionally unused for now
+    let _ = (cell_plate, cell_idx); // Mark as intentionally unused for now
 
     // Arc distance from seed, scaled by target_size
     let distance = plate.seed_pos.dot(cell_pos).clamp(-1.0, 1.0).acos();
@@ -291,7 +290,6 @@ fn flood_fill_weighted<R: Rng>(
                     same_plate_neighbors,
                     &cell_plate,
                     plate_id,
-                    &tessellation.adjacency,
                     neighbor,
                     &fbm,
                 );
@@ -324,7 +322,6 @@ fn flood_fill_weighted<R: Rng>(
                     same_plate_neighbors,
                     &cell_plate,
                     plate_id,
-                    &tessellation.adjacency,
                     neighbor,
                     &fbm,
                 );

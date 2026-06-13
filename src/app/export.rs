@@ -65,6 +65,9 @@ struct CellData {
     noise: NoiseData,
 
     #[serde(skip_serializing_if = "Option::is_none")]
+    density: Option<Vec<f32>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     atmosphere: Option<AtmosphereData>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -125,19 +128,22 @@ struct PlateData {
 
 impl WorldExport {
     fn from_world(world: &World, seed: u64) -> Self {
-        let num_cells = world.tessellation.num_cells();
-        let cell_areas = world.tessellation.cell_areas();
-        let mean_area = world.tessellation.mean_cell_area();
+        let tessellation = world.active_tessellation();
+        let elevation = world.active_elevation().expect("Elevation not generated");
+        let hydrology = world.active_hydrology();
+        let fine = world.fine.as_ref();
+        let num_cells = tessellation.num_cells();
+        let cell_areas = tessellation.cell_areas();
+        let mean_area = tessellation.mean_cell_area();
 
         // Compute mean neighbor distance
-        let mean_neighbor_dist = compute_mean_neighbor_dist(&world.tessellation);
+        let mean_neighbor_dist = compute_mean_neighbor_dist(tessellation);
 
         // Get references to required data (these should always be present after stage 1)
         let plates = world.plates.as_ref().expect("Plates not generated");
         let crust = world.crust.as_ref().expect("Crust not generated");
         let dynamics = world.dynamics.as_ref().expect("Dynamics not generated");
         let features = world.features.as_ref().expect("Features not generated");
-        let elevation = world.elevation.as_ref().expect("Elevation not generated");
 
         // Build cell data arrays
         let mut elevation_vec = Vec::with_capacity(num_cells);
@@ -148,34 +154,54 @@ impl WorldExport {
 
         for i in 0..num_cells {
             elevation_vec.push(elevation.values[i]);
-            plate_id.push(plates.cell_plate[i]);
+            let coarse_i = fine.map(|f| f.coarse_cell[i]).unwrap_or(i);
+            plate_id.push(plates.cell_plate[coarse_i]);
 
-            crust_type.push(if crust.crust_type(i) == CrustType::Continental {
-                0
-            } else {
-                1
-            });
+            let continental = fine
+                .map(|f| f.fields.elevation_fields.continentality[i] >= 0.5)
+                .unwrap_or_else(|| crust.crust_type(i) == CrustType::Continental);
+            crust_type.push(if continental { 0 } else { 1 });
 
             // y is the pole axis (matches the simulation and map projection)
-            let center = world.tessellation.cell_center(i);
+            let center = tessellation.cell_center(i);
             latitude.push(center.y.asin());
             longitude.push(center.z.atan2(center.x));
         }
 
         // Features
-        let features_data = FeatureData {
-            trench: features.trench.clone(),
-            arc: features.arc.clone(),
-            ridge: features.ridge.clone(),
-            collision: features.collision.clone(),
-            activity: features.activity.clone(),
-            convergent: features.convergent.clone(),
-            divergent: features.divergent.clone(),
-            transform: features.transform.clone(),
-            ridge_distance: features.ridge_distance.clone(),
-            ridge_age_distance: features.ridge_age_distance.clone(),
-            ridge_spreading_rate: features.ridge_spreading_rate.clone(),
-            collision_distance: features.collision_distance.clone(),
+        let features_data = if let Some(fine) = fine {
+            let map_feature = |field: &[f32]| -> Vec<f32> {
+                fine.coarse_cell.iter().map(|&c| field[c]).collect()
+            };
+            FeatureData {
+                trench: fine.fields.elevation_fields.trench.clone(),
+                arc: map_feature(&features.arc),
+                ridge: fine.fields.elevation_fields.ridge.clone(),
+                collision: map_feature(&features.collision),
+                activity: map_feature(&features.activity),
+                convergent: fine.fields.elevation_fields.convergent.clone(),
+                divergent: fine.fields.elevation_fields.divergent.clone(),
+                transform: map_feature(&features.transform),
+                ridge_distance: map_feature(&features.ridge_distance),
+                ridge_age_distance: fine.fields.elevation_fields.ridge_age_distance.clone(),
+                ridge_spreading_rate: map_feature(&features.ridge_spreading_rate),
+                collision_distance: map_feature(&features.collision_distance),
+            }
+        } else {
+            FeatureData {
+                trench: features.trench.clone(),
+                arc: features.arc.clone(),
+                ridge: features.ridge.clone(),
+                collision: features.collision.clone(),
+                activity: features.activity.clone(),
+                convergent: features.convergent.clone(),
+                divergent: features.divergent.clone(),
+                transform: features.transform.clone(),
+                ridge_distance: features.ridge_distance.clone(),
+                ridge_age_distance: features.ridge_age_distance.clone(),
+                ridge_spreading_rate: features.ridge_spreading_rate.clone(),
+                collision_distance: features.collision_distance.clone(),
+            }
         };
 
         // Noise (combined contribution)
@@ -195,17 +221,18 @@ impl WorldExport {
             let mut upper_wind_speed = Vec::with_capacity(num_cells);
 
             for i in 0..num_cells {
-                let east = tangent_east(world.tessellation.cell_center(i));
-                wind.push(a.wind[i].dot(east));
-                wind_speed.push(a.wind[i].length());
-                upper_wind.push(a.upper_wind[i].dot(east));
-                upper_wind_speed.push(a.upper_wind[i].length());
+                let coarse_i = fine.map(|f| f.coarse_cell[i]).unwrap_or(i);
+                let east = tangent_east(tessellation.cell_center(i));
+                wind.push(a.wind[coarse_i].dot(east));
+                wind_speed.push(a.wind[coarse_i].length());
+                upper_wind.push(a.upper_wind[coarse_i].dot(east));
+                upper_wind_speed.push(a.upper_wind[coarse_i].length());
             }
 
             AtmosphereData {
-                temperature: a.temperature.clone(),
-                uplift: a.uplift.clone(),
-                precipitation: a.precipitation.clone(),
+                temperature: world.active_temperature().unwrap().to_vec(),
+                uplift: world.active_uplift().unwrap().to_vec(),
+                precipitation: world.active_precipitation().unwrap().to_vec(),
                 wind,
                 wind_speed,
                 upper_wind,
@@ -213,7 +240,7 @@ impl WorldExport {
             }
         });
 
-        let hydrology_data = world.hydrology.as_ref().map(|h| {
+        let hydrology_data = hydrology.map(|h| {
             let mut flow_accumulation = Vec::with_capacity(num_cells);
             let mut is_lake = Vec::with_capacity(num_cells);
             let mut lake_surface = Vec::with_capacity(num_cells);
@@ -292,6 +319,7 @@ impl WorldExport {
                 longitude,
                 features: features_data,
                 noise,
+                density: fine.map(|f| f.density.clone()),
                 atmosphere: atmosphere_data,
                 hydrology: hydrology_data,
             },

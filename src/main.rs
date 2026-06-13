@@ -112,7 +112,7 @@ fn run_headless(
 
     println!(
         "World complete: {} cells, stage {}",
-        world.tessellation.num_cells(),
+        world.num_cells(),
         world.current_stage()
     );
 

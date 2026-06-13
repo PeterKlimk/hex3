@@ -10,11 +10,12 @@
 
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, VecDeque};
+use std::time::Instant;
 
 use ordered_float::OrderedFloat;
 
 use super::constants::EVAP_TEMP_SENSITIVITY;
-use super::{Crust, CrustType, Elevation, Tessellation};
+use super::{Crust, Elevation, Tessellation};
 
 /// Water state of a cell.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -164,31 +165,61 @@ impl Hydrology {
         precipitation: &[f32],
         temperature: &[f32],
     ) -> Self {
+        let continentality: Vec<f32> = (0..tessellation.num_cells())
+            .map(|i| if crust.is_continental(i) { 1.0 } else { 0.0 })
+            .collect();
+        Self::generate_from_continentality(
+            tessellation,
+            &continentality,
+            elevation,
+            precipitation,
+            temperature,
+        )
+    }
+
+    pub fn generate_from_continentality(
+        tessellation: &Tessellation,
+        continentality: &[f32],
+        elevation: &Elevation,
+        precipitation: &[f32],
+        temperature: &[f32],
+    ) -> Self {
+        let total = Instant::now();
         // Use raw elevation directly - MIN_LAKE_DEPTH filters spurious puddles
         let raw_elevation = &elevation.values;
 
         // Step 1: Identify ocean cells (connected below-sea-level touching oceanic crust)
-        let is_ocean = identify_ocean_cells(tessellation, crust, raw_elevation);
+        let t0 = Instant::now();
+        let is_ocean =
+            identify_ocean_cells_from_continentality(tessellation, continentality, raw_elevation);
+        log::info!("hydrology: identify ocean cells {:.2?}", t0.elapsed());
 
         // Step 2: Priority-flood from ocean to detect all basins
+        let t0 = Instant::now();
         let (filled_elevation, basin_id, mut basins, flood_parent) =
             priority_flood_with_basins(tessellation, raw_elevation, &is_ocean);
+        log::info!(
+            "hydrology: priority flood {:.2?} ({} basins)",
+            t0.elapsed(),
+            basins.len()
+        );
 
         // Step 4: Compute drainage via steepest descent on filled surface
         // (needed before catchment calculation)
+        let t0 = Instant::now();
         let drainage_dir =
             compute_steepest_descent(tessellation, &filled_elevation, &is_ocean, &flood_parent);
+        log::info!("hydrology: drainage directions {:.2?}", t0.elapsed());
 
         // Step 5: Accumulate flow (precipitation-weighted)
-        let flow_accumulation =
-            compute_flow_accumulation(tessellation, &drainage_dir, precipitation);
-        let catchment_cell_accumulation =
-            compute_flow_accumulation_with_sources(&drainage_dir, &vec![1.0; raw_elevation.len()]);
-        let temperature_accumulation =
-            compute_flow_accumulation_with_sources(&drainage_dir, temperature);
+        let t0 = Instant::now();
+        let (flow_accumulation, catchment_cell_accumulation, temperature_accumulation) =
+            compute_flow_accumulations(&drainage_dir, precipitation, temperature);
         let global_mean_temperature = mean_temperature(temperature);
+        log::info!("hydrology: flow accumulations {:.2?}", t0.elapsed());
 
         // Step 6: Compute catchment budget for each basin
+        let t0 = Instant::now();
         compute_basin_catchments(
             &mut basins,
             &basin_id,
@@ -200,18 +231,34 @@ impl Hydrology {
             temperature,
             global_mean_temperature,
         );
+        log::info!("hydrology: basin catchments {:.2?}", t0.elapsed());
 
         // Step 7: Determine which basin each basin overflows into
+        let t0 = Instant::now();
         compute_overflow_targets(&mut basins, &drainage_dir, &basin_id, &is_ocean);
+        log::info!("hydrology: overflow targets {:.2?}", t0.elapsed());
 
         // Step 8: Calculate equilibrium water levels with overflow cascade
+        let t0 = Instant::now();
         let climate_ratio = DEFAULT_CLIMATE_RATIO;
         calculate_water_levels(&mut basins, climate_ratio);
+        log::info!("hydrology: water levels {:.2?}", t0.elapsed());
 
         // Step 9: Extract connected water bodies from wet cells
+        let t0 = Instant::now();
         let num_cells = tessellation.num_cells();
         let (water_bodies, cell_water_body) =
             extract_water_bodies(tessellation, raw_elevation, &basins, &basin_id, num_cells);
+        log::info!(
+            "hydrology: water bodies {:.2?} ({} bodies)",
+            t0.elapsed(),
+            water_bodies.len()
+        );
+        log::info!(
+            "hydrology: total {:.2?} ({} cells)",
+            total.elapsed(),
+            tessellation.num_cells()
+        );
 
         Self {
             elevation: raw_elevation.clone(),
@@ -460,9 +507,9 @@ impl Hydrology {
 /// A connected component of elevation < 0 cells qualifies as ocean if:
 /// - It contains at least one cell of oceanic crust
 /// - It meets the minimum area threshold (fraction of total cells)
-fn identify_ocean_cells(
+fn identify_ocean_cells_from_continentality(
     tessellation: &Tessellation,
-    crust: &Crust,
+    continentality: &[f32],
     elevation: &[f32],
 ) -> Vec<bool> {
     let n = tessellation.num_cells();
@@ -488,7 +535,7 @@ fn identify_ocean_cells(
             component.push(cell);
 
             // Check if this cell is on oceanic crust
-            if crust.crust_type(cell) == CrustType::Oceanic {
+            if continentality[cell] < 0.5 {
                 touches_oceanic = true;
             }
 
@@ -644,35 +691,42 @@ fn compute_basin_catchments(
     temperature: &[f32],
     global_mean_temperature: f32,
 ) {
-    // For each basin, find cells that drain INTO it (but aren't in it)
-    // The catchment budget is the basin's own rainfall plus flow at entry points
+    // Start each basin with its own rainfall and thermal budget.
+    let mut catchment: Vec<f32> = basins
+        .iter()
+        .map(|basin| basin.cells.iter().map(|&c| precipitation[c]).sum())
+        .collect();
+    let mut catchment_cells: Vec<f32> = basins
+        .iter()
+        .map(|basin| basin.cells.len() as f32)
+        .collect();
+    let mut temperature_sum: Vec<f32> = basins
+        .iter()
+        .map(|basin| basin.cells.iter().map(|&c| temperature[c]).sum())
+        .collect();
 
-    for (idx, basin) in basins.iter_mut().enumerate() {
-        // Start with the basin's own rainfall
-        let mut catchment: f32 = basin.cells.iter().map(|&c| precipitation[c]).sum();
-        // Area-weighted catchment temperature: basin cells plus every upstream
-        // cell entering the basin through drainage. This deliberately follows
-        // catchment area rather than current lake cells so dry terminal basins
-        // still get the right evaporative climate.
-        let mut catchment_cells: f32 = basin.cells.len() as f32;
-        let mut temperature_sum: f32 = basin.cells.iter().map(|&c| temperature[c]).sum();
-
-        // Also count cells that drain into the basin from outside
-        for (cell, &downstream) in drainage_dir.iter().enumerate() {
-            if let Some(downstream) = downstream {
-                // If this cell drains into a basin cell, and isn't itself in the basin
-                if basin_id[downstream] == Some(idx) && basin_id[cell] != Some(idx) {
-                    // This cell's flow feeds into the basin
-                    catchment += flow_accumulation[cell];
-                    catchment_cells += catchment_cell_accumulation[cell];
-                    temperature_sum += temperature_accumulation[cell];
-                }
-            }
+    // Count upstream flow entering basin cells from outside. Scanning drainage
+    // edges once avoids repeating a full world pass for every basin.
+    for (cell, &downstream) in drainage_dir.iter().enumerate() {
+        let Some(downstream) = downstream else {
+            continue;
+        };
+        let Some(target_basin) = basin_id[downstream] else {
+            continue;
+        };
+        if basin_id[cell] == Some(target_basin) {
+            continue;
         }
 
-        basin.catchment_area = catchment;
-        basin.mean_temperature = if catchment_cells > 0.0 {
-            temperature_sum / catchment_cells
+        catchment[target_basin] += flow_accumulation[cell];
+        catchment_cells[target_basin] += catchment_cell_accumulation[cell];
+        temperature_sum[target_basin] += temperature_accumulation[cell];
+    }
+
+    for (idx, basin) in basins.iter_mut().enumerate() {
+        basin.catchment_area = catchment[idx];
+        basin.mean_temperature = if catchment_cells[idx] > 0.0 {
+            temperature_sum[idx] / catchment_cells[idx]
         } else {
             global_mean_temperature
         };
@@ -861,18 +915,43 @@ fn compute_steepest_descent(
     drainage
 }
 
-/// Compute flow accumulation using topological sort.
-///
-/// Each cell contributes 1 unit of "rainfall" that flows downstream.
-/// Processes cells in dependency order (all upstream before downstream).
-fn compute_flow_accumulation(
-    _tessellation: &Tessellation,
+fn compute_flow_accumulations(
     drainage_dir: &[Option<usize>],
     precipitation: &[f32],
-) -> Vec<f32> {
-    compute_flow_accumulation_with_sources(drainage_dir, precipitation)
+    temperature: &[f32],
+) -> (Vec<f32>, Vec<f32>, Vec<f32>) {
+    let n = drainage_dir.len();
+
+    // Count how many cells drain into each cell (upstream count)
+    let mut upstream_count = vec![0usize; n];
+    for downstream in drainage_dir.iter().flatten() {
+        upstream_count[*downstream] += 1;
+    }
+
+    // Use one topological traversal for all source fields that share the
+    // same drainage graph.
+    let mut precipitation_flow = precipitation.to_vec();
+    let mut cell_flow = vec![1.0f32; n];
+    let mut temperature_flow = temperature.to_vec();
+    let mut remaining_upstream = upstream_count.clone();
+    let mut ready: Vec<usize> = (0..n).filter(|&c| upstream_count[c] == 0).collect();
+
+    while let Some(cell) = ready.pop() {
+        if let Some(downstream) = drainage_dir[cell] {
+            precipitation_flow[downstream] += precipitation_flow[cell];
+            cell_flow[downstream] += cell_flow[cell];
+            temperature_flow[downstream] += temperature_flow[cell];
+            remaining_upstream[downstream] -= 1;
+            if remaining_upstream[downstream] == 0 {
+                ready.push(downstream);
+            }
+        }
+    }
+
+    (precipitation_flow, cell_flow, temperature_flow)
 }
 
+#[cfg(test)]
 fn compute_flow_accumulation_with_sources(
     drainage_dir: &[Option<usize>],
     source: &[f32],
@@ -1033,5 +1112,62 @@ mod tests {
         let mut basins = vec![test_basin(1.0)];
         calculate_water_levels(&mut basins, 0.2);
         assert_eq!(basins[0].water_level, 3.5);
+    }
+
+    #[test]
+    fn basin_catchments_count_crossing_drainage_edges_once() {
+        let mut basins = vec![
+            Basin {
+                cells: vec![2],
+                sorted_elevations: vec![0.0],
+                spill_elevation: 1.0,
+                bottom_elevation: 0.0,
+                spill_target_cell: 1,
+                overflow_target: None,
+                catchment_area: 0.0,
+                mean_temperature: 0.0,
+                evaporation_factor: 1.0,
+                water_level: f32::NEG_INFINITY,
+            },
+            Basin {
+                cells: vec![4],
+                sorted_elevations: vec![0.0],
+                spill_elevation: 1.0,
+                bottom_elevation: 0.0,
+                spill_target_cell: 3,
+                overflow_target: None,
+                catchment_area: 0.0,
+                mean_temperature: 0.0,
+                evaporation_factor: 1.0,
+                water_level: f32::NEG_INFINITY,
+            },
+        ];
+        let basin_id = vec![None, None, Some(0), None, Some(1)];
+        let drainage_dir = vec![Some(1), Some(2), Some(3), Some(4), None];
+        let precipitation = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let temperature = vec![10.0, 20.0, 30.0, 40.0, 50.0];
+        let flow_accumulation =
+            compute_flow_accumulation_with_sources(&drainage_dir, &precipitation);
+        let catchment_cell_accumulation =
+            compute_flow_accumulation_with_sources(&drainage_dir, &vec![1.0; precipitation.len()]);
+        let temperature_accumulation =
+            compute_flow_accumulation_with_sources(&drainage_dir, &temperature);
+
+        compute_basin_catchments(
+            &mut basins,
+            &basin_id,
+            &drainage_dir,
+            &flow_accumulation,
+            &precipitation,
+            &catchment_cell_accumulation,
+            &temperature_accumulation,
+            &temperature,
+            30.0,
+        );
+
+        assert_eq!(basins[0].catchment_area, 6.0);
+        assert_eq!(basins[0].mean_temperature, 20.0);
+        assert_eq!(basins[1].catchment_area, 15.0);
+        assert_eq!(basins[1].mean_temperature, 30.0);
     }
 }

@@ -242,7 +242,7 @@ impl ApplicationHandler for App {
                         let filename = format!(
                             "hex3_dump_{}_{}_{}.json.gz",
                             state.seed,
-                            state.world_data.tessellation.num_cells(),
+                            state.world_data.num_cells(),
                             state.world_data.current_stage()
                         );
                         let path = std::path::PathBuf::from(&filename);

@@ -1,6 +1,7 @@
 //! Spherical tessellation - Voronoi cells and adjacency graph.
 
 use std::collections::{HashMap, HashSet};
+use std::ops::Index;
 
 use glam::Vec3;
 use rand::Rng;
@@ -12,8 +13,112 @@ pub struct Tessellation {
     /// The underlying Voronoi diagram.
     pub voronoi: SphericalVoronoi,
 
-    /// Adjacency list: for each cell, indices of neighboring cells.
-    pub adjacency: Vec<Vec<usize>>,
+    /// Immutable cell adjacency graph.
+    pub adjacency: CellAdjacency,
+}
+
+/// Compact immutable cell adjacency graph.
+///
+/// Neighbor lists are stored in one flat buffer with per-cell offsets. This
+/// matches the topology shape better than `Vec<Vec<_>>`: Voronoi valence is
+/// small, the graph is immutable after tessellation, and hot loops mostly
+/// iterate neighbors.
+pub struct CellAdjacency {
+    offsets: Vec<usize>,
+    neighbors: Vec<usize>,
+}
+
+impl CellAdjacency {
+    pub fn from_vecs(adjacency: Vec<Vec<usize>>) -> Self {
+        let mut offsets = Vec::with_capacity(adjacency.len() + 1);
+        let total_neighbors = adjacency.iter().map(Vec::len).sum();
+        let mut neighbors = Vec::with_capacity(total_neighbors);
+        offsets.push(0);
+        for cell_neighbors in adjacency {
+            neighbors.extend(cell_neighbors);
+            offsets.push(neighbors.len());
+        }
+        Self { offsets, neighbors }
+    }
+
+    pub fn from_slices<I, S>(neighbor_lists: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<[usize]>,
+    {
+        let iter = neighbor_lists.into_iter();
+        let (lower_bound, _) = iter.size_hint();
+        let mut offsets = Vec::with_capacity(lower_bound + 1);
+        let mut neighbors = Vec::new();
+        offsets.push(0);
+        for cell_neighbors in iter {
+            neighbors.extend_from_slice(cell_neighbors.as_ref());
+            offsets.push(neighbors.len());
+        }
+        Self { offsets, neighbors }
+    }
+
+    pub fn len(&self) -> usize {
+        self.offsets.len().saturating_sub(1)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn neighbors(&self, cell_idx: usize) -> &[usize] {
+        let start = self.offsets[cell_idx];
+        let end = self.offsets[cell_idx + 1];
+        &self.neighbors[start..end]
+    }
+
+    pub fn iter(&self) -> CellAdjacencyIter<'_> {
+        CellAdjacencyIter {
+            adjacency: self,
+            next_cell: 0,
+        }
+    }
+
+    pub fn total_neighbor_entries(&self) -> usize {
+        self.neighbors.len()
+    }
+}
+
+impl Index<usize> for CellAdjacency {
+    type Output = [usize];
+
+    fn index(&self, index: usize) -> &Self::Output {
+        self.neighbors(index)
+    }
+}
+
+pub struct CellAdjacencyIter<'a> {
+    adjacency: &'a CellAdjacency,
+    next_cell: usize,
+}
+
+impl<'a> Iterator for CellAdjacencyIter<'a> {
+    type Item = &'a [usize];
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.next_cell >= self.adjacency.len() {
+            return None;
+        }
+        let cell = self.next_cell;
+        self.next_cell += 1;
+        Some(self.adjacency.neighbors(cell))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.adjacency.len().saturating_sub(self.next_cell);
+        (remaining, Some(remaining))
+    }
+}
+
+impl ExactSizeIterator for CellAdjacencyIter<'_> {
+    fn len(&self) -> usize {
+        self.adjacency.len().saturating_sub(self.next_cell)
+    }
 }
 
 /// Default jitter amount for Fibonacci lattice (as fraction of mean cell spacing).
@@ -74,21 +179,31 @@ impl Tessellation {
         _lloyd_iterations: usize,
         rng: &mut R,
     ) -> Self {
-        use crate::geometry::VoronoiCell;
-        use crate::util::Timed;
-
         let mean_spacing = (4.0 * std::f32::consts::PI / num_cells as f32).sqrt();
         let jitter = mean_spacing * FIBONACCI_JITTER;
 
         let mut points = {
-            let _t = Timed::debug("  Fibonacci points");
+            let _t = crate::util::Timed::debug("  Fibonacci points");
             fibonacci_sphere_points_with_rng(num_cells, jitter, rng)
         };
 
         if LLOYD_ITERATIONS > 0 {
-            let _t = Timed::debug("  Lloyd relaxation");
+            let _t = crate::util::Timed::debug("  Lloyd relaxation");
             lloyd_relax_kmeans(&mut points, LLOYD_ITERATIONS, LLOYD_SAMPLES_PER_SITE, rng);
         }
+
+        Self::from_points_knn_clipping(points)
+    }
+
+    /// Build a tessellation from pre-sampled unit-sphere points using the
+    /// s2-voronoi half-space clipping backend.
+    pub fn from_points_knn_clipping(points: Vec<Vec3>) -> Self {
+        use crate::geometry::VoronoiCell;
+        use crate::util::Timed;
+
+        // Adaptive fine meshes intentionally skip Lloyd relaxation; callers
+        // that need relaxation should generate points through
+        // `generate_knn_clipping`.
 
         // Pass plain arrays so hex3's glam version stays independent of the crate's
         let raw_points: Vec<[f32; 3]> = points.iter().map(|p| p.to_array()).collect();
@@ -103,16 +218,20 @@ impl Tessellation {
         let adjacency = {
             let _t = Timed::debug("  Build adjacency (native)");
             let native = diagram.build_adjacency();
-            (0..diagram.num_cells())
-                .map(|i| {
+            let mut offsets = Vec::with_capacity(diagram.num_cells() + 1);
+            let mut neighbors = Vec::with_capacity(diagram.num_cells() * 6);
+            offsets.push(0);
+            for i in 0..diagram.num_cells() {
+                neighbors.extend(
                     native
                         .neighbors_of(i)
                         .iter()
                         .filter(|&&n| n != s2_voronoi::adjacency::NO_NEIGHBOR)
-                        .map(|&n| n as usize)
-                        .collect::<Vec<usize>>()
-                })
-                .collect::<Vec<_>>()
+                        .map(|&n| n as usize),
+                );
+                offsets.push(neighbors.len());
+            }
+            CellAdjacency { offsets, neighbors }
         };
 
         let voronoi = {
@@ -166,7 +285,7 @@ impl Tessellation {
 
     /// Get the neighbors of a cell.
     pub fn neighbors(&self, cell_idx: usize) -> &[usize] {
-        &self.adjacency[cell_idx]
+        self.adjacency.neighbors(cell_idx)
     }
 
     /// Compute the solid angle (spherical area) of each Voronoi cell.
@@ -275,7 +394,7 @@ impl Tessellation {
 /// Build adjacency list: for each cell, list of neighboring cell indices.
 ///
 /// Two cells are adjacent if they share an edge (two consecutive Voronoi vertices).
-fn build_adjacency(voronoi: &SphericalVoronoi) -> Vec<Vec<usize>> {
+fn build_adjacency(voronoi: &SphericalVoronoi) -> CellAdjacency {
     // Map from edge (as canonical vertex pair) to list of cells containing that edge
     let mut edge_to_cells: HashMap<(u32, u32), Vec<usize>> = HashMap::new();
 
@@ -305,7 +424,7 @@ fn build_adjacency(voronoi: &SphericalVoronoi) -> Vec<Vec<usize>> {
         }
     }
 
-    adjacency
+    CellAdjacency::from_vecs(adjacency)
 }
 
 /// Compute the area of a spherical triangle on the unit sphere.

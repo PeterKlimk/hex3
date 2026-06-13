@@ -29,6 +29,7 @@ pub mod diagnostics;
 mod dynamics;
 mod elevation;
 mod features;
+mod fine;
 mod hydrology;
 mod moisture;
 mod plates;
@@ -44,9 +45,10 @@ pub const NUM_PLATES_DEFAULT: usize = 14;
 pub use dynamics::{Dynamics, EulerPole};
 pub use elevation::{Elevation, NoiseLayerData};
 pub use features::FeatureFields;
+pub use fine::{FineFields, FineWorld};
 pub use hydrology::{Basin, CellWaterState, Hydrology, WaterBody, DEFAULT_CLIMATE_RATIO};
 pub use plates::Plates;
-pub use tessellation::Tessellation;
+pub use tessellation::{CellAdjacency, Tessellation};
 
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -105,6 +107,9 @@ pub struct World {
     // --- Stage 3: Hydrosphere ---
     /// Hydrology (drainage, rivers).
     pub hydrology: Option<Hydrology>,
+
+    /// Adaptive fine mesh and Stage-3 hydrology/erosion infrastructure.
+    pub fine: Option<FineWorld>,
 }
 
 impl World {
@@ -150,6 +155,7 @@ impl World {
             elevation: None,
             atmosphere: None,
             hydrology: None,
+            fine: None,
         }
     }
 
@@ -249,6 +255,10 @@ impl World {
     /// Requires crust, elevation, and atmosphere (for precipitation).
     pub fn generate_hydrology(&mut self) {
         let crust = self.crust.as_ref().expect("Crust must be generated first");
+        let features = self
+            .features
+            .as_ref()
+            .expect("Features must be generated first");
         let elevation = self
             .elevation
             .as_ref()
@@ -257,18 +267,79 @@ impl World {
             .atmosphere
             .as_ref()
             .expect("Atmosphere must be generated first");
-        self.hydrology = Some(Hydrology::generate(
+        let fine = FineWorld::generate(
+            self.seed,
             &self.tessellation,
             crust,
+            features,
             elevation,
-            &atmosphere.precipitation,
-            &atmosphere.temperature,
-        ));
+            atmosphere,
+        );
+        self.hydrology = None;
+        self.fine = Some(fine);
     }
 
     /// Get the number of cells in this world.
     pub fn num_cells(&self) -> usize {
-        self.tessellation.num_cells()
+        self.active_tessellation().num_cells()
+    }
+
+    pub fn active_tessellation(&self) -> &Tessellation {
+        self.fine
+            .as_ref()
+            .map(|fine| &fine.tessellation)
+            .unwrap_or(&self.tessellation)
+    }
+
+    pub fn active_elevation(&self) -> Option<&Elevation> {
+        self.fine
+            .as_ref()
+            .map(|fine| &fine.elevation)
+            .or(self.elevation.as_ref())
+    }
+
+    pub fn active_hydrology(&self) -> Option<&Hydrology> {
+        self.fine
+            .as_ref()
+            .map(|fine| &fine.hydrology)
+            .or(self.hydrology.as_ref())
+    }
+
+    pub fn active_hydrology_mut(&mut self) -> Option<&mut Hydrology> {
+        if let Some(fine) = &mut self.fine {
+            Some(&mut fine.hydrology)
+        } else {
+            self.hydrology.as_mut()
+        }
+    }
+
+    pub fn active_temperature(&self) -> Option<&[f32]> {
+        self.fine
+            .as_ref()
+            .map(|fine| fine.fields.temperature.as_slice())
+            .or_else(|| self.atmosphere.as_ref().map(|a| a.temperature.as_slice()))
+    }
+
+    pub fn active_precipitation(&self) -> Option<&[f32]> {
+        self.fine
+            .as_ref()
+            .map(|fine| fine.fields.precipitation.as_slice())
+            .or_else(|| self.atmosphere.as_ref().map(|a| a.precipitation.as_slice()))
+    }
+
+    pub fn active_uplift(&self) -> Option<&[f32]> {
+        self.fine
+            .as_ref()
+            .map(|fine| fine.fields.uplift.as_slice())
+            .or_else(|| self.atmosphere.as_ref().map(|a| a.uplift.as_slice()))
+    }
+
+    pub fn set_active_climate_ratio(&mut self, ratio: f32) {
+        if let Some(fine) = &mut self.fine {
+            fine.hydrology.set_climate_ratio(&fine.tessellation, ratio);
+        } else if let Some(hydrology) = &mut self.hydrology {
+            hydrology.set_climate_ratio(&self.tessellation, ratio);
+        }
     }
 
     /// Get the current generation stage.
@@ -276,7 +347,7 @@ impl World {
     /// - Stage 2: Atmosphere (temperature, wind)
     /// - Stage 3: Hydrosphere (rivers, lakes)
     pub fn current_stage(&self) -> u32 {
-        if self.hydrology.is_some() {
+        if self.fine.is_some() || self.hydrology.is_some() {
             3
         } else if self.atmosphere.is_some() {
             2

@@ -84,6 +84,8 @@ def layer_values(data: dict, layer: str):
         elev = np.array(cells["elevation"])
         v[elev < 0] = np.nan
         return v, dict(cmap="Blues", norm=LogNorm(vmin=1.0, vmax=max(np.nanmax(v), 10.0)))
+    if layer == "density":
+        return np.array(cells.get("density")), dict(cmap="magma")
     # Fallback: look it up in features / noise / atmosphere by name
     for group in (cells.get("features") or {}, cells.get("noise") or {}, atmosphere, hydrology):
         if layer in group:
@@ -115,8 +117,9 @@ def render(data: dict, layers: list[str], output: Path, dpi: int):
         # Coastline overlay for non-elevation layers: outline land cells faintly.
         if layer not in ("elevation", "crust"):
             coast = elevation >= 0
+            coast_alpha = min(0.12, 12000 / len(lat))
             ax.scatter(
-                lon[coast], lat[coast], s=size * 0.25, c="black", alpha=0.12, linewidths=0
+                lon[coast], lat[coast], s=size * 0.25, c="black", alpha=coast_alpha, linewidths=0
             )
         ax.set_xlim(-180, 180)
         ax.set_ylim(-90, 90)
