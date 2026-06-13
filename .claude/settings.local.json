@@ -42,7 +42,25 @@
       "Bash(chmod:*)",
       "Bash(git rm:*)",
       "Bash(pip install:*)",
-      "Bash(pip3 install:*)"
+      "Bash(pip3 install:*)",
+      "Bash(gh repo *)",
+      "Bash(gh api *)",
+      "Bash(git pull *)",
+      "Bash(sed -n 1,20p src/app/visualization.rs)",
+      "Bash(sed -n 325,335p src/app/visualization.rs)",
+      "Bash(sed -n 1,30p src/app/world.rs)",
+      "Bash(sed -n 1225,1250p src/app/world.rs)",
+      "Bash(sed -n 205,210p src/app/visualization.rs)",
+      "Bash(sed -n 1245,1252p src/app/world.rs)",
+      "Bash(sed -n 95,100p src/render/elevation_map.rs)",
+      "Bash(sed -n 555,575p src/render/particles.rs)",
+      "Bash(python3 *)",
+      "Bash(cargo update *)",
+      "Bash(curl -s https://crates.io/api/v1/crates/encase)",
+      "Bash(curl -s https://crates.io/api/v1/crates/encase/0.11.2/dependencies)",
+      "Bash(cargo tree *)",
+      "Bash(sed -n 100,145p src/world/plates.rs)",
+      "Bash(sed -n 190,210p src/world/plates.rs)"
     ]
   }
 }

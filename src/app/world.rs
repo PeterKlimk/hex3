@@ -1,5 +1,4 @@
 use glam::Vec3;
-use std::collections::HashSet;
 use wgpu::util::DeviceExt;
 
 use hex3::geometry::{
@@ -41,13 +40,6 @@ const RIVER_MIN_WIDTH: f32 = 0.003;
 /// Maximum river width (major rivers)
 const RIVER_MAX_WIDTH: f32 = 0.015;
 
-/// Fine cells at or above this area ratio get their real Voronoi edges drawn.
-const FINE_DENSITY_EDGE_AREA_RATIO: f32 = 3.4;
-/// Fine cells at or below this area ratio get sampled density ticks.
-const FINE_DENSITY_TICK_AREA_RATIO: f32 = 0.95;
-/// Keep the diagnostic overlay bounded even for multi-million-cell worlds.
-const FINE_DENSITY_MAX_TICKS: usize = 90_000;
-
 fn buffer_bytes<T>(items: &[T]) -> usize {
     items.len() * std::mem::size_of::<T>()
 }
@@ -71,7 +63,8 @@ pub struct WorldBuffers {
     pub unified_index_buffer: wgpu::Buffer,
     pub num_unified_indices: u32,
     pub relief_edge_vertex_buffer: wgpu::Buffer,
-    pub num_relief_edge_vertices: u32,
+    pub relief_edge_index_buffer: wgpu::Buffer,
+    pub num_relief_edge_indices: u32,
 
     // Rivers (line-based for non-relief, triangle mesh for relief)
     pub river_all_vertex_buffer: wgpu::Buffer,
@@ -321,179 +314,6 @@ fn mode_uses_fine_mesh(world: &World, mode: RenderMode) -> bool {
         )
 }
 
-fn splitmix64(mut value: u64) -> u64 {
-    value = value.wrapping_add(0x9E37_79B9_7F4A_7C15);
-    value = (value ^ (value >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    value = (value ^ (value >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-    value ^ (value >> 31)
-}
-
-fn hash_unit_f32(seed: u64, index: usize, stream: u64) -> f32 {
-    let value = splitmix64(seed ^ (index as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ stream);
-    ((value >> 40) as f32) * (1.0 / (1u32 << 24) as f32)
-}
-
-fn relief_vertex_elevations<E, M>(
-    voronoi: &hex3::geometry::SphericalVoronoi,
-    elevation_fn: E,
-    material_fn: M,
-) -> Vec<f32>
-where
-    E: Fn(usize) -> f32,
-    M: Fn(usize) -> Material,
-{
-    let mut vertex_land_sum = vec![0.0f32; voronoi.vertices.len()];
-    let mut vertex_land_count = vec![0u32; voronoi.vertices.len()];
-    let mut vertex_water_level = vec![None::<f32>; voronoi.vertices.len()];
-
-    for cell_idx in 0..voronoi.num_cells() {
-        let cell = voronoi.cell(cell_idx);
-        let elevation = elevation_fn(cell_idx);
-        let is_water = matches!(material_fn(cell_idx), Material::Ocean | Material::Lake);
-
-        for &vertex_idx in cell.vertex_indices {
-            let vi = vertex_idx as usize;
-            if is_water {
-                vertex_water_level[vi] = Some(
-                    vertex_water_level[vi]
-                        .map(|wl| wl.max(elevation))
-                        .unwrap_or(elevation),
-                );
-            } else {
-                vertex_land_sum[vi] += elevation;
-                vertex_land_count[vi] += 1;
-            }
-        }
-    }
-
-    (0..voronoi.vertices.len())
-        .map(|v| match (vertex_water_level[v], vertex_land_count[v]) {
-            (Some(wl), 0) => wl,
-            (None, n) if n > 0 => vertex_land_sum[v] / n as f32,
-            (Some(wl), _) => wl,
-            _ => 0.0,
-        })
-        .collect()
-}
-
-fn relief_mesh_vertex(pos: Vec3, elevation: f32, color: Vec3, lift: f32) -> MeshVertex {
-    let normal = pos.normalize();
-    let displacement = 1.0 + elevation * hex3::world::RELIEF_SCALE;
-    MeshVertex::new(normal * displacement * lift, normal, color)
-}
-
-fn generate_fine_relief_density_overlay<E>(
-    world: &World,
-    elevation_fn: E,
-    edge_color: Vec3,
-) -> Vec<MeshVertex>
-where
-    E: Fn(usize) -> f32 + Copy,
-{
-    let tessellation = world.active_tessellation();
-    let voronoi = &tessellation.voronoi;
-    let areas = tessellation.cell_areas();
-    let mean_area = tessellation.mean_cell_area();
-    let mean_spacing = mean_area.sqrt();
-    let vertex_elevations =
-        relief_vertex_elevations(voronoi, elevation_fn, |i| cell_material(world, i));
-
-    let mut vertices = Vec::new();
-    let mut processed_edges: HashSet<(u32, u32)> = HashSet::new();
-    let true_edge_color = edge_color * 0.9;
-
-    for (cell_idx, cell) in voronoi.iter_cells().enumerate() {
-        if areas[cell_idx] / mean_area < FINE_DENSITY_EDGE_AREA_RATIO {
-            continue;
-        }
-
-        for i in 0..cell.len() {
-            let a = cell.vertex_indices[i];
-            let b = cell.vertex_indices[(i + 1) % cell.len()];
-            let edge = if a < b { (a, b) } else { (b, a) };
-
-            if !processed_edges.insert(edge) {
-                continue;
-            }
-
-            let v0 = voronoi.vertices[edge.0 as usize];
-            let v1 = voronoi.vertices[edge.1 as usize];
-            vertices.push(relief_mesh_vertex(
-                v0,
-                vertex_elevations[edge.0 as usize],
-                true_edge_color,
-                1.0015,
-            ));
-            vertices.push(relief_mesh_vertex(
-                v1,
-                vertex_elevations[edge.1 as usize],
-                true_edge_color,
-                1.0015,
-            ));
-        }
-    }
-
-    let mut dense_candidates = areas
-        .iter()
-        .filter(|&&area| area / mean_area <= FINE_DENSITY_TICK_AREA_RATIO)
-        .count();
-    dense_candidates = dense_candidates.max(1);
-    let base_probability =
-        (FINE_DENSITY_MAX_TICKS as f32 / dense_candidates as f32).clamp(0.002, 0.08);
-
-    let mut tick_count = 0usize;
-    for (cell_idx, &area) in areas.iter().enumerate() {
-        let area_ratio = area / mean_area;
-        if area_ratio > FINE_DENSITY_TICK_AREA_RATIO {
-            continue;
-        }
-
-        let density = (1.0 / area_ratio.max(1e-4)).sqrt();
-        let probability = (base_probability * density).clamp(0.002, 0.18);
-        if hash_unit_f32(world.seed, cell_idx, 0xD3A5) > probability {
-            continue;
-        }
-        if tick_count >= FINE_DENSITY_MAX_TICKS {
-            break;
-        }
-
-        let center = voronoi.generators[cell_idx].normalize();
-        let arbitrary = if center.x.abs() < 0.9 {
-            Vec3::X
-        } else {
-            Vec3::Y
-        };
-        let u = center.cross(arbitrary).normalize();
-        let v = center.cross(u).normalize();
-        let angle = hash_unit_f32(world.seed, cell_idx, 0x51DE) * std::f32::consts::TAU;
-        let dir = (u * angle.cos() + v * angle.sin()).normalize();
-        let half_len = mean_spacing * 0.16 * area_ratio.sqrt().clamp(0.22, 0.85);
-        let p0 = (center - dir * half_len).normalize();
-        let p1 = (center + dir * half_len).normalize();
-        let density_t = ((1.0 / area_ratio.max(1e-4)) - 1.0).clamp(0.0, 6.0) / 6.0;
-        let tick_color = Vec3::new(
-            0.34 + 0.36 * density_t,
-            0.42 + 0.20 * density_t,
-            0.72 + 0.16 * density_t,
-        );
-        let elevation = elevation_fn(cell_idx);
-
-        vertices.push(relief_mesh_vertex(p0, elevation, tick_color, 1.0025));
-        vertices.push(relief_mesh_vertex(p1, elevation, tick_color, 1.0025));
-        tick_count += 1;
-    }
-
-    log::info!(
-        "fine mesh relief density overlay: true_edge_segments={}, density_ticks={}, vertices={}, bytes={:.1} MiB",
-        processed_edges.len(),
-        tick_count,
-        vertices.len(),
-        buffer_bytes(&vertices) as f64 / 1_048_576.0,
-    );
-
-    vertices
-}
-
 /// Generate a colored mesh for a specific render mode and layer settings.
 /// This is fast (~5-10ms for 80k cells) and called on mode/layer switch.
 pub fn generate_colored_mesh(
@@ -645,17 +465,25 @@ pub fn generate_world_buffers(device: &wgpu::Device, world: &World) -> WorldBuff
                 .unwrap_or(edge_color)
         });
 
-    // Relief edges with elevation
-    let edge_vertices_relief = if use_fine {
-        generate_fine_relief_density_overlay(world, elevation_for_cell, edge_color)
-    } else {
-        VoronoiMesh::edge_lines_with_elevation(
+    // Relief edges with elevation — indexed line list (shared vertices). This
+    // is the real Voronoi wireframe at both resolutions; indexing keeps the
+    // fine mesh (~3 edges/cell at 2.5M cells) to a tractable buffer size.
+    let (relief_edge_vertices, relief_edge_indices) =
+        VoronoiMesh::edge_lines_indexed_with_elevation(
             voronoi,
-            |_, _| edge_color,
+            edge_color,
             elevation_for_cell,
             |i| cell_material(world, i),
-        )
-    };
+        );
+    if use_fine {
+        log::info!(
+            "fine mesh relief wireframe: vertices={}, edges={}, vertex_bytes={:.1} MiB, index_bytes={:.1} MiB",
+            relief_edge_vertices.len(),
+            relief_edge_indices.len() / 2,
+            buffer_bytes(&relief_edge_vertices) as f64 / 1_048_576.0,
+            buffer_bytes(&relief_edge_indices) as f64 / 1_048_576.0,
+        );
+    }
 
     // Plate overlays
     let arrows = generate_velocity_arrows(world);
@@ -753,10 +581,15 @@ pub fn generate_world_buffers(device: &wgpu::Device, world: &World) -> WorldBuff
         num_unified_indices: unified_mesh.indices.len() as u32,
         relief_edge_vertex_buffer: create_vertex_buffer(
             device,
-            &edge_vertices_relief,
+            &relief_edge_vertices,
             "relief_edge_vertex",
         ),
-        num_relief_edge_vertices: edge_vertices_relief.len() as u32,
+        relief_edge_index_buffer: create_index_buffer(
+            device,
+            &relief_edge_indices,
+            "relief_edge_index",
+        ),
+        num_relief_edge_indices: relief_edge_indices.len() as u32,
 
         // Rivers
         river_all_vertex_buffer: create_vertex_buffer(

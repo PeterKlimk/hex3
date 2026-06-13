@@ -45,6 +45,12 @@ pub struct LineDraw<'a> {
 
 pub enum EdgeDraw<'a> {
     GlobeColored(LineDraw<'a>),
+    /// Indexed globe edge lines (shared vertices) drawn with the colored-line pipeline.
+    GlobeColoredIndexed {
+        vertex_buffer: &'a Buffer,
+        index_buffer: &'a Buffer,
+        index_count: u32,
+    },
     MapIndexed {
         vertex_buffer: &'a Buffer,
         index_buffer: &'a Buffer,
@@ -406,6 +412,17 @@ impl Renderer {
                         render_pass.set_pipeline(&self.colored_line_pipeline);
                         render_pass.set_vertex_buffer(0, draw.vertex_buffer.slice(..));
                         render_pass.draw(0..draw.vertex_count, 0..1);
+                    }
+                    EdgeDraw::GlobeColoredIndexed {
+                        vertex_buffer,
+                        index_buffer,
+                        index_count,
+                    } if index_count > 0 => {
+                        render_pass.set_pipeline(&self.colored_line_pipeline);
+                        render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                        render_pass
+                            .set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                        render_pass.draw_indexed(0..index_count, 0, 0..1);
                     }
                     EdgeDraw::MapIndexed {
                         vertex_buffer,

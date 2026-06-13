@@ -1205,50 +1205,7 @@ impl VoronoiMesh {
     {
         use crate::world::RELIEF_SCALE;
 
-        // Precompute materials and elevations
-        let cell_materials: Vec<Material> = (0..voronoi.num_cells()).map(material_fn).collect();
-        let cell_elevations: Vec<f32> = (0..voronoi.num_cells()).map(elevation_fn).collect();
-
-        // Water-aware vertex elevation (same logic as UnifiedMesh)
-        let mut vertex_land_sum = vec![0.0f32; voronoi.vertices.len()];
-        let mut vertex_land_count = vec![0u32; voronoi.vertices.len()];
-        let mut vertex_water_level = vec![None::<f32>; voronoi.vertices.len()];
-
-        for cell_idx in 0..voronoi.num_cells() {
-            let cell = voronoi.cell(cell_idx);
-            let material = cell_materials[cell_idx];
-            let elevation = cell_elevations[cell_idx];
-            let is_water = matches!(material, Material::Ocean | Material::Lake);
-
-            for &vertex_idx in cell.vertex_indices {
-                let vi = vertex_idx as usize;
-                if is_water {
-                    vertex_water_level[vi] = Some(
-                        vertex_water_level[vi]
-                            .map(|wl| wl.max(elevation))
-                            .unwrap_or(elevation),
-                    );
-                } else {
-                    vertex_land_sum[vi] += elevation;
-                    vertex_land_count[vi] += 1;
-                }
-            }
-        }
-
-        // Compute final vertex elevations with water boundary handling
-        let vertex_elevations: Vec<f32> = (0..voronoi.vertices.len())
-            .map(|v| {
-                let water_level = vertex_water_level[v];
-                let land_count = vertex_land_count[v];
-
-                match (water_level, land_count) {
-                    (Some(wl), 0) => wl,
-                    (None, n) if n > 0 => vertex_land_sum[v] / n as f32,
-                    (Some(wl), _n) => wl, // Land touching water uses water level
-                    _ => 0.0,
-                }
-            })
-            .collect();
+        let vertex_elevations = water_aware_vertex_elevations(voronoi, elevation_fn, material_fn);
 
         let mut vertices = Vec::new();
         let mut processed: HashSet<(u32, u32)> = HashSet::new();
@@ -1283,6 +1240,58 @@ impl VoronoiMesh {
         }
 
         vertices
+    }
+
+    /// Indexed variant of `edge_lines_with_elevation` for dense meshes.
+    ///
+    /// Emits one shared, elevation-displaced vertex per Voronoi vertex plus a
+    /// `LineList` index buffer of unique edges. At fine-mesh densities (~3 edges
+    /// per cell) this is roughly half the bytes of the non-indexed pair list,
+    /// which duplicates every shared vertex once per incident edge. Color is
+    /// uniform (relief edges don't need per-edge coloring).
+    pub fn edge_lines_indexed_with_elevation<E, M>(
+        voronoi: &SphericalVoronoi,
+        color: Vec3,
+        elevation_fn: E,
+        material_fn: M,
+    ) -> (Vec<MeshVertex>, Vec<u32>)
+    where
+        E: Fn(usize) -> f32,
+        M: Fn(usize) -> Material,
+    {
+        use crate::world::RELIEF_SCALE;
+
+        let vertex_elevations = water_aware_vertex_elevations(voronoi, elevation_fn, material_fn);
+
+        // One shared, displaced vertex per Voronoi vertex (slight radial lift to
+        // avoid z-fighting against the filled mesh, matching the non-indexed path).
+        let vertices: Vec<MeshVertex> = voronoi
+            .vertices
+            .iter()
+            .zip(vertex_elevations.iter())
+            .map(|(&v, &elevation)| {
+                let displacement = (1.0 + elevation * RELIEF_SCALE) * 1.001;
+                MeshVertex::new(v * displacement, v, color)
+            })
+            .collect();
+
+        // Each unique edge contributes one index pair into the shared vertices.
+        let mut indices: Vec<u32> = Vec::new();
+        let mut processed: HashSet<(u32, u32)> = HashSet::new();
+        for cell in voronoi.iter_cells() {
+            let n = cell.len();
+            for i in 0..n {
+                let a = cell.vertex_indices[i];
+                let b = cell.vertex_indices[(i + 1) % n];
+                let edge = if a < b { (a, b) } else { (b, a) };
+                if processed.insert(edge) {
+                    indices.push(edge.0);
+                    indices.push(edge.1);
+                }
+            }
+        }
+
+        (vertices, indices)
     }
 
     /// Project vertices to 2D equirectangular map coordinates.
@@ -1512,6 +1521,54 @@ impl VoronoiMesh {
 /// Returns indices into the voronoi.vertices array.
 fn build_edge_indices(_voronoi: &SphericalVoronoi, edge_set: &HashSet<(u32, u32)>) -> Vec<u32> {
     edge_set.iter().flat_map(|&(a, b)| [a, b]).collect()
+}
+
+/// Water-aware per-vertex elevation, shared by the relief edge builders and
+/// matching `UnifiedMesh`'s boundary handling: a vertex touching any water cell
+/// takes the highest adjacent water level; an interior land vertex averages the
+/// elevations of its incident land cells.
+fn water_aware_vertex_elevations<E, M>(
+    voronoi: &SphericalVoronoi,
+    elevation_fn: E,
+    material_fn: M,
+) -> Vec<f32>
+where
+    E: Fn(usize) -> f32,
+    M: Fn(usize) -> Material,
+{
+    let mut vertex_land_sum = vec![0.0f32; voronoi.vertices.len()];
+    let mut vertex_land_count = vec![0u32; voronoi.vertices.len()];
+    let mut vertex_water_level = vec![None::<f32>; voronoi.vertices.len()];
+
+    for cell_idx in 0..voronoi.num_cells() {
+        let cell = voronoi.cell(cell_idx);
+        let elevation = elevation_fn(cell_idx);
+        let is_water = matches!(material_fn(cell_idx), Material::Ocean | Material::Lake);
+
+        for &vertex_idx in cell.vertex_indices {
+            let vi = vertex_idx as usize;
+            if is_water {
+                vertex_water_level[vi] = Some(
+                    vertex_water_level[vi]
+                        .map(|wl| wl.max(elevation))
+                        .unwrap_or(elevation),
+                );
+            } else {
+                vertex_land_sum[vi] += elevation;
+                vertex_land_count[vi] += 1;
+            }
+        }
+    }
+
+    (0..voronoi.vertices.len())
+        .map(|v| match (vertex_water_level[v], vertex_land_count[v]) {
+            (Some(wl), 0) => wl,
+            (None, n) if n > 0 => vertex_land_sum[v] / n as f32,
+            // Land touching water uses the water level (smooth coast transition).
+            (Some(wl), _) => wl,
+            _ => 0.0,
+        })
+        .collect()
 }
 
 #[cfg(test)]

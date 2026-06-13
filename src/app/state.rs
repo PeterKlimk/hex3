@@ -323,26 +323,30 @@ impl AppState {
 
         // Select edge buffer based on mode
         let edges = if self.show_edges {
-            let (buffer, count) = if use_unified {
-                (
-                    &self.world_buffers.relief_edge_vertex_buffer,
-                    self.world_buffers.num_relief_edge_vertices,
-                )
-            } else if self.render_mode == RenderMode::Plates {
-                (
-                    &self.world_buffers.edge_vertex_buffer_plates,
-                    self.world_buffers.num_edge_vertices_plates,
-                )
+            if use_unified {
+                // Relief wireframe is an indexed line list (shared vertices).
+                Some(hex3::render::EdgeDraw::GlobeColoredIndexed {
+                    vertex_buffer: &self.world_buffers.relief_edge_vertex_buffer,
+                    index_buffer: &self.world_buffers.relief_edge_index_buffer,
+                    index_count: self.world_buffers.num_relief_edge_indices,
+                })
             } else {
-                (
-                    &self.world_buffers.edge_vertex_buffer,
-                    self.world_buffers.num_edge_vertices,
-                )
-            };
-            Some(hex3::render::EdgeDraw::GlobeColored(LineDraw {
-                vertex_buffer: buffer,
-                vertex_count: count,
-            }))
+                let (buffer, count) = if self.render_mode == RenderMode::Plates {
+                    (
+                        &self.world_buffers.edge_vertex_buffer_plates,
+                        self.world_buffers.num_edge_vertices_plates,
+                    )
+                } else {
+                    (
+                        &self.world_buffers.edge_vertex_buffer,
+                        self.world_buffers.num_edge_vertices,
+                    )
+                };
+                Some(hex3::render::EdgeDraw::GlobeColored(LineDraw {
+                    vertex_buffer: buffer,
+                    vertex_count: count,
+                }))
+            }
         } else {
             None
         };
