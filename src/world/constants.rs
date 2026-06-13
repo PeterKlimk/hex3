@@ -464,18 +464,39 @@ pub const PRESSURE_WIND_SCALE: f32 = 0.3;
 /// 1.0 = purely geostrophic (parallel to isobars).
 pub const GEOSTROPHIC_BALANCE: f32 = 0.85;
 
-/// Weight of zonal (trade winds, westerlies) component in wind blend.
-pub const ZONAL_WEIGHT: f32 = 0.6;
-
 /// Weight of pressure-gradient component in wind blend.
 pub const PRESSURE_WEIGHT: f32 = 0.4;
 
-/// Strength multiplier for zonal wind patterns.
-pub const ZONAL_STRENGTH: f32 = 0.3;
+// --- Meridional overturning circulation ---
 
-/// Surface wind Coriolis deflection angle (radians).
-/// Surface wind deflects ~45° from geostrophic flow (not full 90°).
-pub const SURFACE_CORIOLIS_ANGLE: f32 = 0.785; // 45 degrees
+/// Planet rotation rate relative to Earth. Drives circulation-cell width,
+/// Coriolis turning strength, and upper-level jet positions coherently.
+pub const PLANET_ROTATION_RATE: f32 = 1.0;
+
+/// Scale from prescribed streamfunction transport to surface meridional wind.
+pub const CIRC_MERIDIONAL_SCALE: f32 = 0.20;
+
+/// Linear surface friction used in u = (f / eps) * v.
+pub const CIRC_FRICTION: f32 = 1.0;
+
+/// Hadley-cell streamfunction amplitude.
+pub const CIRC_HADLEY_AMPLITUDE: f32 = 1.0;
+
+/// Ferrel-cell streamfunction amplitude.
+pub const CIRC_FERREL_AMPLITUDE: f32 = 0.5;
+
+/// Polar-cell streamfunction amplitude.
+pub const CIRC_POLAR_AMPLITUDE: f32 = 0.25;
+
+/// Scale for angular-momentum upper wind. Relative to Earth surface speed.
+pub const OMEGA_SURFACE_SPEED: f32 = 0.45;
+
+/// Visualization clamp for angular-momentum upper wind.
+pub const UPPER_WIND_MAX_SPEED: f32 = 0.45;
+
+/// Upper-level amplification of surface zonal wind in thermally indirect
+/// (eddy-driven, roughly barotropic) cells — the mid-latitude jet aloft.
+pub const UPPER_BAROTROPIC_FACTOR: f32 = 2.0;
 
 // --- Uplift proxy ---
 
@@ -484,6 +505,9 @@ pub const UPLIFT_CONVERGENCE_WEIGHT: f32 = 0.8;
 
 /// Weight for orographic uplift (upslope flow).
 pub const UPLIFT_OROGRAPHIC_WEIGHT: f32 = 1.2;
+
+/// Weight for signed large-scale circulation uplift/subsidence.
+pub const UPLIFT_CIRCULATION_WEIGHT: f32 = 0.7;
 
 /// Percentile used to normalize uplift into 0..1 for visualization.
 pub const UPLIFT_NORM_PERCENTILE: f32 = 0.95;
@@ -519,8 +543,7 @@ pub const PROJECTION_ITERATIONS: usize = 50;
 /// SOR relaxation factor (1.0-1.9, higher = faster but less stable).
 pub const SOR_OMEGA: f32 = 1.0;
 
-// Moisture & precipitation (worldbuilding knobs: crank EVAPORATION_RATE and
-// kill the desert belt for a jungle world, or the reverse for a dune world)
+// Moisture & precipitation.
 
 /// Number of moisture advection iterations (steady-state relaxation).
 pub const MOISTURE_ITERATIONS: usize = 80;
@@ -562,24 +585,9 @@ pub const MOISTURE_CFL: f32 = 0.8;
 /// Below 1.0 so cold regions don't flash-dump all arriving moisture at once.
 pub const OVERFLOW_RAINOUT: f32 = 0.3;
 
-/// Center of the subsidence desert belt, as |sin(latitude)| (0.5 = 30°).
-pub const DESERT_BELT_SIN_LAT: f32 = 0.5;
-
-/// Width (sigma) of the subsidence belt in sin(latitude) units.
-pub const DESERT_BELT_WIDTH: f32 = 0.12;
-
-/// Rain suppression at the belt center (0 = off, 1 = no rain at the belt).
-pub const DESERT_BELT_STRENGTH: f32 = 0.7;
-
 /// Eddy diffusivity for moisture transport, in radians^2 per iteration.
 /// Models horizontal turbulent mixing. Resolution-independent: the
 /// per-iteration mixing fraction is diffusivity / cell_spacing^2 (clamped
 /// for stability, so very high resolutions under-diffuse slightly rather
 /// than going unstable).
 pub const MOISTURE_DIFFUSIVITY: f32 = 5.0e-5;
-
-/// Rain enhancement at the equator (ITCZ convergence band). 0 = off.
-pub const ITCZ_STRENGTH: f32 = 0.4;
-
-/// Width (sigma) of the ITCZ band in sin(latitude) units.
-pub const ITCZ_WIDTH: f32 = 0.15;

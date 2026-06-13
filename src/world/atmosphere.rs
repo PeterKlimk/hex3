@@ -10,6 +10,7 @@ use glam::Vec3;
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 
+use super::circulation::Circulation;
 use super::constants::*;
 use super::moisture::simulate_moisture;
 use super::{Elevation, Tessellation};
@@ -73,15 +74,16 @@ impl Atmosphere {
         // Step 3: Pressure forcing from upper temperature (hot = low pressure)
         let pressure: Vec<f32> = upper_temperature.iter().map(|&t| 1.0 - t).collect();
 
-        // Step 4: Initial wind (pressure gradient + zonal + geostrophic-like balance)
-        let initial_wind = generate_initial_wind(tessellation, &pressure);
+        let circulation = Circulation::default_planet();
 
-        // Step 5: Upper wind - project without terrain effects (uniform weights)
-        let mut upper_wind = initial_wind.clone();
-        project_wind_field(tessellation, None, &mut upper_wind);
+        // Step 4: Initial wind (pressure gradient + mean overturning circulation)
+        let initial_wind = generate_initial_wind(tessellation, &pressure, &circulation);
 
-        // Step 6: Surface wind - start from upper wind, apply terrain effects
-        let mut wind = upper_wind.clone();
+        // Step 5: Upper wind - visualization-quality return flow from the circulation.
+        let upper_wind = generate_upper_wind(tessellation, &circulation);
+
+        // Step 6: Surface wind - apply terrain effects to the surface branch.
+        let mut wind = initial_wind;
         apply_terrain_effects(tessellation, elevation, &mut wind);
 
         // Step 7: Terrain-aware projection for surface wind (SOR solver)
@@ -92,7 +94,7 @@ impl Atmosphere {
         // solver inverted div = laplacian(phi), so phi is the elliptically
         // integrated (large-scale, mesh-noise-free) divergence field, with
         // convergence centers at phi maxima.
-        let uplift = compute_uplift(tessellation, elevation, &phi, &wind);
+        let uplift = compute_uplift(tessellation, elevation, &phi, &wind, &circulation);
 
         // Step 9: Moisture transport and precipitation
         let moisture_result = simulate_moisture(
@@ -149,7 +151,7 @@ impl Atmosphere {
             .map(|w| w.length())
             .fold(0.0_f32, f32::max);
         let max_wind = self.wind.iter().map(|w| w.length()).fold(0.0_f32, f32::max);
-        let max_uplift = self.uplift.iter().copied().fold(0.0_f32, f32::max);
+        let max_uplift = self.uplift.iter().map(|u| u.abs()).fold(0.0_f32, f32::max);
 
         AtmosphereStats {
             min_temp,
@@ -366,54 +368,12 @@ fn compute_pressure_gradient(
     gradient
 }
 
-/// Get the east-pointing tangent vector at a position on the sphere.
-fn tangent_east(pos: Vec3) -> Vec3 {
-    // East = north × radial = (0,1,0) × pos (approximately, for non-polar points)
-    // More precisely: east points in direction of increasing longitude
-    let up = Vec3::Y;
-    let east = up.cross(pos);
-    let len = east.length();
-    if len < 1e-6 {
-        // At poles, pick arbitrary tangent
-        return Vec3::X;
-    }
-    east / len
-}
-
-/// Compute zonal wind component at a position (trade winds, westerlies, polar easterlies).
-fn zonal_wind(pos: Vec3) -> Vec3 {
-    let latitude = pos.y; // sin(lat) on unit sphere
-    let abs_lat = latitude.abs();
-
-    // Zonal wind patterns (Earth-like):
-    // - Trade winds: 0-30° latitude, easterly (blow from east to west)
-    // - Westerlies: 30-60° latitude, westerly (blow from west to east)
-    // - Polar easterlies: 60-90°, easterly
-
-    // sin(30°) ≈ 0.5, sin(60°) ≈ 0.866
-    const LAT_30: f32 = 0.5;
-    const LAT_60: f32 = 0.866;
-
-    let (direction, strength) = if abs_lat < LAT_30 {
-        // Trade winds: easterly, strongest at equator
-        (-1.0, 1.0 - abs_lat / LAT_30 * 0.3)
-    } else if abs_lat < LAT_60 {
-        // Westerlies: strongest around 45° (sin(45°) ≈ 0.707)
-        let t = (abs_lat - LAT_30) / (LAT_60 - LAT_30);
-        let westerly_strength = 4.0 * t * (1.0 - t); // peaks at t=0.5
-        (1.0, westerly_strength)
-    } else {
-        // Polar easterlies: weak
-        let t = (abs_lat - LAT_60) / (1.0 - LAT_60);
-        (-1.0, 0.3 * (1.0 - t))
-    };
-
-    let east = tangent_east(pos);
-    east * direction * strength * ZONAL_STRENGTH
-}
-
-/// Generate initial wind field from pressure gradient, zonal flow, and Coriolis.
-fn generate_initial_wind(tessellation: &Tessellation, pressure: &[f32]) -> Vec<Vec3> {
+/// Generate initial wind field from pressure gradient and overturning circulation.
+fn generate_initial_wind(
+    tessellation: &Tessellation,
+    pressure: &[f32],
+    circulation: &Circulation,
+) -> Vec<Vec3> {
     let num_cells = tessellation.num_cells();
     let mut wind = vec![Vec3::ZERO; num_cells];
 
@@ -428,21 +388,31 @@ fn generate_initial_wind(tessellation: &Tessellation, pressure: &[f32]) -> Vec<V
         // We blend between down-gradient flow (equator) and geostrophic balance (poles),
         // since the geostrophic approximation breaks down as f -> 0 near the equator.
         let abs_lat = pos.y.abs().clamp(0.0, 1.0);
-        let geostrophic_dir = -pos.cross(pressure_grad);
+        // Geostrophic flow direction flips with the sign of the Coriolis
+        // parameter: u ~ (k x grad p) / f, and f < 0 in the southern
+        // hemisphere. Without the flip, SH mid-latitude flow around the
+        // equatorial thermal low runs easterly and cancels the circulation's
+        // westerlies. (The mix already fades this to zero at the equator.)
+        let hemisphere = if pos.y < 0.0 { -1.0 } else { 1.0 };
+        let geostrophic_dir = -pos.cross(pressure_grad) * hemisphere;
         let geostrophic_mix = (abs_lat * GEOSTROPHIC_BALANCE).clamp(0.0, 1.0);
         let pressure_wind = (1.0 - geostrophic_mix) * to_low + geostrophic_mix * geostrophic_dir;
         let pressure_wind = pressure_wind * PRESSURE_WIND_SCALE;
 
-        // Zonal base flow (already "balanced" background circulation)
-        let zonal = zonal_wind(pos);
+        let circulation_wind = circulation.surface_wind_at(pos);
 
-        // Blend pressure and zonal winds
-        let cell_wind = ZONAL_WEIGHT * zonal + PRESSURE_WEIGHT * pressure_wind;
+        let cell_wind = circulation_wind + PRESSURE_WEIGHT * pressure_wind;
 
         wind[i] = cell_wind;
     }
 
     wind
+}
+
+fn generate_upper_wind(tessellation: &Tessellation, circulation: &Circulation) -> Vec<Vec3> {
+    (0..tessellation.num_cells())
+        .map(|i| circulation.upper_wind_at(tessellation.cell_center(i)))
+        .collect()
 }
 
 /// Apply terrain effects to wind (uphill blocking + katabatic acceleration).
@@ -877,11 +847,40 @@ fn normalize_positive_field(mut values: Vec<f32>, percentile: f32) -> Vec<f32> {
     values
 }
 
+fn normalize_signed_field(mut values: Vec<f32>, percentile: f32) -> Vec<f32> {
+    let mut samples: Vec<f32> = values
+        .iter()
+        .copied()
+        .filter(|&v| v.is_finite() && v != 0.0)
+        .map(f32::abs)
+        .collect();
+    if samples.is_empty() {
+        values.fill(0.0);
+        return values;
+    }
+
+    samples.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let p = percentile.clamp(0.5, 0.999);
+    let idx = ((samples.len() - 1) as f32 * p).round() as usize;
+    let scale = samples[idx].max(1e-6);
+
+    for v in &mut values {
+        if !v.is_finite() {
+            *v = 0.0;
+        } else {
+            *v = (*v / scale).clamp(-1.0, 1.0);
+        }
+    }
+
+    values
+}
+
 fn compute_uplift(
     tessellation: &Tessellation,
     elevation: &Elevation,
     phi: &[f32],
     wind_final: &[Vec3],
+    circulation: &Circulation,
 ) -> Vec<f32> {
     let num_cells = tessellation.num_cells();
     let mean_spacing = tessellation.mean_cell_area().sqrt();
@@ -916,14 +915,21 @@ fn compute_uplift(
     // normalize each before weighting so the weights mean what they say.
     let convergence = normalize_positive_field(convergence, UPLIFT_NORM_PERCENTILE);
     let orographic = normalize_positive_field(orographic, UPLIFT_NORM_PERCENTILE);
+    let circulation_vertical = normalize_signed_field(
+        (0..num_cells)
+            .map(|i| circulation.vertical_motion_at(tessellation.cell_center(i)))
+            .collect(),
+        UPLIFT_NORM_PERCENTILE,
+    );
 
     let mut uplift = vec![0.0_f32; num_cells];
     for i in 0..num_cells {
-        uplift[i] =
-            UPLIFT_CONVERGENCE_WEIGHT * convergence[i] + UPLIFT_OROGRAPHIC_WEIGHT * orographic[i];
+        uplift[i] = UPLIFT_CONVERGENCE_WEIGHT * convergence[i]
+            + UPLIFT_OROGRAPHIC_WEIGHT * orographic[i]
+            + UPLIFT_CIRCULATION_WEIGHT * circulation_vertical[i];
     }
 
-    normalize_positive_field(uplift, UPLIFT_NORM_PERCENTILE)
+    uplift
 }
 
 #[cfg(test)]

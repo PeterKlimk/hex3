@@ -512,31 +512,13 @@ fn precipitation_to_color(precip: f32) -> Vec3 {
     }
 }
 
-/// Convert uplift to color (green = low, yellow/red = high).
+/// Convert signed uplift to color (blue = subsidence, white = neutral, red = ascent).
 fn uplift_to_color(uplift: f32) -> Vec3 {
-    // Uplift is normalized 0-1
-    let t = uplift.clamp(0.0, 1.0);
-
-    if t < 0.2 {
-        // Very low: dark green
-        let s = t / 0.2;
-        Vec3::new(0.1, 0.2, 0.1).lerp(Vec3::new(0.2, 0.4, 0.2), s)
-    } else if t < 0.4 {
-        // Low: green
-        let s = (t - 0.2) / 0.2;
-        Vec3::new(0.2, 0.4, 0.2).lerp(Vec3::new(0.5, 0.6, 0.2), s)
-    } else if t < 0.6 {
-        // Moderate: yellow-green
-        let s = (t - 0.4) / 0.2;
-        Vec3::new(0.5, 0.6, 0.2).lerp(Vec3::new(0.9, 0.8, 0.2), s)
-    } else if t < 0.8 {
-        // High: orange
-        let s = (t - 0.6) / 0.2;
-        Vec3::new(0.9, 0.8, 0.2).lerp(Vec3::new(0.9, 0.5, 0.1), s)
+    let t = uplift.clamp(-1.0, 1.0);
+    if t < 0.0 {
+        Vec3::new(0.15, 0.25, 0.55).lerp(Vec3::new(0.92, 0.92, 0.86), t + 1.0)
     } else {
-        // Very high: red
-        let s = (t - 0.8) / 0.2;
-        Vec3::new(0.9, 0.5, 0.1).lerp(Vec3::new(0.8, 0.2, 0.1), s)
+        Vec3::new(0.92, 0.92, 0.86).lerp(Vec3::new(0.75, 0.12, 0.08), t)
     }
 }
 

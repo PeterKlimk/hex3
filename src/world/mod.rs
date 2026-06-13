@@ -22,6 +22,7 @@
 
 mod atmosphere;
 mod boundary;
+mod circulation;
 mod constants;
 mod crust;
 pub mod diagnostics;

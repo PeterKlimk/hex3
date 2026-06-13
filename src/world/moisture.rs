@@ -4,15 +4,10 @@
 //! evaporate moisture toward a temperature-dependent carrying capacity, wind
 //! carries it downwind, and rain falls where moisture meets uplift (orographic
 //! + convergence) plus a baseline rainout so air dries over long fetches.
-//! A prescribed subsidence belt suppresses rain near the horse latitudes
-//! (the divergence-free wind projection removes the convergence signal that
-//! would otherwise produce it - prescribed here in the same spirit as the
-//! zonal wind bands).
 //!
 //! Emergent behavior: rain shadows behind mountains, continental interiors
-//! drying with distance from coast, a wet equator (trade winds converge at
-//! the thermal low and the pre-projection uplift proxy captures it), and
-//! desert belts. All rates are worldbuilding knobs in `constants.rs`.
+//! drying with distance from coast, wet ascent bands, and dry subsidence belts.
+//! All rates are worldbuilding knobs in `constants.rs`.
 
 use glam::Vec3;
 
@@ -34,14 +29,8 @@ fn carrying_capacity(temperature: f32) -> f32 {
     MOISTURE_CAP_COLD + t * (MOISTURE_CAP_WARM - MOISTURE_CAP_COLD)
 }
 
-/// Latitudinal rain modulation: suppressed near the subsidence desert belt,
-/// enhanced in the equatorial ITCZ convergence band.
-fn latitude_rain_factor(sin_lat: f32) -> f32 {
-    let a = sin_lat.abs();
-    let d = a - DESERT_BELT_SIN_LAT;
-    let suppression = DESERT_BELT_STRENGTH * (-(d * d) / (2.0 * DESERT_BELT_WIDTH.powi(2))).exp();
-    let itcz = ITCZ_STRENGTH * (-(a * a) / (2.0 * ITCZ_WIDTH.powi(2))).exp();
-    (1.0 - suppression) * (1.0 + itcz)
+fn static_rain_rate(uplift: f32) -> f32 {
+    (RAINOUT_BASE + RAINOUT_OROGRAPHIC * uplift).clamp(0.0, 1.0)
 }
 
 /// Simulate moisture transport to steady state and return the precipitation
@@ -68,14 +57,11 @@ pub fn simulate_moisture(
     let capacity: Vec<f32> = temperature.iter().map(|&t| carrying_capacity(t)).collect();
     let is_water: Vec<bool> = elevation.iter().map(|&e| e < 0.0).collect();
 
-    // Static part of the rainout rate: baseline + orographic/convergence
-    // uplift. The convective part depends on the evolving humidity and is
-    // added per iteration. Both are suppressed in the subsidence belt.
-    let belt: Vec<f32> = (0..num_cells)
-        .map(|i| latitude_rain_factor(tessellation.cell_center(i).y))
-        .collect();
+    // Static part of the rainout rate: baseline + signed uplift.
+    // Subsidence can suppress orographic/convergence rain, but rainout is
+    // clamped non-negative so it never manufactures negative precipitation.
     let rain_rate: Vec<f32> = (0..num_cells)
-        .map(|i| ((RAINOUT_BASE + RAINOUT_OROGRAPHIC * uplift[i]) * belt[i]).clamp(0.0, 1.0))
+        .map(|i| static_rain_rate(uplift[i]))
         .collect();
     let temp01: Vec<f32> = temperature.iter().map(|&t| t.clamp(0.0, 1.0)).collect();
 
@@ -166,7 +152,7 @@ pub fn simulate_moisture(
             let convective = if is_water[i] {
                 0.0
             } else {
-                RAINOUT_CONVECTIVE * humidity * humidity * temp01[i] * belt[i]
+                RAINOUT_CONVECTIVE * humidity * humidity * temp01[i]
             };
             let over_capacity = (m - capacity[i]).max(0.0);
             let rain = (m * (rain_rate[i] + convective) + over_capacity * OVERFLOW_RAINOUT).min(m);
@@ -293,11 +279,8 @@ mod tests {
     }
 
     #[test]
-    fn latitude_bands_shape_rain() {
-        // Desert belt is drier than both the equator and high latitudes.
-        assert!(latitude_rain_factor(DESERT_BELT_SIN_LAT) < latitude_rain_factor(0.0));
-        assert!(latitude_rain_factor(DESERT_BELT_SIN_LAT) < latitude_rain_factor(0.95));
-        // ITCZ makes the equator the wettest band.
-        assert!(latitude_rain_factor(0.0) > latitude_rain_factor(0.95));
+    fn signed_uplift_suppresses_static_rainout_without_going_negative() {
+        assert!(static_rain_rate(1.0) > static_rain_rate(0.0));
+        assert_eq!(static_rain_rate(-10.0), 0.0);
     }
 }

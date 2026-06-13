@@ -7,8 +7,9 @@ Gives a quick visual readout of any per-cell layer without running the app:
     python render_map.py world.json.gz -l precipitation elevation
     python render_map.py world.json.gz -o maps.png
 
-Layers: elevation, crust, plates, precipitation, temperature, uplift, flow,
-moisture-adjacent fields fall back to a generic colormap if unknown.
+Layers: elevation, crust, plates, precipitation, temperature, uplift, wind,
+upper_wind, flow, moisture-adjacent fields fall back to a generic colormap if
+unknown.
 """
 
 import argparse
@@ -18,7 +19,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.colors import LinearSegmentedColormap, LogNorm
+from matplotlib.colors import LinearSegmentedColormap, LogNorm, TwoSlopeNorm
 
 
 def load_world(path: Path) -> dict:
@@ -68,7 +69,15 @@ def layer_values(data: dict, layer: str):
     if layer == "temperature":
         return np.array(atmosphere.get("temperature")), dict(cmap="coolwarm")
     if layer == "uplift":
-        return np.array(atmosphere.get("uplift")), dict(cmap="YlOrRd", vmin=0, vmax=1)
+        v = np.array(atmosphere.get("uplift"))
+        lim = max(abs(np.nanmin(v)), abs(np.nanmax(v)), 1e-6)
+        return v, dict(cmap="RdBu_r", norm=TwoSlopeNorm(vcenter=0, vmin=-lim, vmax=lim))
+    if layer in ("wind", "upper_wind"):
+        v = np.array(atmosphere.get(layer))
+        lim = max(abs(np.nanmin(v)), abs(np.nanmax(v)), 1e-6)
+        return v, dict(cmap="coolwarm", norm=TwoSlopeNorm(vcenter=0, vmin=-lim, vmax=lim))
+    if layer in ("wind_speed", "upper_wind_speed"):
+        return np.array(atmosphere.get(layer)), dict(cmap="viridis", vmin=0)
     if layer == "flow":
         # Land-only river view: ocean cells get NaN so rivers stand out.
         v = np.array(hydrology.get("flow_accumulation", cells.get("elevation")), dtype=float)

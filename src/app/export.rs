@@ -7,6 +7,7 @@ use std::time::Instant;
 
 use flate2::write::GzEncoder;
 use flate2::Compression;
+use glam::Vec3;
 use serde::Serialize;
 
 use hex3::world::{CrustType, World};
@@ -75,6 +76,10 @@ struct AtmosphereData {
     temperature: Vec<f32>,
     uplift: Vec<f32>,
     precipitation: Vec<f32>,
+    wind: Vec<f32>,
+    wind_speed: Vec<f32>,
+    upper_wind: Vec<f32>,
+    upper_wind_speed: Vec<f32>,
 }
 
 #[derive(Serialize)]
@@ -183,10 +188,29 @@ impl WorldExport {
         };
 
         // Hydrology (if available)
-        let atmosphere_data = world.atmosphere.as_ref().map(|a| AtmosphereData {
-            temperature: a.temperature.clone(),
-            uplift: a.uplift.clone(),
-            precipitation: a.precipitation.clone(),
+        let atmosphere_data = world.atmosphere.as_ref().map(|a| {
+            let mut wind = Vec::with_capacity(num_cells);
+            let mut wind_speed = Vec::with_capacity(num_cells);
+            let mut upper_wind = Vec::with_capacity(num_cells);
+            let mut upper_wind_speed = Vec::with_capacity(num_cells);
+
+            for i in 0..num_cells {
+                let east = tangent_east(world.tessellation.cell_center(i));
+                wind.push(a.wind[i].dot(east));
+                wind_speed.push(a.wind[i].length());
+                upper_wind.push(a.upper_wind[i].dot(east));
+                upper_wind_speed.push(a.upper_wind[i].length());
+            }
+
+            AtmosphereData {
+                temperature: a.temperature.clone(),
+                uplift: a.uplift.clone(),
+                precipitation: a.precipitation.clone(),
+                wind,
+                wind_speed,
+                upper_wind,
+                upper_wind_speed,
+            }
         });
 
         let hydrology_data = world.hydrology.as_ref().map(|h| {
@@ -273,6 +297,16 @@ impl WorldExport {
             },
             plates: plates_data,
         }
+    }
+}
+
+fn tangent_east(pos: Vec3) -> Vec3 {
+    let east = Vec3::Y.cross(pos);
+    let len = east.length();
+    if len < 1e-6 {
+        Vec3::X
+    } else {
+        east / len
     }
 }
 
