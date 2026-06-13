@@ -429,39 +429,22 @@ fn build_adjacency(voronoi: &SphericalVoronoi) -> CellAdjacency {
 
 /// Compute the area of a spherical triangle on the unit sphere.
 ///
-/// Uses the spherical excess formula: area = (sum of angles) - π.
-/// All three points must be on the unit sphere.
+/// Uses the Van Oosterom–Strackee formula for the spherical excess (= area on
+/// the unit sphere): `area = 2·atan2(|a·(b×c)|, 1 + a·b + b·c + c·a)`.
+///
+/// The older `Σ(dihedral angle) − π` form cancels catastrophically in f32 for
+/// small triangles — every angle is ≈ π/3 and their sum sits a hair above π, so
+/// `sum − π` is lost to rounding and the cell collapses to area 0. This form has
+/// no such subtraction; it's evaluated in f64 to stay accurate down to tiny
+/// cells (matching `validation::spherical_polygon_area`). All three points must
+/// be on the unit sphere.
 fn spherical_triangle_area(a: Vec3, b: Vec3, c: Vec3) -> f32 {
-    // Compute great-circle normals for each edge
-    let ab = a.cross(b);
-    let bc = b.cross(c);
-    let ca = c.cross(a);
-
-    // Handle degenerate triangles
-    let len_ab = ab.length();
-    let len_bc = bc.length();
-    let len_ca = ca.length();
-    if len_ab < 1e-10 || len_bc < 1e-10 || len_ca < 1e-10 {
-        return 0.0;
-    }
-
-    let ab = ab / len_ab;
-    let bc = bc / len_bc;
-    let ca = ca / len_ca;
-
-    // Dihedral angles at each vertex
-    // Angle at a: between planes (a,b) and (c,a)
-    let angle_a = (-ab).dot(ca).clamp(-1.0, 1.0).acos();
-    // Angle at b: between planes (b,c) and (a,b)
-    let angle_b = (-bc).dot(ab).clamp(-1.0, 1.0).acos();
-    // Angle at c: between planes (c,a) and (b,c)
-    let angle_c = (-ca).dot(bc).clamp(-1.0, 1.0).acos();
-
-    // Spherical excess = sum of angles - π
-    let excess = angle_a + angle_b + angle_c - std::f32::consts::PI;
-
-    // Area on unit sphere equals the excess (in steradians)
-    excess.max(0.0)
+    let a = a.as_dvec3();
+    let b = b.as_dvec3();
+    let c = c.as_dvec3();
+    let numerator = a.dot(b.cross(c)).abs();
+    let denominator = 1.0 + a.dot(b) + b.dot(c) + c.dot(a);
+    (2.0 * numerator.atan2(denominator)) as f32
 }
 
 #[cfg(test)]
