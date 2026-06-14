@@ -467,7 +467,9 @@ fn compute_areal_density(
 /// Blue-noise quality probe (a REFERENCE for judging relaxation passes, not a
 /// target). Uses the canonical regularity metric from `sample_experiment.rs`:
 ///
-///     rho = nearest-neighbour distance / sqrt(cell_area)
+/// ```text
+/// rho = nearest-neighbour distance / sqrt(cell_area)
+/// ```
 ///
 /// ~1 and tight for blue noise; a tail toward 0 means slivers/clumps (a cell
 /// whose nearest neighbour sits much closer than its size implies — the thing

@@ -1,4 +1,4 @@
-use hex3::world::{FineWorld, World};
+use hex3::world::{FineCacheMode, FineWorld, World};
 
 #[test]
 fn fine_mesh_pipeline_smoke() {
@@ -10,7 +10,10 @@ fn fine_mesh_pipeline_smoke() {
     world.generate_elevation();
     world.generate_atmosphere();
 
-    let fine = FineWorld::generate_with_target(
+    // Build the stage-3 base + pre-erosion surface (cache disabled so the smoke
+    // test stays hermetic). `base` holds the mesh + transferred fields; `pre`
+    // holds the (un-eroded) elevation + hydrology.
+    let fine = FineWorld::generate_pre(
         world.seed,
         &world.tessellation,
         world.crust.as_ref().unwrap(),
@@ -18,18 +21,21 @@ fn fine_mesh_pipeline_smoke() {
         world.elevation.as_ref().unwrap(),
         world.atmosphere.as_ref().unwrap(),
         4000,
+        FineCacheMode::Disabled,
     );
 
-    let n = fine.tessellation.num_cells();
+    let tess = &fine.base.tessellation;
+    let n = tess.num_cells();
     // The count is emergent (the criterion sizes cells; the 4000 passed in is a
     // cap), approached within stochastic-rounding tolerance — not a fixed target.
     assert!(n > 1000, "fine mesh implausibly small: {n}");
     assert!(n <= 4400, "fine mesh exceeded cap + tolerance: {n}");
-    assert_eq!(fine.coarse_cell.len(), n);
-    assert_eq!(fine.elevation.values.len(), n);
-    assert_eq!(fine.hydrology.flow_accumulation.len(), n);
-    assert!(fine.elevation.values.iter().all(|v| v.is_finite()));
+    assert_eq!(fine.base.coarse_cell.len(), n);
+    assert_eq!(fine.pre.elevation.values.len(), n);
+    assert_eq!(fine.pre.hydrology.flow_accumulation.len(), n);
+    assert!(fine.pre.elevation.values.iter().all(|v| v.is_finite()));
     assert!(fine
+        .base
         .fields
         .precipitation
         .iter()
@@ -41,11 +47,11 @@ fn fine_mesh_pipeline_smoke() {
     // is tiny (1200 coarse / ~4000 fine), so coastline interpolation inflates
     // land area; at production scale it lands near LAND_FRACTION (~0.26).
     // (By cell count land is ~90% here, since cells concentrate on the land.)
-    let areas = fine.tessellation.cell_areas();
+    let areas = tess.cell_areas();
     let total_area: f32 = areas.iter().sum();
     let land_area: f32 = areas
         .iter()
-        .zip(fine.elevation.values.iter())
+        .zip(fine.pre.elevation.values.iter())
         .filter(|(_, &e)| e >= 0.0)
         .map(|(&a, _)| a)
         .sum();
@@ -55,6 +61,6 @@ fn fine_mesh_pipeline_smoke() {
         "land area fraction {land_fraction} outside sane band (LAND_FRACTION {})",
         hex3::world::LAND_FRACTION
     );
-    assert!(fine.tessellation.morans_i(&fine.fields.temperature) > 0.85);
-    assert!(fine.tessellation.morans_i(&fine.fields.precipitation) > 0.55);
+    assert!(tess.morans_i(&fine.base.fields.temperature) > 0.85);
+    assert!(tess.morans_i(&fine.base.fields.precipitation) > 0.55);
 }
