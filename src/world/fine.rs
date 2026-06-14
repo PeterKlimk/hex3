@@ -338,11 +338,18 @@ impl FineSurface {
             params,
         );
         log::info!("fine mesh: erosion {:.2?}", t0.elapsed());
+        Self::from_eroded(seed, base, &eroded_base)
+    }
 
+    /// Build the surface (micro-noise elevation + hydrology) from an already-
+    /// eroded elevation. Shared by full generation and the UI erosion stepper,
+    /// which supplies the current elevation of a resumable `ErosionState` (step 0
+    /// = the un-eroded `base.base_elevation`).
+    pub fn from_eroded(seed: u64, base: &FineBase, eroded: &[f32]) -> Self {
         // Cosmetic micro noise rides on the eroded surface; this is the elevation
         // hydrology and rendering consume.
         let mut elev_rng = ChaCha8Rng::seed_from_u64(seed.wrapping_add(3));
-        let elevation = Elevation::refine_from_base(&base.tessellation, &eroded_base, &mut elev_rng);
+        let elevation = Elevation::refine_from_base(&base.tessellation, eroded, &mut elev_rng);
         log_resolution_probe(&base.tessellation, &elevation);
 
         let t0 = Instant::now();

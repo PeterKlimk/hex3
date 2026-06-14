@@ -138,13 +138,19 @@ compile-time `const` to runtime params carried in app/world state and passed int
 
 ## Navigation / UX
 
-- **Stage forward / back**: Space advances (unchanged); add a back key. Track a
-  `viewed_stage` separate from the max-computed stage; back/forward selects which
-  already-computed stage renders. Stage 3 exposes 3a (pre-erosion) / 3b (eroded)
-  / 3c (hydrology).
-- **Erosion stepping**: Left/Right advance/retreat erosion by some % (rough).
-  Confirmed free in the keymap (`app/mod.rs`); Up/Down stay climate-ratio.
-  Forward continues the live `ErosionState`; back re-runs from `FineBase`.
+- **Erosion stepping** — DONE (interactive). Entering stage 3 starts pre-erosion
+  (step 0); Right advances ~10% of `EROSION_STEPS` continuing the live
+  `ErosionState` (cheap), Left re-runs from the base to a lower step. Pre-erosion
+  view = step 0; the full world = stepping to the end. Up/Down stay climate-ratio.
+  Wired via `World::{begin_fine_erosion_stepping, step_fine_erosion,
+  reset_fine_erosion_to}` + `AppState::step_erosion_{forward,backward}`. Headless
+  / `--export` still use the batch `advance_to_stage_3` (full erosion). NOTE: each
+  step currently does a full `generate_world_buffers` (correct; topology
+  unchanged). If too slow at full res on Windows, optimize to vertex-only
+  re-upload (the index buffer is already separable).
+- **Stage forward / back** — TODO (next piece). Space advances (unchanged); add
+  Backspace to go back. Track a `viewed_stage` separate from the max-computed
+  stage; back/forward selects which already-computed stage renders.
 
 ## Open decisions (call out in the PR)
 

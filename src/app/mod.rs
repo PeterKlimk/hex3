@@ -230,6 +230,12 @@ impl ApplicationHandler for App {
                     PhysicalKey::Code(KeyCode::ArrowDown) if state.adjust_climate(-0.05) => {
                         state.window.request_redraw();
                     }
+                    PhysicalKey::Code(KeyCode::ArrowRight) if state.step_erosion_forward() => {
+                        state.window.request_redraw();
+                    }
+                    PhysicalKey::Code(KeyCode::ArrowLeft) if state.step_erosion_backward() => {
+                        state.window.request_redraw();
+                    }
                     PhysicalKey::Code(KeyCode::KeyH) => {
                         state.hemisphere_lighting = !state.hemisphere_lighting;
                         println!(

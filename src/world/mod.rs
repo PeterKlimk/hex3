@@ -121,6 +121,11 @@ pub struct World {
 
     /// Whether fine-mesh base generation reads/writes the on-disk cache.
     pub fine_cache: FineCacheMode,
+
+    /// Live, resumable erosion state for the interactive stepper (Some only while
+    /// stepping stage 3b). Drives `fine.surface` as the user steps; not used by
+    /// the batch/headless path. Private: mutated only through the methods below.
+    fine_erosion: Option<erosion::ErosionState>,
 }
 
 impl World {
@@ -169,6 +174,7 @@ impl World {
             fine: None,
             erosion_params: ErosionParams::default(),
             fine_cache: FineCacheMode::default(),
+            fine_erosion: None,
         }
     }
 
@@ -300,6 +306,91 @@ impl World {
         );
         self.hydrology = None;
         self.fine = Some(fine);
+    }
+
+    /// Enter stage 3 in stepped (watch-it-carve) mode: build the fine base
+    /// (cache-aware) and a pre-erosion (step-0) surface, and arm a resumable
+    /// erosion state the UI advances. The displayed world starts un-eroded; call
+    /// [`Self::step_fine_erosion`] / [`Self::reset_fine_erosion_to`] to carve.
+    pub fn begin_fine_erosion_stepping(&mut self) {
+        let crust = self.crust.as_ref().expect("Crust must be generated first");
+        let features = self.features.as_ref().expect("Features must be generated first");
+        let elevation = self
+            .elevation
+            .as_ref()
+            .expect("Elevation must be generated first");
+        let atmosphere = self
+            .atmosphere
+            .as_ref()
+            .expect("Atmosphere must be generated first");
+
+        let base = FineBase::load_or_generate(
+            self.fine_cache,
+            self.seed,
+            &self.tessellation,
+            crust,
+            features,
+            elevation,
+            atmosphere,
+            FINE_MAX_CELLS,
+        );
+        // Step 0: no erosion yet, so the surface rides the un-eroded base.
+        let state = erosion::ErosionState::new(
+            &base.tessellation,
+            &base.fields.elevation_fields,
+            &base.base_elevation,
+            &base.fields.precipitation,
+            self.erosion_params,
+        );
+        let surface = FineSurface::from_eroded(self.seed, &base, &base.base_elevation);
+
+        self.hydrology = None;
+        self.fine = Some(FineWorld { base, surface });
+        self.fine_erosion = Some(state);
+    }
+
+    /// Advance the live erosion stepper by `steps` and rebuild the fine surface
+    /// from the new elevation (continues the live state — cheap). No-op if not
+    /// in stepped mode.
+    pub fn step_fine_erosion(&mut self, steps: usize) {
+        let Some(state) = self.fine_erosion.as_mut() else {
+            return;
+        };
+        state.step(steps);
+        let elev = state.elevation();
+        if let Some(fine) = self.fine.as_mut() {
+            fine.surface = FineSurface::from_eroded(self.seed, &fine.base, &elev);
+        }
+    }
+
+    /// Re-run erosion from the base to `target_step` (used for stepping backward;
+    /// forward should use [`Self::step_fine_erosion`] to avoid quadratic re-runs).
+    /// Reuses the cached base — no mesh recompute. No-op if not in stepped mode.
+    pub fn reset_fine_erosion_to(&mut self, target_step: usize) {
+        let Some(fine) = self.fine.as_mut() else {
+            return;
+        };
+        let mut state = erosion::ErosionState::new(
+            &fine.base.tessellation,
+            &fine.base.fields.elevation_fields,
+            &fine.base.base_elevation,
+            &fine.base.fields.precipitation,
+            self.erosion_params,
+        );
+        state.step(target_step);
+        let elev = state.elevation();
+        fine.surface = FineSurface::from_eroded(self.seed, &fine.base, &elev);
+        self.fine_erosion = Some(state);
+    }
+
+    /// Current erosion step of the live stepper (None if not in stepped mode).
+    pub fn fine_erosion_step(&self) -> Option<usize> {
+        self.fine_erosion.as_ref().map(|s| s.step_count())
+    }
+
+    /// Total erosion steps a full run takes (the stepper's target).
+    pub fn erosion_total_steps(&self) -> usize {
+        self.erosion_params.steps
     }
 
     /// Get the number of cells in this world.

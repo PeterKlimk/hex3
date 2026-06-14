@@ -16,7 +16,7 @@ use hex3::world::{FineCacheMode, VoronoiBackend, World};
 
 use super::view::{ClimateLayer, FeatureLayer, NoiseLayer, RenderMode, RiverMode, ViewMode};
 use super::world::{
-    advance_to_stage_2, advance_to_stage_3, create_world_with_options, generate_colored_mesh,
+    advance_to_stage_2, create_world_with_options, generate_colored_mesh,
     generate_elevation_mesh_buffers, generate_relief_edge_buffers, generate_world_buffers,
     WorldBuffers,
 };
@@ -211,9 +211,15 @@ impl AppState {
                 true
             }
             2 => {
-                advance_to_stage_3(&mut self.world_data);
+                // Enter stage 3 in stepped mode: start pre-erosion (step 0) and
+                // let the user carve with Left/Right. (Headless uses the batch
+                // advance_to_stage_3 instead.)
+                self.world_data.begin_fine_erosion_stepping();
                 self.world_buffers = generate_world_buffers(&self.gpu.device, &self.world_data);
-                println!("Advanced to Stage 3: Hydrosphere");
+                let total = self.world_data.erosion_total_steps();
+                println!(
+                    "Advanced to Stage 3: Hydrosphere (erosion 0/{total} — Left/Right to carve)"
+                );
                 true
             }
             _ => {
@@ -221,6 +227,50 @@ impl AppState {
                 false
             }
         }
+    }
+
+    /// Step the erosion stepper forward by ~10% of a full run (continues the
+    /// live state — cheap), rebuilding the fine surface. Returns true if it
+    /// stepped (false if not in stepped stage 3, or already at the end).
+    pub fn step_erosion_forward(&mut self) -> bool {
+        let Some(cur) = self.world_data.fine_erosion_step() else {
+            return false;
+        };
+        let total = self.world_data.erosion_total_steps();
+        if cur >= total {
+            return false;
+        }
+        let inc = (total / 10).max(1);
+        let target = (cur + inc).min(total);
+        self.world_data.step_fine_erosion(target - cur);
+        self.world_buffers = generate_world_buffers(&self.gpu.device, &self.world_data);
+        println!(
+            "Erosion {}/{}",
+            self.world_data.fine_erosion_step().unwrap_or(target),
+            total
+        );
+        true
+    }
+
+    /// Step the erosion stepper back by ~10% (re-runs from the cached base).
+    /// Returns true if it stepped (false if not in stepped stage 3, or at 0).
+    pub fn step_erosion_backward(&mut self) -> bool {
+        let Some(cur) = self.world_data.fine_erosion_step() else {
+            return false;
+        };
+        if cur == 0 {
+            return false;
+        }
+        let inc = (self.world_data.erosion_total_steps() / 10).max(1);
+        let target = cur.saturating_sub(inc);
+        self.world_data.reset_fine_erosion_to(target);
+        self.world_buffers = generate_world_buffers(&self.gpu.device, &self.world_data);
+        println!(
+            "Erosion {}/{}",
+            self.world_data.fine_erosion_step().unwrap_or(target),
+            self.world_data.erosion_total_steps()
+        );
+        true
     }
 
     /// Adjust climate ratio (precipitation/evaporation) by delta.
