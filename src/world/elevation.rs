@@ -431,11 +431,27 @@ fn assemble_heightmap_with_noise(
         micro_layer.push(cell.micro_layer);
     }
 
-    // --- 4. Sea-level solve: uniform shift so land fraction is exact ---
-    let mut sorted = elevations.clone();
-    sorted.sort_by(|a, b| a.total_cmp(b));
-    let idx = (((1.0 - LAND_FRACTION) * num_cells as f32) as usize).min(num_cells - 1);
-    let sea_level = sorted[idx];
+    // --- 4. Sea-level solve: uniform shift so the land AREA fraction is exact ---
+    // Area-weighted, not cell-count-weighted: the adaptive fine mesh has wildly
+    // unequal cell areas (sparse huge ocean cells, dense tiny land cells), so a
+    // count-based percentile would place sea level up among the land cells and
+    // drown most of the landmass. Sorting by elevation and accumulating area
+    // gives the correct sea level on any mesh (and matches the old behaviour on
+    // the ~equal-area coarse mesh).
+    let areas = tessellation.cell_areas();
+    let total_area: f32 = areas.iter().sum();
+    let target_submerged_area = (1.0 - LAND_FRACTION) * total_area;
+    let mut order: Vec<usize> = (0..num_cells).collect();
+    order.sort_by(|&a, &b| elevations[a].total_cmp(&elevations[b]));
+    let mut accumulated = 0.0f32;
+    let mut sea_level = elevations[*order.last().unwrap()];
+    for &i in &order {
+        accumulated += areas[i];
+        if accumulated >= target_submerged_area {
+            sea_level = elevations[i];
+            break;
+        }
+    }
     log::debug!("sea level solve: shift={:.4}", -sea_level);
 
     for e in &mut elevations {
