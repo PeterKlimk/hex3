@@ -255,6 +255,13 @@ impl World {
     /// Generate hydrology (drainage, rivers).
     /// Requires crust, elevation, and atmosphere (for precipitation).
     pub fn generate_hydrology(&mut self) {
+        self.generate_hydrology_with_fine_cap(FINE_MAX_CELLS);
+    }
+
+    /// Stage-3 generation with an explicit fine-mesh cell cap. The default
+    /// `generate_hydrology` uses `FINE_MAX_CELLS`; diagnostics pass a smaller cap
+    /// to iterate faster on a proportionally-coarsened mesh.
+    pub fn generate_hydrology_with_fine_cap(&mut self, fine_max_cells: usize) {
         let crust = self.crust.as_ref().expect("Crust must be generated first");
         let features = self
             .features
@@ -268,13 +275,14 @@ impl World {
             .atmosphere
             .as_ref()
             .expect("Atmosphere must be generated first");
-        let fine = FineWorld::generate(
+        let fine = FineWorld::generate_with_target(
             self.seed,
             &self.tessellation,
             crust,
             features,
             elevation,
             atmosphere,
+            fine_max_cells,
         );
         self.hydrology = None;
         self.fine = Some(fine);

@@ -62,6 +62,8 @@ pub(crate) fn erode(
     let areas = tess.cell_areas();
     let geom = NeighborGeometry::build(tess);
 
+    roughness_report(tess, base, "base ");
+
     let mut thick = thick_init.clone();
 
     let derive_elev = |thick: &[f32]| -> Vec<f32> {
@@ -150,7 +152,93 @@ pub(crate) fn erode(
         total_lost,
     );
 
-    derive_elev(&thick)
+    let final_elev = derive_elev(&thick);
+    roughness_report(tess, &final_elev, "eroded");
+    final_elev
+}
+
+/// Numerical roughness probe (a REFERENCE, not an optimization target). On land
+/// cells it reports the local-slope distribution (|d elev| / km to the steepest
+/// neighbour), the fraction of cells that are strict local extrema (a clean
+/// cell-scale-speckle signal — smooth fluvial terrain has few interior pits/
+/// peaks), and Moran's I of the whole field. Compare `base ` vs `eroded` to see
+/// what erosion did to terrain coherence rather than guessing from a render.
+fn roughness_report(tess: &Tessellation, elev: &[f32], label: &str) {
+    let n = tess.num_cells();
+    let mut slopes: Vec<f32> = Vec::new();
+    let mut extrema = 0usize;
+    let mut land = 0usize;
+    let mut min_d_km = f32::INFINITY;
+    let mut edges_total = 0usize;
+    let mut edges_sub_100m = 0usize;
+    let mut edges_sub_1m = 0usize;
+    for i in 0..n {
+        if elev[i] < 0.0 {
+            continue;
+        }
+        land += 1;
+        let pos = tess.cell_center(i);
+        let mut steepest = 0.0f32;
+        let mut all_higher = true;
+        let mut all_lower = true;
+        let mut has_land_nb = false;
+        for &nb in tess.neighbors(i) {
+            if elev[nb] < 0.0 {
+                continue;
+            }
+            has_land_nb = true;
+            // Chord distance (accurate in f32); acos(dot) collapses to 0 below ~3 km.
+            let d_km = (pos - tess.cell_center(nb)).length() * PLANET_RADIUS_KM;
+            if nb > i {
+                edges_total += 1;
+                min_d_km = min_d_km.min(d_km);
+                if d_km < 0.1 {
+                    edges_sub_100m += 1;
+                }
+                if d_km < 1e-3 {
+                    edges_sub_1m += 1;
+                }
+            }
+            steepest = steepest.max((elev[i] - elev[nb]).abs() / d_km.max(1e-6));
+            if elev[nb] <= elev[i] {
+                all_higher = false;
+            }
+            if elev[nb] >= elev[i] {
+                all_lower = false;
+            }
+        }
+        if has_land_nb {
+            slopes.push(steepest);
+            if all_higher || all_lower {
+                extrema += 1;
+            }
+        }
+    }
+    if slopes.is_empty() {
+        return;
+    }
+    slopes.sort_by(f32::total_cmp);
+    let pct = |p: f32| slopes[(((slopes.len() - 1) as f32) * p) as usize];
+    log::info!(
+        "erosion roughness [{}]: land {} | slope(elev/km) p50={:.3e} p90={:.3e} p99={:.3e} max={:.3e} | local-extrema {:.2}% | Moran's I {:.3}",
+        label,
+        land,
+        pct(0.50),
+        pct(0.90),
+        pct(0.99),
+        pct(1.0),
+        100.0 * extrema as f32 / land.max(1) as f32,
+        tess.morans_i(elev),
+    );
+    log::info!(
+        "erosion roughness [{}]: land-land edges {} | min spacing {:.4} km | <100m {} ({:.4}%) | <1m {}",
+        label,
+        edges_total,
+        min_d_km,
+        edges_sub_100m,
+        100.0 * edges_sub_100m as f32 / edges_total.max(1) as f32,
+        edges_sub_1m,
+    );
 }
 
 /// One implicit Braun & Willett incision sweep (stream power, n = 1) in
@@ -158,6 +246,13 @@ pub(crate) fn erode(
 /// before it), so the receiver already holds its updated height when a cell is
 /// processed — the linear implicit solve each cell needs. Sinks are fixed base
 /// level and are skipped. Pure: no sea-level clamp, no thickness coupling.
+///
+/// Detachment-limited incision only acts on a positive (downhill) slope. The
+/// receiver is taken from the PIT-FILLED surface, so inside filled basins/flats
+/// it points up toward the spill rim; without this guard the implicit step
+/// would pull such cells UP toward a higher receiver (anti-erosion), pimpling
+/// basin interiors with cell-scale bumps. Where the slope is non-positive there
+/// is no stream incision (a transport/lake regime handled elsewhere), so skip.
 fn incise_step(
     elev: &mut [f32],
     receiver: &[usize],
@@ -174,10 +269,14 @@ fn incise_step(
             continue;
         }
         let r = receiver[cell];
+        let hr = elev[r];
+        if hr >= elev[cell] {
+            continue; // no downhill gradient -> no detachment-limited incision
+        }
         let d = dist[cell].max(1e-12);
         // h_i = (h_i + dt K A^m h_rcv / d) / (1 + dt K A^m / d)
         let f = dt * k * area[cell].powf(m) / d;
-        elev[cell] = (elev[cell] + f * elev[r]) / (1.0 + f);
+        elev[cell] = (elev[cell] + f * hr) / (1.0 + f);
     }
 }
 
@@ -453,7 +552,11 @@ impl NeighborGeometry {
             let mut ds = Vec::with_capacity(nbs.len());
             let mut ws = Vec::with_capacity(nbs.len());
             for &nb in nbs {
-                let d = center.dot(tess.cell_center(nb)).clamp(-1.0, 1.0).acos();
+                // Chord, not acos(dot): the latter collapses to 0 in f32 for the
+                // sub-3km separations the fine mesh has (cos rounds to 1.0),
+                // which would make incision (K A^m / d) and diffusion (edge / d)
+                // blow up on the finest cells. Chord is accurate here and ~ arc.
+                let d = (center - tess.cell_center(nb)).length();
                 let edge = tess.shared_edge_length(i, nb);
                 ns.push(nb);
                 ds.push(d);

@@ -21,6 +21,10 @@ struct Cli {
     /// Max components listed per section.
     #[arg(long, default_value_t = 8)]
     top: usize,
+    /// Fine-mesh cell cap (the emergent count is coarsened to fit). Lower it to
+    /// iterate faster on erosion/roughness probes. 0 = use the FINE_MAX_CELLS default.
+    #[arg(long, default_value_t = 0)]
+    fine_max: usize,
 }
 
 fn main() {
@@ -38,7 +42,11 @@ fn main() {
     world.generate_features();
     world.generate_elevation();
     world.generate_atmosphere();
-    world.generate_hydrology();
+    if cli.fine_max > 0 {
+        world.generate_hydrology_with_fine_cap(cli.fine_max);
+    } else {
+        world.generate_hydrology();
+    }
 
     let tess = world.active_tessellation();
     let n = tess.num_cells();

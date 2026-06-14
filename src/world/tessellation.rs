@@ -354,7 +354,14 @@ impl Tessellation {
         ((n as f64 / weight_count.max(1) as f64) * cross / variance as f64) as f32
     }
 
-    /// Length of the great-circle arc forming the shared boundary of two adjacent cells.
+    /// Length of the shared boundary edge of two adjacent cells.
+    ///
+    /// Returned as the CHORD between the two shared vertices, not the great-circle
+    /// arc: `acos(dot)` collapses to 0 in f32 for separations below ~3 km
+    /// (cos rounds to 1.0), which corrupts the fine mesh where edges are ~km
+    /// scale. Chord is computed by direct subtraction (accurate in f32) and is
+    /// identical to the arc to ~1e-8 at these scales. Coarse-mesh consumers
+    /// (atmosphere/moisture/boundary) are unaffected.
     pub fn shared_edge_length(&self, cell_a: usize, cell_b: usize) -> f32 {
         let verts_a: HashSet<u32> = self
             .voronoi
@@ -376,7 +383,7 @@ impl Tessellation {
         if shared_len == 2 {
             let v0 = self.voronoi.vertices[shared[0] as usize];
             let v1 = self.voronoi.vertices[shared[1] as usize];
-            v0.dot(v1).clamp(-1.0, 1.0).acos()
+            (v0 - v1).length()
         } else {
             debug_assert_eq!(
                 shared_len, 2,
@@ -386,7 +393,7 @@ impl Tessellation {
             // This should be unreachable for valid Voronoi topology.
             let pos_a = self.cell_center(cell_a);
             let pos_b = self.cell_center(cell_b);
-            0.5 * pos_a.dot(pos_b).clamp(-1.0, 1.0).acos()
+            0.5 * (pos_a - pos_b).length()
         }
     }
 }
