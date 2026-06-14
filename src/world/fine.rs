@@ -134,6 +134,7 @@ impl FineWorld {
         let t0 = Instant::now();
         let coarse_cell = map_to_coarse(&tessellation, &tree);
         let fine_density: Vec<f32> = coarse_cell.iter().map(|&c| density[c]).collect();
+        mesh_quality_probe(&tessellation);
         let fields = transfer_fields(
             coarse_tessellation,
             &tessellation,
@@ -293,6 +294,64 @@ fn compute_areal_density(
         density.push(g_plains + demand * (g_mountain - g_plains));
     }
     density
+}
+
+/// Blue-noise quality probe (a REFERENCE for judging relaxation passes, not a
+/// target). Uses the canonical regularity metric from `sample_experiment.rs`:
+///
+///     rho = nearest-neighbour distance / sqrt(cell_area)
+///
+/// ~1 and tight for blue noise; a tail toward 0 means slivers/clumps (a cell
+/// whose nearest neighbour sits much closer than its size implies — the thing
+/// relaxation exists to remove). Distance is chord (f32-robust at km scale).
+/// Reports the low-end distribution, coefficient of variation, and the sliver
+/// fractions (rho < 0.4 and < 0.25) so reducing FINE_RELAX_PASSES is judged on
+/// the metric relaxation actually moves, not just cell area.
+fn mesh_quality_probe(tessellation: &Tessellation) {
+    let areas = tessellation.cell_areas();
+    let n = tessellation.num_cells();
+    if n == 0 {
+        return;
+    }
+    let rho_of = |i: usize| -> f32 {
+        let area = areas[i].max(1e-20);
+        let pos = tessellation.cell_center(i);
+        let mut nn = f32::INFINITY;
+        for &nb in tessellation.neighbors(i) {
+            nn = nn.min((pos - tessellation.cell_center(nb)).length());
+        }
+        if nn.is_finite() {
+            nn / area.sqrt()
+        } else {
+            f32::NAN
+        }
+    };
+    #[cfg(not(feature = "single-threaded"))]
+    let mut rho: Vec<f32> = (0..n).into_par_iter().map(rho_of).filter(|r| r.is_finite()).collect();
+    #[cfg(feature = "single-threaded")]
+    let mut rho: Vec<f32> = (0..n).map(rho_of).filter(|r| r.is_finite()).collect();
+    if rho.is_empty() {
+        return;
+    }
+    let m = rho.len();
+    let mean = rho.iter().sum::<f32>() / m as f32;
+    let var = rho.iter().map(|r| (r - mean).powi(2)).sum::<f32>() / m as f32;
+    let cov = var.sqrt() / mean.max(1e-9);
+    let s40 = rho.iter().filter(|&&r| r < 0.4).count();
+    let s25 = rho.iter().filter(|&&r| r < 0.25).count();
+    rho.sort_by(f32::total_cmp);
+    let pct = |p: f32| rho[(((m - 1) as f32) * p) as usize];
+    log::info!(
+        "fine mesh quality: rho=nn/sqrt(area) min={:.2} p1={:.2} p5={:.2} p50={:.2} mean={:.2} CoV={:.2} | slivers <0.4 {:.3}% <0.25 {:.3}%",
+        rho[0],
+        pct(0.01),
+        pct(0.05),
+        pct(0.50),
+        mean,
+        cov,
+        100.0 * s40 as f32 / m as f32,
+        100.0 * s25 as f32 / m as f32,
+    );
 }
 
 /// Report the physical resolution of the generated fine mesh, by terrain tier,
@@ -478,12 +537,16 @@ fn relax_fine_points(
         }
     };
 
+    let (mut t_build, mut t_query) = (0.0f64, 0.0f64);
     for _ in 0..FINE_RELAX_PASSES {
+        let s = Instant::now();
         let entries: Vec<[f32; 3]> = points.iter().map(|p| p.to_array()).collect();
         let mut tree = KdTree::<f32, 3>::with_capacity(entries.len());
         for (i, e) in entries.iter().enumerate() {
             tree.add(e, i as u64);
         }
+        t_build += s.elapsed().as_secs_f64();
+        let s = Instant::now();
         let new_points: Vec<Vec3> = {
             #[cfg(not(feature = "single-threaded"))]
             {
@@ -503,12 +566,15 @@ fn relax_fine_points(
             }
         };
         points = new_points;
+        t_query += s.elapsed().as_secs_f64();
     }
 
     log::info!(
-        "fine mesh: relaxation {} passes {:.2?}",
+        "fine mesh: relaxation {} passes {:.2?} (build {:.1}s, query+move {:.1}s)",
         FINE_RELAX_PASSES,
-        t0.elapsed()
+        t0.elapsed(),
+        t_build,
+        t_query,
     );
     points
 }

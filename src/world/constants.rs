@@ -651,10 +651,12 @@ pub const FINE_ACTIVITY_DENSITY_WEIGHT: f32 = 6.0;
 /// Particle-repulsion relaxation passes applied to the thinned fine points to
 /// turn white-noise (sliver-prone) sampling into adaptive blue noise. 0 = off
 /// (raw thinning). Each pass rebuilds a kd-tree and does a density-aware tangent
-/// push; ~2s/pass at 2.5M. 5 takes slivers (rho<0.5) from ~85% to ~0.4% while
-/// the cleaner input also tessellates faster, offsetting most of the cost. See
-/// src/bin/sample_experiment.rs for the algorithm comparison this was tuned on.
-pub const FINE_RELAX_PASSES: usize = 5;
+/// push (~1.5-2.5s/pass at 2.5M). A rho=nn/sqrt(area) sweep (June 2026, 2.25M,
+/// see the mesh-quality probe) shows a sharp knee: 0->2 passes does almost all
+/// the regularization (slivers<0.4 1.88%->0.65%, mean rho 0.76->0.91), and 2->5
+/// is diminishing (mean 0.91->0.95). 3 captures ~95% of the 5-pass quality on
+/// every metric for ~5s less. See src/bin/sample_experiment.rs.
+pub const FINE_RELAX_PASSES: usize = 3;
 
 // --- Fluvial erosion on the fine mesh (docs/specs/erosion.md) ---------------
 //
