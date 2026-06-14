@@ -28,6 +28,7 @@ mod crust;
 pub mod diagnostics;
 mod dynamics;
 mod elevation;
+mod erosion;
 mod features;
 mod fine;
 mod hydrology;

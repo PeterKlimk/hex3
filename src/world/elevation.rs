@@ -80,6 +80,15 @@ pub struct ElevationFields {
     pub convergent: Vec<f32>,
     pub divergent: Vec<f32>,
     pub is_continental: Vec<bool>,
+    /// Volcanic-arc uplift forcing (elevation magnitude). Carried so the fine
+    /// mesh can drive erosion uplift from the same feature machinery elevation
+    /// uses; already folded into `crust_thickness` for the static surface.
+    pub arc: Vec<f32>,
+    /// Continental-collision uplift forcing (elevation magnitude). See `arc`.
+    pub collision: Vec<f32>,
+    /// Signed continental-rift thickness delta (thickness units, not elevation):
+    /// negative in the axial valley, positive on the shoulders.
+    pub rift_delta: Vec<f32>,
 }
 
 impl TerrainNoise {
@@ -326,7 +335,7 @@ fn thermal_anomaly(ridge_age_distance: f32) -> f32 {
 
 /// Isostatic elevation from crust thickness (Airy, uniform densities).
 /// Linear relation through the two anchor points defined in constants.
-fn isostatic_elevation(thickness: f32) -> f32 {
+pub(crate) fn isostatic_elevation(thickness: f32) -> f32 {
     let slope = (CONTINENTAL_BASE - ABYSSAL_DEPTH)
         / (CRUST_THICKNESS_CONTINENTAL - CRUST_THICKNESS_OCEANIC);
     let offset = CONTINENTAL_BASE - slope * CRUST_THICKNESS_CONTINENTAL;
@@ -336,7 +345,7 @@ fn isostatic_elevation(thickness: f32) -> f32 {
 /// Elevation change per unit crust thickness (the Airy slope), used to
 /// express feature forcing magnitudes (calibrated in elevation units) as
 /// thickness changes.
-fn isostasy_slope() -> f32 {
+pub(crate) fn isostasy_slope() -> f32 {
     (CONTINENTAL_BASE - ABYSSAL_DEPTH) / (CRUST_THICKNESS_CONTINENTAL - CRUST_THICKNESS_OCEANIC)
 }
 
@@ -399,6 +408,9 @@ pub(crate) fn coarse_elevation_fields(
         convergent: features.convergent.clone(),
         divergent: features.divergent.clone(),
         is_continental,
+        arc: features.arc.clone(),
+        collision: features.collision.clone(),
+        rift_delta: features.rift_delta.clone(),
     }
 }
 

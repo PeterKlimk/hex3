@@ -158,9 +158,25 @@ impl FineWorld {
             &coarse_cell,
             &coarse_elevation.values,
         );
-        let mut elev_rng = ChaCha8Rng::seed_from_u64(seed.wrapping_add(3));
-        let elevation = Elevation::refine_from_base(&tessellation, &base_elevation, &mut elev_rng);
         log::info!("fine mesh: elevation refine {:.2?}", t0.elapsed());
+
+        // Fluvial erosion: carve the interpolated base into real river valleys by
+        // evolving crust thickness (isostasy responds). Runs on the fine mesh
+        // before final hydrology; sea level is the fixed datum inherited via
+        // `base_elevation`. See docs/specs/erosion.md.
+        let t0 = Instant::now();
+        let eroded_base = super::erosion::erode(
+            &tessellation,
+            &fields.elevation_fields,
+            &base_elevation,
+            &fields.precipitation,
+        );
+        log::info!("fine mesh: erosion {:.2?}", t0.elapsed());
+
+        // Cosmetic micro noise rides on the eroded surface; this is the elevation
+        // hydrology and rendering consume.
+        let mut elev_rng = ChaCha8Rng::seed_from_u64(seed.wrapping_add(3));
+        let elevation = Elevation::refine_from_base(&tessellation, &eroded_base, &mut elev_rng);
         log_resolution_probe(&tessellation, &elevation);
 
         let t0 = Instant::now();
@@ -589,6 +605,9 @@ fn transfer_fields(
         convergent: Vec::with_capacity(n),
         divergent: Vec::with_capacity(n),
         is_continental: Vec::with_capacity(n),
+        arc: Vec::with_capacity(n),
+        collision: Vec::with_capacity(n),
+        rift_delta: Vec::with_capacity(n),
     };
     let mut temperature = Vec::with_capacity(n);
     let mut precipitation = Vec::with_capacity(n);
@@ -607,6 +626,9 @@ fn transfer_fields(
         elevation_fields
             .is_continental
             .push(cell.continentality >= 0.5);
+        elevation_fields.arc.push(cell.arc);
+        elevation_fields.collision.push(cell.collision);
+        elevation_fields.rift_delta.push(cell.rift_delta);
         temperature.push(cell.temperature);
         precipitation.push(cell.precipitation);
         uplift.push(cell.uplift);
@@ -628,6 +650,9 @@ struct TransferredCell {
     ridge: f32,
     convergent: f32,
     divergent: f32,
+    arc: f32,
+    collision: f32,
+    rift_delta: f32,
     temperature: f32,
     precipitation: f32,
     uplift: f32,
@@ -658,6 +683,9 @@ fn transfer_cell(
         ridge: support.interpolate(&coarse_fields.ridge, 0.0),
         convergent: support.interpolate(&coarse_fields.convergent, 0.0),
         divergent: support.interpolate(&coarse_fields.divergent, 0.0),
+        arc: support.interpolate(&coarse_fields.arc, 0.0),
+        collision: support.interpolate(&coarse_fields.collision, 0.0),
+        rift_delta: support.interpolate(&coarse_fields.rift_delta, 0.0),
         temperature: support.interpolate(&atmosphere.temperature, 0.0),
         precipitation: support.interpolate(&atmosphere.precipitation, 0.0).max(0.0),
         uplift: support.interpolate(&atmosphere.uplift, 0.0),
