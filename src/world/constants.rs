@@ -685,9 +685,18 @@ pub const EROSION_DT: f32 = 1.0;
 pub const EROSION_M: f32 = 0.5;
 
 /// Stream-power coefficient K (erodibility). Drainage area A is "wet area" in
-/// steradians and the receiver distance is in arc radians, so K is small. This
-/// is the master knob for how deeply rivers dissect; tune visually.
-pub const EROSION_K: f32 = 5.0e-4;
+/// steradians and the receiver distance is in arc radians, so K is small. The
+/// master knob for how deeply rivers dissect: K carves valleys (high drainage
+/// area) and strips lowlands, but holds peaks/divides (~zero drainage area) — so
+/// it raises relief, it doesn't lower summits (that's `EROSION_DIFFUSIVITY`).
+///
+/// Calibrated as the erosional "dose": the fraction of land volume removed over
+/// the run is a proxy for how much of an erosion epoch the stage represents.
+/// Sweep (seed 12345, relaxation, no uplift): 5e-4 -> 0.3% (geologically
+/// instantaneous), 1e-2 -> 3.7% (rivers measurably incised, orogen intact),
+/// 4e-2 -> 10.7% (lowlands planed). 1e-2 sits at "young-mature dissected":
+/// valleys carved, form kept. Tune visually from here (up = deeper canyons).
+pub const EROSION_K: f32 = 1.0e-2;
 
 /// Hillslope diffusivity (soil creep). Rounds off ridgecrests and fills the
 /// finest valleys; 0 disables diffusion (rivers only). Solved IMPLICITLY
