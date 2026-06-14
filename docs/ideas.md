@@ -114,6 +114,31 @@ specialization (A1 = A2 with an oriented periodic pattern), not the generic lead
 - **Note:** explicit non-goal in `erosion.md`; would be the first extension.
 - **Effort:** medium–high.
 
+## A'. Missing couplings (the "systems aren't talking yet" cluster)
+
+Reframing from the review (June 2026): some "mountains/surroundings look
+generic" symptoms aren't a missing *field* but a missing *interaction* between
+systems we already have. "Not Earth-accurate" is the wrong dismissal — the
+absence flags an emergent coupling worth having (see design-philosophy memory).
+
+### A'1. Flexure ⇄ erosion ⇄ deposition → foreland basins
+- **Symptom:** orogens have no adjacent lowlands/sediment wedges; ranges sit on
+  smooth ground instead of beside basins fed by their own erosion.
+- **Coupling:** orogen load → flexural subsidence of the neighbouring plate →
+  basin → traps sediment eroded off the orogen.
+- **Ingredients (all present, uncoupled):** flexure (currently trench-only —
+  `flexure_broken/coupled`), erosion sediment volume, deposition (currently
+  coastal/per-mouth only). Extend flexure to orogen loads; let deposition fill
+  the flexural low. Effort: medium. (Promote? ties to `docs/specs/flexure.md`.)
+
+### A'2. Tectonics ⇄ erosion over time → water gaps, antecedence, capture
+- **Symptom:** no transverse rivers cutting rising ridges, no water/wind gaps,
+  no drainage capture — rivers have no *history* relative to the uplift.
+- **Coupling:** drainage established, THEN uplift rises through it (antecedence);
+  networks compete and capture as divides migrate. Needs erosion running *during*
+  uplift, not once after — the time-evolution thread below. This is its marquee
+  payoff, not abstract "time stepping." Effort: large.
+
 ## C. Broader threads (not mountain-specific)
 - **Crust / terrane model:** crust is just continental/oceanic + craton growth;
   real crust is accreted terranes with provenance/age structure — feeds A2.
