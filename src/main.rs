@@ -134,7 +134,7 @@ fn run_headless(
 
     // Export if requested
     if let Some(path) = export_path {
-        app::export::export_world(&world, seed, &path);
+        app::export::export_world(&mut world, seed, &path);
     }
 }
 

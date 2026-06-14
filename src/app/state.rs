@@ -204,6 +204,7 @@ impl AppState {
             self.viewed_stage += 1;
             self.world_data.set_view_stage(self.viewed_stage);
             self.world_buffers = generate_world_buffers(&self.gpu.device, &self.world_data);
+            self.update_elevation_map(); // active elevation resolution may change
             println!("Viewing stage {}", self.viewed_stage);
             return true;
         }
@@ -238,6 +239,7 @@ impl AppState {
                 self.viewed_stage = 3;
                 self.world_data.set_view_stage(3);
                 self.world_buffers = generate_world_buffers(&self.gpu.device, &self.world_data);
+                self.update_elevation_map(); // fine elevation now active
                 let total = self.world_data.erosion_total_steps();
                 println!(
                     "Advanced to Stage 3: Hydrosphere (erosion 0/{total} — Left/Right to carve)"
@@ -260,6 +262,7 @@ impl AppState {
         self.viewed_stage -= 1;
         self.world_data.set_view_stage(self.viewed_stage);
         self.world_buffers = generate_world_buffers(&self.gpu.device, &self.world_data);
+        self.update_elevation_map(); // active elevation resolution may change
         println!("Viewing stage {} (back)", self.viewed_stage);
         true
     }
@@ -282,6 +285,7 @@ impl AppState {
         let target = (cur + inc).min(total);
         self.world_data.step_fine_erosion(target - cur);
         self.world_buffers = generate_world_buffers(&self.gpu.device, &self.world_data);
+        self.update_elevation_map(); // eroded elevation changed
         println!(
             "Erosion {}/{}",
             self.world_data.fine_erosion_step().unwrap_or(target),
@@ -306,6 +310,7 @@ impl AppState {
         let target = cur.saturating_sub(inc);
         self.world_data.reset_fine_erosion_to(target);
         self.world_buffers = generate_world_buffers(&self.gpu.device, &self.world_data);
+        self.update_elevation_map(); // eroded elevation changed
         println!(
             "Erosion {}/{}",
             self.world_data.fine_erosion_step().unwrap_or(target),

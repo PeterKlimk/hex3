@@ -19,7 +19,7 @@ use glam::Vec3;
 
 use super::constants::*;
 use super::fine::FineBase;
-use super::{Atmosphere, Elevation, Tessellation};
+use super::{Atmosphere, Crust, Elevation, FeatureFields, Tessellation};
 
 /// Bump when fine-mesh GENERATION CODE changes (sampling / relaxation / field
 /// transfer / density logic) in a way the content hash below can't observe.
@@ -43,9 +43,12 @@ pub enum FineCacheMode {
 /// input (or the version, or the fine density constants) yields a different key
 /// and therefore a cache miss. Hashing a few million f32 is ~ms — negligible
 /// next to the mesh build it guards.
+#[allow(clippy::too_many_arguments)]
 pub fn fine_base_key(
     seed: u64,
     coarse: &Tessellation,
+    crust: &Crust,
+    features: &FeatureFields,
     coarse_elevation: &Elevation,
     atmosphere: &Atmosphere,
     max_cells: usize,
@@ -70,15 +73,43 @@ pub fn fine_base_key(
     mix_u64(&mut h, FINE_RELAX_PASSES as u64);
 
     // Coarse-world fingerprint. The generators pin the coarse mesh identity
-    // (seed + resolution + Lloyd); coarse elevation is downstream of every
-    // stage-1 tectonic input (plates/crust/features + all elevation constants);
-    // atmosphere is downstream of elevation + all atmosphere constants. Together
-    // these change whenever anything upstream of the fine base changes.
+    // (seed + resolution + Lloyd). Coarse elevation + atmosphere capture every
+    // elevation/atmosphere CONSTANT (they're downstream of them). But the fine
+    // base also TRANSFERS crust/features fields (crust_thickness, continentality,
+    // arc, collision, rift_delta, ...) that the scalar coarse elevation reduces
+    // lossily, so hash crust + features directly too — otherwise a change that
+    // alters a transferred field without moving coarse elevation would be a
+    // false cache hit. (Generation-CODE changes still need a VERSION bump.)
     mix_vec3s(&mut h, &coarse.voronoi.generators);
     mix_f32s(&mut h, &coarse_elevation.values);
     mix_f32s(&mut h, &atmosphere.temperature);
     mix_f32s(&mut h, &atmosphere.precipitation);
     mix_f32s(&mut h, &atmosphere.uplift);
+
+    mix_f32s(&mut h, &crust.signed_margin_distance);
+    mix_u64(&mut h, crust.cell_craton.len() as u64);
+    for &c in &crust.cell_craton {
+        mix_u64(&mut h, c as u64);
+    }
+    for field in [
+        &features.trench,
+        &features.arc,
+        &features.ridge,
+        &features.collision,
+        &features.activity,
+        &features.convergent,
+        &features.divergent,
+        &features.transform,
+        &features.ridge_distance,
+        &features.ridge_age_distance,
+        &features.ridge_spreading_rate,
+        &features.collision_distance,
+        &features.arc_distance,
+        &features.arc_shape_noise,
+        &features.rift_delta,
+    ] {
+        mix_f32s(&mut h, field);
+    }
     h
 }
 

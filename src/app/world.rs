@@ -318,8 +318,7 @@ fn river_thresholds(num_cells: usize) -> (f32, f32, f32) {
 }
 
 fn mode_uses_fine_mesh(world: &World, mode: RenderMode) -> bool {
-    world.fine.is_some()
-        && world.view_stage() >= 3
+    world.shows_fine()
         && matches!(
             mode,
             RenderMode::Relief
@@ -418,7 +417,7 @@ pub fn generate_colored_mesh(
 /// Generate GPU buffers from a World.
 /// Creates one dynamic colored mesh (initially Terrain mode) plus specialized buffers.
 pub fn generate_world_buffers(device: &wgpu::Device, world: &World) -> WorldBuffers {
-    let use_fine = world.fine.is_some();
+    let use_fine = world.shows_fine();
     let voronoi = &world.active_tessellation().voronoi;
     let elevation = world.active_elevation().unwrap();
 

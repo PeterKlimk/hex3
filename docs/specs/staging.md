@@ -144,10 +144,15 @@ compile-time `const` to runtime params carried in app/world state and passed int
   view = step 0; the full world = stepping to the end. Up/Down stay climate-ratio.
   Wired via `World::{begin_fine_erosion_stepping, step_fine_erosion,
   reset_fine_erosion_to}` + `AppState::step_erosion_{forward,backward}`. Headless
-  / `--export` still use the batch `advance_to_stage_3` (full erosion). NOTE: each
-  step currently does a full `generate_world_buffers` (correct; topology
-  unchanged). If too slow at full res on Windows, optimize to vertex-only
-  re-upload (the index buffer is already separable).
+  / `--export` still use the batch `advance_to_stage_3` (full erosion). The user's
+  climate ratio is preserved across steps (re-applied after the surface rebuild).
+  PERF FOLLOW-UP (deferred, pending Windows perf read): each step does a full
+  `generate_world_buffers` (colored + relief + all river meshes) AND an
+  `update_elevation_map` (for wind-particle terrain) — correct but heavier than
+  needed. If sluggish at full res, key a render-resource cache by active
+  stage/render-mode/river-mode and drop to vertex-only re-upload (the index
+  buffer is already separable); refresh the elevation map lazily on entering
+  Climate/Wind instead of per step.
 - **Stage forward / back** — DONE. `AppState.viewed_stage` tracks the rendered
   stage separate from the max computed. Space moves the view forward (computing
   the next stage only when already at the latest), Backspace moves it back (no

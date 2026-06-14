@@ -180,6 +180,8 @@ impl FineBase {
         let key = fine_cache::fine_base_key(
             seed,
             coarse_tessellation,
+            crust,
+            features,
             coarse_elevation,
             atmosphere,
             max_cells,

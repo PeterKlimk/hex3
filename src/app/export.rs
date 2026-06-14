@@ -13,11 +13,19 @@ use serde::Serialize;
 use hex3::world::{CrustType, World};
 
 /// Export world data to a JSON file (optionally gzipped).
-pub fn export_world(world: &World, seed: u64, path: &Path) {
+///
+/// Export always reflects the LATEST computed stage, not whatever stage is
+/// currently being viewed: the view cap is lifted for the read (then restored),
+/// so a stage-back navigation can't desync the `active_*` arrays from the
+/// fine-mesh arrays read directly. Takes `&mut World` only to toggle that cap.
+pub fn export_world(world: &mut World, seed: u64, path: &Path) {
     print!("Exporting to {}... ", path.display());
     let start = Instant::now();
 
+    let saved_view = world.view_stage();
+    world.set_view_stage(u32::MAX);
     let data = WorldExport::from_world(world, seed);
+    world.set_view_stage(saved_view);
 
     let file = File::create(path).expect("Failed to create export file");
 

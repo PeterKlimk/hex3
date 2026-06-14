@@ -366,7 +366,11 @@ impl World {
         state.step(steps);
         let elev = state.elevation();
         if let Some(fine) = self.fine.as_mut() {
+            // Preserve the user's climate ratio across the surface rebuild
+            // (from_eroded regenerates hydrology at the default ratio).
+            let ratio = fine.hydrology().climate_ratio();
             fine.surface = FineSurface::from_eroded(self.seed, &fine.base, &elev);
+            fine.set_climate_ratio(ratio);
         }
     }
 
@@ -386,7 +390,9 @@ impl World {
         );
         state.step(target_step);
         let elev = state.elevation();
+        let ratio = fine.hydrology().climate_ratio();
         fine.surface = FineSurface::from_eroded(self.seed, &fine.base, &elev);
+        fine.set_climate_ratio(ratio);
         self.fine_erosion = Some(state);
     }
 
@@ -417,13 +423,14 @@ impl World {
     }
 
     /// Whether fine-mesh data should be shown (fine exists AND the view isn't
-    /// capped below stage 3).
-    fn show_fine(&self) -> bool {
+    /// capped below stage 3). Buffer generation must use this — NOT
+    /// `fine.is_some()` — so back-navigation renders the coarse mesh consistently.
+    pub fn shows_fine(&self) -> bool {
         self.view_stage >= 3 && self.fine.is_some()
     }
 
     pub fn active_tessellation(&self) -> &Tessellation {
-        if self.show_fine() {
+        if self.shows_fine() {
             self.fine.as_ref().unwrap().tessellation()
         } else {
             &self.tessellation
@@ -431,7 +438,7 @@ impl World {
     }
 
     pub fn active_elevation(&self) -> Option<&Elevation> {
-        if self.show_fine() {
+        if self.shows_fine() {
             return Some(self.fine.as_ref().unwrap().elevation());
         }
         // Elevation is stage 1, shown at any view stage >= 1.
@@ -463,7 +470,7 @@ impl World {
         if self.view_stage < 2 {
             return None; // atmosphere is a stage-2 layer
         }
-        if self.show_fine() {
+        if self.shows_fine() {
             return Some(self.fine.as_ref().unwrap().fields().temperature.as_slice());
         }
         self.atmosphere.as_ref().map(|a| a.temperature.as_slice())
@@ -473,7 +480,7 @@ impl World {
         if self.view_stage < 2 {
             return None;
         }
-        if self.show_fine() {
+        if self.shows_fine() {
             return Some(
                 self.fine
                     .as_ref()
@@ -490,7 +497,7 @@ impl World {
         if self.view_stage < 2 {
             return None;
         }
-        if self.show_fine() {
+        if self.shows_fine() {
             return Some(self.fine.as_ref().unwrap().fields().uplift.as_slice());
         }
         self.atmosphere.as_ref().map(|a| a.uplift.as_slice())

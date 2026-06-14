@@ -260,7 +260,7 @@ impl ApplicationHandler for App {
                             state.world_data.current_stage()
                         );
                         let path = std::path::PathBuf::from(&filename);
-                        export::export_world(&state.world_data, state.seed, &path);
+                        export::export_world(&mut state.world_data, state.seed, &path);
                     }
                     PhysicalKey::Code(KeyCode::Escape) => event_loop.exit(),
                     _ => {}
