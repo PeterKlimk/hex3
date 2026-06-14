@@ -25,6 +25,16 @@ struct Cli {
     /// iterate faster on erosion/roughness probes. 0 = use the FINE_MAX_CELLS default.
     #[arg(long, default_value_t = 0)]
     fine_max: usize,
+    /// Override erosion erodibility K. <0 = use the EROSION_K default. Lets you
+    /// sweep erosion strength without a recompile (FineBase is cached).
+    #[arg(long, default_value_t = -1.0)]
+    erosion_k: f32,
+    /// Override erosion step count. 0 = use the EROSION_STEPS default.
+    #[arg(long, default_value_t = 0)]
+    erosion_steps: usize,
+    /// Override hillslope diffusivity. <0 = use the EROSION_DIFFUSIVITY default.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_diffusivity: f32,
 }
 
 fn main() {
@@ -42,6 +52,15 @@ fn main() {
     world.generate_features();
     world.generate_elevation();
     world.generate_atmosphere();
+    if cli.erosion_k >= 0.0 {
+        world.erosion_params.k = cli.erosion_k;
+    }
+    if cli.erosion_steps > 0 {
+        world.erosion_params.steps = cli.erosion_steps;
+    }
+    if cli.erosion_diffusivity >= 0.0 {
+        world.erosion_params.diffusivity = cli.erosion_diffusivity;
+    }
     if cli.fine_max > 0 {
         world.generate_hydrology_with_fine_cap(cli.fine_max);
     } else {
