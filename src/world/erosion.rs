@@ -22,15 +22,15 @@
 //! thickness bookkeeping lives in `erode`, which folds the eroded/diffused
 //! surface back into thickness via `(elev - base) / slope` each step.
 //!
-//! NOTE (current regime): with `uplift_scale = 0` (the shipped stage-4 config)
-//! the fold-back and `derive_elev` are exact inverses — `thick - thick_init ≡
-//! (elev - base) / slope` — and every operator works in elevation space, so the
-//! thickness state carries no information beyond elevation except the deposition
-//! term at sinks. The "isostatic rebound" described above is then a volume
-//! reinterpretation only (the surface drops exactly what incision computes); it
-//! does NOT dynamically reduce that drop. Isostasy becomes a live degree of
-//! freedom only once uplift is on (the future coupled loop). Until then the
-//! thickness layer is bookkeeping for mass balance + deposition, not shape.
+//! NOTE on isostasy: the incision/diffusion operators work in elevation space,
+//! and with `uplift_scale = 0` the fold-back and `derive_elev` are exact inverses
+//! (`thick - thick_init ≡ (elev - base) / slope`), so the thickness state then
+//! carries no shape information beyond elevation (the "isostatic rebound" above is
+//! a volume reinterpretation only). With uplift ON — the Phase 3 "Hold & carve"
+//! default — thickness becomes a live degree of freedom: the uplift source
+//! thickens the crust and `derive_elev` raises the surface through the Airy slope,
+//! so divides are held against incision and the orogen evolves rather than merely
+//! decaying.
 
 use std::cmp::Reverse;
 use std::collections::VecDeque;

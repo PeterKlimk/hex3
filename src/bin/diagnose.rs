@@ -49,6 +49,11 @@ struct Cli {
     /// the EROSION_LITHO_SIGMA default; 0 = uniform K (no lithology).
     #[arg(long, default_value_t = -1.0)]
     erosion_litho_sigma: f32,
+    /// Override tectonic uplift scale (Hold & carve: uplift ~balances erosion to
+    /// hold orogens while valleys grade). <0 = use the EROSION_UPLIFT_SCALE
+    /// default; 0 = relaxation only (no uplift).
+    #[arg(long, default_value_t = -1.0)]
+    erosion_uplift_scale: f32,
 }
 
 fn main() {
@@ -83,6 +88,9 @@ fn main() {
     }
     if cli.erosion_litho_sigma >= 0.0 {
         world.erosion_params.litho_sigma = cli.erosion_litho_sigma;
+    }
+    if cli.erosion_uplift_scale >= 0.0 {
+        world.erosion_params.uplift_scale = cli.erosion_uplift_scale;
     }
     if cli.fine_max > 0 {
         world.generate_hydrology_with_fine_cap(cli.fine_max);

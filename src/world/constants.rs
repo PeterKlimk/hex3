@@ -671,10 +671,10 @@ pub const FINE_RELAX_PASSES: usize = 3;
 
 /// Number of implicit incision timesteps. The implicit scheme is
 /// unconditionally stable, so a few dozen large steps suffice. With uplift ON
-/// (the future coupled loop) more steps relax toward the U/K equilibrium —
-/// closer to graded profiles. With uplift OFF (the shipped stage-4 config) there
-/// is no equilibrium: more steps just denude further toward a peneplain, so the
-/// count is a visual stopping time, not a convergence target. Linear cost; the
+/// (the Phase 3 "Hold & carve" default) more steps relax toward the U/K graded
+/// equilibrium — deeper, more concave valleys against held divides. With uplift
+/// OFF (relaxation) there is no equilibrium: more steps just denude toward a
+/// peneplain, so the count is then a visual stopping time. Linear cost; the
 /// dominant per-step cost is re-routing (priority flood), so this is also the
 /// main runtime knob.
 pub const EROSION_STEPS: usize = 30;
@@ -738,17 +738,21 @@ pub const EROSION_REROUTE_INTERVAL: usize = 6;
 /// already a signed thickness delta. U_thickness = SCALE * ((arc+collision)/slope
 /// + rift_delta).
 ///
-/// MUST be 0 for the one-shot stage-4 erosion pass. The coarse elevation already
-/// encodes the orogen (collision/arc -> crust thickness -> mountain height at
-/// stage 1), so re-injecting tectonic uplift here DOUBLE-COUNTS it: measured at
-/// 0.02 the uplift injected ~99x the volume incision removes, inflating mountains
-/// ~+26% in bulk / +36% at the peaks instead of eroding them. Stage 4 is
-/// erosional RELAXATION (incision + hillslope diffusion carving the existing
-/// orogen toward graded profiles). The uplift mechanism (`u_thick` in
-/// `erosion.rs`) stays wired for a FUTURE coupled tectonics<->erosion
-/// time-evolution loop (the A'2 thread in docs/ideas.md), where it belongs and
-/// must be balanced against K; set it >0 only there.
-pub const EROSION_UPLIFT_SCALE: f32 = 0.0;
+/// Phase 3 "Hold & carve" (erosion-v2): uplift is ON, calibrated so it roughly
+/// BALANCES erosion — divides are held (peaks ~preserved) while channels carve
+/// graded valleys, so RELIEF increases instead of the whole orogen decaying
+/// (relaxation) or inflating (over-uplift, the old double-count). It must not
+/// re-inject the full orogen — the coarse elevation already encodes the static
+/// height — so SCALE buys only the ongoing uplift during the erosion epoch and
+/// must stay small.
+///
+/// Calibration (seed 12345, --fine-max 300000, --erosion-uplift-scale sweep): at
+/// 0.003 uplift-in (2.8e-2) ≈ eroded (3.2e-2); the high terrain is held/slightly
+/// raised (p90/p99/max above the un-eroded base) while mean/volume fall as valleys
+/// incise — relief up, no runaway inflation. 0 = relaxation only (peaks decay);
+/// 0.01 over-uplifts (peak +27%, double-count territory). Up = taller, more
+/// actively-rising orogens; balance against EROSION_K.
+pub const EROSION_UPLIFT_SCALE: f32 = 0.003;
 
 /// Fraction of a coastal sink's depth-to-sea-level that routed sediment may fill
 /// (delta building at river mouths). Sediment beyond this cap is "lost to the
