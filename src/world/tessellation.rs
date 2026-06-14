@@ -1,6 +1,6 @@
 //! Spherical tessellation - Voronoi cells and adjacency graph.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::ops::Index;
 
 use glam::Vec3;
@@ -363,23 +363,22 @@ impl Tessellation {
     /// identical to the arc to ~1e-8 at these scales. Coarse-mesh consumers
     /// (atmosphere/moisture/boundary) are unaffected.
     pub fn shared_edge_length(&self, cell_a: usize, cell_b: usize) -> f32 {
-        let verts_a: HashSet<u32> = self
-            .voronoi
-            .cell(cell_a)
-            .vertex_indices
-            .iter()
-            .copied()
-            .collect();
-        let verts_b: HashSet<u32> = self
-            .voronoi
-            .cell(cell_b)
-            .vertex_indices
-            .iter()
-            .copied()
-            .collect();
-        let shared: Vec<u32> = verts_a.intersection(&verts_b).copied().collect();
+        // Voronoi cells have ~6 vertices, so a nested scan finds the two shared
+        // ones without the HashSet allocations the old version paid per call
+        // (this runs millions of times building fine-mesh geometry).
+        let verts_a = self.voronoi.cell(cell_a).vertex_indices;
+        let verts_b = self.voronoi.cell(cell_b).vertex_indices;
+        let mut shared = [0u32; 2];
+        let mut shared_len = 0usize;
+        for &v in verts_a {
+            if verts_b.contains(&v) {
+                if shared_len < 2 {
+                    shared[shared_len] = v;
+                }
+                shared_len += 1;
+            }
+        }
 
-        let shared_len = shared.len();
         if shared_len == 2 {
             let v0 = self.voronoi.vertices[shared[0] as usize];
             let v1 = self.voronoi.vertices[shared[1] as usize];

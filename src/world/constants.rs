@@ -696,7 +696,16 @@ pub const EROSION_DIFFUSIVITY: f32 = 2.0e-7;
 /// Jacobi sweeps used to approximate the implicit diffusion solve each step.
 /// More = closer to the exact backward-Euler smoothing; 8 is ample for the
 /// gentle rounding hillslope diffusion provides (it need not fully converge).
-pub const EROSION_DIFFUSION_ITERS: usize = 8;
+pub const EROSION_DIFFUSION_ITERS: usize = 6;
+
+/// Re-route (priority-flood + drainage-area accumulation) every N incision
+/// steps rather than every step. Routing dominates the loop cost (~75%), and
+/// the drainage network is quasi-static over a few incision steps: channels
+/// deepen along fixed paths, and the incision slope-guard safely skips any cell
+/// whose stale receiver is no longer downhill. The network still reorganizes at
+/// each re-route. 1 = re-route every step (exact, slowest). Higher = faster,
+/// staler network between re-routes.
+pub const EROSION_REROUTE_INTERVAL: usize = 6;
 
 /// Scales tectonic uplift added to crust thickness each step. Source is the
 /// transferred feature forcing: (arc + collision) are elevation magnitudes

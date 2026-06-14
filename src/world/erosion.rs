@@ -24,6 +24,7 @@
 
 use std::cmp::Reverse;
 use std::collections::VecDeque;
+use std::time::Instant;
 
 use ordered_float::OrderedFloat;
 #[cfg(not(feature = "single-threaded"))]
@@ -77,21 +78,44 @@ pub(crate) fn erode(
     let mut total_deposited = 0.0f64;
     let mut total_lost = 0.0f64;
 
-    for _ in 0..EROSION_STEPS {
+    // Per-phase timing (summed across steps) to target optimization.
+    let (mut t_route, mut t_accum, mut t_incise, mut t_diffuse, mut t_deposit, mut t_misc) =
+        (0.0f64, 0.0f64, 0.0f64, 0.0f64, 0.0f64, 0.0f64);
+
+    // Routing dominates cost, so re-route only every EROSION_REROUTE_INTERVAL
+    // steps and reuse the network (and the drainage area it determines) in
+    // between. The incision slope-guard tolerates a stale receiver that has gone
+    // non-downhill as the surface evolves.
+    let mut routing: Option<Routing> = None;
+    let mut area: Vec<f32> = Vec::new();
+
+    for step in 0..EROSION_STEPS {
+        let mut s = Instant::now();
         let mut elev = derive_elev(&thick);
+        t_misc += s.elapsed().as_secs_f64();
 
         // 1. Route: receivers across pits via priority-flood fill + steepest
         //    descent. Cells below sea level are fixed base-level sinks.
-        let Some(routing) = Routing::build(tess, &elev, &geom) else {
-            // No sinks (e.g. an all-land world): nothing to erode toward.
-            break;
-        };
+        if step % EROSION_REROUTE_INTERVAL == 0 {
+            s = Instant::now();
+            let Some(r) = Routing::build(tess, &elev, &geom) else {
+                // No sinks (e.g. an all-land world): nothing to erode toward.
+                break;
+            };
+            t_route += s.elapsed().as_secs_f64();
 
-        // 2. Accumulate precipitation-weighted drainage area ("wet area").
-        let area = accumulate_wet_area(&routing, precipitation, &areas);
+            // 2. Accumulate precipitation-weighted drainage area ("wet area").
+            s = Instant::now();
+            area = accumulate_wet_area(&r, precipitation, &areas);
+            t_accum += s.elapsed().as_secs_f64();
+
+            routing = Some(r);
+        }
+        let routing = routing.as_ref().unwrap();
 
         // 3. Incise (implicit, downstream-first). Snapshot first so we can book
         //    the removed rock as eroded volume and route it downstream.
+        s = Instant::now();
         let pre = elev.clone();
         incise_step(
             &mut elev,
@@ -119,29 +143,35 @@ pub(crate) fn erode(
                 eroded_vol[i] = drop * inv_slope * areas[i];
             }
         }
+        t_incise += s.elapsed().as_secs_f64();
 
-        // 4. Diffuse (linear hillslope creep) on land, CFL-safe explicit substeps.
-        diffuse_land(&mut elev, &routing, &geom, &areas, EROSION_DT);
+        // 4. Diffuse (linear hillslope creep) on land, implicit Jacobi.
+        s = Instant::now();
+        diffuse_land(&mut elev, routing, &geom, &areas, EROSION_DT);
+        t_diffuse += s.elapsed().as_secs_f64();
 
+        s = Instant::now();
         // 5. Fold the eroded/diffused surface back into thickness.
         for i in 0..n {
             thick[i] = thick_init[i] + (elev[i] - base[i]) * inv_slope;
         }
-
         // 6. Uplift source (thickness).
         for i in 0..n {
             thick[i] += u_thick[i] * EROSION_DT;
         }
+        t_misc += s.elapsed().as_secs_f64();
 
         // 7. Deposit: route sediment to the coastal sink it drains into and
         //    drop it there (capped so deltas don't breach sea level). Spreading
         //    over a basin's low cells is simplified to per-mouth deposition;
         //    full transport-limited routing is out of scope (see spec).
+        s = Instant::now();
         let (deposited, lost) =
-            deposit(&routing, &eroded_vol, &elev, &areas, slope, &mut thick);
+            deposit(routing, &eroded_vol, &elev, &areas, slope, &mut thick);
         total_eroded += eroded_vol.iter().map(|&v| v as f64).sum::<f64>();
         total_deposited += deposited;
         total_lost += lost;
+        t_deposit += s.elapsed().as_secs_f64();
     }
 
     log::info!(
@@ -150,6 +180,10 @@ pub(crate) fn erode(
         total_eroded,
         total_deposited,
         total_lost,
+    );
+    log::info!(
+        "erosion phases (s): route {:.1} accum {:.1} incise {:.1} diffuse {:.1} deposit {:.1} misc {:.1}",
+        t_route, t_accum, t_incise, t_diffuse, t_deposit, t_misc,
     );
 
     let final_elev = derive_elev(&thick);
@@ -329,33 +363,38 @@ impl Routing {
         }
 
         // Receivers: steepest descent on the filled surface, flood-parent
-        // fallback on flats. Distance is the great-circle arc to the receiver.
-        let receiver: Vec<usize> = (0..n)
-            .map(|i| {
-                if is_sink[i] {
-                    return i;
+        // fallback on flats. Distance is the chord to the receiver. Both are
+        // per-cell and read-only over shared state -> parallel.
+        let receiver_of = |i: usize| -> usize {
+            if is_sink[i] {
+                return i;
+            }
+            let mut best = flood_parent[i];
+            let mut best_elev = filled[i];
+            for &nb in tess.neighbors(i) {
+                if filled[nb] < best_elev {
+                    best_elev = filled[nb];
+                    best = nb;
                 }
-                let mut best = flood_parent[i];
-                let mut best_elev = filled[i];
-                for &nb in tess.neighbors(i) {
-                    if filled[nb] < best_elev {
-                        best_elev = filled[nb];
-                        best = nb;
-                    }
-                }
-                best
-            })
-            .collect();
+            }
+            best
+        };
+        #[cfg(not(feature = "single-threaded"))]
+        let receiver: Vec<usize> = (0..n).into_par_iter().map(receiver_of).collect();
+        #[cfg(feature = "single-threaded")]
+        let receiver: Vec<usize> = (0..n).map(receiver_of).collect();
 
-        let dist: Vec<f32> = (0..n)
-            .map(|i| {
-                if is_sink[i] || receiver[i] == i {
-                    0.0
-                } else {
-                    geom.arc_to(i, receiver[i])
-                }
-            })
-            .collect();
+        let dist_of = |i: usize| -> f32 {
+            if is_sink[i] || receiver[i] == i {
+                0.0
+            } else {
+                geom.arc_to(i, receiver[i])
+            }
+        };
+        #[cfg(not(feature = "single-threaded"))]
+        let dist: Vec<f32> = (0..n).into_par_iter().map(dist_of).collect();
+        #[cfg(feature = "single-threaded")]
+        let dist: Vec<f32> = (0..n).map(dist_of).collect();
 
         // Downstream-first order via BFS from sinks over the donor graph, stored
         // CSR-style (counting sort) to avoid n small Vec allocations per step.
