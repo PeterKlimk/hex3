@@ -207,6 +207,27 @@ impl Tessellation {
 
         // Pass plain arrays so hex3's glam version stays independent of the crate's
         let raw_points: Vec<[f32; 3]> = points.iter().map(|p| p.to_array()).collect();
+
+        // Debug aid: dump the exact pre-compute point vector so the s2-voronoi
+        // weld-nondeterminism investigation has a guaranteed-diverging input.
+        // Env-gated (zero cost when unset). Format: raw little-endian f32, xyz
+        // triples back-to-back; point count = file_len / 12.
+        if let Ok(path) = std::env::var("HEX3_DUMP_POINTS") {
+            let mut bytes = Vec::with_capacity(raw_points.len() * 12);
+            for p in &raw_points {
+                for c in p {
+                    bytes.extend_from_slice(&c.to_le_bytes());
+                }
+            }
+            std::fs::write(&path, &bytes).expect("HEX3_DUMP_POINTS write failed");
+            log::warn!(
+                "dumped {} points ({} bytes, LE f32 xyz triples) to {}",
+                raw_points.len(),
+                bytes.len(),
+                path
+            );
+        }
+
         let diagram = {
             let _t = Timed::debug("  s2-voronoi computation");
             s2_voronoi::compute(&raw_points).expect("Voronoi computation failed")
