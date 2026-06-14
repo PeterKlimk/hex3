@@ -690,19 +690,27 @@ pub const EROSION_M: f32 = 0.5;
 /// area) and strips lowlands, but holds peaks/divides (~zero drainage area) — so
 /// it raises relief, it doesn't lower summits (that's `EROSION_DIFFUSIVITY`).
 ///
-/// Calibrated as the erosional "dose": the fraction of land volume removed over
-/// the run is a proxy for how much of an erosion epoch the stage represents.
-/// Sweep (seed 12345, relaxation, no uplift): 5e-4 -> 0.3% (geologically
-/// instantaneous), 1e-2 -> 3.7% (rivers measurably incised, orogen intact),
-/// 4e-2 -> 10.7% (lowlands planed). 1e-2 sits at "young-mature dissected":
-/// valleys carved, form kept. Tune visually from here (up = deeper canyons).
-pub const EROSION_K: f32 = 1.0e-2;
+/// Balanced AGAINST diffusivity. With uplift off (relaxation), incision is the
+/// only thing creating relief and hillslope diffusion the only thing destroying
+/// it — so the regime is set by their ratio, not K alone. At the old K=1e-2 with
+/// D=2e-7, diffusion won and erosion just SMOOTHED (every slope percentile fell
+/// 25-60%). Raising K to 4e-2 and dropping D 10x flips it to incision-dominated:
+/// slopes rise above base (p90/p99 +15/+17%), valleys cut while divides hold —
+/// dissection. Denudation ~11% of land volume (a substantial erosion epoch).
+/// Up = deeper canyons; pair with EROSION_DIFFUSIVITY (the smoothing knob).
+pub const EROSION_K: f32 = 4.0e-2;
 
 /// Hillslope diffusivity (soil creep). Rounds off ridgecrests and fills the
 /// finest valleys; 0 disables diffusion (rivers only). Solved IMPLICITLY
 /// (backward Euler), so it is unconditionally stable regardless of the finest
 /// cell size — no CFL substep blow-up on sliver cells. Units: steradian/step.
-pub const EROSION_DIFFUSIVITY: f32 = 2.0e-7;
+///
+/// This is the SMOOTHING knob; it fights incision (EROSION_K) for control of the
+/// relief. The old 2e-7 over-smoothed in the relaxation regime (mountains went
+/// completely smooth). Lowered 10x to 2e-8: just enough to tame cell-scale
+/// spikes (eroded max-slope stays at/below base) without erasing the dissection
+/// incision produces. Up = rounder/smoother; toward 0 = sharper but speckle-prone.
+pub const EROSION_DIFFUSIVITY: f32 = 2.0e-8;
 
 /// Jacobi sweeps used to approximate the implicit diffusion solve each step.
 /// More = closer to the exact backward-Euler smoothing; 8 is ample for the
