@@ -258,18 +258,32 @@ impl Routing {
             })
             .collect();
 
-        // Downstream-first order via BFS from sinks over the donor graph.
-        let mut donors: Vec<Vec<usize>> = vec![Vec::new(); n];
+        // Downstream-first order via BFS from sinks over the donor graph, stored
+        // CSR-style (counting sort) to avoid n small Vec allocations per step.
+        let mut donor_count = vec![0u32; n];
         for i in 0..n {
             if !is_sink[i] && receiver[i] != i {
-                donors[receiver[i]].push(i);
+                donor_count[receiver[i]] += 1;
+            }
+        }
+        let mut donor_off = vec![0usize; n + 1];
+        for i in 0..n {
+            donor_off[i + 1] = donor_off[i] + donor_count[i] as usize;
+        }
+        let mut cursor = donor_off.clone();
+        let mut donors = vec![0usize; donor_off[n]];
+        for i in 0..n {
+            if !is_sink[i] && receiver[i] != i {
+                let r = receiver[i];
+                donors[cursor[r]] = i;
+                cursor[r] += 1;
             }
         }
         let mut order = Vec::with_capacity(n);
         let mut queue: VecDeque<usize> = (0..n).filter(|&i| is_sink[i]).collect();
         while let Some(cell) = queue.pop_front() {
             order.push(cell);
-            for &d in &donors[cell] {
+            for &d in &donors[donor_off[cell]..donor_off[cell + 1]] {
                 queue.push_back(d);
             }
         }
@@ -299,8 +313,15 @@ fn accumulate_wet_area(routing: &Routing, precipitation: &[f32], areas: &[f32]) 
     acc
 }
 
-/// Linear hillslope diffusion on land cells, explicit Jacobi with CFL-safe
-/// substeps. Edges to sinks are no-flux boundaries (no erosion into the ocean).
+/// Linear hillslope diffusion on land cells, solved IMPLICITLY (backward Euler)
+/// with Jacobi sweeps. Edges to sinks are no-flux boundaries (no erosion into
+/// the ocean). Implicit is unconditionally stable, so the finest sliver cells
+/// can't force a substep blow-up the way an explicit CFL scheme would.
+///
+/// Per cell the backward-Euler update is
+///   (1 + c_i) h_i^{new} = h_i^{old} + dt D / area_i * sum_j w_ij h_j^{new}
+/// with c_i = dt D / area_i * sum_j w_ij over land neighbours j. We approximate
+/// the coupled solve with a few Jacobi iterations (RHS h_old fixed).
 fn diffuse_land(
     elev: &mut [f32],
     routing: &Routing,
@@ -312,57 +333,56 @@ fn diffuse_land(
         return;
     }
     let n = elev.len();
+    let dd = EROSION_DIFFUSIVITY * dt;
 
-    // CFL: stable when D * sub_dt * (sum_k w_ik / area_i) <= 1 for all i.
-    let max_rate = (0..n)
-        .map(|i| geom.weight_sum(i) / areas[i].max(1e-12))
-        .fold(0.0f32, f32::max)
-        .max(1e-12);
-    let needed = (EROSION_DIFFUSIVITY * dt * max_rate).ceil() as usize;
-    let substeps = needed.clamp(1, EROSION_DIFFUSION_MAX_SUBSTEPS);
-    let d_eff = if needed > EROSION_DIFFUSION_MAX_SUBSTEPS {
-        log::warn!(
-            "erosion: diffusion CFL wants {} substeps (cap {}); clamping effective diffusivity",
-            needed,
-            EROSION_DIFFUSION_MAX_SUBSTEPS
-        );
-        EROSION_DIFFUSIVITY * EROSION_DIFFUSION_MAX_SUBSTEPS as f32 / needed as f32
-    } else {
-        EROSION_DIFFUSIVITY
-    };
-    let sub_dt = dt / substeps as f32;
-
-    for _ in 0..substeps {
-        let delta: Vec<f32> = {
-            let compute = |i: usize| -> f32 {
-                if routing.is_sink[i] {
-                    return 0.0;
-                }
-                let mut flux = 0.0f32;
-                for (k, &nb) in geom.tess_neighbors(i).iter().enumerate() {
-                    if routing.is_sink[nb] {
-                        continue; // no-flux at the coastline
-                    }
-                    flux += geom.weight(i, k) * (elev[nb] - elev[i]);
-                }
-                d_eff * sub_dt / areas[i].max(1e-12) * flux
-            };
-            #[cfg(not(feature = "single-threaded"))]
-            {
-                (0..n).into_par_iter().map(compute).collect()
-            }
-            #[cfg(feature = "single-threaded")]
-            {
-                (0..n).map(compute).collect()
-            }
-        };
-        for i in 0..n {
-            elev[i] += delta[i];
-            if !routing.is_sink[i] && elev[i] < 0.0 {
-                elev[i] = 0.0;
+    // Per-cell f_i = dt D / area_i and diagonal denominator (1 + c_i), counting
+    // only land neighbours (sink edges are no-flux). Constant across sweeps.
+    let mut f = vec![0.0f32; n];
+    let mut denom = vec![1.0f32; n];
+    let prep = |i: usize| -> (f32, f32) {
+        if routing.is_sink[i] {
+            return (0.0, 1.0);
+        }
+        let fi = dd / areas[i].max(1e-12);
+        let mut wsum = 0.0f32;
+        for (k, &nb) in geom.tess_neighbors(i).iter().enumerate() {
+            if !routing.is_sink[nb] {
+                wsum += geom.weight(i, k);
             }
         }
+        (fi, 1.0 + fi * wsum)
+    };
+    for i in 0..n {
+        let (fi, di) = prep(i);
+        f[i] = fi;
+        denom[i] = di;
     }
+
+    let h_old = elev.to_vec(); // fixed RHS
+    let mut cur = h_old.clone();
+    for _ in 0..EROSION_DIFFUSION_ITERS {
+        let sweep = |i: usize| -> f32 {
+            if routing.is_sink[i] {
+                return cur[i];
+            }
+            let mut acc = 0.0f32;
+            for (k, &nb) in geom.tess_neighbors(i).iter().enumerate() {
+                if !routing.is_sink[nb] {
+                    acc += geom.weight(i, k) * cur[nb];
+                }
+            }
+            ((h_old[i] + f[i] * acc) / denom[i]).max(0.0)
+        };
+        #[cfg(not(feature = "single-threaded"))]
+        {
+            cur = (0..n).into_par_iter().map(sweep).collect();
+        }
+        #[cfg(feature = "single-threaded")]
+        {
+            cur = (0..n).map(sweep).collect();
+        }
+    }
+    elev.copy_from_slice(&cur);
 }
 
 /// Route eroded sediment to the coastal sink each catchment drains into and
@@ -414,7 +434,6 @@ struct NeighborGeometry {
     neighbors: Vec<usize>,
     dist: Vec<f32>,
     weight: Vec<f32>,
-    weight_sum: Vec<f32>,
 }
 
 impl NeighborGeometry {
@@ -452,9 +471,7 @@ impl NeighborGeometry {
         let mut neighbors = Vec::with_capacity(total);
         let mut dist = Vec::with_capacity(total);
         let mut weight = Vec::with_capacity(total);
-        let mut weight_sum = Vec::with_capacity(n);
         for (ns, ds, ws) in per_cell {
-            weight_sum.push(ws.iter().sum());
             neighbors.extend(ns);
             dist.extend(ds);
             weight.extend(ws);
@@ -465,7 +482,6 @@ impl NeighborGeometry {
             neighbors,
             dist,
             weight,
-            weight_sum,
         }
     }
 
@@ -475,10 +491,6 @@ impl NeighborGeometry {
 
     fn weight(&self, i: usize, k: usize) -> f32 {
         self.weight[self.offsets[i] + k]
-    }
-
-    fn weight_sum(&self, i: usize) -> f32 {
-        self.weight_sum[i]
     }
 
     /// Arc distance from cell `i` to a specific neighbor `j` (linear scan over

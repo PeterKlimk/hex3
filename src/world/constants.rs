@@ -670,7 +670,9 @@ pub const FINE_RELAX_PASSES: usize = 5;
 /// Number of implicit incision timesteps. The implicit scheme is
 /// unconditionally stable, so a few dozen large steps suffice to relax toward
 /// the U/K equilibrium; more steps = closer to graded profiles, linear cost.
-pub const EROSION_STEPS: usize = 40;
+/// The dominant per-step cost is re-routing (priority flood), so this is also
+/// the main runtime knob.
+pub const EROSION_STEPS: usize = 30;
 
 /// Timestep (dimensionless; folded into K / uplift scale). Kept explicit so the
 /// Braun & Willett formula reads as written. Larger dt relaxes faster per step.
@@ -685,15 +687,16 @@ pub const EROSION_M: f32 = 0.5;
 /// is the master knob for how deeply rivers dissect; tune visually.
 pub const EROSION_K: f32 = 5.0e-4;
 
-/// Hillslope diffusivity (soil creep), applied explicitly with CFL-safe
-/// substeps. Rounds off ridgecrests and fills the finest valleys; 0 disables
-/// diffusion (rivers only). Units: steradian / step on the unit sphere.
+/// Hillslope diffusivity (soil creep). Rounds off ridgecrests and fills the
+/// finest valleys; 0 disables diffusion (rivers only). Solved IMPLICITLY
+/// (backward Euler), so it is unconditionally stable regardless of the finest
+/// cell size — no CFL substep blow-up on sliver cells. Units: steradian/step.
 pub const EROSION_DIFFUSIVITY: f32 = 2.0e-7;
 
-/// Cap on explicit diffusion substeps per timestep. If the CFL condition would
-/// demand more (diffusivity too high for the finest cells), the effective
-/// diffusivity is clamped and a warning logged rather than stalling.
-pub const EROSION_DIFFUSION_MAX_SUBSTEPS: usize = 16;
+/// Jacobi sweeps used to approximate the implicit diffusion solve each step.
+/// More = closer to the exact backward-Euler smoothing; 8 is ample for the
+/// gentle rounding hillslope diffusion provides (it need not fully converge).
+pub const EROSION_DIFFUSION_ITERS: usize = 8;
 
 /// Scales tectonic uplift added to crust thickness each step. Source is the
 /// transferred feature forcing: (arc + collision) are elevation magnitudes
