@@ -322,7 +322,10 @@ impl Renderer {
 
         let output = match gpu.surface.get_current_texture() {
             Ok(t) => t,
-            Err(wgpu::SurfaceError::Lost) => {
+            // Outdated (alt-tab / occluded / stale swapchain) and Lost both
+            // recover by reconfiguring the surface — otherwise Outdated repeats
+            // every frame and the window never comes back.
+            Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
                 gpu.resize(gpu.size);
                 self.resize(&gpu.device, gpu.size.width, gpu.size.height);
                 return;

@@ -42,12 +42,19 @@ impl GpuContext {
             .await
             .expect("Failed to find suitable GPU adapter");
 
+        // Raise the buffer-size cap from wgpu's conservative 256 MiB default to
+        // what the adapter actually supports. The full-resolution fine mesh
+        // produces a unified vertex buffer near/over 256 MiB (~5M shared Voronoi
+        // vertices); desktop GPUs handle multi-GB buffers, so request the max.
+        let mut required_limits = Limits::default();
+        required_limits.max_buffer_size = adapter.limits().max_buffer_size;
+
         // Request device and queue
         let (device, queue) = adapter
             .request_device(&DeviceDescriptor {
                 label: Some("hex3_device"),
                 required_features: Features::empty(),
-                required_limits: Limits::default(),
+                required_limits,
                 memory_hints: Default::default(),
                 trace: Default::default(),
                 experimental_features: Default::default(),
