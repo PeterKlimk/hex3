@@ -369,4 +369,146 @@ fn main() {
         mean_evap,
         hydrology.basins.len()
     );
+
+    // ---- River concavity (population slope-area) ----
+    // Detachment-limited stream power at steady state gives channel slope
+    // S ~ A^(-theta), theta = m/n (~0.5 here): concave-up graded rivers. Rather
+    // than trace stems (which lakes truncate), use the standard population
+    // method: over every channel cell (flow above a support threshold, draining
+    // downhill) take S = drop/dist to its receiver and A = flow, bin by ln(A),
+    // take the median ln(S) per bin, and regress bin medians -> theta = -slope.
+    // Median bins are robust to lakes/outliers. theta<=0 (convex/flat) = rivers
+    // not graded (erosion too weak / K too low).
+    {
+        let flow = &hydrology.flow_accumulation;
+        let drainage = &hydrology.drainage_dir;
+        let channel_thresh = 50.0f32;
+        let mut pts: Vec<(f32, f32)> = Vec::new(); // (ln A, ln S)
+        for c in 0..n {
+            if !land[c] || flow[c] < channel_thresh {
+                continue;
+            }
+            let Some(d) = drainage[c] else { continue };
+            let dz = elevation[c] - elevation[d];
+            let dx = (tess.cell_center(c) - tess.cell_center(d)).length() * EARTH_RADIUS_KM;
+            if dz <= 0.0 || dx <= 0.0 {
+                continue;
+            }
+            pts.push((flow[c].ln(), (dz / dx).ln()));
+        }
+        println!("\n-- River concavity (slope-area)  [stream-power theta=m/n ~0.5, concave-up] --");
+        if pts.len() < 50 {
+            println!("  too few channel cells ({}) to fit", pts.len());
+        } else {
+            let (lo, hi) = pts.iter().fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), &(x, _)| {
+                (lo.min(x), hi.max(x))
+            });
+            const NB: usize = 12;
+            let mut bins: Vec<Vec<f32>> = vec![Vec::new(); NB];
+            for &(x, y) in &pts {
+                let t = ((x - lo) / (hi - lo) * NB as f32).floor() as usize;
+                bins[t.min(NB - 1)].push(y);
+            }
+            // Median ln(S) per bin -> (bin-center ln A, median ln S).
+            let (mut sx, mut sy, mut sxx, mut sxy, mut k) = (0.0f64, 0.0f64, 0.0f64, 0.0f64, 0u32);
+            for (bi, b) in bins.iter_mut().enumerate() {
+                if b.len() < 5 {
+                    continue;
+                }
+                b.sort_by(f32::total_cmp);
+                let med = b[b.len() / 2] as f64;
+                let xc = (lo + (bi as f32 + 0.5) / NB as f32 * (hi - lo)) as f64;
+                sx += xc;
+                sy += med;
+                sxx += xc * xc;
+                sxy += xc * med;
+                k += 1;
+            }
+            let theta = if k >= 3 {
+                -((k as f64 * sxy - sx * sy) / (k as f64 * sxx - sx * sx)) as f32
+            } else {
+                f32::NAN
+            };
+            println!(
+                "  channel cells {} | bins fitted {} | theta = {:+.2}  ({})",
+                pts.len(),
+                k,
+                theta,
+                if theta > 0.15 {
+                    "concave-up / graded"
+                } else if theta > -0.15 {
+                    "~flat (under-graded)"
+                } else {
+                    "convex (not graded)"
+                },
+            );
+        }
+    }
+
+    // ---- Drainage density (wet vs arid) ----
+    // Area-weighted accumulation should make wet regions carry a finer channel
+    // network than arid ones. Channel = flow above a support threshold; density
+    // = channel length / land area (1/km). NOTE: flow is precip-weighted, so wet
+    // land has more flow trivially -- read the ratio as directional (wet should
+    // be denser), and the upland-restricted line controls somewhat for uplift.
+    {
+        let flow = &hydrology.flow_accumulation;
+        let areas = tess.cell_areas();
+        let mut lp: Vec<f32> = (0..n).filter(|&i| land[i]).map(|i| precipitation[i]).collect();
+        lp.sort_by(f32::total_cmp);
+        let mut le: Vec<f32> = (0..n).filter(|&i| land[i]).map(|i| elevation[i]).collect();
+        le.sort_by(f32::total_cmp);
+        let p_med = lp.get(lp.len() / 2).copied().unwrap_or(0.0);
+        let e_med = le.get(le.len() / 2).copied().unwrap_or(0.0);
+        let channel_thresh = 50.0f32;
+
+        let density = |upland_only: bool| -> (f32, f32) {
+            let (mut lw, mut aw, mut la, mut aa) = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
+            for i in 0..n {
+                if !land[i] || (upland_only && elevation[i] < e_med) {
+                    continue;
+                }
+                let a_km2 = areas[i] * EARTH_RADIUS_KM * EARTH_RADIUS_KM;
+                let l_km = areas[i].sqrt() * EARTH_RADIUS_KM;
+                let wet = precipitation[i] >= p_med;
+                if wet {
+                    aw += a_km2;
+                } else {
+                    aa += a_km2;
+                }
+                if flow[i] >= channel_thresh {
+                    if wet {
+                        lw += l_km;
+                    } else {
+                        la += l_km;
+                    }
+                }
+            }
+            (
+                if aw > 0.0 { lw / aw } else { 0.0 },
+                if aa > 0.0 { la / aa } else { 0.0 },
+            )
+        };
+
+        let (d_wet, d_arid) = density(false);
+        let (u_wet, u_arid) = density(true);
+        println!(
+            "\n-- Drainage density (channel km/km², channel=flow>={})  [wet should dissect more] --",
+            channel_thresh
+        );
+        println!(
+            "  all land  : wet(precip>={:.2}) D={:.4} | arid D={:.4} | ratio {:.2}",
+            p_med,
+            d_wet,
+            d_arid,
+            d_wet / d_arid.max(1e-9),
+        );
+        println!(
+            "  uplands   : wet D={:.4} | arid D={:.4} | ratio {:.2}  (elev>={:.3}, controls for uplift)",
+            u_wet,
+            u_arid,
+            u_wet / u_arid.max(1e-9),
+            e_med,
+        );
+    }
 }
