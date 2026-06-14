@@ -671,13 +671,16 @@ pub const FINE_RELAX_PASSES: usize = 3;
 
 /// Number of implicit incision timesteps. The implicit scheme is
 /// unconditionally stable, so a few dozen large steps suffice. With uplift ON
-/// (the Phase 3 "Hold & carve" default) more steps relax toward the U/K graded
-/// equilibrium — deeper, more concave valleys against held divides. With uplift
-/// OFF (relaxation) there is no equilibrium: more steps just denude toward a
-/// peneplain, so the count is then a visual stopping time. Linear cost; the
-/// dominant per-step cost is re-routing (priority flood), so this is also the
-/// main runtime knob.
-pub const EROSION_STEPS: usize = 30;
+/// (the Phase 3 "Hold & carve" default) the step count sets the uplift/erosion
+/// BALANCE: uplift-in grows linearly with steps while erosion (on an
+/// increasingly graded profile) grows sublinearly, so their ratio rises with
+/// steps and crosses ~1 — true mass balance — near 60 for the reference world
+/// (seed 12345, 300k): peaks held, valleys graded, maximum relief at conserved
+/// mass. Fewer steps under-balance (net erosion, less relief); many more tip to
+/// net growth (the orogen inflates). With uplift OFF (relaxation) there is no
+/// equilibrium and the count is just a visual stopping time. Linear cost (~4s at
+/// 60 / 300k); the dominant per-step cost is re-routing, so also the runtime knob.
+pub const EROSION_STEPS: usize = 60;
 
 /// Timestep (dimensionless; folded into K / uplift scale). Kept explicit so the
 /// Braun & Willett formula reads as written. Larger dt relaxes faster per step.
@@ -746,12 +749,13 @@ pub const EROSION_REROUTE_INTERVAL: usize = 6;
 /// height — so SCALE buys only the ongoing uplift during the erosion epoch and
 /// must stay small.
 ///
-/// Calibration (seed 12345, --fine-max 300000, --erosion-uplift-scale sweep): at
-/// 0.003 uplift-in (2.8e-2) ≈ eroded (3.2e-2); the high terrain is held/slightly
-/// raised (p90/p99/max above the un-eroded base) while mean/volume fall as valleys
-/// incise — relief up, no runaway inflation. 0 = relaxation only (peaks decay);
-/// 0.01 over-uplifts (peak +27%, double-count territory). Up = taller, more
-/// actively-rising orogens; balance against EROSION_K.
+/// Calibration (seed 12345, --fine-max 300000, sweeps on --erosion-uplift-scale
+/// and --erosion-steps): at 0.003 with the default 60 steps, uplift-in (5.6e-2) ≈
+/// eroded (5.6e-2) — TRUE mass balance. High terrain is held/raised (p90/p99/max
+/// above the un-eroded base, peak ~+15%) while mean/volume fall as valleys incise:
+/// relief up at conserved mass, not the old net-addition inflation. The step count
+/// co-sets the ratio (see EROSION_STEPS), so retune them together. 0 = relaxation
+/// only (peaks decay); up = taller, more actively-rising orogens.
 pub const EROSION_UPLIFT_SCALE: f32 = 0.003;
 
 /// Fraction of a coastal sink's depth-to-sea-level that routed sediment may fill
