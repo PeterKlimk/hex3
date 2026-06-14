@@ -509,6 +509,21 @@ fn relax_step(
 /// via `FINE_RELAX_PASSES` Jacobi repulsion passes. Each pass rebuilds a mutable
 /// kd-tree (a 0.4*sep move per pass makes the neighbour set too stale to reuse)
 /// and moves every point off its too-close neighbours. Point count is preserved.
+///
+/// PERF (parked, revisit with the s2-voronoi rework): the kd-tree's serial
+/// build is the portable bottleneck (~1s/pass; worse-relative on many cores
+/// since the parallel query scales but the build doesn't). The clean fix is NOT
+/// a hex3-side grid (a single flat grid loses to the 1153:1 density variation,
+/// a hierarchy is overkill) nor reusing s2's full Voronoi per pass (clipping +
+/// 16-24 candidate margin is a sledgehammer to read off ~6 neighbours). What we
+/// actually need is a BARE k~8 nearest-neighbour query over s2's cube grid, no
+/// clipping — that primitive exists inside s2's construction but isn't public
+/// (`SphereLocator` is nearest-1, post-build, so it doesn't fit). If the s2
+/// rework exposes `knn(&points, k)` over the cube grid, relaxation can call it:
+/// ~0.2-0.4s/pass, density-correct for free, no second spatial index in hex3.
+/// See the s2-voronoi-performance note. ImmutableKdTree was tried and regressed
+/// (bulk build cost x per-pass rebuild). Passes were cut 5->3 (sharp quality
+/// knee; see FINE_RELAX_PASSES and `mesh_quality_probe`).
 fn relax_fine_points(
     mut points: Vec<Vec3>,
     density: &[f32],
