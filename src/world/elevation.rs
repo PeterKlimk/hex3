@@ -557,9 +557,15 @@ fn assemble_elevation_cell(
     // Simulation elevation excludes micro noise (micro is cosmetic only).
     // The macro layer is reported as its isostatic elevation contribution
     // for visualization continuity.
+    //
+    // Phase 1 (erosion-v2): hills + ridge are appearance-paint that erosion now
+    // supersedes, so they no longer contribute to terrain — only macro (a crust-
+    // thickness perturbation) and the structural relief do. hills_c / ridge_c are
+    // still sampled into the viz layers below; the full plumbing/constant removal
+    // is a separate cleanup once the look is signed off.
     let macro_c = macro_dt * slope;
-    let simulation_noise = macro_c + hills_c + ridge_c;
-    let elevation = structural_elevation + hills_c + ridge_c;
+    let simulation_noise = macro_c;
+    let elevation = structural_elevation;
 
     AssembledElevationCell {
         elevation,
