@@ -38,80 +38,180 @@ use super::Tessellation;
 /// sea-level datum). `fields.crust_thickness` seeds the working thickness;
 /// `base` is the interpolated coarse elevation; `precipitation` weights drainage
 /// area so wet ranges dissect more finely than arid ones.
+///
+/// Thin wrapper over [`ErosionState`]: `new(..).step(EROSION_STEPS)` is the batch
+/// run. The before/after roughness probes (and the diagnostics they print) live
+/// here, where the `Tessellation` is in hand.
 pub(crate) fn erode(
     tess: &Tessellation,
     fields: &ElevationFields,
     base: &[f32],
     precipitation: &[f32],
 ) -> Vec<f32> {
-    let n = tess.num_cells();
-    let slope = isostasy_slope();
-    let inv_slope = 1.0 / slope;
-    let thick_init = &fields.crust_thickness;
-
-    // Tectonic uplift source, in THICKNESS units per step. arc/collision are
-    // elevation magnitudes (-> thickness via /slope); rift_delta is already a
-    // signed thickness delta (negative in the axial valley). NOT atmospheric
-    // uplift. Scaled by EROSION_UPLIFT_SCALE.
-    let u_thick: Vec<f32> = (0..n)
-        .map(|i| {
-            EROSION_UPLIFT_SCALE
-                * ((fields.arc[i] + fields.collision[i]) * inv_slope + fields.rift_delta[i])
-        })
-        .collect();
-
-    let areas = tess.cell_areas();
-    let geom = NeighborGeometry::build(tess);
-
     roughness_report(tess, base, "base ");
+    let mut state = ErosionState::new(tess, fields, base, precipitation);
+    state.step(EROSION_STEPS);
+    state.log_summary();
+    let final_elev = state.elevation();
+    roughness_report(tess, &final_elev, "eroded");
+    final_elev
+}
 
-    let mut thick = thick_init.clone();
+/// Resumable erosion. `ErosionState::new(..).step(EROSION_STEPS)` reproduces the
+/// batch `erode()` run bit-for-bit; the UI can instead `step()` in increments to
+/// watch valleys carve. Holds every loop-carried value (working thickness, cached
+/// routing + drainage area, step counter) plus the once-built geometry/uplift, so
+/// stepping needs no `Tessellation` borrow — only construction does. The owned
+/// input copies keep the state self-contained across frames.
+pub(crate) struct ErosionState {
+    n: usize,
+    slope: f32,
+    inv_slope: f32,
 
-    let derive_elev = |thick: &[f32]| -> Vec<f32> {
-        (0..n)
-            .map(|i| base[i] + slope * (thick[i] - thick_init[i]))
+    // Immutable inputs (owned so the state stands alone after construction).
+    base: Vec<f32>,
+    thick_init: Vec<f32>,
+    precipitation: Vec<f32>,
+    /// Tectonic uplift source in THICKNESS units per step (see `new`).
+    u_thick: Vec<f32>,
+    areas: Vec<f32>,
+    geom: NeighborGeometry,
+
+    // Working state, carried across steps.
+    thick: Vec<f32>,
+    /// Re-routed only every EROSION_REROUTE_INTERVAL steps and reused (with the
+    /// drainage area it determines) in between; the incision slope-guard
+    /// tolerates a receiver that has gone non-downhill as the surface evolves.
+    routing: Option<Routing>,
+    area: Vec<f32>,
+    step: usize,
+    /// Set once a route finds no sinks (all-land world): nothing to erode toward.
+    halted: bool,
+
+    // Mass-balance accounting (thickness-volume = thickness * area) and per-phase
+    // timing, accumulated across steps.
+    total_eroded: f64,
+    total_deposited: f64,
+    total_lost: f64,
+    t_route: f64,
+    t_accum: f64,
+    t_incise: f64,
+    t_diffuse: f64,
+    t_deposit: f64,
+    t_misc: f64,
+}
+
+impl ErosionState {
+    pub(crate) fn new(
+        tess: &Tessellation,
+        fields: &ElevationFields,
+        base: &[f32],
+        precipitation: &[f32],
+    ) -> Self {
+        let n = tess.num_cells();
+        let slope = isostasy_slope();
+        let inv_slope = 1.0 / slope;
+        let thick_init = fields.crust_thickness.clone();
+
+        // Tectonic uplift source, in THICKNESS units per step. arc/collision are
+        // elevation magnitudes (-> thickness via /slope); rift_delta is already a
+        // signed thickness delta (negative in the axial valley). NOT atmospheric
+        // uplift. Scaled by EROSION_UPLIFT_SCALE.
+        let u_thick: Vec<f32> = (0..n)
+            .map(|i| {
+                EROSION_UPLIFT_SCALE
+                    * ((fields.arc[i] + fields.collision[i]) * inv_slope + fields.rift_delta[i])
+            })
+            .collect();
+
+        let areas = tess.cell_areas();
+        let geom = NeighborGeometry::build(tess);
+        let thick = thick_init.clone();
+
+        Self {
+            n,
+            slope,
+            inv_slope,
+            base: base.to_vec(),
+            thick_init,
+            precipitation: precipitation.to_vec(),
+            u_thick,
+            areas,
+            geom,
+            thick,
+            routing: None,
+            area: Vec::new(),
+            step: 0,
+            halted: false,
+            total_eroded: 0.0,
+            total_deposited: 0.0,
+            total_lost: 0.0,
+            t_route: 0.0,
+            t_accum: 0.0,
+            t_incise: 0.0,
+            t_diffuse: 0.0,
+            t_deposit: 0.0,
+            t_misc: 0.0,
+        }
+    }
+
+    /// Steps completed so far.
+    pub(crate) fn step_count(&self) -> usize {
+        self.step
+    }
+
+    /// True once a route found no sinks; further `step()`s are no-ops.
+    pub(crate) fn is_halted(&self) -> bool {
+        self.halted
+    }
+
+    /// Current eroded elevation on the fixed sea-level datum (the isostatic delta
+    /// `slope * (thick - thick_init)` on top of the coarse base).
+    pub(crate) fn elevation(&self) -> Vec<f32> {
+        self.derive_elev()
+    }
+
+    fn derive_elev(&self) -> Vec<f32> {
+        (0..self.n)
+            .map(|i| self.base[i] + self.slope * (self.thick[i] - self.thick_init[i]))
             .collect()
-    };
+    }
 
-    // Mass-balance accounting (thickness-volume = thickness * area).
-    let mut total_eroded = 0.0f64;
-    let mut total_deposited = 0.0f64;
-    let mut total_lost = 0.0f64;
+    /// Advance `n_steps` steps, stopping early once a route finds no sinks.
+    pub(crate) fn step(&mut self, n_steps: usize) {
+        for _ in 0..n_steps {
+            if self.halted {
+                break;
+            }
+            self.advance_one();
+        }
+    }
 
-    // Per-phase timing (summed across steps) to target optimization.
-    let (mut t_route, mut t_accum, mut t_incise, mut t_diffuse, mut t_deposit, mut t_misc) =
-        (0.0f64, 0.0f64, 0.0f64, 0.0f64, 0.0f64, 0.0f64);
-
-    // Routing dominates cost, so re-route only every EROSION_REROUTE_INTERVAL
-    // steps and reuse the network (and the drainage area it determines) in
-    // between. The incision slope-guard tolerates a stale receiver that has gone
-    // non-downhill as the surface evolves.
-    let mut routing: Option<Routing> = None;
-    let mut area: Vec<f32> = Vec::new();
-
-    for step in 0..EROSION_STEPS {
+    fn advance_one(&mut self) {
+        let n = self.n;
         let mut s = Instant::now();
-        let mut elev = derive_elev(&thick);
-        t_misc += s.elapsed().as_secs_f64();
+        let mut elev = self.derive_elev();
+        self.t_misc += s.elapsed().as_secs_f64();
 
         // 1. Route: receivers across pits via priority-flood fill + steepest
         //    descent. Cells below sea level are fixed base-level sinks.
-        if step % EROSION_REROUTE_INTERVAL == 0 {
+        if self.step % EROSION_REROUTE_INTERVAL == 0 {
             s = Instant::now();
-            let Some(r) = Routing::build(tess, &elev, &geom) else {
+            let Some(r) = Routing::build(&elev, &self.geom) else {
                 // No sinks (e.g. an all-land world): nothing to erode toward.
-                break;
+                self.halted = true;
+                return;
             };
-            t_route += s.elapsed().as_secs_f64();
+            self.t_route += s.elapsed().as_secs_f64();
 
             // 2. Accumulate precipitation-weighted drainage area ("wet area").
             s = Instant::now();
-            area = accumulate_wet_area(&r, precipitation, &areas);
-            t_accum += s.elapsed().as_secs_f64();
+            self.area = accumulate_wet_area(&r, &self.precipitation, &self.areas);
+            self.t_accum += s.elapsed().as_secs_f64();
 
-            routing = Some(r);
+            self.routing = Some(r);
         }
-        let routing = routing.as_ref().unwrap();
+        let routing = self.routing.as_ref().unwrap();
 
         // 3. Incise (implicit, downstream-first). Snapshot first so we can book
         //    the removed rock as eroded volume and route it downstream.
@@ -122,7 +222,7 @@ pub(crate) fn erode(
             &routing.receiver,
             &routing.is_sink,
             &routing.dist,
-            &area,
+            &self.area,
             &routing.order,
             EROSION_K,
             EROSION_M,
@@ -140,55 +240,62 @@ pub(crate) fn erode(
             }
             let drop = pre[i] - elev[i];
             if drop > 0.0 {
-                eroded_vol[i] = drop * inv_slope * areas[i];
+                eroded_vol[i] = drop * self.inv_slope * self.areas[i];
             }
         }
-        t_incise += s.elapsed().as_secs_f64();
+        self.t_incise += s.elapsed().as_secs_f64();
 
         // 4. Diffuse (linear hillslope creep) on land, implicit Jacobi.
         s = Instant::now();
-        diffuse_land(&mut elev, routing, &geom, &areas, EROSION_DT);
-        t_diffuse += s.elapsed().as_secs_f64();
+        diffuse_land(&mut elev, routing, &self.geom, &self.areas, EROSION_DT);
+        self.t_diffuse += s.elapsed().as_secs_f64();
 
         s = Instant::now();
         // 5. Fold the eroded/diffused surface back into thickness.
         for i in 0..n {
-            thick[i] = thick_init[i] + (elev[i] - base[i]) * inv_slope;
+            self.thick[i] = self.thick_init[i] + (elev[i] - self.base[i]) * self.inv_slope;
         }
         // 6. Uplift source (thickness).
         for i in 0..n {
-            thick[i] += u_thick[i] * EROSION_DT;
+            self.thick[i] += self.u_thick[i] * EROSION_DT;
         }
-        t_misc += s.elapsed().as_secs_f64();
+        self.t_misc += s.elapsed().as_secs_f64();
 
         // 7. Deposit: route sediment to the coastal sink it drains into and
         //    drop it there (capped so deltas don't breach sea level). Spreading
         //    over a basin's low cells is simplified to per-mouth deposition;
         //    full transport-limited routing is out of scope (see spec).
         s = Instant::now();
-        let (deposited, lost) =
-            deposit(routing, &eroded_vol, &elev, &areas, slope, &mut thick);
-        total_eroded += eroded_vol.iter().map(|&v| v as f64).sum::<f64>();
-        total_deposited += deposited;
-        total_lost += lost;
-        t_deposit += s.elapsed().as_secs_f64();
+        let (deposited, lost) = deposit(
+            routing,
+            &eroded_vol,
+            &elev,
+            &self.areas,
+            self.slope,
+            &mut self.thick,
+        );
+        self.total_eroded += eroded_vol.iter().map(|&v| v as f64).sum::<f64>();
+        self.total_deposited += deposited;
+        self.total_lost += lost;
+        self.t_deposit += s.elapsed().as_secs_f64();
+
+        self.step += 1;
     }
 
-    log::info!(
-        "erosion: {} steps, eroded {:.3e} deposited {:.3e} lost-to-ocean {:.3e} (volume = thickness x steradian)",
-        EROSION_STEPS,
-        total_eroded,
-        total_deposited,
-        total_lost,
-    );
-    log::info!(
-        "erosion phases (s): route {:.1} accum {:.1} incise {:.1} diffuse {:.1} deposit {:.1} misc {:.1}",
-        t_route, t_accum, t_incise, t_diffuse, t_deposit, t_misc,
-    );
-
-    let final_elev = derive_elev(&thick);
-    roughness_report(tess, &final_elev, "eroded");
-    final_elev
+    /// Log mass-balance and per-phase timing for the run so far.
+    fn log_summary(&self) {
+        log::info!(
+            "erosion: {} steps, eroded {:.3e} deposited {:.3e} lost-to-ocean {:.3e} (volume = thickness x steradian)",
+            self.step,
+            self.total_eroded,
+            self.total_deposited,
+            self.total_lost,
+        );
+        log::info!(
+            "erosion phases (s): route {:.1} accum {:.1} incise {:.1} diffuse {:.1} deposit {:.1} misc {:.1}",
+            self.t_route, self.t_accum, self.t_incise, self.t_diffuse, self.t_deposit, self.t_misc,
+        );
+    }
 }
 
 /// Numerical roughness probe (a REFERENCE, not an optimization target). On land
@@ -328,8 +435,8 @@ struct Routing {
 }
 
 impl Routing {
-    fn build(tess: &Tessellation, elev: &[f32], geom: &NeighborGeometry) -> Option<Routing> {
-        let n = tess.num_cells();
+    fn build(elev: &[f32], geom: &NeighborGeometry) -> Option<Routing> {
+        let n = geom.num_cells();
         let is_sink: Vec<bool> = elev.iter().map(|&e| e < 0.0).collect();
         if !is_sink.iter().any(|&s| s) {
             return None;
@@ -351,7 +458,7 @@ impl Routing {
         }
         while let Some(Reverse((level, cell))) = heap.pop() {
             let level = level.0;
-            for &nb in tess.neighbors(cell) {
+            for &nb in geom.tess_neighbors(cell) {
                 if processed[nb] {
                     continue;
                 }
@@ -371,7 +478,7 @@ impl Routing {
             }
             let mut best = flood_parent[i];
             let mut best_elev = filled[i];
-            for &nb in tess.neighbors(i) {
+            for &nb in geom.tess_neighbors(i) {
                 if filled[nb] < best_elev {
                     best_elev = filled[nb];
                     best = nb;
@@ -625,6 +732,10 @@ impl NeighborGeometry {
             dist,
             weight,
         }
+    }
+
+    fn num_cells(&self) -> usize {
+        self.offsets.len() - 1
     }
 
     fn tess_neighbors(&self, i: usize) -> &[usize] {
