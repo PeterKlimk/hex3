@@ -608,9 +608,16 @@ pub const FINE_NUM_CELLS: usize = 2_500_000;
 
 /// Ocean density as a fraction of the land floor (plains) density. Applied
 /// OUTSIDE the land 50:1 clamp, so the seafloor can be much coarser than plains
-/// without eating into the land contrast budget. 0.05 = ocean cells ~20x bigger
+/// without eating into the land contrast budget. 0.02 = ocean cells ~50x bigger
 /// than plains. Lower if the abyssal plains are still too dense.
-pub const FINE_OCEAN_DENSITY_RATIO: f32 = 0.05;
+pub const FINE_OCEAN_DENSITY_RATIO: f32 = 0.02;
+
+/// Exponent applied to each normalized density feature (slope, flow, activity)
+/// before weighting. 1.0 = linear (gentle terrain ramps off the plains floor
+/// quickly); >1.0 keeps flat/gentle land near the floor and concentrates the
+/// fixed cell budget on the steepest ground and main channels -> finer
+/// mountains without raising the total count. 2.0 = square, 3.0 = cube.
+pub const FINE_DENSITY_FEATURE_EXPONENT: f32 = 3.0;
 
 /// Baseline land density before slope/flow/activity attraction.
 pub const FINE_LAND_BASE_DENSITY: f32 = 1.0;

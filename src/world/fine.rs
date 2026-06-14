@@ -232,9 +232,13 @@ fn compute_density_prior(
             density.push(ocean_density);
             continue;
         }
-        let slope = elevation.slope(tessellation, i) / max_slope;
-        let flow = preview_hydrology.flow_accumulation[i].max(1.0).ln() / max_flow_ln;
-        let activity = features.activity[i].clamp(0.0, 1.0);
+        // Each feature normalized to [0,1], then raised to a concentration
+        // exponent so gentle terrain stays near the plains floor and only the
+        // steepest ground / strongest channels pull cells in.
+        let e = FINE_DENSITY_FEATURE_EXPONENT;
+        let slope = (elevation.slope(tessellation, i) / max_slope).powf(e);
+        let flow = (preview_hydrology.flow_accumulation[i].max(1.0).ln() / max_flow_ln).powf(e);
+        let activity = features.activity[i].clamp(0.0, 1.0).powf(e);
         let d = land_floor
             + FINE_SLOPE_DENSITY_WEIGHT * slope
             + FINE_FLOW_DENSITY_WEIGHT * flow
