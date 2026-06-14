@@ -72,6 +72,10 @@ pub struct ErosionParams {
     /// equivalent discharge a cell is a hillslope (diffusion only, no
     /// stream-power incision). 0 = off (incise wherever downhill).
     pub channel_support_km2: f32,
+    /// Log-amplitude of lithologic erodibility variation (contrast). The K
+    /// multiplier is exp(sigma * fbm), normalized to unit mean over land so it
+    /// only redistributes incision. 0 = uniform K.
+    pub litho_sigma: f32,
 }
 
 impl Default for ErosionParams {
@@ -87,6 +91,7 @@ impl Default for ErosionParams {
             uplift_scale: EROSION_UPLIFT_SCALE,
             deposit_fill_fraction: EROSION_DEPOSIT_FILL_FRACTION,
             channel_support_km2: EROSION_CHANNEL_SUPPORT_KM2,
+            litho_sigma: EROSION_LITHO_SIGMA,
         }
     }
 }
@@ -104,10 +109,11 @@ pub(crate) fn erode(
     fields: &ElevationFields,
     base: &[f32],
     precipitation: &[f32],
+    erodibility: &[f32],
     params: ErosionParams,
 ) -> Vec<f32> {
     roughness_report(tess, base, "base ");
-    let mut state = ErosionState::new(tess, fields, base, precipitation, params);
+    let mut state = ErosionState::new(tess, fields, base, precipitation, erodibility, params);
     state.step(params.steps);
     state.log_summary();
     let final_elev = state.elevation();
@@ -129,6 +135,10 @@ pub(crate) struct ErosionState {
     /// less drainage than this are hillslopes (no stream-power incision).
     /// Derived in `new` from `params.channel_support_km2` and mean land precip.
     a_crit: f32,
+    /// Per-cell incision-K multiplier (lithologic erodibility), normalized in
+    /// `new` to unit area-weighted mean over land so it redistributes, not
+    /// scales, total incision. All-ones when `litho_sigma = 0`.
+    erodibility: Vec<f32>,
 
     // Immutable inputs (owned so the state stands alone after construction).
     base: Vec<f32>,
@@ -174,6 +184,7 @@ impl ErosionState {
         fields: &ElevationFields,
         base: &[f32],
         precipitation: &[f32],
+        erodibility_in: &[f32],
         params: ErosionParams,
     ) -> Self {
         let n = tess.num_cells();
@@ -215,6 +226,29 @@ impl ErosionState {
             0.0
         };
 
+        // Normalize the lithologic erodibility multiplier to unit area-weighted
+        // mean over land, so it redistributes incision (harder/softer rock)
+        // without changing total denudation from the uniform-K baseline.
+        let erodibility = {
+            let (mut wsum, mut asum) = (0.0f64, 0.0f64);
+            for i in 0..n {
+                if base[i] >= 0.0 {
+                    wsum += (erodibility_in[i] * areas[i]) as f64;
+                    asum += areas[i] as f64;
+                }
+            }
+            let mean = if asum > 0.0 {
+                (wsum / asum) as f32
+            } else {
+                1.0
+            };
+            let inv = if mean > 0.0 { 1.0 / mean } else { 1.0 };
+            erodibility_in
+                .iter()
+                .map(|&e| e * inv)
+                .collect::<Vec<f32>>()
+        };
+
         let geom = NeighborGeometry::build(tess);
         let thick = thick_init.clone();
 
@@ -223,6 +257,7 @@ impl ErosionState {
             slope,
             inv_slope,
             a_crit,
+            erodibility,
             base: base.to_vec(),
             thick_init,
             precipitation: precipitation.to_vec(),
@@ -307,6 +342,7 @@ impl ErosionState {
             &routing.dist,
             &self.area,
             self.a_crit,
+            &self.erodibility,
             &routing.order,
             self.params.k,
             self.params.m,
@@ -535,6 +571,7 @@ fn incise_step(
     dist: &[f32],
     area: &[f32],
     area_crit: f32,
+    erodibility: &[f32],
     order: &[usize],
     k: f32,
     m: f32,
@@ -553,8 +590,9 @@ fn incise_step(
             continue; // no downhill gradient -> no detachment-limited incision
         }
         let d = dist[cell].max(1e-12);
-        // h_i = (h_i + dt K A^m h_rcv / d) / (1 + dt K A^m / d)
-        let f = dt * k * area[cell].powf(m) / d;
+        // h_i = (h_i + dt K A^m h_rcv / d) / (1 + dt K A^m / d), K per-cell
+        // (lithologic erodibility).
+        let f = dt * k * erodibility[cell] * area[cell].powf(m) / d;
         elev[cell] = (elev[cell] + f * hr) / (1.0 + f);
     }
 }
@@ -927,6 +965,7 @@ mod tests {
         // Downstream-first: outlet first, then upstream.
         let order: Vec<usize> = (0..n).rev().collect();
 
+        let erod = vec![1.0f32; n];
         let mut elev = vec![0.0f32; n];
         for _ in 0..5000 {
             // Uplift interior cells in elevation space; outlet stays at 0.
@@ -936,7 +975,7 @@ mod tests {
                 }
             }
             incise_step(
-                &mut elev, &receiver, &is_sink, &dist, &area, 0.0, &order, k, m, dt,
+                &mut elev, &receiver, &is_sink, &dist, &area, 0.0, &erod, &order, k, m, dt,
             );
         }
 
@@ -963,6 +1002,7 @@ mod tests {
             let dist = vec![d; n];
             let area = vec![a; n];
             let order: Vec<usize> = (0..n).rev().collect();
+            let erod = vec![1.0f32; n];
             let mut elev = vec![0.0f32; n];
             for _ in 0..5000 {
                 for (i, e) in elev.iter_mut().enumerate() {
@@ -971,7 +1011,7 @@ mod tests {
                     }
                 }
                 incise_step(
-                    &mut elev, &receiver, &is_sink, &dist, &area, 0.0, &order, k, m, dt,
+                    &mut elev, &receiver, &is_sink, &dist, &area, 0.0, &erod, &order, k, m, dt,
                 );
             }
             elev[n / 2] - elev[receiver[n / 2]]

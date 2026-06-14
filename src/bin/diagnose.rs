@@ -45,6 +45,10 @@ struct Cli {
     /// under-converged (speckle).
     #[arg(long, default_value_t = 0)]
     erosion_diffusion_iters: usize,
+    /// Override lithologic erodibility contrast (exp-amplitude sigma). <0 = use
+    /// the EROSION_LITHO_SIGMA default; 0 = uniform K (no lithology).
+    #[arg(long, default_value_t = -1.0)]
+    erosion_litho_sigma: f32,
 }
 
 fn main() {
@@ -76,6 +80,9 @@ fn main() {
     }
     if cli.erosion_diffusion_iters > 0 {
         world.erosion_params.diffusion_iters = cli.erosion_diffusion_iters;
+    }
+    if cli.erosion_litho_sigma >= 0.0 {
+        world.erosion_params.litho_sigma = cli.erosion_litho_sigma;
     }
     if cli.fine_max > 0 {
         world.generate_hydrology_with_fine_cap(cli.fine_max);

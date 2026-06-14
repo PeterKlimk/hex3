@@ -4,6 +4,7 @@ use std::time::Instant;
 
 use glam::Vec3;
 use kiddo::{ImmutableKdTree, KdTree, SquaredEuclidean};
+use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 #[cfg(not(feature = "single-threaded"))]
@@ -337,11 +338,13 @@ impl FineSurface {
         // before final hydrology; sea level is the fixed datum inherited via
         // `base_elevation`. See docs/specs/erosion.md.
         let t0 = Instant::now();
+        let erodibility = lithology_erodibility(&base.tessellation, seed, params.litho_sigma);
         let eroded_base = super::erosion::erode(
             &base.tessellation,
             &base.fields.elevation_fields,
             &base.base_elevation,
             &base.fields.precipitation,
+            &erodibility,
             params,
         );
         log::info!("fine mesh: erosion {:.2?}", t0.elapsed());
@@ -373,6 +376,32 @@ impl FineSurface {
             elevation,
             hydrology,
         }
+    }
+}
+
+/// Per-cell lithologic erodibility multiplier on the fine mesh: a role-1 fBm
+/// "rock varies" seed (re-evaluated at fine cell centers, never interpolated)
+/// that the incision step organizes into drainage-aligned differential relief.
+/// Returns exp(sigma * fbm), un-normalized — erosion normalizes it to unit land
+/// mean so it redistributes rather than scales incision. All-ones when sigma<=0.
+fn lithology_erodibility(tess: &Tessellation, seed: u64, sigma: f32) -> Vec<f32> {
+    let n = tess.num_cells();
+    if sigma <= 0.0 {
+        return vec![1.0; n];
+    }
+    let fbm = Fbm::<Perlin>::new(seed.wrapping_add(47) as u32).set_octaves(EROSION_LITHO_OCTAVES);
+    let sample = |i: usize| {
+        let p = tess.cell_center(i) * EROSION_LITHO_FREQUENCY as f32;
+        let v = fbm.get([p.x as f64, p.y as f64, p.z as f64]) as f32;
+        (sigma * v).exp()
+    };
+    #[cfg(not(feature = "single-threaded"))]
+    {
+        (0..n).into_par_iter().map(sample).collect()
+    }
+    #[cfg(feature = "single-threaded")]
+    {
+        (0..n).map(sample).collect()
     }
 }
 

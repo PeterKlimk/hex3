@@ -772,3 +772,30 @@ pub const EROSION_DEPOSIT_FILL_FRACTION: f32 = 0.5;
 /// drainage-density knob — up = sparser/blockier networks, down = finer
 /// dissection (0 disables). 0 = off.
 pub const EROSION_CHANNEL_SUPPORT_KM2: f32 = 30.0;
+
+// --- Lithologic erodibility K(x) (role-1 fine-mesh seed) -------------------
+//
+// Real terrain gets much of its character from rock that resists erosion
+// unevenly (hard ridges, soft basins, knickpoints at contacts). Rather than
+// paint that grain (the retired ridge layer), perturb the incision coefficient
+// K with an fBm "rock varies" field evaluated at fine cell centers and let
+// erosion organize it — the grain then emerges ALIGNED with drainage. The field
+// is normalized to unit area-weighted mean over land, so sigma only
+// REDISTRIBUTES incision (harder rock holds relief, softer strips it) without
+// changing total denudation. Applies to stream-power incision only; hillslope
+// diffusion stays uniform.
+
+/// Log-amplitude of lithologic erodibility variation (the contrast knob). The
+/// per-cell multiplier is exp(sigma * fbm), so sigma = 0.7 spans ~exp(±0.7) =
+/// 0.5–2.0 (≈4x hard-to-soft). 0 = uniform K (no lithology). The effect is a
+/// pure redistribution, so it is subtle at low total erosion — raise it (or K)
+/// for bolder differential dissection. Sweep with diagnose --erosion-litho-sigma.
+pub const EROSION_LITHO_SIGMA: f32 = 0.7;
+
+/// Base spatial frequency of lithologic units (fBm on the unit sphere). ~12 puts
+/// the coarsest units near terrane scale (~500 km); octaves carry it down to
+/// formation scale (~30–60 km) so individual valleys cross different rock.
+pub const EROSION_LITHO_FREQUENCY: f64 = 12.0;
+
+/// fBm octaves for the lithology field (multi-scale terrane → formation grain).
+pub const EROSION_LITHO_OCTAVES: usize = 4;
