@@ -17,17 +17,21 @@ use super::{Atmosphere, Crust, Elevation, FeatureFields, Hydrology, Tessellation
 
 type CoarseTree = ImmutableKdTree<f32, 3>;
 
-/// Fine Stage-3 world state, split into the expensive, reused [`FineBase`]
-/// (stage 3a: mesh + transferred fields + pre-erosion base elevation) and the
-/// cheap, per-variant [`FineSurface`] (stages 3b+3c: eroded elevation +
-/// hydrology). Re-running erosion with tweaked knobs rebuilds only the surface
-/// (`rerun_surface`), reusing the base — that split is the whole point.
+/// Fine Stage-3/4 world state. The expensive [`FineBase`] (mesh + transferred
+/// fields + pre-erosion base elevation) is built once and shared by two cheap
+/// [`FineSurface`] snapshots:
+/// - `pre` — **stage 3** (Hydrosphere): hydrology on the un-eroded base.
+/// - `eroded` — **stage 4** (Erosion): full fluvial erosion + hydrology;
+///   computed only when stage 4 is reached.
 ///
-/// The accessor methods hide the split so consumers don't care which half a
-/// field lives in.
+/// Both are retained so the app can snap between pre/post erosion instantly
+/// (the structural axis), rather than stepping erosion (the temporal axis,
+/// which was slow and needs keyframes to be useful). Re-running with tweaked
+/// `ErosionParams` replaces `eroded`, reusing the base.
 pub struct FineWorld {
     pub base: FineBase,
-    pub surface: FineSurface,
+    pub pre: FineSurface,
+    pub eroded: Option<FineSurface>,
 }
 
 /// Expensive, reused base of the fine mesh (stage 3a): the adaptive tessellation,
@@ -63,33 +67,10 @@ pub struct FineFields {
 }
 
 impl FineWorld {
-    pub fn generate(
-        seed: u64,
-        coarse_tessellation: &Tessellation,
-        crust: &Crust,
-        features: &FeatureFields,
-        coarse_elevation: &Elevation,
-        atmosphere: &Atmosphere,
-        params: ErosionParams,
-        cache: FineCacheMode,
-    ) -> Self {
-        Self::generate_with_target(
-            seed,
-            coarse_tessellation,
-            crust,
-            features,
-            coarse_elevation,
-            atmosphere,
-            FINE_MAX_CELLS,
-            params,
-            cache,
-        )
-    }
-
-    /// `max_cells` is a guardrail ceiling, not a target: the count emerges from
-    /// the resolution field and is only coarsened if it would exceed this.
+    /// Build the fine base (cache-aware) plus the pre-erosion surface (stage 3).
+    /// Erosion (stage 4) is computed later via [`Self::compute_eroded`].
     #[allow(clippy::too_many_arguments)]
-    pub fn generate_with_target(
+    pub fn generate_pre(
         seed: u64,
         coarse_tessellation: &Tessellation,
         crust: &Crust,
@@ -97,7 +78,6 @@ impl FineWorld {
         coarse_elevation: &Elevation,
         atmosphere: &Atmosphere,
         max_cells: usize,
-        params: ErosionParams,
         cache: FineCacheMode,
     ) -> Self {
         let total = Instant::now();
@@ -111,20 +91,39 @@ impl FineWorld {
             atmosphere,
             max_cells,
         );
-        let surface = FineSurface::generate(seed, &base, params);
+        // Pre-erosion surface: hydrology rides the un-eroded interpolated base.
+        let pre = FineSurface::from_eroded(seed, &base, &base.base_elevation);
         log::info!(
-            "fine mesh: total {:.2?}, cells={}, density_ratio={:.1}:1",
+            "fine mesh: stage-3 base+pre {:.2?}, cells={}, density_ratio={:.1}:1",
             total.elapsed(),
             base.tessellation.num_cells(),
             base.achieved_density_ratio
         );
-        Self { base, surface }
+        Self {
+            base,
+            pre,
+            eroded: None,
+        }
     }
 
-    /// Re-run erosion + hydrology over the existing base, replacing the surface
-    /// in place (no mesh recompute). Used when erosion knobs change.
-    pub fn rerun_surface(&mut self, seed: u64, params: ErosionParams) {
-        self.surface = FineSurface::generate(seed, &self.base, params);
+    /// Compute the eroded surface (stage 4) over the existing base if absent.
+    pub fn compute_eroded(&mut self, seed: u64, params: ErosionParams) {
+        if self.eroded.is_none() {
+            let t = Instant::now();
+            self.eroded = Some(FineSurface::generate(seed, &self.base, params));
+            log::info!("fine mesh: stage-4 erosion surface {:.2?}", t.elapsed());
+        }
+    }
+
+    /// Re-run the eroded surface with (possibly tweaked) params, replacing it
+    /// (no mesh recompute — reuses the base).
+    pub fn rerun_eroded(&mut self, seed: u64, params: ErosionParams) {
+        self.eroded = Some(FineSurface::generate(seed, &self.base, params));
+    }
+
+    /// Whether the eroded (stage-4) surface exists yet.
+    pub fn has_eroded(&self) -> bool {
+        self.eroded.is_some()
     }
 
     pub fn tessellation(&self) -> &Tessellation {
@@ -142,22 +141,28 @@ impl FineWorld {
     pub fn achieved_density_ratio(&self) -> f32 {
         self.base.achieved_density_ratio
     }
-    pub fn elevation(&self) -> &Elevation {
-        &self.surface.elevation
-    }
-    pub fn hydrology(&self) -> &Hydrology {
-        &self.surface.hydrology
-    }
-    pub fn hydrology_mut(&mut self) -> &mut Hydrology {
-        &mut self.surface.hydrology
+
+    /// Surface for a given view stage: the eroded (stage-4) surface at view >= 4
+    /// if computed, otherwise the pre-erosion (stage-3) surface.
+    pub fn surface_for(&self, view_stage: u32) -> &FineSurface {
+        if view_stage >= 4 {
+            if let Some(eroded) = &self.eroded {
+                return eroded;
+            }
+        }
+        &self.pre
     }
 
-    /// Adjust the climate ratio on the fine hydrology in place (disjoint borrow
-    /// of base.tessellation + surface.hydrology).
-    pub fn set_climate_ratio(&mut self, ratio: f32) {
-        self.surface
-            .hydrology
-            .set_climate_ratio(&self.base.tessellation, ratio);
+    /// Adjust the climate ratio on the surface for `view_stage` (disjoint borrow
+    /// of base.tessellation + the selected surface).
+    pub fn set_climate_ratio(&mut self, view_stage: u32, ratio: f32) {
+        let tess = &self.base.tessellation;
+        let surface = if view_stage >= 4 && self.eroded.is_some() {
+            self.eroded.as_mut().unwrap()
+        } else {
+            &mut self.pre
+        };
+        surface.hydrology.set_climate_ratio(tess, ratio);
     }
 }
 

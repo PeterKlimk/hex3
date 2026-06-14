@@ -16,7 +16,8 @@ use hex3::world::{FineCacheMode, VoronoiBackend, World};
 
 use super::view::{ClimateLayer, FeatureLayer, NoiseLayer, RenderMode, RiverMode, ViewMode};
 use super::world::{
-    advance_to_stage_2, create_world_with_options, generate_colored_mesh,
+    advance_to_stage_2, advance_to_stage_3, advance_to_stage_4, create_world_with_options,
+    generate_colored_mesh,
     generate_elevation_mesh_buffers, generate_relief_edge_buffers, generate_world_buffers,
     WorldBuffers,
 };
@@ -39,6 +40,9 @@ pub struct AppState {
     /// Stage currently being rendered (<= computed stage). Lets Space/Backspace
     /// move the view forward/back without recompute.
     pub viewed_stage: u32,
+    /// GPU buffers for non-active (already-visited) stages, so snapping between
+    /// stages — chiefly pre-erosion (3) ↔ eroded (4) — is instant. Keyed by stage.
+    inactive_buffers: std::collections::HashMap<u32, WorldBuffers>,
 
     pub show_edges: bool,
     pub river_mode: RiverMode,
@@ -127,6 +131,7 @@ impl AppState {
             voronoi_backend,
             fine_cache,
             viewed_stage: initial_viewed_stage,
+            inactive_buffers: std::collections::HashMap::new(),
             show_edges: false,
             river_mode: RiverMode::Major,
             noise_layer: NoiseLayer::Combined,
@@ -155,6 +160,7 @@ impl AppState {
     pub fn regenerate_world(&mut self, seed: u64) {
         self.world_data = create_world_with_options(seed, self.voronoi_backend, self.fine_cache);
         self.viewed_stage = self.world_data.current_stage();
+        self.inactive_buffers.clear(); // stale across a new world
         self.world_buffers = generate_world_buffers(&self.gpu.device, &self.world_data);
         self.seed = seed;
         self.rng = ChaCha8Rng::seed_from_u64(seed);
@@ -198,13 +204,10 @@ impl AppState {
     pub fn advance_stage(&mut self) -> bool {
         let computed = self.world_data.current_stage();
 
-        // If viewing an earlier (already-computed) stage, just move the view
-        // forward — no recompute.
+        // Viewing an earlier already-computed stage: snap the view forward (no
+        // recompute) instead of computing.
         if self.viewed_stage < computed {
-            self.viewed_stage += 1;
-            self.world_data.set_view_stage(self.viewed_stage);
-            self.world_buffers = generate_world_buffers(&self.gpu.device, &self.world_data);
-            self.update_elevation_map(); // active elevation resolution may change
+            self.snap_to_stage(self.viewed_stage + 1);
             println!("Viewing stage {}", self.viewed_stage);
             return true;
         }
@@ -213,10 +216,7 @@ impl AppState {
         match computed {
             1 => {
                 advance_to_stage_2(&mut self.world_data);
-                self.viewed_stage = 2;
-                self.world_data.set_view_stage(2);
-                self.world_buffers = generate_world_buffers(&self.gpu.device, &self.world_data);
-                // Create GPU wind particles now that atmosphere exists
+                // Create GPU wind particles now that atmosphere exists.
                 if let Some(atmosphere) = &self.world_data.atmosphere {
                     self.gpu_particles = Some(WindParticleSystem::new(
                         &self.gpu,
@@ -228,22 +228,20 @@ impl AppState {
                         &mut self.rng,
                     ));
                 }
+                self.snap_to_stage(2);
                 println!("Advanced to Stage 2: Atmosphere");
                 true
             }
             2 => {
-                // Enter stage 3 in stepped mode: start pre-erosion (step 0) and
-                // let the user carve with Left/Right. (Headless uses the batch
-                // advance_to_stage_3 instead.)
-                self.world_data.begin_fine_erosion_stepping();
-                self.viewed_stage = 3;
-                self.world_data.set_view_stage(3);
-                self.world_buffers = generate_world_buffers(&self.gpu.device, &self.world_data);
-                self.update_elevation_map(); // fine elevation now active
-                let total = self.world_data.erosion_total_steps();
-                println!(
-                    "Advanced to Stage 3: Hydrosphere (erosion 0/{total} — Left/Right to carve)"
-                );
+                advance_to_stage_3(&mut self.world_data); // fine mesh + pre-erosion hydrology
+                self.snap_to_stage(3);
+                println!("Advanced to Stage 3: Hydrosphere (pre-erosion)");
+                true
+            }
+            3 => {
+                advance_to_stage_4(&mut self.world_data); // fluvial erosion
+                self.snap_to_stage(4);
+                println!("Advanced to Stage 4: Erosion (Space/Backspace snaps pre/post)");
                 true
             }
             _ => {
@@ -253,69 +251,40 @@ impl AppState {
         }
     }
 
+    /// Snap the rendered view to an already-computed `target` stage. Buffers for
+    /// the leaving stage are cached, so snapping back and forth (e.g. pre-erosion
+    /// stage 3 ↔ eroded stage 4) is instant once both have been visited — the
+    /// relief mesh + rivers are reused; the colored mesh is re-derived only in
+    /// non-Relief modes. Builds fresh on a cache miss.
+    fn snap_to_stage(&mut self, target: u32) {
+        let leaving = self.viewed_stage;
+        self.viewed_stage = target;
+        self.world_data.set_view_stage(target);
+
+        let activated = match self.inactive_buffers.remove(&target) {
+            Some(bufs) => bufs,
+            None => generate_world_buffers(&self.gpu.device, &self.world_data),
+        };
+        let prev = std::mem::replace(&mut self.world_buffers, activated);
+        if leaving != target {
+            self.inactive_buffers.insert(leaving, prev);
+        }
+        // generate_world_buffers builds the colored mesh for Terrain; a non-Relief
+        // mode needs its colored mesh re-derived for the now-active surface.
+        if self.render_mode != RenderMode::Relief {
+            self.regenerate_colors();
+        }
+        self.update_elevation_map();
+    }
+
     /// Move the rendered view back one stage (no recompute; data is retained).
     /// Returns true if it moved.
     pub fn view_stage_back(&mut self) -> bool {
         if self.viewed_stage <= 1 {
             return false;
         }
-        self.viewed_stage -= 1;
-        self.world_data.set_view_stage(self.viewed_stage);
-        self.world_buffers = generate_world_buffers(&self.gpu.device, &self.world_data);
-        self.update_elevation_map(); // active elevation resolution may change
+        self.snap_to_stage(self.viewed_stage - 1);
         println!("Viewing stage {} (back)", self.viewed_stage);
-        true
-    }
-
-    /// Step the erosion stepper forward by ~10% of a full run (continues the
-    /// live state — cheap), rebuilding the fine surface. Returns true if it
-    /// stepped (false if not in stepped stage 3, or already at the end).
-    pub fn step_erosion_forward(&mut self) -> bool {
-        if self.viewed_stage != 3 {
-            return false;
-        }
-        let Some(cur) = self.world_data.fine_erosion_step() else {
-            return false;
-        };
-        let total = self.world_data.erosion_total_steps();
-        if cur >= total {
-            return false;
-        }
-        let inc = (total / 10).max(1);
-        let target = (cur + inc).min(total);
-        self.world_data.step_fine_erosion(target - cur);
-        self.world_buffers = generate_world_buffers(&self.gpu.device, &self.world_data);
-        self.update_elevation_map(); // eroded elevation changed
-        println!(
-            "Erosion {}/{}",
-            self.world_data.fine_erosion_step().unwrap_or(target),
-            total
-        );
-        true
-    }
-
-    /// Step the erosion stepper back by ~10% (re-runs from the cached base).
-    /// Returns true if it stepped (false if not in stepped stage 3, or at 0).
-    pub fn step_erosion_backward(&mut self) -> bool {
-        if self.viewed_stage != 3 {
-            return false;
-        }
-        let Some(cur) = self.world_data.fine_erosion_step() else {
-            return false;
-        };
-        if cur == 0 {
-            return false;
-        }
-        let inc = (self.world_data.erosion_total_steps() / 10).max(1);
-        let target = cur.saturating_sub(inc);
-        self.world_data.reset_fine_erosion_to(target);
-        self.world_buffers = generate_world_buffers(&self.gpu.device, &self.world_data);
-        self.update_elevation_map(); // eroded elevation changed
-        println!(
-            "Erosion {}/{}",
-            self.world_data.fine_erosion_step().unwrap_or(target),
-            self.world_data.erosion_total_steps()
-        );
         true
     }
 

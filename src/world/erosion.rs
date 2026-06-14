@@ -201,16 +201,6 @@ impl ErosionState {
         }
     }
 
-    /// Steps completed so far.
-    pub(crate) fn step_count(&self) -> usize {
-        self.step
-    }
-
-    /// True once a route found no sinks; further `step()`s are no-ops.
-    pub(crate) fn is_halted(&self) -> bool {
-        self.halted
-    }
-
     /// Current eroded elevation on the fixed sea-level datum (the isostatic delta
     /// `slope * (thick - thick_init)` on top of the coarse base).
     pub(crate) fn elevation(&self) -> Vec<f32> {

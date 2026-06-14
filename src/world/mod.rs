@@ -122,11 +122,6 @@ pub struct World {
     /// Whether fine-mesh base generation reads/writes the on-disk cache.
     pub fine_cache: FineCacheMode,
 
-    /// Live, resumable erosion state for the interactive stepper (Some only while
-    /// stepping stage 3b). Drives `fine.surface` as the user steps; not used by
-    /// the batch/headless path. Private: mutated only through the methods below.
-    fine_erosion: Option<erosion::ErosionState>,
-
     /// Transient view cap for stage back-navigation: the `active_*` accessors and
     /// fine-mesh rendering only expose data up to this stage, so the app can
     /// render an earlier (already-computed) stage without recompute. Defaults to
@@ -180,7 +175,6 @@ impl World {
             fine: None,
             erosion_params: ErosionParams::default(),
             fine_cache: FineCacheMode::default(),
-            fine_erosion: None,
             view_stage: u32::MAX,
         }
     }
@@ -277,16 +271,28 @@ impl World {
         self.atmosphere = Some(Atmosphere::generate(&self.tessellation, elevation));
     }
 
-    /// Generate hydrology (drainage, rivers).
-    /// Requires crust, elevation, and atmosphere (for precipitation).
+    /// Generate the full stage-4 world (fine base + pre-erosion + eroded) at the
+    /// default cap. Used by headless/batch + export; the interactive app builds
+    /// stage 3 (pre) and stage 4 (eroded) separately so it can snap between them.
     pub fn generate_hydrology(&mut self) {
         self.generate_hydrology_with_fine_cap(FINE_MAX_CELLS);
     }
 
-    /// Stage-3 generation with an explicit fine-mesh cell cap. The default
-    /// `generate_hydrology` uses `FINE_MAX_CELLS`; diagnostics pass a smaller cap
-    /// to iterate faster on a proportionally-coarsened mesh.
+    /// Full stage-4 generation with an explicit fine-mesh cell cap (diagnostics
+    /// pass a smaller cap to iterate on a proportionally-coarsened mesh).
     pub fn generate_hydrology_with_fine_cap(&mut self, fine_max_cells: usize) {
+        self.generate_fine_pre_with_cap(fine_max_cells);
+        self.generate_fine_eroded();
+    }
+
+    /// Stage 3 (Hydrosphere): build the fine base (cache-aware) and the
+    /// pre-erosion surface (hydrology on the un-eroded base). Erosion is stage 4.
+    pub fn generate_fine_pre(&mut self) {
+        self.generate_fine_pre_with_cap(FINE_MAX_CELLS);
+    }
+
+    /// Stage 3 with an explicit fine-mesh cell cap.
+    pub fn generate_fine_pre_with_cap(&mut self, fine_max_cells: usize) {
         let crust = self.crust.as_ref().expect("Crust must be generated first");
         let features = self
             .features
@@ -300,7 +306,7 @@ impl World {
             .atmosphere
             .as_ref()
             .expect("Atmosphere must be generated first");
-        let fine = FineWorld::generate_with_target(
+        let fine = FineWorld::generate_pre(
             self.seed,
             &self.tessellation,
             crust,
@@ -308,102 +314,30 @@ impl World {
             elevation,
             atmosphere,
             fine_max_cells,
-            self.erosion_params,
             self.fine_cache,
         );
         self.hydrology = None;
         self.fine = Some(fine);
     }
 
-    /// Enter stage 3 in stepped (watch-it-carve) mode: build the fine base
-    /// (cache-aware) and a pre-erosion (step-0) surface, and arm a resumable
-    /// erosion state the UI advances. The displayed world starts un-eroded; call
-    /// [`Self::step_fine_erosion`] / [`Self::reset_fine_erosion_to`] to carve.
-    pub fn begin_fine_erosion_stepping(&mut self) {
-        let crust = self.crust.as_ref().expect("Crust must be generated first");
-        let features = self.features.as_ref().expect("Features must be generated first");
-        let elevation = self
-            .elevation
-            .as_ref()
-            .expect("Elevation must be generated first");
-        let atmosphere = self
-            .atmosphere
-            .as_ref()
-            .expect("Atmosphere must be generated first");
-
-        let base = FineBase::load_or_generate(
-            self.fine_cache,
-            self.seed,
-            &self.tessellation,
-            crust,
-            features,
-            elevation,
-            atmosphere,
-            FINE_MAX_CELLS,
-        );
-        // Step 0: no erosion yet, so the surface rides the un-eroded base.
-        let state = erosion::ErosionState::new(
-            &base.tessellation,
-            &base.fields.elevation_fields,
-            &base.base_elevation,
-            &base.fields.precipitation,
-            self.erosion_params,
-        );
-        let surface = FineSurface::from_eroded(self.seed, &base, &base.base_elevation);
-
-        self.hydrology = None;
-        self.fine = Some(FineWorld { base, surface });
-        self.fine_erosion = Some(state);
-    }
-
-    /// Advance the live erosion stepper by `steps` and rebuild the fine surface
-    /// from the new elevation (continues the live state — cheap). No-op if not
-    /// in stepped mode.
-    pub fn step_fine_erosion(&mut self, steps: usize) {
-        let Some(state) = self.fine_erosion.as_mut() else {
-            return;
-        };
-        state.step(steps);
-        let elev = state.elevation();
+    /// Stage 4 (Erosion): compute the eroded surface over the existing fine base
+    /// (no-op if stage 3 isn't built or erosion is already computed).
+    pub fn generate_fine_eroded(&mut self) {
+        let seed = self.seed;
+        let params = self.erosion_params;
         if let Some(fine) = self.fine.as_mut() {
-            // Preserve the user's climate ratio across the surface rebuild
-            // (from_eroded regenerates hydrology at the default ratio).
-            let ratio = fine.hydrology().climate_ratio();
-            fine.surface = FineSurface::from_eroded(self.seed, &fine.base, &elev);
-            fine.set_climate_ratio(ratio);
+            fine.compute_eroded(seed, params);
         }
     }
 
-    /// Re-run erosion from the base to `target_step` (used for stepping backward;
-    /// forward should use [`Self::step_fine_erosion`] to avoid quadratic re-runs).
-    /// Reuses the cached base — no mesh recompute. No-op if not in stepped mode.
-    pub fn reset_fine_erosion_to(&mut self, target_step: usize) {
-        let Some(fine) = self.fine.as_mut() else {
-            return;
-        };
-        let mut state = erosion::ErosionState::new(
-            &fine.base.tessellation,
-            &fine.base.fields.elevation_fields,
-            &fine.base.base_elevation,
-            &fine.base.fields.precipitation,
-            self.erosion_params,
-        );
-        state.step(target_step);
-        let elev = state.elevation();
-        let ratio = fine.hydrology().climate_ratio();
-        fine.surface = FineSurface::from_eroded(self.seed, &fine.base, &elev);
-        fine.set_climate_ratio(ratio);
-        self.fine_erosion = Some(state);
-    }
-
-    /// Current erosion step of the live stepper (None if not in stepped mode).
-    pub fn fine_erosion_step(&self) -> Option<usize> {
-        self.fine_erosion.as_ref().map(|s| s.step_count())
-    }
-
-    /// Total erosion steps a full run takes (the stepper's target).
-    pub fn erosion_total_steps(&self) -> usize {
-        self.erosion_params.steps
+    /// Re-run the eroded surface with the current `erosion_params` (e.g. after a
+    /// runtime knob change), replacing it. Reuses the base — no mesh recompute.
+    pub fn rerun_fine_eroded(&mut self) {
+        let seed = self.seed;
+        let params = self.erosion_params;
+        if let Some(fine) = self.fine.as_mut() {
+            fine.rerun_eroded(seed, params);
+        }
     }
 
     /// Get the number of cells in this world.
@@ -439,7 +373,8 @@ impl World {
 
     pub fn active_elevation(&self) -> Option<&Elevation> {
         if self.shows_fine() {
-            return Some(self.fine.as_ref().unwrap().elevation());
+            // Stage 3 -> pre-erosion surface; stage 4 -> eroded surface.
+            return Some(&self.fine.as_ref().unwrap().surface_for(self.view_stage).elevation);
         }
         // Elevation is stage 1, shown at any view stage >= 1.
         self.elevation.as_ref()
@@ -449,21 +384,26 @@ impl World {
         if self.view_stage < 3 {
             return None; // hydrology is a stage-3 layer
         }
-        self.fine
-            .as_ref()
-            .map(|fine| fine.hydrology())
-            .or(self.hydrology.as_ref())
+        if let Some(fine) = self.fine.as_ref() {
+            return Some(&fine.surface_for(self.view_stage).hydrology);
+        }
+        self.hydrology.as_ref()
     }
 
     pub fn active_hydrology_mut(&mut self) -> Option<&mut Hydrology> {
         if self.view_stage < 3 {
             return None;
         }
-        if let Some(fine) = &mut self.fine {
-            Some(fine.hydrology_mut())
-        } else {
-            self.hydrology.as_mut()
+        let vs = self.view_stage;
+        if let Some(fine) = self.fine.as_mut() {
+            let surface = if vs >= 4 && fine.eroded.is_some() {
+                fine.eroded.as_mut().unwrap()
+            } else {
+                &mut fine.pre
+            };
+            return Some(&mut surface.hydrology);
         }
+        self.hydrology.as_mut()
     }
 
     pub fn active_temperature(&self) -> Option<&[f32]> {
@@ -504,19 +444,24 @@ impl World {
     }
 
     pub fn set_active_climate_ratio(&mut self, ratio: f32) {
+        let vs = self.view_stage;
         if let Some(fine) = &mut self.fine {
-            fine.set_climate_ratio(ratio);
+            fine.set_climate_ratio(vs, ratio);
         } else if let Some(hydrology) = &mut self.hydrology {
             hydrology.set_climate_ratio(&self.tessellation, ratio);
         }
     }
 
-    /// Get the current generation stage.
+    /// Get the current (max computed) generation stage.
     /// - Stage 1: Lithosphere (tectonics, elevation)
     /// - Stage 2: Atmosphere (temperature, wind)
-    /// - Stage 3: Hydrosphere (rivers, lakes)
+    /// - Stage 3: Hydrosphere (fine mesh, rivers on pre-erosion terrain)
+    /// - Stage 4: Erosion (eroded terrain + re-derived rivers)
     pub fn current_stage(&self) -> u32 {
-        if self.fine.is_some() || self.hydrology.is_some() {
+        if let Some(fine) = &self.fine {
+            return if fine.has_eroded() { 4 } else { 3 };
+        }
+        if self.hydrology.is_some() {
             3
         } else if self.atmosphere.is_some() {
             2

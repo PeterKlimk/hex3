@@ -177,17 +177,16 @@ Boundary forcing is weighted by edge arc length and normalized by cell area for 
 - V: cycle river visibility (Off/Major/All) - Stage 3+
 - H: toggle hemisphere lighting
 - R: regenerate world with new seed
-- Space: advance to next stage (1=Lithosphere → 2=Atmosphere → 3=Hydrosphere); if viewing an earlier already-computed stage, moves the view forward instead of recomputing
-- Backspace: view the previous stage (no recompute; data is retained)
-- Left/Right: step fluvial erosion back/forward by ~10% (Stage 3). Stage 3 starts pre-erosion (step 0); step to the end for the full eroded world. Interactive only — headless/--export run erosion to completion.
-- Up/Down: adjust climate ratio (wetter/drier) - controls lake levels (Stage 3)
-- D: export world data to JSON file
+- Space: advance to next stage (1=Lithosphere → 2=Atmosphere → 3=Hydrosphere → 4=Erosion); if viewing an earlier already-computed stage, moves the view forward instead of recomputing
+- Backspace: view the previous stage (no recompute; data is retained). Stage 3 = pre-erosion fine terrain, stage 4 = eroded — Space/Backspace snap between them for an instant before/after on erosion.
+- Up/Down: adjust climate ratio (wetter/drier) - controls lake levels (Stage 3+)
+- D: export world data to JSON file (exports the latest computed stage)
 - Esc: quit
 
 Notes:
 - Plates mode (globe view) overlays plate velocity arrows and Euler pole markers.
 - Rivers follow terrain elevation in Relief mode, flat in other modes.
-- Stage navigation (Space/Backspace) renders already-computed stages without recompute; the fine mesh base is disk-cached (`.cache/finebase/`, keyed by seed + mesh params) so a recompile of erosion/downstream code reloads it instead of regenerating (`--no-fine-cache` / `--rebuild-fine-cache`). See docs/specs/staging.md.
+- Stage navigation (Space/Backspace) renders already-computed stages without recompute; once both stage 3 (pre-erosion) and stage 4 (eroded) are visited, snapping between them is instant (per-stage GPU buffers are cached). The fine-mesh base is disk-cached (`.cache/finebase/`, keyed by seed + mesh params) so a recompile of erosion/downstream code reloads it instead of regenerating (`--no-fine-cache` / `--rebuild-fine-cache`). See docs/specs/staging.md.
 
 ## Voronoi Backends
 

@@ -81,42 +81,43 @@ recomputes the mesh — defeating the point.
 self-referential, so no `Arc`/lifetime gymnastics. (Keep a `FineWorld`-shaped
 accessor or thin wrapper if it eases the `app/world.rs` call sites.)
 
-### Steppable erosion (within-stage 3b) — DONE
+### Erosion as a distinct stage (pre/post snapshots) — DONE
 
-Status: implemented on this branch. `erode()` is now a thin wrapper over a
-resumable `ErosionState` (`erosion.rs`) holding the loop-carried state
-(`thick`, cached `routing`, `area`, step counter) plus once-built
-`geom`/`areas`/`u_thick` and owned input copies (`base`, `thick_init`,
-`precipitation`) — so stepping needs **no `Tessellation` borrow**, only
-construction does (this is what lets the UI hold it across frames). API:
-`new(tess, fields, base, precipitation)`, `step(n)`, `elevation()`,
-`step_count()`, `is_halted()`. `Routing::build` now takes the prebuilt
-`NeighborGeometry` instead of `&Tessellation`.
+**Design pivot (June 2026).** The original plan was a *temporal* within-stage
+stepper (Left/Right by % of `EROSION_STEPS`). Built, then dropped: stepping is
+slow (full per-step rebuild) and, without keyframe storage (which the user does
+not want), useless for back-and-forth. What's actually wanted for evaluating
+mountain mechanisms is **pre-erosion vs eroded, snapped instantly** — the
+*structural* axis. So erosion became its own stage:
 
-Invariant met: `new(..).step(EROSION_STEPS)` reproduces the batch run (same ops,
-order, reroute schedule; `geom.tess_neighbors` is in `tess.neighbors` order). The
-two unit tests still pass; the no-sinks early-`break` became a `halted` flag.
+- **Stage 3 (Hydrosphere)** — fine mesh + hydrology on the **un-eroded** base.
+- **Stage 4 (Erosion)** — full fluvial erosion + re-derived hydrology.
 
-- **Forward** (the common case, "watch it happen"): continue the live
-  `ErosionState` by some % of `EROSION_STEPS` per keypress — cheap, incremental.
-- **Backward** (occasional): re-run from `FineBase` to the target step.
-  Stateless, no keyframe storage; rough is fine (user's call). Avoid
-  re-running-from-base on *every* forward press (quadratic) — forward continues
-  the live state, only backward re-runs.
+`FineWorld` now holds `{ base: FineBase, pre: FineSurface, eroded:
+Option<FineSurface> }`. Both surfaces share the one (disk-cached) `FineBase`;
+the ~11s erosion cost is paid once on entering stage 4. `World::active_*` select
+`pre` vs `eroded` by the view stage. `World::rerun_fine_eroded()` re-runs just
+the eroded surface with tweaked `ErosionParams` (reuses the base) — the
+iteration loop, available for a future runtime-knob UI.
 
-Keyframe storage / a fine scrubber is explicitly OPTIONAL and deferred; the
-re-run-from-base approach covers rough scrubbing without it.
+The resumable `ErosionState` (`new/step/elevation`) survives as the internal
+engine of `erode()` (and the substrate for a future time-evolution loop), but
+the per-step UI is gone. `FineSurface::from_eroded` builds the pre surface (from
+`base.base_elevation`) and is shared with full generation.
 
-### GPU
+### GPU — per-stage buffer cache (instant snap)
 
-Erosion variants/steps share topology, so the index buffer is built once and
-reused; only the per-vertex buffer (elevation + color) is re-uploaded when
-stepping erosion (topology unchanged) — fast enough to watch. No `Arc` on the
-buffer is needed (one variant rendered at a time); just don't rebuild the index
-buffer on an erosion step. Today the index/vertex buffers are already separate in
-both render paths (`world.rs:393, 570`), and climate-ratio already does a full
-rebuild with unchanged topology — that's the pattern to reuse, trimmed to
-vertex-only on an erosion step.
+Stages 3 and 4 share fine topology but differ in elevation/colors/rivers, so
+snapping rebuilds buffers — too slow to do every snap at full res. Instead the
+app caches a full `WorldBuffers` per non-active stage (`AppState.inactive_buffers`,
+keyed by stage). Snapping swaps the active `WorldBuffers` for the cached one
+(instant) and stashes the leaving stage's; on a cache miss it builds fresh. The
+colored mesh (mode-specific) is re-derived via `regenerate_colors` only in
+non-Relief modes (Relief uses the mode-independent unified mesh, so erosion
+snapping in Relief is fully instant). The elevation map (wind-particle terrain)
+is refreshed per snap. Memory: a `WorldBuffers` per visited stage (2 large for
+fine stages 3/4, 2 small coarse) — acceptable; invalidated on regenerate (R) and
+should be invalidated on a future erosion re-run.
 
 ### Disk cache (survive rebuilds)
 
@@ -138,29 +139,17 @@ compile-time `const` to runtime params carried in app/world state and passed int
 
 ## Navigation / UX
 
-- **Erosion stepping** — DONE (interactive). Entering stage 3 starts pre-erosion
-  (step 0); Right advances ~10% of `EROSION_STEPS` continuing the live
-  `ErosionState` (cheap), Left re-runs from the base to a lower step. Pre-erosion
-  view = step 0; the full world = stepping to the end. Up/Down stay climate-ratio.
-  Wired via `World::{begin_fine_erosion_stepping, step_fine_erosion,
-  reset_fine_erosion_to}` + `AppState::step_erosion_{forward,backward}`. Headless
-  / `--export` still use the batch `advance_to_stage_3` (full erosion). The user's
-  climate ratio is preserved across steps (re-applied after the surface rebuild).
-  PERF FOLLOW-UP (deferred, pending Windows perf read): each step does a full
-  `generate_world_buffers` (colored + relief + all river meshes) AND an
-  `update_elevation_map` (for wind-particle terrain) — correct but heavier than
-  needed. If sluggish at full res, key a render-resource cache by active
-  stage/render-mode/river-mode and drop to vertex-only re-upload (the index
-  buffer is already separable); refresh the elevation map lazily on entering
-  Climate/Wind instead of per step.
-- **Stage forward / back** — DONE. `AppState.viewed_stage` tracks the rendered
-  stage separate from the max computed. Space moves the view forward (computing
-  the next stage only when already at the latest), Backspace moves it back (no
-  recompute). A transient `World::view_stage` cap makes the `active_*` accessors
-  + `mode_uses_fine_mesh` expose data only up to the viewed stage (so viewing
-  stage 1/2 renders the coarse mesh/elevation, hides hydrology/atmosphere);
-  default `u32::MAX` keeps headless/batch identical. Rivers auto-hide (no
-  hydrology), particles + erosion stepping gate on the viewed stage.
+- **Stage forward / back + erosion snap** — DONE. `AppState.viewed_stage` tracks
+  the rendered stage separate from the max computed. Space moves the view forward
+  (computing the next stage only when already at the latest: 1→2→3→4), Backspace
+  moves it back — both via `snap_to_stage`, which swaps cached per-stage buffers
+  for instant toggling. Snapping stage 3 (pre-erosion) ↔ stage 4 (eroded) is the
+  before/after-on-erosion comparison. A transient `World::view_stage` cap makes
+  the `active_*` accessors + `mode_uses_fine_mesh` expose data only up to the
+  viewed stage (stage 1/2 render the coarse mesh; stage 3 the pre-erosion fine
+  surface; stage 4 the eroded one); default `u32::MAX` keeps headless/batch
+  identical. Rivers auto-hide below stage 3 (no hydrology); particles gate on the
+  viewed stage. Up/Down stay climate-ratio (applies to the viewed surface).
 
 ## Open decisions (call out in the PR)
 

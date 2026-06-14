@@ -5,7 +5,9 @@ use std::path::PathBuf;
 use clap::{Parser, ValueEnum};
 use winit::event_loop::{ControlFlow, EventLoop};
 
-use app::world::{advance_to_stage_2, advance_to_stage_3, create_world_with_options};
+use app::world::{
+    advance_to_stage_2, advance_to_stage_3, advance_to_stage_4, create_world_with_options,
+};
 use hex3::world::{FineCacheMode, VoronoiBackend};
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -33,7 +35,8 @@ struct Cli {
     #[arg(long)]
     headless: bool,
 
-    /// Target stage (1-3). Interactive defaults to 1, headless defaults to max.
+    /// Target stage (1-4: Lithosphere, Atmosphere, Hydrosphere, Erosion).
+    /// Interactive defaults to 1, headless defaults to max.
     #[arg(long)]
     stage: Option<u32>,
 
@@ -72,7 +75,7 @@ fn main() {
     } else if cli.stage2 {
         2 // Legacy flag
     } else if cli.headless {
-        3 // Headless defaults to max stage (currently 3)
+        4 // Headless defaults to max stage (currently 4 = Erosion)
     } else {
         1 // Interactive defaults to stage 1
     };
@@ -120,9 +123,15 @@ fn run_headless(
         println!("{:.1}ms", start.elapsed().as_secs_f64() * 1000.0);
     }
     if target_stage >= 3 {
-        print!("Advancing to stage 3 (Hydrology)... ");
+        print!("Advancing to stage 3 (Hydrosphere, pre-erosion)... ");
         let start = std::time::Instant::now();
         advance_to_stage_3(&mut world);
+        println!("{:.1}ms", start.elapsed().as_secs_f64() * 1000.0);
+    }
+    if target_stage >= 4 {
+        print!("Advancing to stage 4 (Erosion)... ");
+        let start = std::time::Instant::now();
+        advance_to_stage_4(&mut world);
         println!("{:.1}ms", start.elapsed().as_secs_f64() * 1000.0);
     }
 

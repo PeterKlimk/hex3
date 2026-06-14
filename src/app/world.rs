@@ -206,74 +206,87 @@ pub fn advance_to_stage_2(world: &mut World) {
     }
 }
 
-/// Advance world to Stage 3 (Hydrology).
+/// Advance world to Stage 3 (Hydrosphere): fine mesh + hydrology on the
+/// PRE-erosion terrain. Erosion is stage 4 ([`advance_to_stage_4`]).
 pub fn advance_to_stage_3(world: &mut World) {
     let _total = Timed::info("Stage 3 (Hydrosphere)");
-
     {
-        let _t = Timed::info("Hydrology");
-        world.generate_hydrology();
+        let _t = Timed::info("Fine mesh + pre-erosion hydrology");
+        world.generate_fine_pre();
     }
+    log_hydrology_stats(world);
+}
 
-    // Print hydrology stats
-    if let Some(hydrology) = world.active_hydrology() {
-        let num_cells = world.num_cells();
+/// Advance world to Stage 4 (Erosion): carve the fine mesh and re-derive
+/// hydrology over the eroded terrain. Requires stage 3.
+pub fn advance_to_stage_4(world: &mut World) {
+    let _total = Timed::info("Stage 4 (Erosion)");
+    {
+        let _t = Timed::info("Erosion + hydrology");
+        world.generate_fine_eroded();
+    }
+    log_hydrology_stats(world);
+}
 
-        let ocean_cells = (0..num_cells).filter(|&i| hydrology.is_ocean(i)).count();
-        let lake_cells = (0..num_cells)
-            .filter(|&i| hydrology.is_lake_water(i))
-            .count();
-        let dry_basin_cells = (0..num_cells)
-            .filter(|&i| hydrology.is_dry_basin(i))
-            .count();
-        let land_cells = (0..num_cells)
-            .filter(|&i| !hydrology.is_submerged(i))
-            .count();
-        let non_ocean_cells = num_cells - ocean_cells;
-        let lake_pct = if non_ocean_cells > 0 {
-            100.0 * lake_cells as f32 / non_ocean_cells as f32
-        } else {
-            0.0
-        };
+/// Log hydrology/fine-mesh stats for whatever stage is currently active.
+fn log_hydrology_stats(world: &World) {
+    let Some(hydrology) = world.active_hydrology() else {
+        return;
+    };
+    let num_cells = world.num_cells();
 
-        let cells_with_drainage = (0..num_cells)
-            .filter(|&i| hydrology.downstream(i).is_some())
-            .count();
+    let ocean_cells = (0..num_cells).filter(|&i| hydrology.is_ocean(i)).count();
+    let lake_cells = (0..num_cells)
+        .filter(|&i| hydrology.is_lake_water(i))
+        .count();
+    let dry_basin_cells = (0..num_cells)
+        .filter(|&i| hydrology.is_dry_basin(i))
+        .count();
+    let land_cells = (0..num_cells)
+        .filter(|&i| !hydrology.is_submerged(i))
+        .count();
+    let non_ocean_cells = num_cells - ocean_cells;
+    let lake_pct = if non_ocean_cells > 0 {
+        100.0 * lake_cells as f32 / non_ocean_cells as f32
+    } else {
+        0.0
+    };
 
-        // Compute resolution-independent thresholds
-        let river_min_flow = (num_cells as f32 * RIVER_MIN_FLOW_FRACTION).max(1.0);
+    let cells_with_drainage = (0..num_cells)
+        .filter(|&i| hydrology.downstream(i).is_some())
+        .count();
 
-        let river_cells = hydrology.river_cells(river_min_flow);
-        let max_flow = hydrology
-            .flow_accumulation
-            .iter()
-            .copied()
-            .fold(0.0f32, f32::max);
+    let river_min_flow = (num_cells as f32 * RIVER_MIN_FLOW_FRACTION).max(1.0);
+    let river_cells = hydrology.river_cells(river_min_flow);
+    let max_flow = hydrology
+        .flow_accumulation
+        .iter()
+        .copied()
+        .fold(0.0f32, f32::max);
 
+    log::info!(
+        "Hydrology: ocean={}, land={}, lakes={} ({:.1}%), basins={} ({} dry)",
+        ocean_cells,
+        land_cells,
+        lake_cells,
+        lake_pct,
+        hydrology.basins.len(),
+        dry_basin_cells
+    );
+    log::info!(
+        "Rivers: drainage={} cells, rivers={} (flow>={:.0}), max_flow={:.0}",
+        cells_with_drainage,
+        river_cells.len(),
+        river_min_flow,
+        max_flow
+    );
+    if let Some(fine) = &world.fine {
         log::info!(
-            "Hydrology: ocean={}, land={}, lakes={} ({:.1}%), basins={} ({} dry)",
-            ocean_cells,
-            land_cells,
-            lake_cells,
-            lake_pct,
-            hydrology.basins.len(),
-            dry_basin_cells
+            "Fine mesh: coarse_cells={}, fine_cells={}, density_ratio={:.1}:1",
+            world.tessellation.num_cells(),
+            fine.tessellation().num_cells(),
+            fine.achieved_density_ratio()
         );
-        log::info!(
-            "Rivers: drainage={} cells, rivers={} (flow>={:.0}), max_flow={:.0}",
-            cells_with_drainage,
-            river_cells.len(),
-            river_min_flow,
-            max_flow
-        );
-        if let Some(fine) = &world.fine {
-            log::info!(
-                "Fine mesh: coarse_cells={}, fine_cells={}, density_ratio={:.1}:1",
-                world.tessellation.num_cells(),
-                fine.tessellation().num_cells(),
-                fine.achieved_density_ratio()
-            );
-        }
     }
 }
 
