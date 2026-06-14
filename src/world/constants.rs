@@ -713,9 +713,19 @@ pub const EROSION_REROUTE_INTERVAL: usize = 6;
 /// transferred feature forcing: (arc + collision) are elevation magnitudes
 /// (converted to thickness by dividing the Airy slope) and rift_delta is
 /// already a signed thickness delta. U_thickness = SCALE * ((arc+collision)/slope
-/// + rift_delta). 0 = orogens simply decay; >0 sustains active ranges toward a
-/// U/K equilibrium (concave profiles, ridge-valley relief). Visual knob.
-pub const EROSION_UPLIFT_SCALE: f32 = 0.02;
+/// + rift_delta).
+///
+/// MUST be 0 for the one-shot stage-4 erosion pass. The coarse elevation already
+/// encodes the orogen (collision/arc -> crust thickness -> mountain height at
+/// stage 1), so re-injecting tectonic uplift here DOUBLE-COUNTS it: measured at
+/// 0.02 the uplift injected ~99x the volume incision removes, inflating mountains
+/// ~+26% in bulk / +36% at the peaks instead of eroding them. Stage 4 is
+/// erosional RELAXATION (incision + hillslope diffusion carving the existing
+/// orogen toward graded profiles). The uplift mechanism (`u_thick` in
+/// `erosion.rs`) stays wired for a FUTURE coupled tectonics<->erosion
+/// time-evolution loop (the A'2 thread in docs/ideas.md), where it belongs and
+/// must be balanced against K; set it >0 only there.
+pub const EROSION_UPLIFT_SCALE: f32 = 0.0;
 
 /// Fraction of a coastal sink's depth-to-sea-level that routed sediment may fill
 /// (delta building at river mouths). Sediment beyond this cap is "lost to the
