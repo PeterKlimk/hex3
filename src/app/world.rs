@@ -44,6 +44,15 @@ fn buffer_bytes<T>(items: &[T]) -> usize {
     items.len() * std::mem::size_of::<T>()
 }
 
+/// Relief-mode wireframe: an indexed line list of the Voronoi edges, elevation
+/// displaced. Built on demand (see [`generate_relief_edge_buffers`]) rather than
+/// inside [`generate_world_buffers`].
+pub struct ReliefEdgeBuffers {
+    pub vertex_buffer: wgpu::Buffer,
+    pub index_buffer: wgpu::Buffer,
+    pub num_indices: u32,
+}
+
 /// All GPU buffers for world rendering.
 /// Simplified: one dynamic colored mesh + specialized buffers for Relief/rivers/overlays.
 pub struct WorldBuffers {
@@ -62,9 +71,10 @@ pub struct WorldBuffers {
     pub unified_vertex_buffer: wgpu::Buffer,
     pub unified_index_buffer: wgpu::Buffer,
     pub num_unified_indices: u32,
-    pub relief_edge_vertex_buffer: wgpu::Buffer,
-    pub relief_edge_index_buffer: wgpu::Buffer,
-    pub num_relief_edge_indices: u32,
+    // Relief wireframe: built lazily the first time edges are shown, so its
+    // large allocation (hundreds of MiB at the 2.5M-cell fine mesh) never
+    // coincides with the fill-mesh rebuild. `None` after every buffer regen.
+    pub relief_edge: Option<ReliefEdgeBuffers>,
 
     // Rivers (line-based for non-relief, triangle mesh for relief)
     pub river_all_vertex_buffer: wgpu::Buffer,
@@ -465,25 +475,10 @@ pub fn generate_world_buffers(device: &wgpu::Device, world: &World) -> WorldBuff
                 .unwrap_or(edge_color)
         });
 
-    // Relief edges with elevation — indexed line list (shared vertices). This
-    // is the real Voronoi wireframe at both resolutions; indexing keeps the
-    // fine mesh (~3 edges/cell at 2.5M cells) to a tractable buffer size.
-    let (relief_edge_vertices, relief_edge_indices) =
-        VoronoiMesh::edge_lines_indexed_with_elevation(
-            voronoi,
-            edge_color,
-            elevation_for_cell,
-            |i| cell_material(world, i),
-        );
-    if use_fine {
-        log::info!(
-            "fine mesh relief wireframe: vertices={}, edges={}, vertex_bytes={:.1} MiB, index_bytes={:.1} MiB",
-            relief_edge_vertices.len(),
-            relief_edge_indices.len() / 2,
-            buffer_bytes(&relief_edge_vertices) as f64 / 1_048_576.0,
-            buffer_bytes(&relief_edge_indices) as f64 / 1_048_576.0,
-        );
-    }
+    // The relief wireframe is intentionally NOT built here: it is built lazily
+    // (see generate_relief_edge_buffers) so its large allocation never overlaps
+    // this fill-mesh rebuild, which together would exhaust memory at fine-mesh
+    // densities.
 
     // Plate overlays
     let arrows = generate_velocity_arrows(world);
@@ -579,17 +574,8 @@ pub fn generate_world_buffers(device: &wgpu::Device, world: &World) -> WorldBuff
         ),
         unified_index_buffer: create_index_buffer(device, &unified_mesh.indices, "unified_index"),
         num_unified_indices: unified_mesh.indices.len() as u32,
-        relief_edge_vertex_buffer: create_vertex_buffer(
-            device,
-            &relief_edge_vertices,
-            "relief_edge_vertex",
-        ),
-        relief_edge_index_buffer: create_index_buffer(
-            device,
-            &relief_edge_indices,
-            "relief_edge_index",
-        ),
-        num_relief_edge_indices: relief_edge_indices.len() as u32,
+        // Built lazily on first show; see generate_relief_edge_buffers.
+        relief_edge: None,
 
         // Rivers
         river_all_vertex_buffer: create_vertex_buffer(
@@ -641,6 +627,54 @@ pub fn generate_world_buffers(device: &wgpu::Device, world: &World) -> WorldBuff
         ),
         num_arrow_vertices: arrow_vertices.len() as u32,
         num_pole_marker_indices: pole_marker_indices.len() as u32,
+    }
+}
+
+/// Build the relief-mode wireframe (indexed Voronoi edges, elevation displaced).
+///
+/// Split out of [`generate_world_buffers`] and built lazily (only when edges are
+/// shown) so its allocation — hundreds of MiB at the 2.5M-cell fine mesh — never
+/// overlaps the fill-mesh rebuild. Building both at once exhausts memory; the
+/// crash repro was "advance to the fine mesh with edges already on", whereas
+/// "advance, then toggle edges" worked because the wireframe was built alone.
+pub fn generate_relief_edge_buffers(device: &wgpu::Device, world: &World) -> ReliefEdgeBuffers {
+    let voronoi = &world.active_tessellation().voronoi;
+    let elevation = world.active_elevation().unwrap();
+    let edge_color = Vec3::new(0.35, 0.35, 0.35);
+
+    let elevation_for_cell = |i| {
+        if let Some(hydrology) = world.active_hydrology() {
+            if hydrology.is_ocean(i) {
+                return 0.0;
+            }
+            if hydrology.is_lake_water(i) {
+                return hydrology.basin(i).map(|b| b.water_level).unwrap_or(0.0);
+            }
+        }
+        elevation.values[i].max(0.0)
+    };
+
+    let (vertices, indices) = VoronoiMesh::edge_lines_indexed_with_elevation(
+        voronoi,
+        edge_color,
+        elevation_for_cell,
+        |i| cell_material(world, i),
+    );
+
+    if world.fine.is_some() {
+        log::info!(
+            "fine mesh relief wireframe: vertices={}, edges={}, vertex_bytes={:.1} MiB, index_bytes={:.1} MiB",
+            vertices.len(),
+            indices.len() / 2,
+            buffer_bytes(&vertices) as f64 / 1_048_576.0,
+            buffer_bytes(&indices) as f64 / 1_048_576.0,
+        );
+    }
+
+    ReliefEdgeBuffers {
+        vertex_buffer: create_vertex_buffer(device, &vertices, "relief_edge_vertex"),
+        index_buffer: create_index_buffer(device, &indices, "relief_edge_index"),
+        num_indices: indices.len() as u32,
     }
 }
 

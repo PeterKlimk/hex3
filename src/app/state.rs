@@ -17,7 +17,8 @@ use hex3::world::{VoronoiBackend, World};
 use super::view::{ClimateLayer, FeatureLayer, NoiseLayer, RenderMode, RiverMode, ViewMode};
 use super::world::{
     advance_to_stage_2, advance_to_stage_3, create_world_with_options, generate_colored_mesh,
-    generate_elevation_mesh_buffers, generate_world_buffers, WorldBuffers,
+    generate_elevation_mesh_buffers, generate_relief_edge_buffers, generate_world_buffers,
+    WorldBuffers,
 };
 
 pub struct AppState {
@@ -306,6 +307,15 @@ impl AppState {
             (ViewMode::Map, false) => FillPipelineKind::Map,
         };
 
+        // Lazily build the relief wireframe the first time it's actually shown
+        // after a buffer rebuild. Kept out of generate_world_buffers so its large
+        // allocation never coincides with the fill-mesh rebuild (which together
+        // exhaust memory at fine-mesh densities). Done before the fill borrow.
+        if self.show_edges && use_unified && self.world_buffers.relief_edge.is_none() {
+            let relief_edge = generate_relief_edge_buffers(&self.gpu.device, &self.world_data);
+            self.world_buffers.relief_edge = Some(relief_edge);
+        }
+
         // Select vertex/index buffers: unified for Relief, colored for all other modes
         let fill = if use_unified {
             IndexedDraw {
@@ -324,11 +334,14 @@ impl AppState {
         // Select edge buffer based on mode
         let edges = if self.show_edges {
             if use_unified {
-                // Relief wireframe is an indexed line list (shared vertices).
-                Some(hex3::render::EdgeDraw::GlobeColoredIndexed {
-                    vertex_buffer: &self.world_buffers.relief_edge_vertex_buffer,
-                    index_buffer: &self.world_buffers.relief_edge_index_buffer,
-                    index_count: self.world_buffers.num_relief_edge_indices,
+                // Relief wireframe is an indexed line list (shared vertices),
+                // built lazily above.
+                self.world_buffers.relief_edge.as_ref().map(|reb| {
+                    hex3::render::EdgeDraw::GlobeColoredIndexed {
+                        vertex_buffer: &reb.vertex_buffer,
+                        index_buffer: &reb.index_buffer,
+                        index_count: reb.num_indices,
+                    }
                 })
             } else {
                 let (buffer, count) = if self.render_mode == RenderMode::Plates {
