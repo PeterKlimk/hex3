@@ -35,6 +35,11 @@ struct Cli {
     /// Override hillslope diffusivity. <0 = use the EROSION_DIFFUSIVITY default.
     #[arg(long, default_value_t = -1.0)]
     erosion_diffusivity: f32,
+    /// Override channel-initiation support area (km² at mean land wetness).
+    /// <0 = use the EROSION_CHANNEL_SUPPORT_KM2 default; 0 = disable the
+    /// threshold (incise wherever downhill).
+    #[arg(long, default_value_t = -1.0)]
+    erosion_channel_support: f32,
 }
 
 fn main() {
@@ -60,6 +65,9 @@ fn main() {
     }
     if cli.erosion_diffusivity >= 0.0 {
         world.erosion_params.diffusivity = cli.erosion_diffusivity;
+    }
+    if cli.erosion_channel_support >= 0.0 {
+        world.erosion_params.channel_support_km2 = cli.erosion_channel_support;
     }
     if cli.fine_max > 0 {
         world.generate_hydrology_with_fine_cap(cli.fine_max);
@@ -419,9 +427,11 @@ fn main() {
         if pts.len() < 50 {
             println!("  too few channel cells ({}) to fit", pts.len());
         } else {
-            let (lo, hi) = pts.iter().fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), &(x, _)| {
-                (lo.min(x), hi.max(x))
-            });
+            let (lo, hi) = pts
+                .iter()
+                .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), &(x, _)| {
+                    (lo.min(x), hi.max(x))
+                });
             const NB: usize = 12;
             let mut bins: Vec<Vec<f32>> = vec![Vec::new(); NB];
             for &(x, y) in &pts {
@@ -473,7 +483,10 @@ fn main() {
     {
         let flow = &hydrology.flow_accumulation;
         let areas = tess.cell_areas();
-        let mut lp: Vec<f32> = (0..n).filter(|&i| land[i]).map(|i| precipitation[i]).collect();
+        let mut lp: Vec<f32> = (0..n)
+            .filter(|&i| land[i])
+            .map(|i| precipitation[i])
+            .collect();
         lp.sort_by(f32::total_cmp);
         let mut le: Vec<f32> = (0..n).filter(|&i| land[i]).map(|i| elevation[i]).collect();
         le.sort_by(f32::total_cmp);

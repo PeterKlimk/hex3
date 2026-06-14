@@ -58,6 +58,10 @@ pub struct ErosionParams {
     pub uplift_scale: f32,
     /// Fraction of a sink's depth-to-sea-level that deposition may fill.
     pub deposit_fill_fraction: f32,
+    /// Channel-initiation support area (km²) at mean land wetness. Below the
+    /// equivalent discharge a cell is a hillslope (diffusion only, no
+    /// stream-power incision). 0 = off (incise wherever downhill).
+    pub channel_support_km2: f32,
 }
 
 impl Default for ErosionParams {
@@ -72,6 +76,7 @@ impl Default for ErosionParams {
             reroute_interval: EROSION_REROUTE_INTERVAL,
             uplift_scale: EROSION_UPLIFT_SCALE,
             deposit_fill_fraction: EROSION_DEPOSIT_FILL_FRACTION,
+            channel_support_km2: EROSION_CHANNEL_SUPPORT_KM2,
         }
     }
 }
@@ -110,6 +115,10 @@ pub(crate) struct ErosionState {
     n: usize,
     slope: f32,
     inv_slope: f32,
+    /// Channel-initiation discharge threshold (precip x steradian); cells with
+    /// less drainage than this are hillslopes (no stream-power incision).
+    /// Derived in `new` from `params.channel_support_km2` and mean land precip.
+    a_crit: f32,
 
     // Immutable inputs (owned so the state stands alone after construction).
     base: Vec<f32>,
@@ -170,6 +179,28 @@ impl ErosionState {
             .collect();
 
         let areas = tess.cell_areas();
+
+        // Channel-initiation threshold. The knob is a geometric support area
+        // (km²) at MEAN land wetness; convert it to a discharge (precip x
+        // steradian) using the area-weighted mean land precipitation, so the
+        // threshold is precip-scale-robust and the GEOMETRIC support shrinks
+        // where it rains more than average -> denser channel networks in wet
+        // regions, sparser in arid ones, without a separate knob.
+        let a_crit = if params.channel_support_km2 > 0.0 {
+            let (mut wp, mut wa) = (0.0f64, 0.0f64);
+            for i in 0..n {
+                if base[i] >= 0.0 {
+                    wp += (precipitation[i].max(0.0) * areas[i]) as f64;
+                    wa += areas[i] as f64;
+                }
+            }
+            let mean_precip = if wa > 0.0 { (wp / wa) as f32 } else { 0.0 };
+            let support_sr = params.channel_support_km2 / (PLANET_RADIUS_KM * PLANET_RADIUS_KM);
+            support_sr * mean_precip
+        } else {
+            0.0
+        };
+
         let geom = NeighborGeometry::build(tess);
         let thick = thick_init.clone();
 
@@ -177,6 +208,7 @@ impl ErosionState {
             n,
             slope,
             inv_slope,
+            a_crit,
             base: base.to_vec(),
             thick_init,
             precipitation: precipitation.to_vec(),
@@ -259,6 +291,7 @@ impl ErosionState {
             &routing.is_sink,
             &routing.dist,
             &self.area,
+            self.a_crit,
             &routing.order,
             self.params.k,
             self.params.m,
@@ -477,6 +510,7 @@ fn incise_step(
     is_sink: &[bool],
     dist: &[f32],
     area: &[f32],
+    area_crit: f32,
     order: &[usize],
     k: f32,
     m: f32,
@@ -485,6 +519,9 @@ fn incise_step(
     for &cell in order {
         if is_sink[cell] {
             continue;
+        }
+        if area[cell] < area_crit {
+            continue; // below channel initiation -> hillslope (diffusion only)
         }
         let r = receiver[cell];
         let hr = elev[r];
@@ -624,7 +661,9 @@ impl Routing {
 /// the downstream-first order).
 fn accumulate_wet_area(routing: &Routing, precipitation: &[f32], areas: &[f32]) -> Vec<f32> {
     let n = areas.len();
-    let mut acc: Vec<f32> = (0..n).map(|i| precipitation[i].max(0.0) * areas[i]).collect();
+    let mut acc: Vec<f32> = (0..n)
+        .map(|i| precipitation[i].max(0.0) * areas[i])
+        .collect();
     for &cell in routing.order.iter().rev() {
         if routing.is_sink[cell] {
             continue;
@@ -872,11 +911,13 @@ mod tests {
                     *e += u * dt;
                 }
             }
-            incise_step(&mut elev, &receiver, &is_sink, &dist, &area, &order, k, m, dt);
+            incise_step(
+                &mut elev, &receiver, &is_sink, &dist, &area, 0.0, &order, k, m, dt,
+            );
         }
 
         let expected_drop = u * d / (k * a.powf(m)); // 0.1
-        // Check an interior cell's drop to its receiver.
+                                                     // Check an interior cell's drop to its receiver.
         let i = n / 2;
         let drop = elev[i] - elev[receiver[i]];
         assert!(
@@ -905,7 +946,9 @@ mod tests {
                         *e += u * dt;
                     }
                 }
-                incise_step(&mut elev, &receiver, &is_sink, &dist, &area, &order, k, m, dt);
+                incise_step(
+                    &mut elev, &receiver, &is_sink, &dist, &area, 0.0, &order, k, m, dt,
+                );
             }
             elev[n / 2] - elev[receiver[n / 2]]
         };

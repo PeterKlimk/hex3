@@ -748,3 +748,21 @@ pub const EROSION_UPLIFT_SCALE: f32 = 0.0;
 /// (delta building at river mouths). Sediment beyond this cap is "lost to the
 /// ocean" for the mass-balance log. Keeps deposition from breaching sea level.
 pub const EROSION_DEPOSIT_FILL_FRACTION: f32 = 0.5;
+
+/// Channel-initiation support area (km²) at MEAN land wetness. Stream-power
+/// incision acts only on cells whose precip-weighted drainage (discharge)
+/// exceeds the discharge of this geometric area at the mean land precipitation;
+/// below it the cell is a hillslope and erodes by hillslope diffusion only (the
+/// channel head). Without this, stream power incises everywhere there is any
+/// drainage — including hillslopes that should not channelize — so valleys lack
+/// a clean head and divides get nibbled.
+///
+/// Because the threshold is on discharge (not bare area), the GEOMETRIC support
+/// shrinks in wetter-than-mean regions and grows in arid ones: channels start
+/// higher up where it rains -> denser networks in wet regions, sparser in
+/// deserts, with no extra knob. A real channel-initiation support area on Earth
+/// spans ~10⁻²–10¹ km² (humid → arid); at the fine mesh's ~1.5 km mountain cells
+/// this gates the few-cell hillslope band between channel heads. The primary
+/// drainage-density knob — up = sparser/blockier networks, down = finer
+/// dissection (0 disables). 0 = off.
+pub const EROSION_CHANNEL_SUPPORT_KM2: f32 = 30.0;
