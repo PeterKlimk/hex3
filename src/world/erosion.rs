@@ -329,9 +329,19 @@ impl ErosionState {
 
     /// Log mass-balance and per-phase timing for the run so far.
     fn log_summary(&self) {
+        // Tectonic uplift thickness-volume injected over the run. The eroded /
+        // deposited figures below are an INTERNAL transfer (incision moves rock
+        // to sinks); this uplift is NET ADDITION and is NOT in that balance — so
+        // a large positive uplift_in here means the orogen grew, even when
+        // eroded ~= deposited makes the transfer look conserved.
+        let per_step_uplift: f64 = (0..self.n)
+            .map(|i| (self.u_thick[i] * self.areas[i]) as f64)
+            .sum();
+        let uplift_in = self.step as f64 * self.params.dt as f64 * per_step_uplift;
         log::info!(
-            "erosion: {} steps, eroded {:.3e} deposited {:.3e} lost-to-ocean {:.3e} (volume = thickness x steradian)",
+            "erosion: {} steps, uplift-in {:.3e} | eroded {:.3e} deposited {:.3e} lost-to-ocean {:.3e} (volume = thickness x steradian)",
             self.step,
+            uplift_in,
             self.total_eroded,
             self.total_deposited,
             self.total_lost,
@@ -358,11 +368,20 @@ fn roughness_report(tess: &Tessellation, elev: &[f32], label: &str) {
     let mut edges_total = 0usize;
     let mut edges_sub_100m = 0usize;
     let mut edges_sub_1m = 0usize;
+    // Absolute land-elevation distribution + area-weighted volume. None of the
+    // shape probes (slope/concavity/extrema) measure net height, so an orogen
+    // can grow under "erosion" with every shape metric still looking right —
+    // compare these base-vs-eroded to catch that.
+    let areas = tess.cell_areas();
+    let mut elevs: Vec<f32> = Vec::new();
+    let mut land_volume = 0.0f64;
     for i in 0..n {
         if elev[i] < 0.0 {
             continue;
         }
         land += 1;
+        elevs.push(elev[i]);
+        land_volume += elev[i] as f64 * areas[i] as f64;
         let pos = tess.cell_center(i);
         let mut steepest = 0.0f32;
         let mut all_higher = true;
@@ -424,6 +443,19 @@ fn roughness_report(tess: &Tessellation, elev: &[f32], label: &str) {
         edges_sub_100m,
         100.0 * edges_sub_100m as f32 / edges_total.max(1) as f32,
         edges_sub_1m,
+    );
+    elevs.sort_by(f32::total_cmp);
+    let epct = |p: f32| elevs[(((elevs.len() - 1) as f32) * p) as usize];
+    let emean = elevs.iter().map(|&e| e as f64).sum::<f64>() / elevs.len() as f64;
+    log::info!(
+        "erosion height [{}]: land-elev mean={:.4} p50={:.4} p90={:.4} p99={:.4} max={:.4} | land-volume(elev*sr)={:.4e}",
+        label,
+        emean,
+        epct(0.50),
+        epct(0.90),
+        epct(0.99),
+        epct(1.0),
+        land_volume,
     );
 }
 
