@@ -21,6 +21,16 @@
 //! reproduces the standard stream-power steady state (unit-tested); the
 //! thickness bookkeeping lives in `erode`, which folds the eroded/diffused
 //! surface back into thickness via `(elev - base) / slope` each step.
+//!
+//! NOTE (current regime): with `uplift_scale = 0` (the shipped stage-4 config)
+//! the fold-back and `derive_elev` are exact inverses — `thick - thick_init ≡
+//! (elev - base) / slope` — and every operator works in elevation space, so the
+//! thickness state carries no information beyond elevation except the deposition
+//! term at sinks. The "isostatic rebound" described above is then a volume
+//! reinterpretation only (the surface drops exactly what incision computes); it
+//! does NOT dynamically reduce that drop. Isostasy becomes a live degree of
+//! freedom only once uplift is on (the future coupled loop). Until then the
+//! thickness layer is bookkeeping for mass balance + deposition, not shape.
 
 use std::cmp::Reverse;
 use std::collections::VecDeque;
@@ -146,6 +156,10 @@ pub(crate) struct ErosionState {
     total_eroded: f64,
     total_deposited: f64,
     total_lost: f64,
+    /// Net thickness-volume moved by hillslope diffusion (≈0 if conservative;
+    /// nonzero = no-flux clamp + finite-Jacobi non-convergence). Audited so
+    /// diffusion's otherwise-silent mass change is visible next to incision.
+    total_diffused: f64,
     t_route: f64,
     t_accum: f64,
     t_incise: f64,
@@ -224,6 +238,7 @@ impl ErosionState {
             total_eroded: 0.0,
             total_deposited: 0.0,
             total_lost: 0.0,
+            total_diffused: 0.0,
             t_route: 0.0,
             t_accum: 0.0,
             t_incise: 0.0,
@@ -314,8 +329,13 @@ impl ErosionState {
         }
         self.t_incise += s.elapsed().as_secs_f64();
 
-        // 4. Diffuse (linear hillslope creep) on land, implicit Jacobi.
+        // 4. Diffuse (linear hillslope creep) on land, implicit Jacobi. Snapshot
+        //    first so the net volume it moves is auditable: interior diffusion is
+        //    conservative (symmetric edge fluxes), so this residual measures only
+        //    the no-flux clamp + finite-Jacobi non-convergence and should stay
+        //    small next to `eroded`.
         s = Instant::now();
+        let pre_diff = elev.clone();
         diffuse_land(
             &mut elev,
             routing,
@@ -325,6 +345,9 @@ impl ErosionState {
             self.params.diffusivity,
             self.params.diffusion_iters,
         );
+        self.total_diffused += (0..n)
+            .map(|i| ((elev[i] - pre_diff[i]) * self.inv_slope * self.areas[i]) as f64)
+            .sum::<f64>();
         self.t_diffuse += s.elapsed().as_secs_f64();
 
         s = Instant::now();
@@ -372,12 +395,13 @@ impl ErosionState {
             .sum();
         let uplift_in = self.step as f64 * self.params.dt as f64 * per_step_uplift;
         log::info!(
-            "erosion: {} steps, uplift-in {:.3e} | eroded {:.3e} deposited {:.3e} lost-to-ocean {:.3e} (volume = thickness x steradian)",
+            "erosion: {} steps, uplift-in {:.3e} | eroded {:.3e} deposited {:.3e} lost-to-ocean {:.3e} diffused-net {:.3e} (volume = thickness x steradian)",
             self.step,
             uplift_in,
             self.total_eroded,
             self.total_deposited,
             self.total_lost,
+            self.total_diffused,
         );
         log::info!(
             "erosion phases (s): route {:.1} accum {:.1} incise {:.1} diffuse {:.1} deposit {:.1} misc {:.1}",

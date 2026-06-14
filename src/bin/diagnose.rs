@@ -40,6 +40,11 @@ struct Cli {
     /// threshold (incise wherever downhill).
     #[arg(long, default_value_t = -1.0)]
     erosion_channel_support: f32,
+    /// Override Jacobi sweeps per implicit diffusion solve. 0 = use the
+    /// EROSION_DIFFUSION_ITERS default. Sweep to check the finest cells aren't
+    /// under-converged (speckle).
+    #[arg(long, default_value_t = 0)]
+    erosion_diffusion_iters: usize,
 }
 
 fn main() {
@@ -68,6 +73,9 @@ fn main() {
     }
     if cli.erosion_channel_support >= 0.0 {
         world.erosion_params.channel_support_km2 = cli.erosion_channel_support;
+    }
+    if cli.erosion_diffusion_iters > 0 {
+        world.erosion_params.diffusion_iters = cli.erosion_diffusion_iters;
     }
     if cli.fine_max > 0 {
         world.generate_hydrology_with_fine_cap(cli.fine_max);

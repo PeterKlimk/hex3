@@ -670,10 +670,13 @@ pub const FINE_RELAX_PASSES: usize = 3;
 // (tune by eye on real renders, not against a numeric target).
 
 /// Number of implicit incision timesteps. The implicit scheme is
-/// unconditionally stable, so a few dozen large steps suffice to relax toward
-/// the U/K equilibrium; more steps = closer to graded profiles, linear cost.
-/// The dominant per-step cost is re-routing (priority flood), so this is also
-/// the main runtime knob.
+/// unconditionally stable, so a few dozen large steps suffice. With uplift ON
+/// (the future coupled loop) more steps relax toward the U/K equilibrium —
+/// closer to graded profiles. With uplift OFF (the shipped stage-4 config) there
+/// is no equilibrium: more steps just denude further toward a peneplain, so the
+/// count is a visual stopping time, not a convergence target. Linear cost; the
+/// dominant per-step cost is re-routing (priority flood), so this is also the
+/// main runtime knob.
 pub const EROSION_STEPS: usize = 30;
 
 /// Timestep (dimensionless; folded into K / uplift scale). Kept explicit so the
@@ -713,8 +716,11 @@ pub const EROSION_K: f32 = 4.0e-2;
 pub const EROSION_DIFFUSIVITY: f32 = 2.0e-8;
 
 /// Jacobi sweeps used to approximate the implicit diffusion solve each step.
-/// More = closer to the exact backward-Euler smoothing; 8 is ample for the
-/// gentle rounding hillslope diffusion provides (it need not fully converge).
+/// More = closer to the exact backward-Euler smoothing. Verified ample at 6
+/// (seed 12345, --fine-max 300000, --erosion-diffusion-iters sweep): 6 -> 24
+/// gives bit-identical roughness and a diffused-net mass residual ~1e-10 of the
+/// eroded volume, so the gentle hillslope diffusion (D ~ 2e-8) already reaches
+/// its fixed point in <=6 sweeps even on the finest cells.
 pub const EROSION_DIFFUSION_ITERS: usize = 6;
 
 /// Re-route (priority-flood + drainage-area accumulation) every N incision
