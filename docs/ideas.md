@@ -10,6 +10,15 @@ worlds coherent; parameters stay playground knobs. Same pattern to exploit:
 These are sketches to not-forget, not specs. Promote to `docs/specs/` when one
 is chosen.
 
+**Noise — input vs output.** Noise is allowed; the distinction is *how*. Noise as
+the *output* (noise being the terrain/field, e.g. the retired hills/ridges fBm)
+is what a mechanism replaces. Noise as an *input/modulator to a physical
+skeleton* is legitimate and often the right call — it supplies irregularity a
+deterministic model can't and stands in for detail below the scale the mechanism
+sets. Rule of thumb: skeleton physical (orientation, location, the simulated
+process), texture noise-fed. Keep things less fake where it makes sense, but
+don't invent mechanics you don't need just to avoid noise.
+
 ## Central insight (June 2026)
 
 Erosion is validated (river concavity θ≈0.5, climate-responsive drainage
@@ -30,12 +39,27 @@ internal structure for erosion to express**, plus glacial for high elevations.
 - **Mechanism:** compression folds/thrusts crust, with fold axes ⟂ to the
   shortening direction (= parallel to the belt trend). Erosion then dissects the
   folded competence layers into strike-parallel ridges.
-- **Already computed:** shortening direction = relative plate velocity at the
-  convergent boundary (`dynamics.rs`/`boundary.rs`); the `convergent`/`collision`
-  influence fields exist to gate it to orogens. Fold axes ⟂ shortening.
+- **Approach (current lead):** structure the *input*, not the erosion — make
+  `EROSION_K` a striped erodibility field, leave the validated isotropic stream-
+  power untouched. Stripe phase = distance-from-convergent-boundary /
+  fold_wavelength, so stripes are the distance field's iso-contours → belt-
+  parallel grain that curves for free, no orientation field to construct.
+  Erosion carves weak bands → strike ridges, and **trellis drainage emerges**
+  (the other fold-belt signature). A1 and A2 are the same machinery — A1 is A2
+  with an oriented periodic pattern.
+- **Skeleton physical, texture noise-fed:** orientation/location/erosion are
+  deterministic; noise feeds wavelength jitter + phase breaks/terminations/
+  en-echelon so it's a quasi-periodic belt, not a corduroy comb. (See the noise
+  principle above.) Optional later: sawtooth stripe for thrust vergence/facets.
+- **Already computed:** distance-from-boundary (`collision_distance`/
+  `arc_distance` in `features.rs`); `convergent`/`collision` influence to gate
+  amplitude. Would transfer a distance field to the fine mesh + make `K` per-cell.
 - **Resolution fit:** fold wavelength ~5–20 km on Earth = fine-mesh scale
   (cells 1.5–12 km), so this belongs in the fine/erosion stage, not the coarse.
-- **Effort:** medium. (My detailed take below.)
+- **Open Qs:** striped-K vs corrugated-thickness vs both; tie wavelength to
+  crustal thickness (physical: ∝ competent-layer thickness) or knob+noise;
+  extensional grain too (same machinery, gated by `divergent` → basin-and-range).
+- **Effort:** medium.
 
 ### A2. Lithological contrast / erodibility field
 - **Symptom:** uniform `K` → uniform smoothness; no escarpments, hogbacks,
