@@ -85,13 +85,17 @@ impl OrbitCamera {
         self.pitch = (self.pitch + delta_pitch).clamp(-MAX_TILT, MAX_TILT);
     }
 
-    /// Zoom the camera by changing distance. Multiplicative so each scroll notch
-    /// is a constant fraction of the current distance — fine control when zoomed
-    /// in close, fast traversal when far out (a fixed linear step is unusably
-    /// coarse near the surface).
+    /// Zoom the camera by changing distance. Multiplicative on *altitude above
+    /// the surface* (globe radius 1.0), so each notch is a constant fraction of
+    /// the height above the ground: fine control when close (the remaining
+    /// altitude is small), fast traversal when far. Scaling the distance from
+    /// center instead overshoots near the surface (a 30%-of-distance step dwarfs
+    /// the tiny remaining altitude and slams the clamp).
     pub fn zoom(&mut self, delta: f32) {
+        const SURFACE: f32 = 1.0;
+        let altitude = (self.distance - SURFACE).max(1e-3);
         let factor = (1.0 - delta).clamp(0.2, 5.0);
-        self.distance = (self.distance * factor).clamp(MIN_DISTANCE, MAX_DISTANCE);
+        self.distance = (SURFACE + altitude * factor).clamp(MIN_DISTANCE, MAX_DISTANCE);
     }
 
     /// Update the aspect ratio.
@@ -116,7 +120,8 @@ impl Default for CameraController {
     fn default() -> Self {
         Self {
             rotate_sensitivity: 0.005,
-            zoom_sensitivity: 0.3,
+            // Fraction of altitude-above-surface per scroll notch (see zoom()).
+            zoom_sensitivity: 0.15,
             is_rotating: false,
             last_mouse: None,
         }
