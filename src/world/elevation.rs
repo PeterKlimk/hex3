@@ -82,14 +82,6 @@ pub struct ElevationFields {
     pub is_continental: Vec<bool>,
 }
 
-#[derive(Clone, Copy)]
-pub(crate) enum NoiseAssembly {
-    /// Coarse world: macro + hills + ridge are simulation elevation; micro is cosmetic.
-    Coarse,
-    /// Fine world: macro only in simulation elevation; micro remains cosmetic.
-    FineMacroMicroOnly,
-}
-
 impl TerrainNoise {
     fn new<R: Rng>(rng: &mut R) -> Self {
         Self {
@@ -207,20 +199,47 @@ impl Elevation {
         }
     }
 
-    pub(crate) fn generate_from_fields<R: Rng>(
+    /// Build a fine-mesh elevation by refining an already-solved base elevation
+    /// (interpolated from the coarse mesh, so it is on the fixed sea-level datum)
+    /// with cosmetic micro noise. There is NO sea-level re-solve: sea level is a
+    /// global planet datum, chosen once on the coarse mesh, and inherited here.
+    /// The simulation values are the smooth interpolated base (erosion carves the
+    /// fine detail later); micro noise is cosmetic only, as on the coarse mesh.
+    pub(crate) fn refine_from_base<R: Rng>(
         tessellation: &Tessellation,
-        fields: &ElevationFields,
+        base_elevation: &[f32],
         rng: &mut R,
-        assembly: NoiseAssembly,
     ) -> Self {
         let noise = TerrainNoise::new(rng);
-        let (values, noise_contribution, noise_layers) =
-            assemble_heightmap_with_noise(tessellation, fields, &noise, assembly);
+        let n = tessellation.num_cells();
+
+        let micro_layer: Vec<f32> = {
+            let sample_micro = |i: usize| {
+                let pos = tessellation.cell_center(i);
+                let underwater = base_elevation[i] < 0.0;
+                let (_hills, _ridge, micro) =
+                    noise.sample(pos, 0.0, 0.0, !underwater, underwater);
+                micro
+            };
+            #[cfg(not(feature = "single-threaded"))]
+            {
+                (0..n).into_par_iter().map(sample_micro).collect()
+            }
+            #[cfg(feature = "single-threaded")]
+            {
+                (0..n).map(sample_micro).collect()
+            }
+        };
 
         Self {
-            values,
-            noise_contribution,
-            noise_layers,
+            values: base_elevation.to_vec(),
+            noise_contribution: vec![0.0; n],
+            noise_layers: NoiseLayerData {
+                macro_layer: vec![0.0; n],
+                hills_layer: vec![0.0; n],
+                ridge_layer: vec![0.0; n],
+                micro_layer,
+            },
         }
     }
 
@@ -392,14 +411,13 @@ fn generate_heightmap_with_noise(
     noise: &TerrainNoise,
 ) -> (Vec<f32>, Vec<f32>, NoiseLayerData) {
     let fields = coarse_elevation_fields(tessellation, crust, features);
-    assemble_heightmap_with_noise(tessellation, &fields, noise, NoiseAssembly::Coarse)
+    assemble_heightmap_with_noise(tessellation, &fields, noise)
 }
 
 fn assemble_heightmap_with_noise(
     tessellation: &Tessellation,
     fields: &ElevationFields,
     noise: &TerrainNoise,
-    assembly: NoiseAssembly,
 ) -> (Vec<f32>, Vec<f32>, NoiseLayerData) {
     let num_cells = tessellation.num_cells();
     let slope = isostasy_slope();
@@ -407,12 +425,12 @@ fn assemble_heightmap_with_noise(
     #[cfg(not(feature = "single-threaded"))]
     let assembled: Vec<AssembledElevationCell> = (0..num_cells)
         .into_par_iter()
-        .map(|i| assemble_elevation_cell(tessellation, fields, noise, assembly, slope, i))
+        .map(|i| assemble_elevation_cell(tessellation, fields, noise, slope, i))
         .collect();
 
     #[cfg(feature = "single-threaded")]
     let assembled: Vec<AssembledElevationCell> = (0..num_cells)
-        .map(|i| assemble_elevation_cell(tessellation, fields, noise, assembly, slope, i))
+        .map(|i| assemble_elevation_cell(tessellation, fields, noise, slope, i))
         .collect();
 
     let mut elevations = Vec::with_capacity(num_cells);
@@ -491,7 +509,6 @@ fn assemble_elevation_cell(
     tessellation: &Tessellation,
     fields: &ElevationFields,
     noise: &TerrainNoise,
-    assembly: NoiseAssembly,
     slope: f32,
     i: usize,
 ) -> AssembledElevationCell {
@@ -528,12 +545,8 @@ fn assemble_elevation_cell(
     // The macro layer is reported as its isostatic elevation contribution
     // for visualization continuity.
     let macro_c = macro_dt * slope;
-    let (hills_sim, ridge_sim) = match assembly {
-        NoiseAssembly::Coarse => (hills_c, ridge_c),
-        NoiseAssembly::FineMacroMicroOnly => (0.0, 0.0),
-    };
-    let simulation_noise = macro_c + hills_sim + ridge_sim;
-    let elevation = structural_elevation + hills_sim + ridge_sim;
+    let simulation_noise = macro_c + hills_c + ridge_c;
+    let elevation = structural_elevation + hills_c + ridge_c;
 
     AssembledElevationCell {
         elevation,

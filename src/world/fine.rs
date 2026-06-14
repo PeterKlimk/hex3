@@ -11,7 +11,7 @@ use rand_chacha::ChaCha8Rng;
 use rayon::prelude::*;
 
 use super::constants::*;
-use super::elevation::{coarse_elevation_fields, ElevationFields, NoiseAssembly};
+use super::elevation::{coarse_elevation_fields, ElevationFields};
 use super::{Atmosphere, Crust, Elevation, FeatureFields, Hydrology, Tessellation};
 
 type CoarseTree = ImmutableKdTree<f32, 3>;
@@ -124,15 +124,22 @@ impl FineWorld {
         );
         log::info!("fine mesh: field transfer {:.2?}", t0.elapsed());
 
+        // Refine the coarse elevation onto the fine cells rather than recomputing
+        // it from transferred structural fields. Sea level is a global datum
+        // solved once on the coarse mesh; interpolating the (already sea-level-
+        // shifted) coarse elevation inherits that datum exactly, so the fine mesh
+        // never re-solves sea level — and the relief matches coarse instead of
+        // collapsing toward zero.
         let t0 = Instant::now();
-        let mut elev_rng = ChaCha8Rng::seed_from_u64(seed.wrapping_add(3));
-        let elevation = Elevation::generate_from_fields(
+        let base_elevation = interpolate_coarse_elevation(
+            coarse_tessellation,
             &tessellation,
-            &fields.elevation_fields,
-            &mut elev_rng,
-            NoiseAssembly::FineMacroMicroOnly,
+            &coarse_cell,
+            &coarse_elevation.values,
         );
-        log::info!("fine mesh: elevation reassembly {:.2?}", t0.elapsed());
+        let mut elev_rng = ChaCha8Rng::seed_from_u64(seed.wrapping_add(3));
+        let elevation = Elevation::refine_from_base(&tessellation, &base_elevation, &mut elev_rng);
+        log::info!("fine mesh: elevation refine {:.2?}", t0.elapsed());
 
         let t0 = Instant::now();
         let hydrology = Hydrology::generate_from_continentality(
@@ -539,6 +546,37 @@ fn splitmix64(mut value: u64) -> u64 {
     value = (value ^ (value >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
     value = (value ^ (value >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
     value ^ (value >> 31)
+}
+
+/// Interpolate the coarse final elevation onto the fine cells, using the same
+/// nearest-coarse + neighbours inverse-distance support as the field transfer.
+/// The result is on the coarse sea-level datum (coarse values are already
+/// shifted so 0 = sea level), so no re-solve is needed downstream.
+fn interpolate_coarse_elevation(
+    coarse: &Tessellation,
+    fine: &Tessellation,
+    coarse_cell: &[usize],
+    coarse_elevation: &[f32],
+) -> Vec<f32> {
+    let interp = |i: usize| {
+        let pos = fine.cell_center(i);
+        let nearest = coarse_cell[i];
+        let mut support = InterpolationSupport::new();
+        support.push(nearest, interpolation_weight(coarse.cell_center(nearest), pos));
+        for &nb in coarse.neighbors(nearest) {
+            support.push(nb, interpolation_weight(coarse.cell_center(nb), pos));
+        }
+        support.interpolate(coarse_elevation, 0.0)
+    };
+
+    #[cfg(not(feature = "single-threaded"))]
+    {
+        (0..fine.num_cells()).into_par_iter().map(interp).collect()
+    }
+    #[cfg(feature = "single-threaded")]
+    {
+        (0..fine.num_cells()).map(interp).collect()
+    }
 }
 
 fn transfer_fields(
