@@ -12,6 +12,7 @@ use rayon::prelude::*;
 use super::constants::*;
 use super::elevation::{coarse_elevation_fields, ElevationFields};
 use super::erosion::ErosionParams;
+use super::fine_cache::{self, FineCacheMode};
 use super::{Atmosphere, Crust, Elevation, FeatureFields, Hydrology, Tessellation};
 
 type CoarseTree = ImmutableKdTree<f32, 3>;
@@ -32,6 +33,7 @@ pub struct FineWorld {
 /// Expensive, reused base of the fine mesh (stage 3a): the adaptive tessellation,
 /// the coarse-cell map, the transferred smooth fields, and the pre-erosion base
 /// elevation. Built once; every erosion/hydrology variant reads it by reference.
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct FineBase {
     pub tessellation: Tessellation,
     pub coarse_cell: Vec<usize>,
@@ -52,6 +54,7 @@ pub struct FineSurface {
 }
 
 /// Smooth fields transferred to the fine mesh.
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct FineFields {
     pub elevation_fields: ElevationFields,
     pub temperature: Vec<f32>,
@@ -68,6 +71,7 @@ impl FineWorld {
         coarse_elevation: &Elevation,
         atmosphere: &Atmosphere,
         params: ErosionParams,
+        cache: FineCacheMode,
     ) -> Self {
         Self::generate_with_target(
             seed,
@@ -78,6 +82,7 @@ impl FineWorld {
             atmosphere,
             FINE_MAX_CELLS,
             params,
+            cache,
         )
     }
 
@@ -93,9 +98,11 @@ impl FineWorld {
         atmosphere: &Atmosphere,
         max_cells: usize,
         params: ErosionParams,
+        cache: FineCacheMode,
     ) -> Self {
         let total = Instant::now();
-        let base = FineBase::generate_with_target(
+        let base = FineBase::load_or_generate(
+            cache,
             seed,
             coarse_tessellation,
             crust,
@@ -155,6 +162,48 @@ impl FineWorld {
 }
 
 impl FineBase {
+    /// Stage 3a with the disk cache: load a matching base if one is cached
+    /// (mode `Enabled`), otherwise generate and (unless `Disabled`) save it. The
+    /// cache key is a content hash of the inputs, so a changed coarse world / fine
+    /// constant is a miss. See [`fine_cache`].
+    #[allow(clippy::too_many_arguments)]
+    pub fn load_or_generate(
+        cache: FineCacheMode,
+        seed: u64,
+        coarse_tessellation: &Tessellation,
+        crust: &Crust,
+        features: &FeatureFields,
+        coarse_elevation: &Elevation,
+        atmosphere: &Atmosphere,
+        max_cells: usize,
+    ) -> Self {
+        let key = fine_cache::fine_base_key(
+            seed,
+            coarse_tessellation,
+            coarse_elevation,
+            atmosphere,
+            max_cells,
+        );
+        if cache == FineCacheMode::Enabled {
+            if let Some(base) = fine_cache::load(key) {
+                return base;
+            }
+        }
+        let base = Self::generate_with_target(
+            seed,
+            coarse_tessellation,
+            crust,
+            features,
+            coarse_elevation,
+            atmosphere,
+            max_cells,
+        );
+        if matches!(cache, FineCacheMode::Enabled | FineCacheMode::Rebuild) {
+            fine_cache::save(key, &base);
+        }
+        base
+    }
+
     /// Stage 3a: build the expensive, reusable fine-mesh base (steps 1–7 of the
     /// old monolith). Stops short of erosion — that's [`FineSurface::generate`].
     pub fn generate_with_target(

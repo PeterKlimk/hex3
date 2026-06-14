@@ -71,6 +71,7 @@ struct TerrainNoise {
 /// These are deliberately separated from mesh-native `Crust`/`FeatureFields`
 /// so the fine mesh can rebuild elevation from transferred physical fields
 /// without fabricating coarse-only domain objects.
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct ElevationFields {
     pub crust_thickness: Vec<f32>,
     pub continentality: Vec<f32>,

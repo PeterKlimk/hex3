@@ -31,6 +31,7 @@ mod elevation;
 mod erosion;
 mod features;
 mod fine;
+mod fine_cache;
 mod hydrology;
 mod moisture;
 mod plates;
@@ -48,6 +49,7 @@ pub use elevation::{Elevation, NoiseLayerData};
 pub use features::FeatureFields;
 pub use erosion::ErosionParams;
 pub use fine::{FineBase, FineFields, FineSurface, FineWorld};
+pub use fine_cache::FineCacheMode;
 pub use hydrology::{Basin, CellWaterState, Hydrology, WaterBody, DEFAULT_CLIMATE_RATIO};
 pub use plates::Plates;
 pub use tessellation::{CellAdjacency, Tessellation};
@@ -116,6 +118,9 @@ pub struct World {
     /// Runtime-tunable erosion knobs (defaults from `EROSION_*` consts). Used
     /// when (re-)generating the fine-mesh erosion surface.
     pub erosion_params: ErosionParams,
+
+    /// Whether fine-mesh base generation reads/writes the on-disk cache.
+    pub fine_cache: FineCacheMode,
 }
 
 impl World {
@@ -163,6 +168,7 @@ impl World {
             hydrology: None,
             fine: None,
             erosion_params: ErosionParams::default(),
+            fine_cache: FineCacheMode::default(),
         }
     }
 
@@ -290,6 +296,7 @@ impl World {
             atmosphere,
             fine_max_cells,
             self.erosion_params,
+            self.fine_cache,
         );
         self.hydrology = None;
         self.fine = Some(fine);

@@ -28,7 +28,7 @@ impl<'a> CellView<'a> {
 }
 
 /// A single Voronoi cell on the sphere (internal storage).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub struct VoronoiCell {
     /// Start index into the flat `cell_indices` buffer.
     vertex_start: u32,
@@ -60,7 +60,7 @@ impl VoronoiCell {
 }
 
 /// A spherical Voronoi diagram.
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct SphericalVoronoi {
     /// The generator points (input points on the sphere).
     pub generators: Vec<Vec3>,

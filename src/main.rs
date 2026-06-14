@@ -6,7 +6,7 @@ use clap::{Parser, ValueEnum};
 use winit::event_loop::{ControlFlow, EventLoop};
 
 use app::world::{advance_to_stage_2, advance_to_stage_3, create_world_with_options};
-use hex3::world::VoronoiBackend;
+use hex3::world::{FineCacheMode, VoronoiBackend};
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
 enum CliVoronoiBackend {
@@ -49,6 +49,14 @@ struct Cli {
     #[arg(long, value_enum, default_value_t = CliVoronoiBackend::ConvexHull)]
     voronoi_backend: CliVoronoiBackend,
 
+    /// Disable the fine-mesh base disk cache (always regenerate stage 3a)
+    #[arg(long)]
+    no_fine_cache: bool,
+
+    /// Force-rebuild and overwrite the fine-mesh base disk cache
+    #[arg(long)]
+    rebuild_fine_cache: bool,
+
     /// Legacy flag: equivalent to --stage 2
     #[arg(long, hide = true)]
     stage2: bool,
@@ -70,11 +78,18 @@ fn main() {
     };
 
     let backend = VoronoiBackend::from(cli.voronoi_backend);
+    let fine_cache = if cli.no_fine_cache {
+        FineCacheMode::Disabled
+    } else if cli.rebuild_fine_cache {
+        FineCacheMode::Rebuild
+    } else {
+        FineCacheMode::Enabled
+    };
 
     if cli.headless {
-        run_headless(cli.seed, target_stage, cli.export, backend);
+        run_headless(cli.seed, target_stage, cli.export, backend, fine_cache);
     } else {
-        run_interactive(cli.seed, target_stage, cli.export, backend);
+        run_interactive(cli.seed, target_stage, cli.export, backend, fine_cache);
     }
 }
 
@@ -83,6 +98,7 @@ fn run_headless(
     target_stage: u32,
     export_path: Option<PathBuf>,
     voronoi_backend: VoronoiBackend,
+    fine_cache: FineCacheMode,
 ) {
     let seed = seed.unwrap_or_else(rand::random);
     println!(
@@ -93,7 +109,7 @@ fn run_headless(
     // Generate world
     print!("Generating world... ");
     let start = std::time::Instant::now();
-    let mut world = create_world_with_options(seed, voronoi_backend);
+    let mut world = create_world_with_options(seed, voronoi_backend, fine_cache);
     println!("{:.1}ms", start.elapsed().as_secs_f64() * 1000.0);
 
     // Advance to target stage
@@ -127,6 +143,7 @@ fn run_interactive(
     target_stage: u32,
     export_path: Option<PathBuf>,
     voronoi_backend: VoronoiBackend,
+    fine_cache: FineCacheMode,
 ) {
     let event_loop = EventLoop::new().expect("Failed to create event loop");
     event_loop.set_control_flow(ControlFlow::Wait);
@@ -139,6 +156,7 @@ fn run_interactive(
         seed,
         target_stage,
         voronoi_backend,
+        fine_cache,
     };
 
     let mut app = app::App::new(config);

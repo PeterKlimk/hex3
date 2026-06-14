@@ -1,5 +1,6 @@
 /target
 **/target/
+/.cache/
 **/target_sandbox/
 **/target-sandbox/
 **/target_codex/

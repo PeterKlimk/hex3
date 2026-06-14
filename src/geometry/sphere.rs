@@ -141,10 +141,6 @@ pub fn lloyd_relax_kmeans<R: Rng>(
     // Pre-allocate entries buffer
     let mut entries: Vec<[f32; 3]> = vec![[0.0; 3]; n];
 
-    // Chunk size: one chunk per thread (not per sample)
-    let num_threads = rayon::current_num_threads().max(1);
-    let chunk_size = num_samples.div_ceil(num_threads);
-
     for _ in 0..iterations {
         // Build kd-tree from current sites
         for (i, p) in points.iter().enumerate() {
@@ -152,31 +148,28 @@ pub fn lloyd_relax_kmeans<R: Rng>(
         }
         let tree: ImmutableKdTree<f32, 3> = ImmutableKdTree::new_from_slice(&entries);
 
-        // Parallel query: each thread processes a large chunk with its own accumulators
-        let (sums, counts) = samples
-            .par_chunks(chunk_size)
-            .map(|chunk| {
-                let mut local_sums = vec![Vec3::ZERO; n];
-                let mut local_counts = vec![0usize; n];
-                for sample in chunk {
-                    let query = [sample.x, sample.y, sample.z];
-                    let nearest = tree.approx_nearest_one::<SquaredEuclidean>(&query);
-                    let site_idx = nearest.item as usize;
-                    local_sums[site_idx] += *sample;
-                    local_counts[site_idx] += 1;
-                }
-                (local_sums, local_counts)
-            })
-            .reduce(
-                || (vec![Vec3::ZERO; n], vec![0usize; n]),
-                |(mut sums_a, mut counts_a), (sums_b, counts_b)| {
-                    for i in 0..n {
-                        sums_a[i] += sums_b[i];
-                        counts_a[i] += counts_b[i];
-                    }
-                    (sums_a, counts_a)
-                },
-            );
+        // Nearest-site queries run in parallel (order-preserving collect), but
+        // the centroid SUMS are then accumulated SERIALLY in sample-index order.
+        // Float addition is non-associative, so a parallel reduce of per-thread
+        // partial sums folds in scheduler-dependent order -> ULP-different
+        // centroids each run -> nondeterministic mesh (compounds over Lloyd
+        // iterations; downstream the fine-mesh point placement shifts and s2
+        // occasionally welds a different count). Fixed sample-order accumulation
+        // is deterministic AND machine-independent (a per-chunk fold would only
+        // be stable per-machine, since chunking depends on the thread count). The
+        // serial adds are cheap next to the parallel NN queries.
+        let site_of: Vec<u32> = samples
+            .par_iter()
+            .map(|s| tree.approx_nearest_one::<SquaredEuclidean>(&[s.x, s.y, s.z]).item as u32)
+            .collect();
+
+        let mut sums = vec![Vec3::ZERO; n];
+        let mut counts = vec![0usize; n];
+        for (sample, &site) in samples.iter().zip(&site_of) {
+            let site = site as usize;
+            sums[site] += *sample;
+            counts[site] += 1;
+        }
 
         // Move each site to centroid of its samples
         for i in 0..n {

@@ -12,7 +12,7 @@ use hex3::render::{
     OrbitCamera, RenderScene, Renderer, SurfaceLineDraw, Uniforms, WindParticleSystem,
     DEFAULT_NUM_PARTICLES,
 };
-use hex3::world::{VoronoiBackend, World};
+use hex3::world::{FineCacheMode, VoronoiBackend, World};
 
 use super::view::{ClimateLayer, FeatureLayer, NoiseLayer, RenderMode, RiverMode, ViewMode};
 use super::world::{
@@ -35,6 +35,7 @@ pub struct AppState {
     pub world_buffers: WorldBuffers,
     pub seed: u64,
     pub voronoi_backend: VoronoiBackend,
+    pub fine_cache: FineCacheMode,
 
     pub show_edges: bool,
     pub river_mode: RiverMode,
@@ -62,7 +63,12 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub async fn new(window: Arc<Window>, seed: u64, voronoi_backend: VoronoiBackend) -> Self {
+    pub async fn new(
+        window: Arc<Window>,
+        seed: u64,
+        voronoi_backend: VoronoiBackend,
+        fine_cache: FineCacheMode,
+    ) -> Self {
         let total_start = Instant::now();
 
         print!("Initializing GPU... ");
@@ -70,7 +76,7 @@ impl AppState {
         let gpu = GpuContext::new(window.clone()).await;
         println!("{:.1}ms", start.elapsed().as_secs_f64() * 1000.0);
 
-        let world_data = create_world_with_options(seed, voronoi_backend);
+        let world_data = create_world_with_options(seed, voronoi_backend, fine_cache);
         let world_buffers = generate_world_buffers(&gpu.device, &world_data);
 
         let mut camera = OrbitCamera::new();
@@ -115,6 +121,7 @@ impl AppState {
             world_buffers,
             seed,
             voronoi_backend,
+            fine_cache,
             show_edges: false,
             river_mode: RiverMode::Major,
             noise_layer: NoiseLayer::Combined,
@@ -141,7 +148,7 @@ impl AppState {
     }
 
     pub fn regenerate_world(&mut self, seed: u64) {
-        self.world_data = create_world_with_options(seed, self.voronoi_backend);
+        self.world_data = create_world_with_options(seed, self.voronoi_backend, self.fine_cache);
         self.world_buffers = generate_world_buffers(&self.gpu.device, &self.world_data);
         self.seed = seed;
         self.rng = ChaCha8Rng::seed_from_u64(seed);

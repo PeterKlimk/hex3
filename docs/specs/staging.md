@@ -162,15 +162,14 @@ compile-time `const` to runtime params carried in app/world state and passed int
 - Re-running erosion reuses `FineBase` by reference — no mesh recompute.
 - `ErosionState` stepped to completion == batch `erode()` (same final state). ✓
 - Stage navigation never recomputes an already-computed stage.
-- Disk-loaded `FineBase` round-trips losslessly (load == what was saved). NOTE:
-  fine-mesh generation is **not** deterministic run-to-run — s2-voronoi's
-  parallel welding merges a slightly varying count of near-duplicate points, so
-  two fresh runs of the same seed differ by tens of cells (bulk stats stable;
-  only extreme-tail statistics like min spacing wobble). So the cache is
-  authoritative once written (store & load the bytes); do NOT assert
-  regeneration reproduces it bit-for-bit. The cache key (seed + mesh params)
-  identifies a *compatible* mesh, and the stored bytes are the source of truth —
-  which is a feature: it makes a session's mesh reproducible across rebuilds.
+- Disk-loaded `FineBase` round-trips losslessly, AND regeneration reproduces it.
+  World gen is now deterministic per seed (the staging work fixed two
+  order-dependent sources — see [[hex3-fine-mesh-nondeterminism]]: the Lloyd
+  parallel float-sum reduce in `sphere.rs` and the `HashMap`-ordered
+  `build_adjacency` in `tessellation.rs`). So the content-hash cache key
+  (version + seed + max_cells + fine consts + coarse generators/elevation/
+  atmosphere) is STABLE across runs and the cache hits as intended. ✓ The
+  version field still guards generation-code changes the content hash can't see.
 
 ## Non-goals
 

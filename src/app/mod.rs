@@ -7,7 +7,7 @@ pub mod world;
 
 use std::sync::Arc;
 
-use hex3::world::VoronoiBackend;
+use hex3::world::{FineCacheMode, VoronoiBackend};
 use winit::{
     application::ApplicationHandler,
     dpi::PhysicalSize,
@@ -25,6 +25,7 @@ pub struct AppConfig {
     pub seed: Option<u64>,
     pub target_stage: u32,
     pub voronoi_backend: VoronoiBackend,
+    pub fine_cache: FineCacheMode,
 }
 
 pub struct App {
@@ -58,8 +59,12 @@ impl ApplicationHandler for App {
         );
 
         let seed = self.config.seed.unwrap_or_else(rand::random);
-        let mut state =
-            pollster::block_on(AppState::new(window, seed, self.config.voronoi_backend));
+        let mut state = pollster::block_on(AppState::new(
+            window,
+            seed,
+            self.config.voronoi_backend,
+            self.config.fine_cache,
+        ));
 
         // Advance to target stage
         while state.world_data.current_stage() < self.config.target_stage {

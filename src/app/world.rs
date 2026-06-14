@@ -6,7 +6,7 @@ use hex3::geometry::{
 };
 use hex3::render::{create_index_buffer, create_vertex_buffer, ElevationVertex};
 use hex3::util::Timed;
-use hex3::world::{VoronoiBackend, World};
+use hex3::world::{FineCacheMode, VoronoiBackend, World};
 
 use super::coloring::{
     cell_color_climate, cell_color_elevation, cell_color_feature, cell_color_hydrology,
@@ -112,7 +112,11 @@ impl WorldBuffers {
     }
 }
 
-pub fn create_world_with_options(seed: u64, backend: VoronoiBackend) -> World {
+pub fn create_world_with_options(
+    seed: u64,
+    backend: VoronoiBackend,
+    fine_cache: FineCacheMode,
+) -> World {
     let _total = Timed::info("Stage 1 (Lithosphere)");
     log::info!(
         "Generating world: seed={}, cells={}, lloyd={}, plates={}, voronoi_backend={}",
@@ -127,6 +131,7 @@ pub fn create_world_with_options(seed: u64, backend: VoronoiBackend) -> World {
         let _t = Timed::info("Tessellation");
         World::new_with_options(seed, NUM_CELLS, LLOYD_ITERATIONS, backend)
     };
+    world.fine_cache = fine_cache;
 
     {
         let _t = Timed::info("Plates");
