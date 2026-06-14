@@ -112,6 +112,7 @@ impl FineWorld {
         let t0 = Instant::now();
         let coarse_cell = map_to_coarse(&tessellation, &tree);
         let fine_density: Vec<f32> = coarse_cell.iter().map(|&c| density[c]).collect();
+        log_resolution_probe(&tessellation, &fine_density);
         let fields = transfer_fields(
             coarse_tessellation,
             &tessellation,
@@ -209,33 +210,82 @@ fn compute_density_prior(
         .fold(0.0_f32, f32::max)
         .max(1e-6);
 
+    // Land density is anchored to the plains floor (FINE_LAND_BASE_DENSITY) and
+    // clamped to FINE_MAX_DENSITY_RATIO above it, so plains:mountains spans the
+    // full ratio. Ocean is set independently as a small fraction of that floor,
+    // OUTSIDE the clamp — otherwise (anchoring the clamp to the ocean min) the
+    // ratio budget is spent on ocean->mountain and land contrast collapses.
+    let land_floor = FINE_LAND_BASE_DENSITY;
+    let land_ceiling = land_floor * FINE_MAX_DENSITY_RATIO;
+    let ocean_density = land_floor * FINE_OCEAN_DENSITY_RATIO;
+
     let mut density = Vec::with_capacity(n);
     for i in 0..n {
         if elevation.values[i] < 0.0 {
-            density.push(FINE_OCEAN_DENSITY_RATIO);
+            density.push(ocean_density);
             continue;
         }
         let slope = elevation.slope(tessellation, i) / max_slope;
         let flow = preview_hydrology.flow_accumulation[i].max(1.0).ln() / max_flow_ln;
         let activity = features.activity[i].clamp(0.0, 1.0);
-        density.push(
-            FINE_LAND_BASE_DENSITY
-                + FINE_SLOPE_DENSITY_WEIGHT * slope
-                + FINE_FLOW_DENSITY_WEIGHT * flow
-                + FINE_ACTIVITY_DENSITY_WEIGHT * activity,
-        );
-    }
-
-    let min_density = density
-        .iter()
-        .copied()
-        .fold(f32::INFINITY, f32::min)
-        .max(1e-6);
-    let max_allowed = min_density * FINE_MAX_DENSITY_RATIO;
-    for d in &mut density {
-        *d = d.clamp(min_density, max_allowed);
+        let d = land_floor
+            + FINE_SLOPE_DENSITY_WEIGHT * slope
+            + FINE_FLOW_DENSITY_WEIGHT * flow
+            + FINE_ACTIVITY_DENSITY_WEIGHT * activity;
+        // Land floor is `land_floor` by construction (features are non-negative);
+        // only the ceiling needs clamping.
+        density.push(d.min(land_ceiling));
     }
     density
+}
+
+/// Report the physical resolution of the generated fine mesh, by terrain tier,
+/// so we can judge whether mountains are resolved finely enough for erosion
+/// (target: low single-digit km). Cell width ~ sqrt(cell_area) on the unit
+/// sphere, scaled by PLANET_RADIUS_KM.
+fn log_resolution_probe(tessellation: &Tessellation, fine_density: &[f32]) {
+    let areas = tessellation.cell_areas();
+    let n = areas.len().min(fine_density.len());
+    if n == 0 {
+        return;
+    }
+    let spacing_km = |i: usize| areas[i].max(0.0).sqrt() * PLANET_RADIUS_KM;
+
+    // Land vs ocean by density floor; the finest land cells ARE the mountains and
+    // river channels, so land-spacing percentiles report the resolution where
+    // erosion happens without picking an arbitrary "mountain" threshold.
+    let base = FINE_LAND_BASE_DENSITY;
+    let mut land: Vec<f32> = Vec::new();
+    let mut ocean: Vec<f32> = Vec::new();
+    for i in 0..n {
+        let s = spacing_km(i);
+        if fine_density[i] < base {
+            ocean.push(s);
+        } else {
+            land.push(s);
+        }
+    }
+    land.sort_by(f32::total_cmp);
+    ocean.sort_by(f32::total_cmp);
+    let pct = |v: &[f32], p: f32| -> f32 {
+        if v.is_empty() {
+            return f32::NAN;
+        }
+        v[(((v.len() - 1) as f32) * p) as usize]
+    };
+
+    log::info!(
+        "fine mesh resolution (km, planet R={:.0}): land [{} cells] p1(finest mtns)={:.1} p10={:.1} p50={:.1} p90(plains)={:.1} | ocean [{} cells] median={:.1} max={:.1}",
+        PLANET_RADIUS_KM,
+        land.len(),
+        pct(&land, 0.01),
+        pct(&land, 0.10),
+        pct(&land, 0.50),
+        pct(&land, 0.90),
+        ocean.len(),
+        pct(&ocean, 0.50),
+        ocean.last().copied().unwrap_or(f32::NAN),
+    );
 }
 
 fn sample_fine_points<R: Rng>(

@@ -596,11 +596,21 @@ pub const MOISTURE_DIFFUSIVITY: f32 = 5.0e-5;
 // Fine mesh refinement (Stage 3 erosion infrastructure)
 // =============================================================================
 
+/// Planet radius in km, used to report angular sizes (radians on the unit
+/// sphere) as physical distances. Defaults to Earth (6371 km); the rest of the
+/// codebase's "~N km on Earth" comments assume this value. A fantasy planet
+/// would change this — it only scales the human-readable km readouts, not the
+/// simulation, which is unit-sphere throughout.
+pub const PLANET_RADIUS_KM: f32 = 6371.0;
+
 /// Target fine mesh cell count for Stage 3 hydrology/erosion infrastructure.
 pub const FINE_NUM_CELLS: usize = 2_500_000;
 
-/// Ocean base density relative to land base density.
-pub const FINE_OCEAN_DENSITY_RATIO: f32 = 0.35;
+/// Ocean density as a fraction of the land floor (plains) density. Applied
+/// OUTSIDE the land 50:1 clamp, so the seafloor can be much coarser than plains
+/// without eating into the land contrast budget. 0.05 = ocean cells ~20x bigger
+/// than plains. Lower if the abyssal plains are still too dense.
+pub const FINE_OCEAN_DENSITY_RATIO: f32 = 0.05;
 
 /// Baseline land density before slope/flow/activity attraction.
 pub const FINE_LAND_BASE_DENSITY: f32 = 1.0;

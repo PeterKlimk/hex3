@@ -4,6 +4,12 @@ use std::f32::consts::FRAC_PI_4;
 /// Maximum tilt angle (like a globe on a stand - can't flip over).
 const MAX_TILT: f32 = 1.4; // ~80 degrees up or down
 
+/// Zoom distance clamp. Globe radius is 1.0 and relief peaks reach ~1.0 +
+/// max_elevation * RELIEF_SCALE (~1.2); MIN_DISTANCE just above the surface lets
+/// you get down among the mountains at fine-mesh resolution.
+const MIN_DISTANCE: f32 = 1.05;
+const MAX_DISTANCE: f32 = 10.0;
+
 /// An orbit camera that rotates around a target point.
 /// Behaves like a globe: free horizontal spin, limited vertical tilt.
 pub struct OrbitCamera {
@@ -34,8 +40,10 @@ impl Default for OrbitCamera {
             pitch: 0.4,       // Slight tilt to see the sphere nicely
             fov_y: FRAC_PI_4, // 45 degrees
             aspect: 1.0,
-            near: 0.1,
-            far: 100.0,
+            // Small near plane so you can get close to the surface without
+            // clipping; far reduced to keep depth precision (ratio ~unchanged).
+            near: 0.02,
+            far: 20.0,
         }
     }
 }
@@ -77,9 +85,13 @@ impl OrbitCamera {
         self.pitch = (self.pitch + delta_pitch).clamp(-MAX_TILT, MAX_TILT);
     }
 
-    /// Zoom the camera by changing distance.
+    /// Zoom the camera by changing distance. Multiplicative so each scroll notch
+    /// is a constant fraction of the current distance — fine control when zoomed
+    /// in close, fast traversal when far out (a fixed linear step is unusably
+    /// coarse near the surface).
     pub fn zoom(&mut self, delta: f32) {
-        self.distance = (self.distance - delta).clamp(1.5, 10.0);
+        let factor = (1.0 - delta).clamp(0.2, 5.0);
+        self.distance = (self.distance * factor).clamp(MIN_DISTANCE, MAX_DISTANCE);
     }
 
     /// Update the aspect ratio.
