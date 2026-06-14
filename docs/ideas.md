@@ -150,6 +150,15 @@ absence flags an emergent coupling worth having (see design-philosophy memory).
 - **Zonally-asymmetric circulation:** ocean gyres / Walker cells (roadmap
   "future craziness") — a longitude-dependent layer on top of the zonal-mean Ψ.
 
+## Tooling
+- **Staged snapshots + steppable erosion** → promoted to `docs/specs/staging.md`.
+  Object-level structural sharing (Arc copy-on-write) so stages are navigable
+  without recompute; stage 3 split into 3a `FineBase` / 3b erosion / 3c
+  hydrology so A/B + re-run share the expensive mesh; resumable `ErosionState`
+  to watch carving (arrow keys, rough); disk-cached `FineBase` to survive
+  rebuilds. The substrate the time-evolution thread (A′2) will reuse. Needed
+  because before/after on stage-3 work is otherwise too slow to see.
+
 ## Deferred / known
 - **Rivers:** rendering rework (huge blocks don't suit high-density cells) +
   possibly a deeper rework. Out of scope for erosion-as-written.
