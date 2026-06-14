@@ -344,6 +344,9 @@ fn sample_fine_points<R: Rng>(
 
     // Golden angle for the sunflower/Fibonacci disk pattern.
     const GOLDEN_ANGLE: f32 = 2.399_963_2;
+    // Disk radius factor: candidates are clipped to the Voronoi cell, so the disk
+    // must over-cover it (corners) -- area f^2, hence f^2x candidates generated.
+    const DISK_OVERFILL: f32 = 1.3;
     let place = |c: usize| -> Vec<Vec3> {
         let expected = density[c] * areas[c];
         // Stochastic rounding so the total count is unbiased, not floored.
@@ -353,22 +356,26 @@ fn sample_fine_points<R: Rng>(
             return Vec::new();
         }
         let center = coarse.cell_center(c);
-        let radius = (areas[c] / std::f32::consts::PI).sqrt(); // equal-area disk
+        let radius = (areas[c] / std::f32::consts::PI).sqrt() * DISK_OVERFILL;
         let (u, v) = tangent_basis(center);
-        // Fibonacci sunflower: locally even with a built-in minimum distance
-        // (~0.5 of the local spacing), so the seed has few slivers and both the
-        // relaxation and the tessellation stay fast. Small jitter breaks the
-        // spiral regularity; relaxation finishes the job and fixes cell seams.
-        let jitter = radius / (count as f32).sqrt() * 0.5;
-        (0..count)
-            .map(|k| {
-                let rr = radius * ((k as f32 + 0.5) / count as f32).sqrt();
+        // Lay a Fibonacci sunflower over the oversized disk, then KEEP ONLY the
+        // candidates that fall in this Voronoi cell (nearest coarse == c). This
+        // makes each cell fill its own polygon so the cells TILE -- no disk-shaped
+        // density patches/rings, no corner gaps, no cross-boundary bleed. The
+        // sunflower gives a built-in min-distance (few slivers); small jitter
+        // breaks the spiral; relaxation finishes spacing and cell seams.
+        let n_cand = ((count as f32) * DISK_OVERFILL * DISK_OVERFILL).ceil() as u64;
+        let jitter = radius / (n_cand as f32).sqrt() * 0.5;
+        (0..n_cand)
+            .filter_map(|k| {
+                let rr = radius * ((k as f32 + 0.5) / n_cand as f32).sqrt();
                 let theta = k as f32 * GOLDEN_ANGLE;
                 let jr = jitter * hash_unit_f32(seed, c as u64, 2 * k + 2).sqrt();
                 let ja = hash_unit_f32(seed, c as u64, 2 * k + 3) * std::f32::consts::TAU;
                 let px = rr * theta.cos() + jr * ja.cos();
                 let py = rr * theta.sin() + jr * ja.sin();
-                (center + u * px + v * py).normalize()
+                let p = (center + u * px + v * py).normalize();
+                (nearest_coarse(tree, p) == c).then_some(p)
             })
             .collect()
     };
