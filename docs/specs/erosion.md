@@ -9,10 +9,25 @@ to tune against targets.
 ## Goal
 
 Replace painted mountain texture with the real thing: rivers that carved
-their valleys. The erosion loop runs on the fine mesh between elevation
-reassembly and final hydrology, modifying CRUST THICKNESS (not elevation
-directly) so isostasy responds through the existing
-`isostatic_elevation()` and the state composes with future time evolution.
+their valleys. The erosion loop runs on the fine mesh between the fine
+elevation step (`Elevation::refine_from_base`) and final hydrology,
+modifying CRUST THICKNESS (not elevation directly) so isostasy responds and
+the state composes with future time evolution.
+
+NOTE (changed since this spec was drafted): the fine mesh no longer
+recomputes elevation from crust thickness — `refine_from_base` interpolates
+the already-solved coarse elevation onto the fine cells (the "base"). So
+couple thickness to elevation as an isostatic DELTA on top of that base:
+
+    elev_i = base_i + ( isostatic_elevation(thickness_i)
+                        - isostatic_elevation(thickness_initial_i) )
+
+The working thickness is initialized from the transferred coarse crust
+thickness (already on each fine cell in `fields.elevation_fields.crust_thickness`,
+currently only consumed by export). At t=0 the delta is zero (elev = base);
+incision (thinning) lowers the surface with the rebound the isostatic
+relation provides; uplift (thickening) raises it. This preserves the base's
+fixed sea-level datum and the thickness-based composability the spec wants.
 
 ## Model
 
@@ -36,9 +51,12 @@ sink/coastal deposition. Per timestep, on land cells:
 4. **Diffuse**: linear hillslope diffusion (soil creep) with diffusivity
    EROSION_DIFFUSIVITY; explicit with a CFL-safe substep or implicit,
    implementer's choice.
-5. **Uplift source**: add U_i * dt, where U_i is the tectonic uplift rate
-   derived from the transferred forcing fields (arc + collision positive,
-   rift negative, scaled by EROSION_UPLIFT_SCALE). Active orogens approach
+5. **Uplift source**: add U_i * dt to thickness, where U_i is the tectonic
+   uplift rate derived from the transferred TECTONIC forcing fields in
+   `fields.elevation_fields` (convergent/collision + arc positive, divergent/
+   rift negative; `trench`/`ridge` available too) — NOT `fields.uplift`, which
+   is atmospheric uplift (name collision). Scaled by EROSION_UPLIFT_SCALE.
+   Active orogens approach
    a U/K equilibrium (concave river profiles, ridge-valley relief);
    inactive terrain just decays. This is the mechanism that makes mountain
    character emerge — do not substitute noise.
@@ -48,11 +66,12 @@ sink/coastal deposition. Per timestep, on land cells:
    mouths and filled basin floors are the desired emergent result. Full
    transport-limited sediment routing is out of scope.
 
-All of 1-6 modify a working thickness field; elevation for slope
-computation is re-derived through the isostatic relation each step (or an
-equivalent incremental update — state the choice in a comment). Sea level
-stays fixed (from the fine-mesh solve). No erosion below sea level;
-submarine change comes only from deposition (6).
+All of 1-6 modify the working thickness field; elevation for slope
+computation is re-derived each step via the isostatic-delta coupling above
+(or an equivalent incremental update — state the choice in a comment). Sea
+level stays fixed (inherited via `base_i` from the coarse solve; not
+re-solved). No erosion below sea level; submarine change comes only from
+deposition (6).
 
 ## Lakes / pits during the loop
 
