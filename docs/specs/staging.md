@@ -148,9 +148,14 @@ compile-time `const` to runtime params carried in app/world state and passed int
   step currently does a full `generate_world_buffers` (correct; topology
   unchanged). If too slow at full res on Windows, optimize to vertex-only
   re-upload (the index buffer is already separable).
-- **Stage forward / back** — TODO (next piece). Space advances (unchanged); add
-  Backspace to go back. Track a `viewed_stage` separate from the max-computed
-  stage; back/forward selects which already-computed stage renders.
+- **Stage forward / back** — DONE. `AppState.viewed_stage` tracks the rendered
+  stage separate from the max computed. Space moves the view forward (computing
+  the next stage only when already at the latest), Backspace moves it back (no
+  recompute). A transient `World::view_stage` cap makes the `active_*` accessors
+  + `mode_uses_fine_mesh` expose data only up to the viewed stage (so viewing
+  stage 1/2 renders the coarse mesh/elevation, hides hydrology/atmosphere);
+  default `u32::MAX` keeps headless/batch identical. Rivers auto-hide (no
+  hydrology), particles + erosion stepping gate on the viewed stage.
 
 ## Open decisions (call out in the PR)
 

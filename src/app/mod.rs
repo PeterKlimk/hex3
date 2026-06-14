@@ -224,6 +224,9 @@ impl ApplicationHandler for App {
                         state.advance_stage();
                         state.window.request_redraw();
                     }
+                    PhysicalKey::Code(KeyCode::Backspace) if state.view_stage_back() => {
+                        state.window.request_redraw();
+                    }
                     PhysicalKey::Code(KeyCode::ArrowUp) if state.adjust_climate(0.05) => {
                         state.window.request_redraw();
                     }

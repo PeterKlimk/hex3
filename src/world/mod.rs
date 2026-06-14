@@ -126,6 +126,12 @@ pub struct World {
     /// stepping stage 3b). Drives `fine.surface` as the user steps; not used by
     /// the batch/headless path. Private: mutated only through the methods below.
     fine_erosion: Option<erosion::ErosionState>,
+
+    /// Transient view cap for stage back-navigation: the `active_*` accessors and
+    /// fine-mesh rendering only expose data up to this stage, so the app can
+    /// render an earlier (already-computed) stage without recompute. Defaults to
+    /// `u32::MAX` (uncapped) so headless/batch paths behave exactly as before.
+    view_stage: u32,
 }
 
 impl World {
@@ -175,6 +181,7 @@ impl World {
             erosion_params: ErosionParams::default(),
             fine_cache: FineCacheMode::default(),
             fine_erosion: None,
+            view_stage: u32::MAX,
         }
     }
 
@@ -398,21 +405,43 @@ impl World {
         self.active_tessellation().num_cells()
     }
 
+    /// Cap the view at `stage` for back-navigation (the `active_*` accessors and
+    /// fine rendering expose data only up to it). `u32::MAX` = uncapped.
+    pub fn set_view_stage(&mut self, stage: u32) {
+        self.view_stage = stage;
+    }
+
+    /// Current view cap.
+    pub fn view_stage(&self) -> u32 {
+        self.view_stage
+    }
+
+    /// Whether fine-mesh data should be shown (fine exists AND the view isn't
+    /// capped below stage 3).
+    fn show_fine(&self) -> bool {
+        self.view_stage >= 3 && self.fine.is_some()
+    }
+
     pub fn active_tessellation(&self) -> &Tessellation {
-        self.fine
-            .as_ref()
-            .map(|fine| fine.tessellation())
-            .unwrap_or(&self.tessellation)
+        if self.show_fine() {
+            self.fine.as_ref().unwrap().tessellation()
+        } else {
+            &self.tessellation
+        }
     }
 
     pub fn active_elevation(&self) -> Option<&Elevation> {
-        self.fine
-            .as_ref()
-            .map(|fine| fine.elevation())
-            .or(self.elevation.as_ref())
+        if self.show_fine() {
+            return Some(self.fine.as_ref().unwrap().elevation());
+        }
+        // Elevation is stage 1, shown at any view stage >= 1.
+        self.elevation.as_ref()
     }
 
     pub fn active_hydrology(&self) -> Option<&Hydrology> {
+        if self.view_stage < 3 {
+            return None; // hydrology is a stage-3 layer
+        }
         self.fine
             .as_ref()
             .map(|fine| fine.hydrology())
@@ -420,6 +449,9 @@ impl World {
     }
 
     pub fn active_hydrology_mut(&mut self) -> Option<&mut Hydrology> {
+        if self.view_stage < 3 {
+            return None;
+        }
         if let Some(fine) = &mut self.fine {
             Some(fine.hydrology_mut())
         } else {
@@ -428,24 +460,40 @@ impl World {
     }
 
     pub fn active_temperature(&self) -> Option<&[f32]> {
-        self.fine
-            .as_ref()
-            .map(|fine| fine.fields().temperature.as_slice())
-            .or_else(|| self.atmosphere.as_ref().map(|a| a.temperature.as_slice()))
+        if self.view_stage < 2 {
+            return None; // atmosphere is a stage-2 layer
+        }
+        if self.show_fine() {
+            return Some(self.fine.as_ref().unwrap().fields().temperature.as_slice());
+        }
+        self.atmosphere.as_ref().map(|a| a.temperature.as_slice())
     }
 
     pub fn active_precipitation(&self) -> Option<&[f32]> {
-        self.fine
-            .as_ref()
-            .map(|fine| fine.fields().precipitation.as_slice())
-            .or_else(|| self.atmosphere.as_ref().map(|a| a.precipitation.as_slice()))
+        if self.view_stage < 2 {
+            return None;
+        }
+        if self.show_fine() {
+            return Some(
+                self.fine
+                    .as_ref()
+                    .unwrap()
+                    .fields()
+                    .precipitation
+                    .as_slice(),
+            );
+        }
+        self.atmosphere.as_ref().map(|a| a.precipitation.as_slice())
     }
 
     pub fn active_uplift(&self) -> Option<&[f32]> {
-        self.fine
-            .as_ref()
-            .map(|fine| fine.fields().uplift.as_slice())
-            .or_else(|| self.atmosphere.as_ref().map(|a| a.uplift.as_slice()))
+        if self.view_stage < 2 {
+            return None;
+        }
+        if self.show_fine() {
+            return Some(self.fine.as_ref().unwrap().fields().uplift.as_slice());
+        }
+        self.atmosphere.as_ref().map(|a| a.uplift.as_slice())
     }
 
     pub fn set_active_climate_ratio(&mut self, ratio: f32) {

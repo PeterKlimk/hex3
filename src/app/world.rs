@@ -319,6 +319,7 @@ fn river_thresholds(num_cells: usize) -> (f32, f32, f32) {
 
 fn mode_uses_fine_mesh(world: &World, mode: RenderMode) -> bool {
     world.fine.is_some()
+        && world.view_stage() >= 3
         && matches!(
             mode,
             RenderMode::Relief

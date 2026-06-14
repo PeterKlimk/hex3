@@ -36,6 +36,9 @@ pub struct AppState {
     pub seed: u64,
     pub voronoi_backend: VoronoiBackend,
     pub fine_cache: FineCacheMode,
+    /// Stage currently being rendered (<= computed stage). Lets Space/Backspace
+    /// move the view forward/back without recompute.
+    pub viewed_stage: u32,
 
     pub show_edges: bool,
     pub river_mode: RiverMode,
@@ -77,6 +80,7 @@ impl AppState {
         println!("{:.1}ms", start.elapsed().as_secs_f64() * 1000.0);
 
         let world_data = create_world_with_options(seed, voronoi_backend, fine_cache);
+        let initial_viewed_stage = world_data.current_stage();
         let world_buffers = generate_world_buffers(&gpu.device, &world_data);
 
         let mut camera = OrbitCamera::new();
@@ -122,6 +126,7 @@ impl AppState {
             seed,
             voronoi_backend,
             fine_cache,
+            viewed_stage: initial_viewed_stage,
             show_edges: false,
             river_mode: RiverMode::Major,
             noise_layer: NoiseLayer::Combined,
@@ -149,6 +154,7 @@ impl AppState {
 
     pub fn regenerate_world(&mut self, seed: u64) {
         self.world_data = create_world_with_options(seed, self.voronoi_backend, self.fine_cache);
+        self.viewed_stage = self.world_data.current_stage();
         self.world_buffers = generate_world_buffers(&self.gpu.device, &self.world_data);
         self.seed = seed;
         self.rng = ChaCha8Rng::seed_from_u64(seed);
@@ -190,10 +196,24 @@ impl AppState {
     /// Advance to the next simulation stage.
     /// Returns true if advanced, false if already at max stage.
     pub fn advance_stage(&mut self) -> bool {
-        let current = self.world_data.current_stage();
-        match current {
+        let computed = self.world_data.current_stage();
+
+        // If viewing an earlier (already-computed) stage, just move the view
+        // forward — no recompute.
+        if self.viewed_stage < computed {
+            self.viewed_stage += 1;
+            self.world_data.set_view_stage(self.viewed_stage);
+            self.world_buffers = generate_world_buffers(&self.gpu.device, &self.world_data);
+            println!("Viewing stage {}", self.viewed_stage);
+            return true;
+        }
+
+        // Viewing the latest computed stage: compute the next one.
+        match computed {
             1 => {
                 advance_to_stage_2(&mut self.world_data);
+                self.viewed_stage = 2;
+                self.world_data.set_view_stage(2);
                 self.world_buffers = generate_world_buffers(&self.gpu.device, &self.world_data);
                 // Create GPU wind particles now that atmosphere exists
                 if let Some(atmosphere) = &self.world_data.atmosphere {
@@ -215,6 +235,8 @@ impl AppState {
                 // let the user carve with Left/Right. (Headless uses the batch
                 // advance_to_stage_3 instead.)
                 self.world_data.begin_fine_erosion_stepping();
+                self.viewed_stage = 3;
+                self.world_data.set_view_stage(3);
                 self.world_buffers = generate_world_buffers(&self.gpu.device, &self.world_data);
                 let total = self.world_data.erosion_total_steps();
                 println!(
@@ -223,16 +245,32 @@ impl AppState {
                 true
             }
             _ => {
-                println!("Already at max stage ({})", current);
+                println!("Already at max stage ({})", computed);
                 false
             }
         }
+    }
+
+    /// Move the rendered view back one stage (no recompute; data is retained).
+    /// Returns true if it moved.
+    pub fn view_stage_back(&mut self) -> bool {
+        if self.viewed_stage <= 1 {
+            return false;
+        }
+        self.viewed_stage -= 1;
+        self.world_data.set_view_stage(self.viewed_stage);
+        self.world_buffers = generate_world_buffers(&self.gpu.device, &self.world_data);
+        println!("Viewing stage {} (back)", self.viewed_stage);
+        true
     }
 
     /// Step the erosion stepper forward by ~10% of a full run (continues the
     /// live state — cheap), rebuilding the fine surface. Returns true if it
     /// stepped (false if not in stepped stage 3, or already at the end).
     pub fn step_erosion_forward(&mut self) -> bool {
+        if self.viewed_stage != 3 {
+            return false;
+        }
         let Some(cur) = self.world_data.fine_erosion_step() else {
             return false;
         };
@@ -255,6 +293,9 @@ impl AppState {
     /// Step the erosion stepper back by ~10% (re-runs from the cached base).
     /// Returns true if it stepped (false if not in stepped stage 3, or at 0).
     pub fn step_erosion_backward(&mut self) -> bool {
+        if self.viewed_stage != 3 {
+            return false;
+        }
         let Some(cur) = self.world_data.fine_erosion_step() else {
             return false;
         };
@@ -478,6 +519,7 @@ impl AppState {
 
         // GPU wind particles: update and render when in Climate/Wind mode on Globe view
         let gpu_particles = if self.view_mode == ViewMode::Globe
+            && self.viewed_stage >= 2
             && self.render_mode == RenderMode::Climate
             && matches!(
                 self.climate_layer,
@@ -534,7 +576,7 @@ impl AppState {
             ViewMode::Globe => "Globe",
             ViewMode::Map => "Map",
         };
-        let stage = self.world_data.current_stage();
+        let stage = self.viewed_stage;
         self.window.set_title(&format!(
             "Hex3 - {} | {} | Stage {} | {:.0} FPS",
             view,
