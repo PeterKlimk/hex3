@@ -603,36 +603,50 @@ pub const MOISTURE_DIFFUSIVITY: f32 = 5.0e-5;
 /// simulation, which is unit-sphere throughout.
 pub const PLANET_RADIUS_KM: f32 = 6371.0;
 
-/// Target fine mesh cell count for Stage 3 hydrology/erosion infrastructure.
-pub const FINE_NUM_CELLS: usize = 2_500_000;
+// The fine mesh is sized by an ABSOLUTE target cell size (km) per location, not
+// a relative density with a magic ratio cap. The cell count is therefore not a
+// target — it EMERGES from integrating 1/size^2 over the terrain, so a
+// mountainous world needs more cells than a flat one. The three cell-size scales
+// below are meaningful lengths; the density ratio between them is derived, not
+// chosen. FINE_MAX_CELLS is a guardrail, not a budget.
 
-/// Ocean density as a fraction of the land floor (plains) density. Applied
-/// OUTSIDE the land 50:1 clamp, so the seafloor can be much coarser than plains
-/// without eating into the land contrast budget. 0.02 = ocean cells ~50x bigger
-/// than plains. Lower if the abyssal plains are still too dense.
-pub const FINE_OCEAN_DENSITY_RATIO: f32 = 0.02;
+/// Finest fine-mesh cell size, in km (mountains / steepest ground / main
+/// channels). Physically this is roughly the channel-initiation / hillslope
+/// length below which erosion is sub-grid, so it is a real floor, not a knob to
+/// chase. ~1.5 km resolves drainage-network dissection.
+pub const FINE_MOUNTAIN_CELL_KM: f32 = 1.5;
 
-/// Exponent applied to each normalized density feature (slope, flow, activity)
-/// before weighting. 1.0 = linear (gentle terrain ramps off the plains floor
-/// quickly); >1.0 keeps flat/gentle land near the floor and concentrates the
-/// fixed cell budget on the steepest ground and main channels -> finer
-/// mountains without raising the total count. 2.0 = square, 3.0 = cube.
+/// Coarsest land cell size, in km (flat plains floor). Gentle, low-flow land
+/// carries little erosion detail, so it sits here.
+pub const FINE_PLAINS_CELL_KM: f32 = 12.0;
+
+/// Ocean-floor cell size, in km. Featureless seabed needs almost nothing.
+pub const FINE_OCEAN_CELL_KM: f32 = 60.0;
+
+/// Hard ceiling on fine-mesh cell count (memory/perf guardrail). The count is
+/// NOT a target: it emerges from the resolution criterion. If the emergent count
+/// exceeds this (e.g. mountains nearly everywhere), the whole size field is
+/// uniformly coarsened to fit — graceful degradation, proportions intact — and a
+/// warning is logged. Raise it (with the s2-voronoi budget in mind) to allow
+/// genuinely finer/larger meshes.
+pub const FINE_MAX_CELLS: usize = 8_000_000;
+
+/// Exponent applied to each normalized refinement feature (slope, flow,
+/// activity). 1.0 = linear (gentle terrain refines quickly); >1.0 keeps
+/// flat/gentle land near the plains size and concentrates resolution on the
+/// steepest ground and main channels. 2.0 = square, 3.0 = cube.
 pub const FINE_DENSITY_FEATURE_EXPONENT: f32 = 3.0;
 
-/// Baseline land density before slope/flow/activity attraction.
-pub const FINE_LAND_BASE_DENSITY: f32 = 1.0;
-
-/// Weight of normalized coarse slope in the fine density prior.
+/// Relative importance of coarse slope in the refinement demand (0..1 blend
+/// weight; only the ratio between the three weights matters — absolute scale
+/// comes from the cell-size constants above).
 pub const FINE_SLOPE_DENSITY_WEIGHT: f32 = 8.0;
 
-/// Weight of log-scaled coarse flow accumulation in the fine density prior.
+/// Relative importance of log-scaled coarse flow accumulation in the demand.
 pub const FINE_FLOW_DENSITY_WEIGHT: f32 = 18.0;
 
-/// Weight of tectonic activity/uplift forcing in the fine density prior.
+/// Relative importance of tectonic activity/uplift forcing in the demand.
 pub const FINE_ACTIVITY_DENSITY_WEIGHT: f32 = 6.0;
-
-/// Maximum ratio between densest and sparsest fine sampling regions.
-pub const FINE_MAX_DENSITY_RATIO: f32 = 50.0;
 
 /// Particle-repulsion relaxation passes applied to the thinned fine points to
 /// turn white-noise (sliver-prone) sampling into adaptive blue noise. 0 = off

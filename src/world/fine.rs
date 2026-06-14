@@ -4,7 +4,6 @@ use std::time::Instant;
 
 use glam::Vec3;
 use kiddo::{ImmutableKdTree, KdTree, SquaredEuclidean};
-use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 #[cfg(not(feature = "single-threaded"))]
@@ -15,8 +14,6 @@ use super::elevation::{coarse_elevation_fields, ElevationFields};
 use super::{Atmosphere, Crust, Elevation, FeatureFields, Hydrology, Tessellation};
 
 type CoarseTree = ImmutableKdTree<f32, 3>;
-const FINE_FIBONACCI_JITTER: f32 = 0.25;
-const PHI: f32 = 1.618_034;
 
 /// Fine Stage-3 world state.
 pub struct FineWorld {
@@ -53,10 +50,12 @@ impl FineWorld {
             features,
             coarse_elevation,
             atmosphere,
-            FINE_NUM_CELLS,
+            FINE_MAX_CELLS,
         )
     }
 
+    /// `max_cells` is a guardrail ceiling, not a target: the count emerges from
+    /// the resolution field and is only coarsened if it would exceed this.
     pub fn generate_with_target(
         seed: u64,
         coarse_tessellation: &Tessellation,
@@ -64,7 +63,7 @@ impl FineWorld {
         features: &FeatureFields,
         coarse_elevation: &Elevation,
         atmosphere: &Atmosphere,
-        target_cells: usize,
+        max_cells: usize,
     ) -> Self {
         let total = Instant::now();
 
@@ -79,28 +78,51 @@ impl FineWorld {
         log::info!("fine mesh: coarse hydrology preview {:.2?}", t0.elapsed());
 
         let t0 = Instant::now();
-        let density = compute_density_prior(
+        let raw_density = compute_areal_density(
             coarse_tessellation,
             coarse_elevation,
             features,
             &preview_hydrology,
         );
-        let density_min = density.iter().copied().fold(f32::INFINITY, f32::min);
+        // The cell count EMERGES from integrating the areal density over the
+        // mesh; max_cells is a guardrail that uniformly coarsens if exceeded.
+        let coarse_areas = coarse_tessellation.cell_areas();
+        let emergent: f64 = raw_density
+            .iter()
+            .zip(coarse_areas.iter())
+            .map(|(&g, &a)| (g * a) as f64)
+            .sum();
+        let scale = if emergent > max_cells as f64 {
+            let s = (max_cells as f64 / emergent) as f32;
+            log::warn!(
+                "fine mesh: emergent count {:.0} exceeds cap {} -> coarsening uniformly ({:.2}x larger cells)",
+                emergent,
+                max_cells,
+                (1.0 / s).sqrt()
+            );
+            s
+        } else {
+            1.0
+        };
+        let density: Vec<f32> = raw_density.iter().map(|&g| g * scale).collect();
+        let density_min = density.iter().copied().fold(f32::INFINITY, f32::min).max(1e-12);
         let density_max = density.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-        let achieved_density_ratio = density_max / density_min.max(1e-6);
+        let achieved_density_ratio = density_max / density_min;
         log::info!(
-            "fine mesh: density prior {:.2?}, ratio {:.1}:1",
+            "fine mesh: density field {:.2?}, target sizes {:.1}-{:.1} km, emergent {:.0} cells (cap {})",
             t0.elapsed(),
-            achieved_density_ratio
+            FINE_MOUNTAIN_CELL_KM,
+            FINE_OCEAN_CELL_KM,
+            emergent * scale as f64,
+            max_cells,
         );
 
         let t0 = Instant::now();
         let tree = build_coarse_tree(coarse_tessellation);
         let mut rng = ChaCha8Rng::seed_from_u64(seed.wrapping_add(30));
-        let points =
-            sample_fine_points(coarse_tessellation, &density, &tree, target_cells, &mut rng);
+        let points = sample_fine_points(coarse_tessellation, &density, &tree, &mut rng);
         log::info!(
-            "fine mesh: weighted sampling {:.2?} ({} cells)",
+            "fine mesh: sampling {:.2?} ({} cells)",
             t0.elapsed(),
             points.len()
         );
@@ -112,7 +134,6 @@ impl FineWorld {
         let t0 = Instant::now();
         let coarse_cell = map_to_coarse(&tessellation, &tree);
         let fine_density: Vec<f32> = coarse_cell.iter().map(|&c| density[c]).collect();
-        log_resolution_probe(&tessellation, &fine_density);
         let fields = transfer_fields(
             coarse_tessellation,
             &tessellation,
@@ -140,6 +161,7 @@ impl FineWorld {
         let mut elev_rng = ChaCha8Rng::seed_from_u64(seed.wrapping_add(3));
         let elevation = Elevation::refine_from_base(&tessellation, &base_elevation, &mut elev_rng);
         log::info!("fine mesh: elevation refine {:.2?}", t0.elapsed());
+        log_resolution_probe(&tessellation, &elevation);
 
         let t0 = Instant::now();
         let hydrology = Hydrology::generate_from_continentality(
@@ -199,7 +221,18 @@ fn map_to_coarse(fine: &Tessellation, tree: &CoarseTree) -> Vec<usize> {
         .collect()
 }
 
-fn compute_density_prior(
+/// Convert a target cell size (km) to an areal cell density (cells per steradian
+/// on the unit sphere): g = 1 / size_in_radians^2.
+fn cell_size_km_to_density(km: f32) -> f32 {
+    let rad = (km / PLANET_RADIUS_KM).max(1e-9);
+    1.0 / (rad * rad)
+}
+
+/// Absolute areal cell density (cells/steradian) per coarse cell, derived from
+/// the physical cell-size scales. Ocean is set directly; land interpolates
+/// between the plains and mountain densities by a normalized refinement demand
+/// (slope/flow/activity). The total cell count emerges from integrating this.
+fn compute_areal_density(
     tessellation: &Tessellation,
     elevation: &Elevation,
     features: &FeatureFields,
@@ -217,35 +250,31 @@ fn compute_density_prior(
         .fold(0.0_f32, f32::max)
         .max(1e-6);
 
-    // Land density is anchored to the plains floor (FINE_LAND_BASE_DENSITY) and
-    // clamped to FINE_MAX_DENSITY_RATIO above it, so plains:mountains spans the
-    // full ratio. Ocean is set independently as a small fraction of that floor,
-    // OUTSIDE the clamp — otherwise (anchoring the clamp to the ocean min) the
-    // ratio budget is spent on ocean->mountain and land contrast collapses.
-    let land_floor = FINE_LAND_BASE_DENSITY;
-    let land_ceiling = land_floor * FINE_MAX_DENSITY_RATIO;
-    let ocean_density = land_floor * FINE_OCEAN_DENSITY_RATIO;
+    let g_plains = cell_size_km_to_density(FINE_PLAINS_CELL_KM);
+    let g_mountain = cell_size_km_to_density(FINE_MOUNTAIN_CELL_KM);
+    let g_ocean = cell_size_km_to_density(FINE_OCEAN_CELL_KM);
+    let e = FINE_DENSITY_FEATURE_EXPONENT;
+    let wsum =
+        FINE_SLOPE_DENSITY_WEIGHT + FINE_FLOW_DENSITY_WEIGHT + FINE_ACTIVITY_DENSITY_WEIGHT;
 
     let mut density = Vec::with_capacity(n);
     for i in 0..n {
         if elevation.values[i] < 0.0 {
-            density.push(ocean_density);
+            density.push(g_ocean);
             continue;
         }
-        // Each feature normalized to [0,1], then raised to a concentration
-        // exponent so gentle terrain stays near the plains floor and only the
-        // steepest ground / strongest channels pull cells in.
-        let e = FINE_DENSITY_FEATURE_EXPONENT;
+        // Each feature normalized to [0,1], raised to a concentration exponent
+        // so gentle terrain stays near the plains size; combined into a single
+        // demand in [0,1] (0 = flat plains, 1 = all features maxed). Weights are
+        // relative importances; absolute scale comes from the cell-size scales.
         let slope = (elevation.slope(tessellation, i) / max_slope).powf(e);
         let flow = (preview_hydrology.flow_accumulation[i].max(1.0).ln() / max_flow_ln).powf(e);
         let activity = features.activity[i].clamp(0.0, 1.0).powf(e);
-        let d = land_floor
-            + FINE_SLOPE_DENSITY_WEIGHT * slope
+        let demand = (FINE_SLOPE_DENSITY_WEIGHT * slope
             + FINE_FLOW_DENSITY_WEIGHT * flow
-            + FINE_ACTIVITY_DENSITY_WEIGHT * activity;
-        // Land floor is `land_floor` by construction (features are non-negative);
-        // only the ceiling needs clamping.
-        density.push(d.min(land_ceiling));
+            + FINE_ACTIVITY_DENSITY_WEIGHT * activity)
+            / wsum;
+        density.push(g_plains + demand * (g_mountain - g_plains));
     }
     density
 }
@@ -254,23 +283,22 @@ fn compute_density_prior(
 /// so we can judge whether mountains are resolved finely enough for erosion
 /// (target: low single-digit km). Cell width ~ sqrt(cell_area) on the unit
 /// sphere, scaled by PLANET_RADIUS_KM.
-fn log_resolution_probe(tessellation: &Tessellation, fine_density: &[f32]) {
+fn log_resolution_probe(tessellation: &Tessellation, elevation: &Elevation) {
     let areas = tessellation.cell_areas();
-    let n = areas.len().min(fine_density.len());
+    let n = areas.len().min(elevation.values.len());
     if n == 0 {
         return;
     }
     let spacing_km = |i: usize| areas[i].max(0.0).sqrt() * PLANET_RADIUS_KM;
 
-    // Land vs ocean by density floor; the finest land cells ARE the mountains and
+    // Land vs ocean by elevation; the finest land cells ARE the mountains and
     // river channels, so land-spacing percentiles report the resolution where
     // erosion happens without picking an arbitrary "mountain" threshold.
-    let base = FINE_LAND_BASE_DENSITY;
     let mut land: Vec<f32> = Vec::new();
     let mut ocean: Vec<f32> = Vec::new();
     for i in 0..n {
         let s = spacing_km(i);
-        if fine_density[i] < base {
+        if elevation.values[i] < 0.0 {
             ocean.push(s);
         } else {
             land.push(s);
@@ -299,95 +327,68 @@ fn log_resolution_probe(tessellation: &Tessellation, fine_density: &[f32]) {
     );
 }
 
+/// Sample fine points by directly allocating each coarse cell's expected count
+/// (areal density x cell area) and scattering that many points within the cell,
+/// then relaxing to blue noise. There is no global target/normalization: the
+/// total count is the sum of per-cell counts (it emerges). `density` is already
+/// scaled to honour the cap. O(N) — no rejection over-generation.
 fn sample_fine_points<R: Rng>(
     coarse: &Tessellation,
     density: &[f32],
     tree: &CoarseTree,
-    target: usize,
     rng: &mut R,
 ) -> Vec<Vec3> {
-    let mean_density = area_weighted_mean_density(coarse, density).max(1e-6);
-    let max_density = density.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-    let candidate_count = ((target as f32 * max_density / mean_density) * 1.15).ceil() as usize;
-    let mean_spacing = (4.0 * std::f32::consts::PI / candidate_count as f32).sqrt();
-    let jitter = mean_spacing * FINE_FIBONACCI_JITTER;
-    let sampling_seed = rng.gen::<u64>();
+    let areas = coarse.cell_areas();
+    let n = coarse.num_cells();
+    let seed = rng.gen::<u64>();
 
-    let t0 = Instant::now();
-    #[cfg(not(feature = "single-threaded"))]
-    let mut accepted: Vec<Vec3> = {
-        let threads = rayon::current_num_threads().max(1);
-        let chunk_size = candidate_count.div_ceil(threads * 4).max(1);
-        let ranges: Vec<(usize, usize)> = (0..candidate_count)
-            .step_by(chunk_size)
-            .map(|start| (start, (start + chunk_size).min(candidate_count)))
-            .collect();
-        let chunks: Vec<Vec<Vec3>> = ranges
-            .par_iter()
-            .map(|&(start, end)| {
-                let mut local = Vec::new();
-                for i in start..end {
-                    let p = jittered_fibonacci_point(i, candidate_count, jitter, sampling_seed);
-                    let coarse_idx = nearest_coarse(tree, p);
-                    let accept_prob = (density[coarse_idx] / max_density).clamp(0.0, 1.0);
-                    if hash_unit_f32(sampling_seed, i as u64, 1) <= accept_prob {
-                        local.push(p);
-                    }
-                }
-                local
+    // Golden angle for the sunflower/Fibonacci disk pattern.
+    const GOLDEN_ANGLE: f32 = 2.399_963_2;
+    let place = |c: usize| -> Vec<Vec3> {
+        let expected = density[c] * areas[c];
+        // Stochastic rounding so the total count is unbiased, not floored.
+        let extra = (hash_unit_f32(seed, c as u64, 1) < expected.fract()) as u64;
+        let count = expected.floor() as u64 + extra;
+        if count == 0 {
+            return Vec::new();
+        }
+        let center = coarse.cell_center(c);
+        let radius = (areas[c] / std::f32::consts::PI).sqrt(); // equal-area disk
+        let (u, v) = tangent_basis(center);
+        // Fibonacci sunflower: locally even with a built-in minimum distance
+        // (~0.5 of the local spacing), so the seed has few slivers and both the
+        // relaxation and the tessellation stay fast. Small jitter breaks the
+        // spiral regularity; relaxation finishes the job and fixes cell seams.
+        let jitter = radius / (count as f32).sqrt() * 0.5;
+        (0..count)
+            .map(|k| {
+                let rr = radius * ((k as f32 + 0.5) / count as f32).sqrt();
+                let theta = k as f32 * GOLDEN_ANGLE;
+                let jr = jitter * hash_unit_f32(seed, c as u64, 2 * k + 2).sqrt();
+                let ja = hash_unit_f32(seed, c as u64, 2 * k + 3) * std::f32::consts::TAU;
+                let px = rr * theta.cos() + jr * ja.cos();
+                let py = rr * theta.sin() + jr * ja.sin();
+                (center + u * px + v * py).normalize()
             })
-            .collect();
-        chunks.into_iter().flatten().collect()
+            .collect()
     };
 
+    #[cfg(not(feature = "single-threaded"))]
+    let points: Vec<Vec3> = (0..n).into_par_iter().flat_map_iter(place).collect();
     #[cfg(feature = "single-threaded")]
-    let mut accepted: Vec<Vec3> = {
-        let mut accepted = Vec::with_capacity(target);
-        for i in 0..candidate_count {
-            let p = jittered_fibonacci_point(i, candidate_count, jitter, sampling_seed);
-            let coarse_idx = nearest_coarse(tree, p);
-            let accept_prob = (density[coarse_idx] / max_density).clamp(0.0, 1.0);
-            if hash_unit_f32(sampling_seed, i as u64, 1) <= accept_prob {
-                accepted.push(p);
-            }
-        }
-        accepted
-    };
+    let points: Vec<Vec3> = (0..n).flat_map(place).collect();
 
-    log::info!(
-        "fine mesh: sampling generated/classified {} candidates in {:.2?} ({} accepted)",
-        candidate_count,
-        t0.elapsed(),
-        accepted.len(),
-    );
-
-    let t0 = Instant::now();
-    while accepted.len() < target {
-        let p = random_sphere_point(rng);
-        let coarse_idx = nearest_coarse(tree, p);
-        let accept_prob = (density[coarse_idx] / max_density).clamp(0.0, 1.0);
-        if rng.gen::<f32>() <= accept_prob {
-            accepted.push(p);
-        }
-    }
-
-    accepted.shuffle(rng);
-    accepted.truncate(target);
-    log::info!(
-        "fine mesh: sampling filled/shuffled target in {:.2?}",
-        t0.elapsed()
-    );
-
-    relax_fine_points(accepted, density, tree, mean_density, target)
+    relax_fine_points(points, density, tree)
 }
 
 const RELAX_K: usize = 8;
 
-/// Target nearest-neighbour spacing at a given density, for `target` total
-/// points distributed with areal density proportional to the field.
-fn target_spacing(density_value: f32, mean_density: f32, target: usize) -> f32 {
-    let g = target as f32 * density_value / (mean_density * 4.0 * std::f32::consts::PI);
-    (1.0 / g.max(1e-12)).sqrt()
+/// Two orthonormal tangent vectors at a point on the unit sphere.
+fn tangent_basis(p: Vec3) -> (Vec3, Vec3) {
+    let arbitrary = if p.x.abs() < 0.9 { Vec3::X } else { Vec3::Y };
+    let u = p.cross(arbitrary).normalize();
+    let v = p.cross(u);
+    (u, v)
 }
 
 /// One density-aware particle-repulsion step for point `i`: push off neighbours
@@ -430,43 +431,27 @@ fn relax_fine_points(
     mut points: Vec<Vec3>,
     density: &[f32],
     coarse_tree: &CoarseTree,
-    mean_density: f32,
-    target: usize,
 ) -> Vec<Vec3> {
     if FINE_RELAX_PASSES == 0 {
         return points;
     }
     let t0 = Instant::now();
 
-    // Fix each point's target spacing from its initial coarse cell once: points
-    // move only ~0.4*spacing per pass, so re-deriving density mid-relax isn't
-    // worth a coarse-tree query per point per pass.
+    // Fix each point's target spacing from its initial coarse cell once (points
+    // move only ~0.4*spacing per pass). Spacing = 1/sqrt(areal density): the
+    // absolute cell size the density field asks for at that location.
+    let spacing_at = |p: Vec3| {
+        let g = density[nearest_coarse(coarse_tree, p)].max(1e-12);
+        1.0 / g.sqrt()
+    };
     let point_spacing: Vec<f32> = {
         #[cfg(not(feature = "single-threaded"))]
         {
-            points
-                .par_iter()
-                .map(|&p| {
-                    target_spacing(
-                        density[nearest_coarse(coarse_tree, p)],
-                        mean_density,
-                        target,
-                    )
-                })
-                .collect()
+            points.par_iter().map(|&p| spacing_at(p)).collect()
         }
         #[cfg(feature = "single-threaded")]
         {
-            points
-                .iter()
-                .map(|&p| {
-                    target_spacing(
-                        density[nearest_coarse(coarse_tree, p)],
-                        mean_density,
-                        target,
-                    )
-                })
-                .collect()
+            points.iter().map(|&p| spacing_at(p)).collect()
         }
     };
 
@@ -503,41 +488,6 @@ fn relax_fine_points(
         t0.elapsed()
     );
     points
-}
-
-fn area_weighted_mean_density(coarse: &Tessellation, density: &[f32]) -> f32 {
-    let areas = coarse.cell_areas();
-    let total_area: f32 = areas.iter().sum();
-    areas
-        .iter()
-        .zip(density.iter())
-        .map(|(&a, &d)| a * d)
-        .sum::<f32>()
-        / total_area.max(1e-6)
-}
-
-fn random_sphere_point<R: Rng>(rng: &mut R) -> Vec3 {
-    let y: f32 = rng.gen_range(-1.0..1.0);
-    let theta: f32 = rng.gen_range(0.0..std::f32::consts::TAU);
-    let r = (1.0 - y * y).sqrt();
-    Vec3::new(r * theta.cos(), y, r * theta.sin())
-}
-
-fn jittered_fibonacci_point(i: usize, n: usize, jitter: f32, seed: u64) -> Vec3 {
-    let y = 1.0 - (2.0 * i as f32 + 1.0) / n as f32;
-    let r = (1.0 - y * y).sqrt();
-    let theta = std::f32::consts::TAU * i as f32 / PHI;
-
-    let mut p = Vec3::new(r * theta.cos(), y, r * theta.sin());
-    if jitter > 0.0 {
-        let arbitrary = if p.x.abs() < 0.9 { Vec3::X } else { Vec3::Y };
-        let u = p.cross(arbitrary).normalize();
-        let v = p.cross(u);
-        let angle = hash_unit_f32(seed, i as u64, 0) * std::f32::consts::TAU;
-        let tangent = u * angle.cos() + v * angle.sin();
-        p = (p + tangent * jitter).normalize();
-    }
-    p
 }
 
 fn hash_unit_f32(seed: u64, index: u64, stream: u64) -> f32 {
