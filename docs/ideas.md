@@ -32,7 +32,20 @@ internal structure for erosion to express**, plus glacial for high elevations.
 
 ## A. Lithosphere internal structure (the "ranges look generic" cluster)
 
-### A1. Structural grain / fold fabric  — lead candidate
+**Diagnose the failure first (which "generic"?).** A skeptical review (codex,
+gpt-5.5, June 2026) pointed out the symptom splits three ways with different
+fixes, so confirm which before committing:
+- textural sameness / no lineation, uniform drainage → **A2** (+ A1 for belts)
+- rounded, un-alpine crests / smooth peaks → **B (glacial)**; K/lithology can't
+  fix this, only glacial gives cirques/arêtes/U-valleys
+- blobby at the range scale (smooth fronts, no abrupt basins/facets) → **A3 /
+  macro uplift**, untouched by erodibility fields
+
+**Ordering update (from that review): A2 before A1.** A general erodibility
+field improves many terrain types and avoids fake repetition; A1 is a *targeted*
+specialization (A1 = A2 with an oriented periodic pattern), not the generic lead.
+
+### A1. Structural grain / fold fabric  — targeted mode (was "lead")
 - **Symptom:** ranges are isotropic dendritic blobs; real fold-thrust belts are
   strongly *lineated* — strike-parallel ridge-and-valley (Valley-and-Ridge
   Appalachians, Zagros).
@@ -44,9 +57,20 @@ internal structure for erosion to express**, plus glacial for high elevations.
   power untouched. Stripe phase = distance-from-convergent-boundary /
   fold_wavelength, so stripes are the distance field's iso-contours → belt-
   parallel grain that curves for free, no orientation field to construct.
-  Erosion carves weak bands → strike ridges, and **trellis drainage emerges**
-  (the other fold-belt signature). A1 and A2 are the same machinery — A1 is A2
-  with an oriented periodic pattern.
+  Erosion carves weak bands → strike ridges. (Earlier claim "trellis drainage
+  emerges" is DOWNGRADED per review: K changes incision *rate*, not geometry;
+  detachment-limited vertical incision has no planation/capture/migration, so
+  trellis is an outcome to *test*, not a promise — needs K-contrast to beat the
+  slope term + relief organized across stripes.) A1 = A2 with an oriented pattern.
+- **Pair K with diffusivity (and maybe a little structural relief).** `K(x)`
+  alone may barely show — equal-elevation bands routing the same differentiate
+  only slowly. Vary hillslope `D(x)` too (resistant rock resists rounding, else
+  ridgelines smooth back to sameness), and/or seed small structural relief so
+  bands start differentiated. Review's phrasing: "layered competence fabric,"
+  not "fold fabric."
+- **Distance-from-boundary caveats:** medial-axis artifacts where the nearest
+  boundary segment flips; ignores oblique/arcuate/transpressional strike. Use A1
+  only on belts where belt-parallel grain is defensible, not every orogen.
 - **Skeleton physical, texture noise-fed:** orientation/location/erosion are
   deterministic; noise feeds wavelength jitter + phase breaks/terminations/
   en-echelon so it's a quasi-periodic belt, not a corduroy comb. (See the noise
