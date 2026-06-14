@@ -15,15 +15,39 @@ use super::{Atmosphere, Crust, Elevation, FeatureFields, Hydrology, Tessellation
 
 type CoarseTree = ImmutableKdTree<f32, 3>;
 
-/// Fine Stage-3 world state.
+/// Fine Stage-3 world state, split into the expensive, reused [`FineBase`]
+/// (stage 3a: mesh + transferred fields + pre-erosion base elevation) and the
+/// cheap, per-variant [`FineSurface`] (stages 3b+3c: eroded elevation +
+/// hydrology). Re-running erosion with tweaked knobs rebuilds only the surface
+/// (`rerun_surface`), reusing the base — that split is the whole point.
+///
+/// The accessor methods hide the split so consumers don't care which half a
+/// field lives in.
 pub struct FineWorld {
+    pub base: FineBase,
+    pub surface: FineSurface,
+}
+
+/// Expensive, reused base of the fine mesh (stage 3a): the adaptive tessellation,
+/// the coarse-cell map, the transferred smooth fields, and the pre-erosion base
+/// elevation. Built once; every erosion/hydrology variant reads it by reference.
+pub struct FineBase {
     pub tessellation: Tessellation,
     pub coarse_cell: Vec<usize>,
     pub fields: FineFields,
-    pub elevation: Elevation,
-    pub hydrology: Hydrology,
+    /// Coarse elevation interpolated onto the fine cells (the fixed sea-level
+    /// datum erosion carves into). Distinct from the eroded `surface.elevation`.
+    pub base_elevation: Vec<f32>,
     pub density: Vec<f32>,
     pub achieved_density_ratio: f32,
+}
+
+/// Cheap, per-variant surface over a [`FineBase`] (stages 3b+3c): the eroded
+/// elevation and the hydrology derived from it. Re-generated to replace when
+/// erosion knobs change.
+pub struct FineSurface {
+    pub elevation: Elevation,
+    pub hydrology: Hydrology,
 }
 
 /// Smooth fields transferred to the fine mesh.
@@ -66,7 +90,77 @@ impl FineWorld {
         max_cells: usize,
     ) -> Self {
         let total = Instant::now();
+        let base = FineBase::generate_with_target(
+            seed,
+            coarse_tessellation,
+            crust,
+            features,
+            coarse_elevation,
+            atmosphere,
+            max_cells,
+        );
+        let surface = FineSurface::generate(seed, &base);
+        log::info!(
+            "fine mesh: total {:.2?}, cells={}, density_ratio={:.1}:1",
+            total.elapsed(),
+            base.tessellation.num_cells(),
+            base.achieved_density_ratio
+        );
+        Self { base, surface }
+    }
 
+    /// Re-run erosion + hydrology over the existing base, replacing the surface
+    /// in place (no mesh recompute). Used when erosion knobs change.
+    pub fn rerun_surface(&mut self, seed: u64) {
+        self.surface = FineSurface::generate(seed, &self.base);
+    }
+
+    pub fn tessellation(&self) -> &Tessellation {
+        &self.base.tessellation
+    }
+    pub fn coarse_cell(&self) -> &[usize] {
+        &self.base.coarse_cell
+    }
+    pub fn fields(&self) -> &FineFields {
+        &self.base.fields
+    }
+    pub fn density(&self) -> &[f32] {
+        &self.base.density
+    }
+    pub fn achieved_density_ratio(&self) -> f32 {
+        self.base.achieved_density_ratio
+    }
+    pub fn elevation(&self) -> &Elevation {
+        &self.surface.elevation
+    }
+    pub fn hydrology(&self) -> &Hydrology {
+        &self.surface.hydrology
+    }
+    pub fn hydrology_mut(&mut self) -> &mut Hydrology {
+        &mut self.surface.hydrology
+    }
+
+    /// Adjust the climate ratio on the fine hydrology in place (disjoint borrow
+    /// of base.tessellation + surface.hydrology).
+    pub fn set_climate_ratio(&mut self, ratio: f32) {
+        self.surface
+            .hydrology
+            .set_climate_ratio(&self.base.tessellation, ratio);
+    }
+}
+
+impl FineBase {
+    /// Stage 3a: build the expensive, reusable fine-mesh base (steps 1–7 of the
+    /// old monolith). Stops short of erosion — that's [`FineSurface::generate`].
+    pub fn generate_with_target(
+        seed: u64,
+        coarse_tessellation: &Tessellation,
+        crust: &Crust,
+        features: &FeatureFields,
+        coarse_elevation: &Elevation,
+        atmosphere: &Atmosphere,
+        max_cells: usize,
+    ) -> Self {
         let t0 = Instant::now();
         let preview_hydrology = Hydrology::generate(
             coarse_tessellation,
@@ -161,49 +255,54 @@ impl FineWorld {
         );
         log::info!("fine mesh: elevation refine {:.2?}", t0.elapsed());
 
+        Self {
+            tessellation,
+            coarse_cell,
+            fields,
+            base_elevation,
+            density: fine_density,
+            achieved_density_ratio,
+        }
+    }
+}
+
+impl FineSurface {
+    /// Stages 3b+3c: carve the base into river valleys, then derive hydrology.
+    /// Reads `base` by reference so it can be re-run cheaply with new erosion
+    /// knobs. `seed` drives only the cosmetic micro-noise rng.
+    pub fn generate(seed: u64, base: &FineBase) -> Self {
         // Fluvial erosion: carve the interpolated base into real river valleys by
         // evolving crust thickness (isostasy responds). Runs on the fine mesh
         // before final hydrology; sea level is the fixed datum inherited via
         // `base_elevation`. See docs/specs/erosion.md.
         let t0 = Instant::now();
         let eroded_base = super::erosion::erode(
-            &tessellation,
-            &fields.elevation_fields,
-            &base_elevation,
-            &fields.precipitation,
+            &base.tessellation,
+            &base.fields.elevation_fields,
+            &base.base_elevation,
+            &base.fields.precipitation,
         );
         log::info!("fine mesh: erosion {:.2?}", t0.elapsed());
 
         // Cosmetic micro noise rides on the eroded surface; this is the elevation
         // hydrology and rendering consume.
         let mut elev_rng = ChaCha8Rng::seed_from_u64(seed.wrapping_add(3));
-        let elevation = Elevation::refine_from_base(&tessellation, &eroded_base, &mut elev_rng);
-        log_resolution_probe(&tessellation, &elevation);
+        let elevation = Elevation::refine_from_base(&base.tessellation, &eroded_base, &mut elev_rng);
+        log_resolution_probe(&base.tessellation, &elevation);
 
         let t0 = Instant::now();
         let hydrology = Hydrology::generate_from_continentality(
-            &tessellation,
-            &fields.elevation_fields.continentality,
+            &base.tessellation,
+            &base.fields.elevation_fields.continentality,
             &elevation,
-            &fields.precipitation,
-            &fields.temperature,
+            &base.fields.precipitation,
+            &base.fields.temperature,
         );
         log::info!("fine mesh: hydrology {:.2?}", t0.elapsed());
-        log::info!(
-            "fine mesh: total {:.2?}, cells={}, density_ratio={:.1}:1",
-            total.elapsed(),
-            tessellation.num_cells(),
-            achieved_density_ratio
-        );
 
         Self {
-            tessellation,
-            coarse_cell,
-            fields,
             elevation,
             hydrology,
-            density: fine_density,
-            achieved_density_ratio,
         }
     }
 }

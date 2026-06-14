@@ -265,8 +265,8 @@ pub fn advance_to_stage_3(world: &mut World) {
             log::info!(
                 "Fine mesh: coarse_cells={}, fine_cells={}, density_ratio={:.1}:1",
                 world.tessellation.num_cells(),
-                fine.tessellation.num_cells(),
-                fine.achieved_density_ratio
+                fine.tessellation().num_cells(),
+                fine.achieved_density_ratio()
             );
         }
     }

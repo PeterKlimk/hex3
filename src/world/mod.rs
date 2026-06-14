@@ -46,7 +46,7 @@ pub const NUM_PLATES_DEFAULT: usize = 14;
 pub use dynamics::{Dynamics, EulerPole};
 pub use elevation::{Elevation, NoiseLayerData};
 pub use features::FeatureFields;
-pub use fine::{FineFields, FineWorld};
+pub use fine::{FineBase, FineFields, FineSurface, FineWorld};
 pub use hydrology::{Basin, CellWaterState, Hydrology, WaterBody, DEFAULT_CLIMATE_RATIO};
 pub use plates::Plates;
 pub use tessellation::{CellAdjacency, Tessellation};
@@ -296,27 +296,27 @@ impl World {
     pub fn active_tessellation(&self) -> &Tessellation {
         self.fine
             .as_ref()
-            .map(|fine| &fine.tessellation)
+            .map(|fine| fine.tessellation())
             .unwrap_or(&self.tessellation)
     }
 
     pub fn active_elevation(&self) -> Option<&Elevation> {
         self.fine
             .as_ref()
-            .map(|fine| &fine.elevation)
+            .map(|fine| fine.elevation())
             .or(self.elevation.as_ref())
     }
 
     pub fn active_hydrology(&self) -> Option<&Hydrology> {
         self.fine
             .as_ref()
-            .map(|fine| &fine.hydrology)
+            .map(|fine| fine.hydrology())
             .or(self.hydrology.as_ref())
     }
 
     pub fn active_hydrology_mut(&mut self) -> Option<&mut Hydrology> {
         if let Some(fine) = &mut self.fine {
-            Some(&mut fine.hydrology)
+            Some(fine.hydrology_mut())
         } else {
             self.hydrology.as_mut()
         }
@@ -325,27 +325,27 @@ impl World {
     pub fn active_temperature(&self) -> Option<&[f32]> {
         self.fine
             .as_ref()
-            .map(|fine| fine.fields.temperature.as_slice())
+            .map(|fine| fine.fields().temperature.as_slice())
             .or_else(|| self.atmosphere.as_ref().map(|a| a.temperature.as_slice()))
     }
 
     pub fn active_precipitation(&self) -> Option<&[f32]> {
         self.fine
             .as_ref()
-            .map(|fine| fine.fields.precipitation.as_slice())
+            .map(|fine| fine.fields().precipitation.as_slice())
             .or_else(|| self.atmosphere.as_ref().map(|a| a.precipitation.as_slice()))
     }
 
     pub fn active_uplift(&self) -> Option<&[f32]> {
         self.fine
             .as_ref()
-            .map(|fine| fine.fields.uplift.as_slice())
+            .map(|fine| fine.fields().uplift.as_slice())
             .or_else(|| self.atmosphere.as_ref().map(|a| a.uplift.as_slice()))
     }
 
     pub fn set_active_climate_ratio(&mut self, ratio: f32) {
         if let Some(fine) = &mut self.fine {
-            fine.hydrology.set_climate_ratio(&fine.tessellation, ratio);
+            fine.set_climate_ratio(ratio);
         } else if let Some(hydrology) = &mut self.hydrology {
             hydrology.set_climate_ratio(&self.tessellation, ratio);
         }

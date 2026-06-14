@@ -61,7 +61,7 @@ fn main() {
         world
             .fine
             .as_ref()
-            .map(|fine| fine.coarse_cell[i])
+            .map(|fine| fine.coarse_cell()[i])
             .unwrap_or(i)
     };
     let cont_mask: Vec<bool> = (0..n)
@@ -69,7 +69,7 @@ fn main() {
             world
                 .fine
                 .as_ref()
-                .map(|fine| fine.fields.elevation_fields.continentality[i] >= 0.5)
+                .map(|fine| fine.fields().elevation_fields.continentality[i] >= 0.5)
                 .unwrap_or_else(|| crust.is_continental(i))
         })
         .collect();
@@ -79,7 +79,7 @@ fn main() {
                 .fine
                 .as_ref()
                 .map(|fine| {
-                    let cont = fine.fields.elevation_fields.continentality[i];
+                    let cont = fine.fields().elevation_fields.continentality[i];
                     (cont - 0.5).abs() * 0.1
                 })
                 .unwrap_or_else(|| crust.margin_distance(i))
@@ -91,12 +91,12 @@ fn main() {
     let feature_trench: Vec<f32> = world
         .fine
         .as_ref()
-        .map(|fine| fine.fields.elevation_fields.trench.clone())
+        .map(|fine| fine.fields().elevation_fields.trench.clone())
         .unwrap_or_else(|| features.trench.clone());
     let feature_ridge_age: Vec<f32> = world
         .fine
         .as_ref()
-        .map(|fine| fine.fields.elevation_fields.ridge_age_distance.clone())
+        .map(|fine| fine.fields().elevation_fields.ridge_age_distance.clone())
         .unwrap_or_else(|| features.ridge_age_distance.clone());
 
     let cell_km2 = tess.mean_cell_area() * EARTH_RADIUS_KM * EARTH_RADIUS_KM;
@@ -114,8 +114,8 @@ fn main() {
         println!(
             "fine mesh: coarse {} -> fine {} cells | density ratio {:.1}:1",
             world.tessellation.num_cells(),
-            fine.tessellation.num_cells(),
-            fine.achieved_density_ratio
+            fine.tessellation().num_cells(),
+            fine.achieved_density_ratio()
         );
     }
 

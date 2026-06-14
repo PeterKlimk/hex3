@@ -154,11 +154,11 @@ impl WorldExport {
 
         for i in 0..num_cells {
             elevation_vec.push(elevation.values[i]);
-            let coarse_i = fine.map(|f| f.coarse_cell[i]).unwrap_or(i);
+            let coarse_i = fine.map(|f| f.coarse_cell()[i]).unwrap_or(i);
             plate_id.push(plates.cell_plate[coarse_i]);
 
             let continental = fine
-                .map(|f| f.fields.elevation_fields.continentality[i] >= 0.5)
+                .map(|f| f.fields().elevation_fields.continentality[i] >= 0.5)
                 .unwrap_or_else(|| crust.crust_type(i) == CrustType::Continental);
             crust_type.push(if continental { 0 } else { 1 });
 
@@ -171,19 +171,19 @@ impl WorldExport {
         // Features
         let features_data = if let Some(fine) = fine {
             let map_feature = |field: &[f32]| -> Vec<f32> {
-                fine.coarse_cell.iter().map(|&c| field[c]).collect()
+                fine.coarse_cell().iter().map(|&c| field[c]).collect()
             };
             FeatureData {
-                trench: fine.fields.elevation_fields.trench.clone(),
+                trench: fine.fields().elevation_fields.trench.clone(),
                 arc: map_feature(&features.arc),
-                ridge: fine.fields.elevation_fields.ridge.clone(),
+                ridge: fine.fields().elevation_fields.ridge.clone(),
                 collision: map_feature(&features.collision),
                 activity: map_feature(&features.activity),
-                convergent: fine.fields.elevation_fields.convergent.clone(),
-                divergent: fine.fields.elevation_fields.divergent.clone(),
+                convergent: fine.fields().elevation_fields.convergent.clone(),
+                divergent: fine.fields().elevation_fields.divergent.clone(),
                 transform: map_feature(&features.transform),
                 ridge_distance: map_feature(&features.ridge_distance),
-                ridge_age_distance: fine.fields.elevation_fields.ridge_age_distance.clone(),
+                ridge_age_distance: fine.fields().elevation_fields.ridge_age_distance.clone(),
                 ridge_spreading_rate: map_feature(&features.ridge_spreading_rate),
                 collision_distance: map_feature(&features.collision_distance),
             }
@@ -221,7 +221,7 @@ impl WorldExport {
             let mut upper_wind_speed = Vec::with_capacity(num_cells);
 
             for i in 0..num_cells {
-                let coarse_i = fine.map(|f| f.coarse_cell[i]).unwrap_or(i);
+                let coarse_i = fine.map(|f| f.coarse_cell()[i]).unwrap_or(i);
                 let east = tangent_east(tessellation.cell_center(i));
                 wind.push(a.wind[coarse_i].dot(east));
                 wind_speed.push(a.wind[coarse_i].length());
@@ -319,7 +319,7 @@ impl WorldExport {
                 longitude,
                 features: features_data,
                 noise,
-                density: fine.map(|f| f.density.clone()),
+                density: fine.map(|f| f.density().to_vec()),
                 atmosphere: atmosphere_data,
                 hydrology: hydrology_data,
             },
