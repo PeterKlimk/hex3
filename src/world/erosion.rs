@@ -34,6 +34,48 @@ use super::constants::*;
 use super::elevation::{isostasy_slope, ElevationFields};
 use super::Tessellation;
 
+/// Runtime-tunable erosion knobs. Carried in world/app state so erosion can be
+/// re-run with tweaked values without a recompile (staging tooling). `Default`
+/// pulls today's `EROSION_*` constants — those stay the source of truth for the
+/// defaults; this struct just makes them overridable at runtime.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ErosionParams {
+    /// Number of erosion steps to run.
+    pub steps: usize,
+    /// Time increment per step.
+    pub dt: f32,
+    /// Stream-power drainage-area exponent (m in K A^m).
+    pub m: f32,
+    /// Stream-power erodibility coefficient K.
+    pub k: f32,
+    /// Linear hillslope diffusivity.
+    pub diffusivity: f32,
+    /// Jacobi sweeps per implicit diffusion solve.
+    pub diffusion_iters: usize,
+    /// Re-route (and re-accumulate drainage area) every this many steps.
+    pub reroute_interval: usize,
+    /// Tectonic uplift source scale (thickness units).
+    pub uplift_scale: f32,
+    /// Fraction of a sink's depth-to-sea-level that deposition may fill.
+    pub deposit_fill_fraction: f32,
+}
+
+impl Default for ErosionParams {
+    fn default() -> Self {
+        Self {
+            steps: EROSION_STEPS,
+            dt: EROSION_DT,
+            m: EROSION_M,
+            k: EROSION_K,
+            diffusivity: EROSION_DIFFUSIVITY,
+            diffusion_iters: EROSION_DIFFUSION_ITERS,
+            reroute_interval: EROSION_REROUTE_INTERVAL,
+            uplift_scale: EROSION_UPLIFT_SCALE,
+            deposit_fill_fraction: EROSION_DEPOSIT_FILL_FRACTION,
+        }
+    }
+}
+
 /// Run the erosion loop and return the eroded fine-mesh elevation (on the fixed
 /// sea-level datum). `fields.crust_thickness` seeds the working thickness;
 /// `base` is the interpolated coarse elevation; `precipitation` weights drainage
@@ -47,10 +89,11 @@ pub(crate) fn erode(
     fields: &ElevationFields,
     base: &[f32],
     precipitation: &[f32],
+    params: ErosionParams,
 ) -> Vec<f32> {
     roughness_report(tess, base, "base ");
-    let mut state = ErosionState::new(tess, fields, base, precipitation);
-    state.step(EROSION_STEPS);
+    let mut state = ErosionState::new(tess, fields, base, precipitation, params);
+    state.step(params.steps);
     state.log_summary();
     let final_elev = state.elevation();
     roughness_report(tess, &final_elev, "eroded");
@@ -76,6 +119,7 @@ pub(crate) struct ErosionState {
     u_thick: Vec<f32>,
     areas: Vec<f32>,
     geom: NeighborGeometry,
+    params: ErosionParams,
 
     // Working state, carried across steps.
     thick: Vec<f32>,
@@ -107,6 +151,7 @@ impl ErosionState {
         fields: &ElevationFields,
         base: &[f32],
         precipitation: &[f32],
+        params: ErosionParams,
     ) -> Self {
         let n = tess.num_cells();
         let slope = isostasy_slope();
@@ -116,10 +161,10 @@ impl ErosionState {
         // Tectonic uplift source, in THICKNESS units per step. arc/collision are
         // elevation magnitudes (-> thickness via /slope); rift_delta is already a
         // signed thickness delta (negative in the axial valley). NOT atmospheric
-        // uplift. Scaled by EROSION_UPLIFT_SCALE.
+        // uplift. Scaled by params.uplift_scale.
         let u_thick: Vec<f32> = (0..n)
             .map(|i| {
-                EROSION_UPLIFT_SCALE
+                params.uplift_scale
                     * ((fields.arc[i] + fields.collision[i]) * inv_slope + fields.rift_delta[i])
             })
             .collect();
@@ -138,6 +183,7 @@ impl ErosionState {
             u_thick,
             areas,
             geom,
+            params,
             thick,
             routing: None,
             area: Vec::new(),
@@ -195,7 +241,7 @@ impl ErosionState {
 
         // 1. Route: receivers across pits via priority-flood fill + steepest
         //    descent. Cells below sea level are fixed base-level sinks.
-        if self.step % EROSION_REROUTE_INTERVAL == 0 {
+        if self.step % self.params.reroute_interval == 0 {
             s = Instant::now();
             let Some(r) = Routing::build(&elev, &self.geom) else {
                 // No sinks (e.g. an all-land world): nothing to erode toward.
@@ -224,9 +270,9 @@ impl ErosionState {
             &routing.dist,
             &self.area,
             &routing.order,
-            EROSION_K,
-            EROSION_M,
-            EROSION_DT,
+            self.params.k,
+            self.params.m,
+            self.params.dt,
         );
         // No fluvial erosion below sea level (sea level is fixed): land cells
         // may incise down to, but not past, the datum.
@@ -247,7 +293,15 @@ impl ErosionState {
 
         // 4. Diffuse (linear hillslope creep) on land, implicit Jacobi.
         s = Instant::now();
-        diffuse_land(&mut elev, routing, &self.geom, &self.areas, EROSION_DT);
+        diffuse_land(
+            &mut elev,
+            routing,
+            &self.geom,
+            &self.areas,
+            self.params.dt,
+            self.params.diffusivity,
+            self.params.diffusion_iters,
+        );
         self.t_diffuse += s.elapsed().as_secs_f64();
 
         s = Instant::now();
@@ -257,7 +311,7 @@ impl ErosionState {
         }
         // 6. Uplift source (thickness).
         for i in 0..n {
-            self.thick[i] += self.u_thick[i] * EROSION_DT;
+            self.thick[i] += self.u_thick[i] * self.params.dt;
         }
         self.t_misc += s.elapsed().as_secs_f64();
 
@@ -272,6 +326,7 @@ impl ErosionState {
             &elev,
             &self.areas,
             self.slope,
+            self.params.deposit_fill_fraction,
             &mut self.thick,
         );
         self.total_eroded += eroded_vol.iter().map(|&v| v as f64).sum::<f64>();
@@ -573,12 +628,14 @@ fn diffuse_land(
     geom: &NeighborGeometry,
     areas: &[f32],
     dt: f32,
+    diffusivity: f32,
+    diffusion_iters: usize,
 ) {
-    if EROSION_DIFFUSIVITY <= 0.0 {
+    if diffusivity <= 0.0 {
         return;
     }
     let n = elev.len();
-    let dd = EROSION_DIFFUSIVITY * dt;
+    let dd = diffusivity * dt;
 
     // Per-cell f_i = dt D / area_i and diagonal denominator (1 + c_i), counting
     // only land neighbours (sink edges are no-flux). Constant across sweeps.
@@ -605,7 +662,7 @@ fn diffuse_land(
 
     let h_old = elev.to_vec(); // fixed RHS
     let mut cur = h_old.clone();
-    for _ in 0..EROSION_DIFFUSION_ITERS {
+    for _ in 0..diffusion_iters {
         let sweep = |i: usize| -> f32 {
             if routing.is_sink[i] {
                 return cur[i];
@@ -639,6 +696,7 @@ fn deposit(
     elev: &[f32],
     areas: &[f32],
     slope: f32,
+    deposit_fill_fraction: f32,
     thick: &mut [f32],
 ) -> (f64, f64) {
     let n = eroded_vol.len();
@@ -660,7 +718,7 @@ fn deposit(
         // Max thickness-volume that fills this sink toward (but not past) sea
         // level, times the allowed fill fraction.
         let depth = (-elev[i]).max(0.0); // elevation units below datum
-        let cap = EROSION_DEPOSIT_FILL_FRACTION * depth / slope * areas[i];
+        let cap = deposit_fill_fraction * depth / slope * areas[i];
         let take = sed[i].min(cap.max(0.0));
         if take > 0.0 {
             thick[i] += take / areas[i].max(1e-12);

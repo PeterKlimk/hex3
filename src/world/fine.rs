@@ -11,6 +11,7 @@ use rayon::prelude::*;
 
 use super::constants::*;
 use super::elevation::{coarse_elevation_fields, ElevationFields};
+use super::erosion::ErosionParams;
 use super::{Atmosphere, Crust, Elevation, FeatureFields, Hydrology, Tessellation};
 
 type CoarseTree = ImmutableKdTree<f32, 3>;
@@ -66,6 +67,7 @@ impl FineWorld {
         features: &FeatureFields,
         coarse_elevation: &Elevation,
         atmosphere: &Atmosphere,
+        params: ErosionParams,
     ) -> Self {
         Self::generate_with_target(
             seed,
@@ -75,11 +77,13 @@ impl FineWorld {
             coarse_elevation,
             atmosphere,
             FINE_MAX_CELLS,
+            params,
         )
     }
 
     /// `max_cells` is a guardrail ceiling, not a target: the count emerges from
     /// the resolution field and is only coarsened if it would exceed this.
+    #[allow(clippy::too_many_arguments)]
     pub fn generate_with_target(
         seed: u64,
         coarse_tessellation: &Tessellation,
@@ -88,6 +92,7 @@ impl FineWorld {
         coarse_elevation: &Elevation,
         atmosphere: &Atmosphere,
         max_cells: usize,
+        params: ErosionParams,
     ) -> Self {
         let total = Instant::now();
         let base = FineBase::generate_with_target(
@@ -99,7 +104,7 @@ impl FineWorld {
             atmosphere,
             max_cells,
         );
-        let surface = FineSurface::generate(seed, &base);
+        let surface = FineSurface::generate(seed, &base, params);
         log::info!(
             "fine mesh: total {:.2?}, cells={}, density_ratio={:.1}:1",
             total.elapsed(),
@@ -111,8 +116,8 @@ impl FineWorld {
 
     /// Re-run erosion + hydrology over the existing base, replacing the surface
     /// in place (no mesh recompute). Used when erosion knobs change.
-    pub fn rerun_surface(&mut self, seed: u64) {
-        self.surface = FineSurface::generate(seed, &self.base);
+    pub fn rerun_surface(&mut self, seed: u64, params: ErosionParams) {
+        self.surface = FineSurface::generate(seed, &self.base, params);
     }
 
     pub fn tessellation(&self) -> &Tessellation {
@@ -269,8 +274,8 @@ impl FineBase {
 impl FineSurface {
     /// Stages 3b+3c: carve the base into river valleys, then derive hydrology.
     /// Reads `base` by reference so it can be re-run cheaply with new erosion
-    /// knobs. `seed` drives only the cosmetic micro-noise rng.
-    pub fn generate(seed: u64, base: &FineBase) -> Self {
+    /// knobs (`params`). `seed` drives only the cosmetic micro-noise rng.
+    pub fn generate(seed: u64, base: &FineBase, params: ErosionParams) -> Self {
         // Fluvial erosion: carve the interpolated base into real river valleys by
         // evolving crust thickness (isostasy responds). Runs on the fine mesh
         // before final hydrology; sea level is the fixed datum inherited via
@@ -281,6 +286,7 @@ impl FineSurface {
             &base.fields.elevation_fields,
             &base.base_elevation,
             &base.fields.precipitation,
+            params,
         );
         log::info!("fine mesh: erosion {:.2?}", t0.elapsed());
 

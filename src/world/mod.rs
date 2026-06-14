@@ -46,6 +46,7 @@ pub const NUM_PLATES_DEFAULT: usize = 14;
 pub use dynamics::{Dynamics, EulerPole};
 pub use elevation::{Elevation, NoiseLayerData};
 pub use features::FeatureFields;
+pub use erosion::ErosionParams;
 pub use fine::{FineBase, FineFields, FineSurface, FineWorld};
 pub use hydrology::{Basin, CellWaterState, Hydrology, WaterBody, DEFAULT_CLIMATE_RATIO};
 pub use plates::Plates;
@@ -111,6 +112,10 @@ pub struct World {
 
     /// Adaptive fine mesh and Stage-3 hydrology/erosion infrastructure.
     pub fine: Option<FineWorld>,
+
+    /// Runtime-tunable erosion knobs (defaults from `EROSION_*` consts). Used
+    /// when (re-)generating the fine-mesh erosion surface.
+    pub erosion_params: ErosionParams,
 }
 
 impl World {
@@ -157,6 +162,7 @@ impl World {
             atmosphere: None,
             hydrology: None,
             fine: None,
+            erosion_params: ErosionParams::default(),
         }
     }
 
@@ -283,6 +289,7 @@ impl World {
             elevation,
             atmosphere,
             fine_max_cells,
+            self.erosion_params,
         );
         self.hydrology = None;
         self.fine = Some(fine);
