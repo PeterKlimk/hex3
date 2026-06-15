@@ -835,10 +835,17 @@ fn compute_overflow_targets(
     basin_id: &[Option<usize>],
     is_ocean: &[bool],
 ) {
+    // Following drainage can in principle cycle (flat depressions filled to a
+    // common level can leave `flood_parent`-based directions that loop without
+    // reaching ocean or a basin tag). Bound the walk by the cell count — a
+    // simple path can't visit more cells than exist — and treat an over-long
+    // walk as "no outlet" rather than hanging worldgen.
+    let max_steps = drainage_dir.len() + 1;
     for i in 0..basins.len() {
         let mut cell = basins[i].spill_target_cell;
 
         // Follow drainage until we hit ocean or another basin
+        let mut steps = 0;
         loop {
             if is_ocean[cell] {
                 basins[i].overflow_target = None;
@@ -851,6 +858,15 @@ fn compute_overflow_targets(
                 } else {
                     None
                 };
+                break;
+            }
+            steps += 1;
+            if steps > max_steps {
+                log::warn!(
+                    "hydrology: overflow walk for basin {i} exceeded {max_steps} steps \
+                     (drainage cycle); treating as no outlet"
+                );
+                basins[i].overflow_target = None;
                 break;
             }
             match drainage_dir[cell] {
@@ -974,8 +990,12 @@ fn calculate_water_levels(basins: &mut [Basin], climate_ratio: f32) {
 
 /// Compute drainage direction via steepest descent on filled elevation.
 ///
-/// Each cell drains to its lowest neighbor. This is deterministic and
-/// follows the actual gradient, unlike directions from the flood itself.
+/// Each cell drains to the neighbor of greatest downhill SLOPE — the elevation
+/// drop normalized by inter-cell (chord) distance — not merely the lowest
+/// neighbor. On the adaptive fine mesh cell spacing varies ~50:1, so picking the
+/// lowest-elevation neighbor would bias drainage toward distant large cells over
+/// nearer steeper ones; normalizing by distance gives the actual gradient.
+/// Only strictly-lower neighbors are considered, so the result is acyclic.
 fn compute_steepest_descent(
     tessellation: &Tessellation,
     filled_elevation: &[f32],
@@ -992,21 +1012,30 @@ fn compute_steepest_descent(
         }
 
         let cell_elev = filled_elevation[cell];
+        let cell_pos = tessellation.cell_center(cell);
 
-        // Find the neighbor with lowest filled elevation
+        // Find the strictly-lower neighbor of greatest downhill slope.
         let mut best_neighbor: Option<usize> = None;
-        let mut best_elev = cell_elev;
+        let mut best_slope = 0.0f32;
 
         for &neighbor in tessellation.neighbors(cell) {
-            let neighbor_elev = filled_elevation[neighbor];
-            if neighbor_elev < best_elev {
-                best_elev = neighbor_elev;
+            let drop = cell_elev - filled_elevation[neighbor];
+            if drop <= 0.0 {
+                continue;
+            }
+            let dist = (cell_pos - tessellation.cell_center(neighbor))
+                .length()
+                .max(1e-12);
+            let slope = drop / dist;
+            if slope > best_slope {
+                best_slope = slope;
                 best_neighbor = Some(neighbor);
             }
         }
 
         // On flats (no strictly-lower neighbor), fall back to the priority-flood parent.
-        // This produces consistent drainage across filled plateaus and basin floors.
+        // flood_parent always points to an equal-or-lower filled cell (it's the BFS
+        // tree rooted at ocean), so this keeps drainage acyclic and ocean-reaching.
         if best_neighbor.is_none() {
             best_neighbor = flood_parent[cell];
         }

@@ -347,8 +347,19 @@ impl ErosionState {
         // elevation magnitudes (-> thickness via /slope); rift_delta is already a
         // signed thickness delta (negative in the axial valley). NOT atmospheric
         // uplift. Scaled by params.uplift_scale.
+        //
+        // Gated to land (base >= sea level). Incision and diffusion skip submerged
+        // cells, so uplift there would be a one-way thickness addition with nothing
+        // removing it — over many steps it lifts arc/collision-forced ocean cells
+        // (e.g. subduction trench margins) across sea level and manufactures spurious
+        // land, breaking the fixed sea-level datum. (Terminal-lake sinks are left
+        // uplifting: those are either sub-sea-level — already excluded — or genuinely
+        // tectonically active basins where uplift/inversion is physical.)
         let u_thick: Vec<f32> = (0..n)
             .map(|i| {
+                if base[i] < 0.0 {
+                    return 0.0;
+                }
                 params.uplift_scale
                     * ((fields.arc[i] + fields.collision[i]) * inv_slope + fields.rift_delta[i])
             })

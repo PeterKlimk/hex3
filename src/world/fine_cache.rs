@@ -27,7 +27,12 @@ use super::{Atmosphere, Crust, Elevation, FeatureFields, Tessellation};
 /// atmosphere / the generators) and do not need a bump.
 /// v2: hydrology became area-weighted; the fine-mesh density prior now reads
 /// flow as a count-equivalent (`flow_count_equiv`), shifting the sampled mesh.
-const FINE_BASE_CACHE_VERSION: u32 = 2;
+/// v3: (a) `atmosphere.wind` is now part of the key (it's transferred into the
+/// base and drives orographic precip), so a wind-only change is no longer a
+/// false hit; (b) coarse drainage now uses distance-normalized steepest descent,
+/// which shifts the flow field feeding the fine-mesh density prior — a
+/// generation-logic change the content hash can't observe.
+const FINE_BASE_CACHE_VERSION: u32 = 3;
 
 /// How the fine-mesh base should use the on-disk cache.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -87,6 +92,9 @@ pub fn fine_base_key(
     mix_f32s(&mut h, &atmosphere.temperature);
     mix_f32s(&mut h, &atmosphere.precipitation);
     mix_f32s(&mut h, &atmosphere.uplift);
+    // Wind is transferred into the fine base (`fine.rs`) and consumed by the
+    // orographic-precip feedback, so it must be in the key too.
+    mix_vec3s(&mut h, &atmosphere.wind);
 
     mix_f32s(&mut h, &crust.signed_margin_distance);
     mix_u64(&mut h, crust.cell_craton.len() as u64);

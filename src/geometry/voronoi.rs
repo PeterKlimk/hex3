@@ -294,9 +294,13 @@ fn circumcenter_on_sphere(a: Vec3, b: Vec3, c: Vec3) -> Vec3 {
     // For convex hull of sphere points, the facet normal points outward
     let center = normal.normalize();
 
-    // Check if the center is on the correct side (same hemisphere as the triangle centroid)
-    let centroid = (a + b + c).normalize();
-    if center.dot(centroid) < 0.0 {
+    // Pick the hemisphere containing the supporting plane of the triangle. The
+    // circumcenter direction satisfies center·a == center·b == center·c, so any
+    // vertex is a robust reference. (Testing against the arithmetic centroid
+    // direction is WRONG for obtuse spherical triangles, whose circumcenter lies
+    // outside the triangle and can have center·centroid < 0 while center·a > 0,
+    // flipping a correct vertex into the antipodal hemisphere.)
+    if center.dot(a) < 0.0 {
         -center
     } else {
         center

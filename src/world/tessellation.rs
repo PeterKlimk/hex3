@@ -220,17 +220,54 @@ impl Tessellation {
         let adjacency = {
             let _t = Timed::debug("  Build adjacency (native)");
             let native = diagram.build_adjacency();
-            let mut offsets = Vec::with_capacity(diagram.num_cells() + 1);
-            let mut neighbors = Vec::with_capacity(diagram.num_cells() * 6);
-            offsets.push(0);
-            for i in 0..diagram.num_cells() {
-                neighbors.extend(
+            let num_cells = diagram.num_cells();
+            let mut neighbor_lists: Vec<Vec<usize>> = (0..num_cells)
+                .map(|i| {
                     native
                         .neighbors_of(i)
                         .iter()
                         .filter(|&&n| n != s2_voronoi::adjacency::NO_NEIGHBOR)
-                        .map(|&n| n as usize),
+                        .map(|&n| n as usize)
+                        .collect()
+                })
+                .collect();
+
+            // Repair orphan cells (no neighbors after dropping defective edges).
+            // Downstream hydrology/erosion assume a connected graph; an orphan
+            // would otherwise become a silent no-drainage island that loses flow
+            // or is skipped entirely. Link each orphan to its nearest generator
+            // (symmetrically) so it has at least one outlet. Orphans are rare, so
+            // the kd-tree is built only when needed.
+            let orphans: Vec<usize> = (0..num_cells)
+                .filter(|&i| neighbor_lists[i].is_empty())
+                .collect();
+            if !orphans.is_empty() {
+                use kiddo::{ImmutableKdTree, SquaredEuclidean};
+                let gens = diagram.generators();
+                let entries: Vec<[f32; 3]> = gens.iter().map(|g| [g.x, g.y, g.z]).collect();
+                let tree: ImmutableKdTree<f32, 3> = ImmutableKdTree::new_from_slice(&entries);
+                for &o in &orphans {
+                    // nearest_n(_, 2): the first hit is the orphan itself (d=0);
+                    // take the next-nearest distinct generator.
+                    let hits = tree.nearest_n::<SquaredEuclidean>(&entries[o], 2);
+                    if let Some(nearest) = hits.iter().map(|h| h.item as usize).find(|&j| j != o) {
+                        neighbor_lists[o].push(nearest);
+                        if !neighbor_lists[nearest].contains(&o) {
+                            neighbor_lists[nearest].push(o);
+                        }
+                    }
+                }
+                log::warn!(
+                    "s2-voronoi: repaired {} orphan cell(s) by linking to nearest generator",
+                    orphans.len()
                 );
+            }
+
+            let mut offsets = Vec::with_capacity(num_cells + 1);
+            let mut neighbors = Vec::with_capacity(num_cells * 6);
+            offsets.push(0);
+            for list in &neighbor_lists {
+                neighbors.extend_from_slice(list);
                 offsets.push(neighbors.len());
             }
             CellAdjacency { offsets, neighbors }
@@ -262,15 +299,6 @@ impl Tessellation {
 
             SphericalVoronoi::from_raw_parts(generators, vertices, cells, cell_indices)
         };
-
-        // Diagnostic: count orphan cells (no neighbors)
-        let orphan_count = adjacency.iter().filter(|a| a.is_empty()).count();
-        if orphan_count > 0 {
-            log::warn!(
-                "s2-voronoi: {} cells have no neighbors (orphans)",
-                orphan_count
-            );
-        }
 
         Self { voronoi, adjacency }
     }
