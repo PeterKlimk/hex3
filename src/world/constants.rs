@@ -33,6 +33,17 @@ pub const CRATON_NOISE_WEIGHT: f32 = 1.2;
 /// Scale factor for boundary forcing used by tectonic features (arcs, trenches, ridges).
 pub const FEATURE_FORCE_SCALE: f32 = 35.0;
 
+/// Reference boundary spacing (mean neighbor arc distance, radians) at the design
+/// resolution (~100k coarse cells, measured 0.012558). The magnitude-feature seeds
+/// (trench/forearc/arc/ridge/collision/rift) are an edge-length-weighted MEAN rate
+/// times this FIXED length — an intensive quantity, so per-cell forcing (and thus
+/// feature heights) is independent of cell count. Multiplying by this constant
+/// keeps the absolute forcing scale matched to the historical area-scaled-sum
+/// formulation at the design resolution, so the existing `*_SENSITIVITY` / `*_MAX`
+/// constants need no re-tuning. (Do NOT replace with the live `mean_neighbor_dist`
+/// — that would reintroduce the 1/sqrt(N) resolution dependence this removes.)
+pub const FEATURE_FORCE_REF_SPACING: f32 = 0.012558;
+
 // Screened diffusion solver parameters
 
 /// Damping factor for Gauss-Seidel iteration (0 < ω ≤ 1). Lower = more stable.

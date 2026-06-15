@@ -145,6 +145,19 @@ impl FeatureFields {
         let mut rift_seed_strength = vec![0.0f32; num_cells];
         let mut rift_seed_dist0 = vec![f32::INFINITY; num_cells];
 
+        // Per-cell boundary length contributing to each magnitude-feature seed.
+        // The seed is accumulated as Σ(rate·mult·SCALE·edge_length) and divided by
+        // this Σ(edge_length) after the loop, yielding an edge-length-weighted MEAN
+        // rate (intensive, resolution-invariant). See `normalize_force_seed` and
+        // FEATURE_FORCE_REF_SPACING.
+        let mut trench_seed_weight = vec![0.0f32; num_cells];
+        let mut forearc_seed_weight = vec![0.0f32; num_cells];
+        let mut arc_seed_weight_cont = vec![0.0f32; num_cells];
+        let mut arc_seed_weight_ocean = vec![0.0f32; num_cells];
+        let mut ridge_seed_weight_ocean = vec![0.0f32; num_cells];
+        let mut collision_seed_weight = vec![0.0f32; num_cells];
+        let mut rift_seed_weight = vec![0.0f32; num_cells];
+
         let mut activity_seed = vec![0.0f32; num_cells];
         let mut convergent_seed = vec![0.0f32; num_cells];
         let mut divergent_seed = vec![0.0f32; num_cells];
@@ -217,31 +230,58 @@ impl FeatureFields {
                     let subd_force_a = closing * subd_mult_a * b.edge_length * FEATURE_FORCE_SCALE;
                     let subd_force_b = closing * subd_mult_b * b.edge_length * FEATURE_FORCE_SCALE;
 
-                    // Handle subduction (trench + arc) vs collision
+                    // Handle subduction (trench + arc) vs collision.
+                    //
+                    // Seeds accumulate Σ(force·edge_length already folded in) and a
+                    // parallel Σ(edge_length) weight; `normalize_force_seed` divides
+                    // them after the loop to an intensive (resolution-invariant) mean.
+                    // `area_scale` is intentionally gone — the edge-length-weighted
+                    // mean already handles per-cell normalization without the cell
+                    // count dependence area_scale's sum form carried.
                     if let Some(polarity) = b.subduction {
                         match polarity {
                             SubductionPolarity::ASubducts => {
                                 // A subducts: trench on A if oceanic; arc on B (overriding)
                                 if b.type_a == CrustType::Oceanic {
-                                    trench_seed_strength[b.cell_a] +=
-                                        subd_force_a * area_scale(b.cell_a);
+                                    add_force_seed(
+                                        &mut trench_seed_strength,
+                                        &mut trench_seed_weight,
+                                        b.cell_a,
+                                        subd_force_a,
+                                        b.edge_length,
+                                    );
                                     trench_seed_dist0[b.cell_a] =
                                         trench_seed_dist0[b.cell_a].min(dist0_a);
-                                    forearc_seed_strength[b.cell_b] +=
-                                        subd_force_a * area_scale(b.cell_b);
+                                    add_force_seed(
+                                        &mut forearc_seed_strength,
+                                        &mut forearc_seed_weight,
+                                        b.cell_b,
+                                        subd_force_a,
+                                        b.edge_length,
+                                    );
                                     forearc_seed_dist0[b.cell_b] =
                                         forearc_seed_dist0[b.cell_b].min(dist0_b);
                                 }
                                 match b.type_b {
                                     CrustType::Continental => {
-                                        arc_seed_strength_cont[b.cell_b] +=
-                                            uplift_force_b * area_scale(b.cell_b);
+                                        add_force_seed(
+                                            &mut arc_seed_strength_cont,
+                                            &mut arc_seed_weight_cont,
+                                            b.cell_b,
+                                            uplift_force_b,
+                                            b.edge_length,
+                                        );
                                         arc_seed_dist0_cont[b.cell_b] =
                                             arc_seed_dist0_cont[b.cell_b].min(dist0_b);
                                     }
                                     CrustType::Oceanic => {
-                                        arc_seed_strength_ocean[b.cell_b] +=
-                                            uplift_force_b * area_scale(b.cell_b);
+                                        add_force_seed(
+                                            &mut arc_seed_strength_ocean,
+                                            &mut arc_seed_weight_ocean,
+                                            b.cell_b,
+                                            uplift_force_b,
+                                            b.edge_length,
+                                        );
                                         arc_seed_dist0_ocean[b.cell_b] =
                                             arc_seed_dist0_ocean[b.cell_b].min(dist0_b);
                                     }
@@ -249,25 +289,45 @@ impl FeatureFields {
                             }
                             SubductionPolarity::BSubducts => {
                                 if b.type_b == CrustType::Oceanic {
-                                    trench_seed_strength[b.cell_b] +=
-                                        subd_force_b * area_scale(b.cell_b);
+                                    add_force_seed(
+                                        &mut trench_seed_strength,
+                                        &mut trench_seed_weight,
+                                        b.cell_b,
+                                        subd_force_b,
+                                        b.edge_length,
+                                    );
                                     trench_seed_dist0[b.cell_b] =
                                         trench_seed_dist0[b.cell_b].min(dist0_b);
-                                    forearc_seed_strength[b.cell_a] +=
-                                        subd_force_b * area_scale(b.cell_a);
+                                    add_force_seed(
+                                        &mut forearc_seed_strength,
+                                        &mut forearc_seed_weight,
+                                        b.cell_a,
+                                        subd_force_b,
+                                        b.edge_length,
+                                    );
                                     forearc_seed_dist0[b.cell_a] =
                                         forearc_seed_dist0[b.cell_a].min(dist0_a);
                                 }
                                 match b.type_a {
                                     CrustType::Continental => {
-                                        arc_seed_strength_cont[b.cell_a] +=
-                                            uplift_force_a * area_scale(b.cell_a);
+                                        add_force_seed(
+                                            &mut arc_seed_strength_cont,
+                                            &mut arc_seed_weight_cont,
+                                            b.cell_a,
+                                            uplift_force_a,
+                                            b.edge_length,
+                                        );
                                         arc_seed_dist0_cont[b.cell_a] =
                                             arc_seed_dist0_cont[b.cell_a].min(dist0_a);
                                     }
                                     CrustType::Oceanic => {
-                                        arc_seed_strength_ocean[b.cell_a] +=
-                                            uplift_force_a * area_scale(b.cell_a);
+                                        add_force_seed(
+                                            &mut arc_seed_strength_ocean,
+                                            &mut arc_seed_weight_ocean,
+                                            b.cell_a,
+                                            uplift_force_a,
+                                            b.edge_length,
+                                        );
                                         arc_seed_dist0_ocean[b.cell_a] =
                                             arc_seed_dist0_ocean[b.cell_a].min(dist0_a);
                                     }
@@ -278,12 +338,22 @@ impl FeatureFields {
                         // No subduction polarity = continent-continent collision
                         if b.type_a == CrustType::Continental && b.type_b == CrustType::Continental
                         {
-                            collision_seed_strength[b.cell_a] +=
-                                uplift_force_a * area_scale(b.cell_a);
+                            add_force_seed(
+                                &mut collision_seed_strength,
+                                &mut collision_seed_weight,
+                                b.cell_a,
+                                uplift_force_a,
+                                b.edge_length,
+                            );
                             collision_seed_dist0[b.cell_a] =
                                 collision_seed_dist0[b.cell_a].min(dist0_a);
-                            collision_seed_strength[b.cell_b] +=
-                                uplift_force_b * area_scale(b.cell_b);
+                            add_force_seed(
+                                &mut collision_seed_strength,
+                                &mut collision_seed_weight,
+                                b.cell_b,
+                                uplift_force_b,
+                                b.edge_length,
+                            );
                             collision_seed_dist0[b.cell_b] =
                                 collision_seed_dist0[b.cell_b].min(dist0_b);
                         }
@@ -300,12 +370,24 @@ impl FeatureFields {
                     // Mid-ocean ridges for ocean-ocean divergence
                     if b.type_a == CrustType::Oceanic && b.type_b == CrustType::Oceanic {
                         let force = opening * DIV_OCEAN_OCEAN * b.edge_length * FEATURE_FORCE_SCALE;
-                        ridge_seed_strength_ocean[b.cell_a] += force * area_scale(b.cell_a);
+                        add_force_seed(
+                            &mut ridge_seed_strength_ocean,
+                            &mut ridge_seed_weight_ocean,
+                            b.cell_a,
+                            force,
+                            b.edge_length,
+                        );
                         ridge_seed_dist0_ocean[b.cell_a] =
                             ridge_seed_dist0_ocean[b.cell_a].min(dist0_a);
                         ridge_opening_seed_sum[b.cell_a] += opening;
                         ridge_opening_seed_count[b.cell_a] += 1.0;
-                        ridge_seed_strength_ocean[b.cell_b] += force * area_scale(b.cell_b);
+                        add_force_seed(
+                            &mut ridge_seed_strength_ocean,
+                            &mut ridge_seed_weight_ocean,
+                            b.cell_b,
+                            force,
+                            b.edge_length,
+                        );
                         ridge_seed_dist0_ocean[b.cell_b] =
                             ridge_seed_dist0_ocean[b.cell_b].min(dist0_b);
                         ridge_opening_seed_sum[b.cell_b] += opening;
@@ -323,7 +405,13 @@ impl FeatureFields {
                             DIV_CONT_OCEAN
                         };
                         let force = opening * mult * b.edge_length * FEATURE_FORCE_SCALE;
-                        rift_seed_strength[b.cell_a] += force * area_scale(b.cell_a);
+                        add_force_seed(
+                            &mut rift_seed_strength,
+                            &mut rift_seed_weight,
+                            b.cell_a,
+                            force,
+                            b.edge_length,
+                        );
                         rift_seed_dist0[b.cell_a] = rift_seed_dist0[b.cell_a].min(dist0_a);
                     }
                     if b.type_b == CrustType::Continental {
@@ -333,7 +421,13 @@ impl FeatureFields {
                             DIV_CONT_OCEAN
                         };
                         let force = opening * mult * b.edge_length * FEATURE_FORCE_SCALE;
-                        rift_seed_strength[b.cell_b] += force * area_scale(b.cell_b);
+                        add_force_seed(
+                            &mut rift_seed_strength,
+                            &mut rift_seed_weight,
+                            b.cell_b,
+                            force,
+                            b.edge_length,
+                        );
                         rift_seed_dist0[b.cell_b] = rift_seed_dist0[b.cell_b].min(dist0_b);
                     }
                 }
@@ -343,6 +437,20 @@ impl FeatureFields {
                 }
             }
         }
+
+        // Convert the accumulated Σ(force·edge_length) seeds into intensive,
+        // resolution-invariant per-cell forcing (edge-length-weighted mean rate ×
+        // FEATURE_FORCE_REF_SPACING). Distance fields below only test strength > 0
+        // (presence), so this normalization leaves the geometry unchanged; it
+        // rescales the AMPLITUDES that feed `compute_smoothed_boundary_forcing` ->
+        // `sqrt_response`, removing the old ~1/sqrt(N) cell-count dependence.
+        normalize_force_seed(&mut trench_seed_strength, &trench_seed_weight);
+        normalize_force_seed(&mut forearc_seed_strength, &forearc_seed_weight);
+        normalize_force_seed(&mut arc_seed_strength_cont, &arc_seed_weight_cont);
+        normalize_force_seed(&mut arc_seed_strength_ocean, &arc_seed_weight_ocean);
+        normalize_force_seed(&mut ridge_seed_strength_ocean, &ridge_seed_weight_ocean);
+        normalize_force_seed(&mut collision_seed_strength, &collision_seed_weight);
+        normalize_force_seed(&mut rift_seed_strength, &rift_seed_weight);
 
         // Compute edge-anchored distance fields from seeds.
         let trench_dist = distance_field_from_edge_seed_cells(
@@ -862,6 +970,36 @@ fn cell_pair_edge_midpoint(
     })
 }
 
+/// Accumulate one boundary edge's contribution to a magnitude-feature seed:
+/// `force` (which already folds in `edge_length`) into the strength sum, and
+/// `edge_length` into the weight sum. After the boundary loop,
+/// `normalize_force_seed` divides the two to an intensive mean.
+#[inline]
+fn add_force_seed(
+    strength: &mut [f32],
+    weight: &mut [f32],
+    cell: usize,
+    force: f32,
+    edge_length: f32,
+) {
+    strength[cell] += force;
+    weight[cell] += edge_length;
+}
+
+/// Turn an accumulated Σ(rate·mult·SCALE·edge_length) seed into an edge-length-
+/// weighted MEAN rate × `FEATURE_FORCE_REF_SPACING`. The result is intensive —
+/// independent of cell count — so feature amplitudes are resolution-invariant.
+/// Cells with no contributing boundary edge stay at 0.
+fn normalize_force_seed(strength: &mut [f32], weight: &[f32]) {
+    for i in 0..strength.len() {
+        strength[i] = if weight[i] > 0.0 {
+            strength[i] / weight[i] * FEATURE_FORCE_REF_SPACING
+        } else {
+            0.0
+        };
+    }
+}
+
 fn distance_field_from_edge_seed_cells(
     tessellation: &Tessellation,
     plates: &Plates,
@@ -1368,5 +1506,55 @@ mod tests {
         let stagnant = ridge_age_distance_from_spreading_rate(d, 0.0);
         assert!(!stagnant.is_finite());
         assert_eq!(oceanic_age_factor_from_ridge_distance(stagnant), 1.0);
+    }
+
+    /// Forcing must be INTENSIVE: a boundary cell's normalized seed depends only
+    /// on the kinematic rate, not on its edge length or how many edges it has.
+    /// This is what makes feature amplitudes resolution-invariant — refining the
+    /// mesh shrinks each boundary cell's edge length, and the old area-scaled SUM
+    /// shrank the per-cell forcing as ~edge_length (~1/sqrt(N)); the weighted MEAN
+    /// does not.
+    #[test]
+    fn force_seed_normalization_is_intensive() {
+        let rate = 0.5f32; // closing rate × mult × SCALE, the per-edge intensity
+        let expected = rate * FEATURE_FORCE_REF_SPACING;
+
+        // Coarse cell: one boundary edge of length L. force already folds in L.
+        let l_coarse = 0.02f32;
+        let (mut s_coarse, mut w_coarse) = (vec![0.0f32], vec![0.0f32]);
+        add_force_seed(&mut s_coarse, &mut w_coarse, 0, rate * l_coarse, l_coarse);
+        normalize_force_seed(&mut s_coarse, &w_coarse);
+
+        // Refined cell: half the edge length (denser mesh), same rate.
+        let l_fine = 0.01f32;
+        let (mut s_fine, mut w_fine) = (vec![0.0f32], vec![0.0f32]);
+        add_force_seed(&mut s_fine, &mut w_fine, 0, rate * l_fine, l_fine);
+        normalize_force_seed(&mut s_fine, &w_fine);
+
+        assert!(
+            (s_coarse[0] - expected).abs() < 1e-6 && (s_fine[0] - expected).abs() < 1e-6,
+            "normalized forcing must equal rate×REF regardless of edge length: \
+             coarse={}, fine={}, expected={}",
+            s_coarse[0],
+            s_fine[0],
+            expected
+        );
+
+        // Two equal-rate edges on one cell must AVERAGE (stay rate×REF), not SUM
+        // (which the old formulation did, over-forcing multi-edge boundary cells).
+        let (mut s_two, mut w_two) = (vec![0.0f32], vec![0.0f32]);
+        add_force_seed(&mut s_two, &mut w_two, 0, rate * l_fine, l_fine);
+        add_force_seed(&mut s_two, &mut w_two, 0, rate * l_fine, l_fine);
+        normalize_force_seed(&mut s_two, &w_two);
+        assert!(
+            (s_two[0] - expected).abs() < 1e-6,
+            "two equal-rate edges should average to rate×REF, got {}",
+            s_two[0]
+        );
+
+        // A cell with no contributing edge stays at zero.
+        let (mut s_zero, w_zero) = (vec![0.0f32], vec![0.0f32]);
+        normalize_force_seed(&mut s_zero, &w_zero);
+        assert_eq!(s_zero[0], 0.0);
     }
 }

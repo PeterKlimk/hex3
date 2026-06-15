@@ -303,7 +303,20 @@ Applied and verified (`cargo build`/`test`/`clippy` clean, 52 tests pass):
 - **H1** — `tessellation.rs`: orphan cells in the s2/fine mesh are repaired by linking to the
   nearest generator (symmetric), instead of only a warning. kd-tree built only when orphans exist.
 
+- **C2** — resolution invariance (follow-up commit). Corrected analysis: only the **7
+  magnitude seeds** (trench/forearc/arc/ridge/collision/rift) were resolution-dependent — they feed
+  `compute_smoothed_boundary_forcing` → `sqrt_response` with a fixed sensitivity, and per-cell
+  forcing scaled ~1/√N (so amplitudes ~N^−¼). The 4 regime seeds were already invariant (their
+  `compute_influence_field` reference scales the same way). Fix: those 7 seeds are now an
+  edge-length-weighted **mean** rate × a **fixed** `FEATURE_FORCE_REF_SPACING` (= measured 0.012558
+  at the 100k design resolution) — intensive, so amplitudes are cell-count-independent. Distance
+  fields gate on `strength > 0` only, so geometry is unchanged; `*_SENSITIVITY`/`*_MAX` need no
+  re-tuning. Verified by `force_seed_normalization_is_intensive` (a full-world 2-resolution test was
+  tried and discarded — it conflates forcing-scaling with kernel-sampling and plate-layout noise).
+  Feature values do shift slightly at 100k (multi-edge boundary cells now average, not sum); the
+  fine-cache key hashes feature fields directly, so it auto-invalidates (no version bump).
+
 Withdrawn: **H2** (no real cycle bug — see above).
 
-Not yet addressed: **C2** (√N forcing), **H2-family H4/M8** (overflow-cascade accounting),
-**H4/H6/H7/H8/H9**, all **M*/L*** items.
+Not yet addressed: **H4/M8** (basin overflow-cascade accounting — next),
+**H6/H7/H8/H9**, all **M*/L*** items.
