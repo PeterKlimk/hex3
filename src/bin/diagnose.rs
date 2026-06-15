@@ -84,6 +84,23 @@ struct Cli {
     /// <0 = use FAULT_SCARP_HEIGHT default; 0 = off (smooth fronts).
     #[arg(long, default_value_t = -1.0)]
     fault_scarp: f32,
+    /// Fine-mesh density knobs (cell-size targets in km / blend). <0 = use the
+    /// FINE_* default. Setting any forces fine-base regeneration (no cache). Use
+    /// to sweep the ocean/plains/mountain budget: e.g. --fine-plains-km 20.
+    #[arg(long, default_value_t = -1.0)]
+    fine_plains_km: f32,
+    #[arg(long, default_value_t = -1.0)]
+    fine_mountain_km: f32,
+    #[arg(long, default_value_t = -1.0)]
+    fine_ocean_km: f32,
+    #[arg(long, default_value_t = -1.0)]
+    fine_density_exponent: f32,
+    #[arg(long, default_value_t = -1.0)]
+    fine_slope_weight: f32,
+    #[arg(long, default_value_t = -1.0)]
+    fine_flow_weight: f32,
+    #[arg(long, default_value_t = -1.0)]
+    fine_activity_weight: f32,
 }
 
 fn main() {
@@ -143,6 +160,34 @@ fn main() {
     if cli.fault_scarp >= 0.0 {
         world.erosion_params.fault_scarp_height = cli.fault_scarp;
     }
+    // Fine-mesh density overrides (force regeneration so the cache can't serve a
+    // base built with the default knobs).
+    let mut dp = world.fine_density_params;
+    let overrides = [
+        (&mut dp.plains_km, cli.fine_plains_km),
+        (&mut dp.mountain_km, cli.fine_mountain_km),
+        (&mut dp.ocean_km, cli.fine_ocean_km),
+        (&mut dp.exponent, cli.fine_density_exponent),
+        (&mut dp.slope_weight, cli.fine_slope_weight),
+        (&mut dp.flow_weight, cli.fine_flow_weight),
+        (&mut dp.activity_weight, cli.fine_activity_weight),
+    ];
+    let mut density_overridden = false;
+    for (target, v) in overrides {
+        if v >= 0.0 {
+            *target = v;
+            density_overridden = true;
+        }
+    }
+    if density_overridden {
+        world.fine_density_params = dp;
+        world.fine_cache = hex3::world::FineCacheMode::Disabled;
+        eprintln!(
+            "fine density override: plains={:.1} mountain={:.1} ocean={:.1} km, exp={:.1}, weights slope/flow/activity={:.1}/{:.1}/{:.1}",
+            dp.plains_km, dp.mountain_km, dp.ocean_km, dp.exponent, dp.slope_weight, dp.flow_weight, dp.activity_weight
+        );
+    }
+
     if cli.fine_max > 0 {
         world.generate_hydrology_with_fine_cap(cli.fine_max);
     } else {
@@ -619,6 +664,147 @@ fn main() {
             u_arid,
             u_wet / u_arid.max(1e-9),
             e_med,
+        );
+    }
+
+    // ---- Density allocation audit (fine mesh only) ----
+    // Is the fine-cell budget spent where the terrain needs it? The monitor is
+    // relief-per-cell Δh_i = max_neighbour |elev_i - elev_j| — the resolved
+    // elevation step across a cell. An optimally adaptive mesh EQUIDISTRIBUTES
+    // this: classes with tiny Δh/cell (ocean, plains) are over-resolved (cells
+    // smaller than their relief needs — wasted budget); classes with large
+    // Δh/cell (mountains) carry the representation error. We report, per terrain
+    // class: cell budget (count, %), area (%), achieved vs intended cell size,
+    // and the Δh/cell distribution — so "coarsen ocean/plains?" and "are
+    // mountains starved?" are answered numerically. (Δh in elevation units;
+    // cross-class RATIOS are what matter and are unit-free.)
+    if let Some(fine) = &world.fine {
+        let areas = tess.cell_areas();
+        let density = fine.density(); // intended areal density g (cells/steradian)
+        // Δh per cell: max elevation step to a neighbour.
+        let relief: Vec<f32> = (0..n)
+            .map(|i| {
+                let e = elevation[i];
+                tess.neighbors(i)
+                    .iter()
+                    .map(|&j| (e - elevation[j]).abs())
+                    .fold(0.0f32, f32::max)
+            })
+            .collect();
+
+        // Classes by eroded elevation (independent of the relief monitor, so the
+        // equidistribution comparison isn't circular). MOUNTAIN matches the
+        // range threshold used above.
+        let class_of = |i: usize| -> usize {
+            let e = elevation[i];
+            if e < 0.0 {
+                0 // ocean
+            } else if e < 0.03 {
+                1 // lowland / plains
+            } else if e < RANGE_ELEV {
+                2 // upland / hills
+            } else {
+                3 // mountain
+            }
+        };
+        let names = ["ocean", "lowland", "upland", "mountain"];
+        let r2km2 = EARTH_RADIUS_KM * EARTH_RADIUS_KM;
+        let _ = density; // intended-size cross-check dropped (cap-scaled + coastal outliers)
+
+        println!("\n-- Density allocation audit (monitor: relief Δh per cell = max neighbour elev step) --");
+        println!("   (cell km is cap-dependent: --fine-max coarsens uniformly; relief RATIOS and %cells are cap-robust)");
+        println!(
+            "{:<9} {:>9} {:>6} {:>9} {:>6} {:>8} {:>9} {:>9} {:>10}",
+            "class", "cells", "%cell", "area Mkm²", "%area", "cell km", "Δh/cell p90", "awΔh p90", "slope p90"
+        );
+        let total_area: f32 = areas.iter().sum();
+        let mut p90_by_class = [0.0f32; 4]; // area-weighted Δh p90 (the steerable monitor)
+        let mut slope_p90_by_class = [0.0f32; 4];
+        for c in 0..4 {
+            let idx: Vec<usize> = (0..n).filter(|&i| class_of(i) == c).collect();
+            if idx.is_empty() {
+                continue;
+            }
+            let cnt = idx.len();
+            let area_sr: f32 = idx.iter().map(|&i| areas[i]).sum();
+            // Median achieved cell size (robust to a few coastal slivers).
+            let mut sizes: Vec<f32> = idx
+                .iter()
+                .map(|&i| areas[i].max(0.0).sqrt() * EARTH_RADIUS_KM)
+                .collect();
+            sizes.sort_by(f32::total_cmp);
+            let cell_km = sizes[cnt / 2];
+            // Cell-count Δh p90.
+            let mut r: Vec<f32> = idx.iter().map(|&i| relief[i]).collect();
+            r.sort_by(f32::total_cmp);
+            let cc_p90 = r[(((cnt - 1) as f32) * 0.90) as usize];
+            // Area-weighted Δh p90 (each cell weighted by its area, so big cells
+            // count proportionally — avoids small mountain cells dominating).
+            let mut rw: Vec<(f32, f32)> = idx.iter().map(|&i| (relief[i], areas[i])).collect();
+            rw.sort_by(|a, b| a.0.total_cmp(&b.0));
+            let aw_p90 = {
+                let target = 0.90 * area_sr;
+                let mut acc = 0.0f32;
+                let mut v = rw.last().map(|x| x.0).unwrap_or(0.0);
+                for &(val, a) in &rw {
+                    acc += a;
+                    if acc >= target {
+                        v = val;
+                        break;
+                    }
+                }
+                v
+            };
+            // Slope p90 = Δh per km (separates steepness from cell size: ocean's
+            // big Δh is big cells, not steep terrain — this exposes that).
+            let mut slope: Vec<f32> = idx
+                .iter()
+                .map(|&i| relief[i] / (areas[i].max(1e-20).sqrt() * EARTH_RADIUS_KM))
+                .collect();
+            slope.sort_by(f32::total_cmp);
+            let slope_p90 = slope[(((cnt - 1) as f32) * 0.90) as usize];
+            p90_by_class[c] = aw_p90;
+            slope_p90_by_class[c] = slope_p90;
+            println!(
+                "{:<9} {:>9} {:>5.1}% {:>9.1} {:>5.1}% {:>8.1} {:>11.4} {:>9.4} {:>10.5}",
+                names[c],
+                cnt,
+                100.0 * cnt as f32 / n as f32,
+                area_sr * r2km2 / 1e6,
+                100.0 * area_sr / total_area,
+                cell_km,
+                cc_p90,
+                aw_p90,
+                slope_p90,
+            );
+        }
+        // Equidistribution ratios on the AREA-WEIGHTED Δh (the quantity the prior
+        // should flatten over land). Slope ratios show how much is steepness vs
+        // cell size: if the slope ratio ≈ 1 but Δh ratio ≫ 1, it's pure cell-size
+        // (over-resolution); if slope ratio is also ≫ 1, the terrain is genuinely
+        // steeper there.
+        let safe = |x: f32| if x > 1e-9 { x } else { 1e-9 };
+        println!(
+            "  equidistribution (area-wtd Δh p90): mtn/ocean {:.1}x | mtn/lowland {:.1}x | mtn/upland {:.1}x  (1.0 = balanced)",
+            p90_by_class[3] / safe(p90_by_class[0]),
+            p90_by_class[3] / safe(p90_by_class[1]),
+            p90_by_class[3] / safe(p90_by_class[2]),
+        );
+        println!(
+            "  slope p90 ratio (Δh/km): mtn/ocean {:.1}x | mtn/lowland {:.1}x | mtn/upland {:.1}x  (steepness, cell-size removed)",
+            slope_p90_by_class[3] / safe(slope_p90_by_class[0]),
+            slope_p90_by_class[3] / safe(slope_p90_by_class[1]),
+            slope_p90_by_class[3] / safe(slope_p90_by_class[2]),
+        );
+        let ocean_cells = (0..n).filter(|&i| class_of(i) == 0).count();
+        let ocean_area: f32 = (0..n)
+            .filter(|&i| class_of(i) == 0)
+            .map(|i| areas[i])
+            .sum();
+        println!(
+            "  budget: ocean = {:.1}% of cells for {:.1}% of surface; coarsening ocean kx shrinks ocean cells k²-fold",
+            100.0 * ocean_cells as f32 / n as f32,
+            100.0 * ocean_area / total_area,
         );
     }
 }

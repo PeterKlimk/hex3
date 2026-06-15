@@ -18,7 +18,7 @@ use std::path::PathBuf;
 use glam::Vec3;
 
 use super::constants::*;
-use super::fine::FineBase;
+use super::fine::{FineBase, FineDensityParams};
 use super::{Atmosphere, Crust, Elevation, FeatureFields, Tessellation};
 
 /// Bump when fine-mesh GENERATION CODE changes (sampling / relaxation / field
@@ -59,21 +59,24 @@ pub fn fine_base_key(
     coarse_elevation: &Elevation,
     atmosphere: &Atmosphere,
     max_cells: usize,
+    density: &FineDensityParams,
 ) -> u64 {
     let mut h = 0xcbf2_9ce4_8422_2325u64; // FNV-1a offset basis
     mix_u64(&mut h, FINE_BASE_CACHE_VERSION as u64);
     mix_u64(&mut h, seed);
     mix_u64(&mut h, max_cells as u64);
 
-    // Fine density / sampling constants that shape the mesh.
+    // Fine density / sampling knobs that shape the mesh (defaults from the FINE_*
+    // consts, so a default run hashes the same values as before; an override is a
+    // distinct key -> a cache miss).
     for f in [
-        FINE_PLAINS_CELL_KM,
-        FINE_MOUNTAIN_CELL_KM,
-        FINE_OCEAN_CELL_KM,
-        FINE_DENSITY_FEATURE_EXPONENT,
-        FINE_SLOPE_DENSITY_WEIGHT,
-        FINE_FLOW_DENSITY_WEIGHT,
-        FINE_ACTIVITY_DENSITY_WEIGHT,
+        density.plains_km,
+        density.mountain_km,
+        density.ocean_km,
+        density.exponent,
+        density.slope_weight,
+        density.flow_weight,
+        density.activity_weight,
     ] {
         mix_f32(&mut h, f);
     }

@@ -18,6 +18,35 @@ use super::{Atmosphere, CellWaterState, Crust, Elevation, FeatureFields, Hydrolo
 
 type CoarseTree = ImmutableKdTree<f32, 3>;
 
+/// Runtime-tunable knobs for the fine-mesh areal density prior (defaults from the
+/// `FINE_*` consts). Lets tools sweep the ocean/plains/mountain cell-size budget
+/// and the demand blend without a recompile — mirrors [`ErosionParams`]. Changing
+/// any field changes the sampled mesh, so it is part of the fine-base cache key.
+#[derive(Debug, Clone, Copy)]
+pub struct FineDensityParams {
+    pub plains_km: f32,
+    pub mountain_km: f32,
+    pub ocean_km: f32,
+    pub exponent: f32,
+    pub slope_weight: f32,
+    pub flow_weight: f32,
+    pub activity_weight: f32,
+}
+
+impl Default for FineDensityParams {
+    fn default() -> Self {
+        Self {
+            plains_km: FINE_PLAINS_CELL_KM,
+            mountain_km: FINE_MOUNTAIN_CELL_KM,
+            ocean_km: FINE_OCEAN_CELL_KM,
+            exponent: FINE_DENSITY_FEATURE_EXPONENT,
+            slope_weight: FINE_SLOPE_DENSITY_WEIGHT,
+            flow_weight: FINE_FLOW_DENSITY_WEIGHT,
+            activity_weight: FINE_ACTIVITY_DENSITY_WEIGHT,
+        }
+    }
+}
+
 /// Fine Stage-3/4 world state. The expensive [`FineBase`] (mesh + transferred
 /// fields + pre-erosion base elevation) is built once and shared by two cheap
 /// [`FineSurface`] snapshots:
@@ -87,6 +116,7 @@ impl FineWorld {
         atmosphere: &Atmosphere,
         max_cells: usize,
         cache: FineCacheMode,
+        density_params: FineDensityParams,
     ) -> Self {
         let total = Instant::now();
         let base = FineBase::load_or_generate(
@@ -98,6 +128,7 @@ impl FineWorld {
             coarse_elevation,
             atmosphere,
             max_cells,
+            density_params,
         );
         // Pre-erosion surface: hydrology rides the un-eroded interpolated base.
         let pre = FineSurface::from_eroded(
@@ -206,6 +237,7 @@ impl FineBase {
         coarse_elevation: &Elevation,
         atmosphere: &Atmosphere,
         max_cells: usize,
+        density_params: FineDensityParams,
     ) -> Self {
         let key = fine_cache::fine_base_key(
             seed,
@@ -215,6 +247,7 @@ impl FineBase {
             coarse_elevation,
             atmosphere,
             max_cells,
+            &density_params,
         );
         if cache == FineCacheMode::Enabled {
             if let Some(base) = fine_cache::load(key) {
@@ -229,6 +262,7 @@ impl FineBase {
             coarse_elevation,
             atmosphere,
             max_cells,
+            density_params,
         );
         if matches!(cache, FineCacheMode::Enabled | FineCacheMode::Rebuild) {
             fine_cache::save(key, &base);
@@ -238,6 +272,7 @@ impl FineBase {
 
     /// Stage 3a: build the expensive, reusable fine-mesh base (steps 1–7 of the
     /// old monolith). Stops short of erosion — that's [`FineSurface::generate`].
+    #[allow(clippy::too_many_arguments)]
     pub fn generate_with_target(
         seed: u64,
         coarse_tessellation: &Tessellation,
@@ -246,6 +281,7 @@ impl FineBase {
         coarse_elevation: &Elevation,
         atmosphere: &Atmosphere,
         max_cells: usize,
+        density_params: FineDensityParams,
     ) -> Self {
         let t0 = Instant::now();
         let preview_hydrology = Hydrology::generate(
@@ -263,6 +299,7 @@ impl FineBase {
             coarse_elevation,
             features,
             &preview_hydrology,
+            &density_params,
         );
         // The cell count EMERGES from integrating the areal density over the
         // mesh; max_cells is a guardrail that uniformly coarsens if exceeded.
@@ -295,8 +332,8 @@ impl FineBase {
         log::info!(
             "fine mesh: density field {:.2?}, target sizes {:.1}-{:.1} km, emergent {:.0} cells (cap {})",
             t0.elapsed(),
-            FINE_MOUNTAIN_CELL_KM,
-            FINE_OCEAN_CELL_KM,
+            density_params.mountain_km,
+            density_params.ocean_km,
             emergent * scale as f64,
             max_cells,
         );
@@ -836,6 +873,7 @@ fn compute_areal_density(
     elevation: &Elevation,
     features: &FeatureFields,
     preview_hydrology: &Hydrology,
+    params: &FineDensityParams,
 ) -> Vec<f32> {
     let n = tessellation.num_cells();
     let max_slope = (0..n)
@@ -849,11 +887,11 @@ fn compute_areal_density(
         .fold(0.0_f32, f32::max)
         .max(1e-6);
 
-    let g_plains = cell_size_km_to_density(FINE_PLAINS_CELL_KM);
-    let g_mountain = cell_size_km_to_density(FINE_MOUNTAIN_CELL_KM);
-    let g_ocean = cell_size_km_to_density(FINE_OCEAN_CELL_KM);
-    let e = FINE_DENSITY_FEATURE_EXPONENT;
-    let wsum = FINE_SLOPE_DENSITY_WEIGHT + FINE_FLOW_DENSITY_WEIGHT + FINE_ACTIVITY_DENSITY_WEIGHT;
+    let g_plains = cell_size_km_to_density(params.plains_km);
+    let g_mountain = cell_size_km_to_density(params.mountain_km);
+    let g_ocean = cell_size_km_to_density(params.ocean_km);
+    let e = params.exponent;
+    let wsum = params.slope_weight + params.flow_weight + params.activity_weight;
 
     let mut density = Vec::with_capacity(n);
     for i in 0..n {
@@ -868,9 +906,9 @@ fn compute_areal_density(
         let slope = (elevation.slope(tessellation, i) / max_slope).powf(e);
         let flow = (preview_hydrology.flow_count_equiv(i).max(1.0).ln() / max_flow_ln).powf(e);
         let activity = features.activity[i].clamp(0.0, 1.0).powf(e);
-        let demand = (FINE_SLOPE_DENSITY_WEIGHT * slope
-            + FINE_FLOW_DENSITY_WEIGHT * flow
-            + FINE_ACTIVITY_DENSITY_WEIGHT * activity)
+        let demand = (params.slope_weight * slope
+            + params.flow_weight * flow
+            + params.activity_weight * activity)
             / wsum;
         density.push(g_plains + demand * (g_mountain - g_plains));
     }
