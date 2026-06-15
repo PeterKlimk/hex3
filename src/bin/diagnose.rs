@@ -516,6 +516,38 @@ fn main() {
         hydrology.basins.len()
     );
 
+    // ---- Zonal precipitation profile (latitude bands) ----
+    // Aggregate arid% hides WHERE the dryness is. A physical climate has wet
+    // bands at the equator (ITCZ ascent) and mid-latitudes, and DRY bands in the
+    // subtropics (~15-35°, Hadley descent). Mean LAND precip per 15° band shows
+    // whether subtropical dry bands exist (the H9 subsidence-suppression test).
+    {
+        const BW: f32 = 15.0; // band width, degrees
+        let nb = (180.0 / BW) as usize;
+        let mut sum = vec![0.0f64; nb];
+        let mut cnt = vec![0u32; nb];
+        for i in 0..n {
+            if !land[i] {
+                continue;
+            }
+            let lat = tess.cell_center(i).y.clamp(-1.0, 1.0).asin().to_degrees();
+            let b = (((lat + 90.0) / BW) as usize).min(nb - 1);
+            sum[b] += precipitation[i] as f64;
+            cnt[b] += 1;
+        }
+        println!("\n-- Zonal land precip (mean per 15° lat band)  [wet: eq + midlat; dry: subtropics ~15-35°] --");
+        let mut line = String::new();
+        for b in (0..nb).rev() {
+            if cnt[b] == 0 {
+                continue;
+            }
+            let lo = -90.0 + b as f32 * BW;
+            let mean = (sum[b] / cnt[b] as f64) as f32;
+            line.push_str(&format!("  [{:+.0}..{:+.0}] {:.2}", lo, lo + BW, mean));
+        }
+        println!("{line}");
+    }
+
     // ---- River concavity (population slope-area) — UNRELIABLE, see note ----
     // WARNING (2026-06-15): this population slope-area theta is NOT trustworthy on
     // this adaptive mesh. It returns flat/negative theta (~0) even when the river

@@ -350,11 +350,19 @@ Fixed in follow-up branch `erosion-audit-fixes` (2026-06-15):
   of `> TRANSFORM_NORMAL_THRESHOLD`, so every convergent pair gets a motion-derived polarity and
   `lookup_subduction_polarity` no longer falls back to the motion-independent `ASubducts` constant.
 
-Deferred (not a contained bug): **H9** — climate uplift can't suppress rain (subtropical deserts
-under-modeled). The convergence/orographic uplift terms are clamped `≥0` so only the signed
-circulation term opposes rain. Letting them keep sign (subsidence → drier) is a *climate-model
-change* that reshapes global precipitation and cascades into rivers/lakes — it needs its own
-validation pass, not bundling with the correctness fixes. Also still open: the **M*/L*** items.
+**H9** (branch `climate-h9`, 2026-06-16) — fixed the clamp: `compute_uplift`'s convergence and
+orographic terms are now **signed** (divergence/subsidence and lee slopes give negative uplift that
+suppresses rain), instead of clamped `≥0`. The moisture rain model was already built for signed
+uplift (`static_rain_rate`), so this is the input it expected. **Effect is modest**, not the dramatic
+subtropical-desert transformation the finding implied: a zonal precip probe (added to `diagnose`)
+shows it mainly dries high/polar latitudes (polar deserts — physical) and marginally sharpens the
+existing equator-wet/subtropics-dry contrast; the equator stays wet. arid 71%→74%. The physics is now
+correct; whether the precip *map* is better is a visual call (and the convergence/circulation weights
+could amplify it if wanted). Verdict deferred to visual review. Separate observation: the world is
+already ~71% arid land (Earth ~33%) — a possible over-aridity issue (precip scale / threshold)
+independent of H9.
+
+Still open: the **M*/L*** items.
 
 ---
 

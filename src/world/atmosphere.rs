@@ -890,7 +890,13 @@ fn compute_uplift(
     // the projection removed. Convergence (negative divergence) shows up as
     // phi maxima; the positive part above the mean is the convergence field.
     let phi_mean: f32 = phi.iter().sum::<f32>() / num_cells.max(1) as f32;
-    let convergence: Vec<f32> = phi.iter().map(|&p| (p - phi_mean).max(0.0)).collect();
+    // SIGNED: convergence (phi above mean) lifts air -> rain; divergence (below
+    // mean — the descending branch of the Hadley/Ferrel cells) gives NEGATIVE
+    // uplift that SUPPRESSES rain (subtropical dry belts). Clamping this to >=0
+    // (old behaviour) left only the lone signed circulation term able to oppose
+    // rain, so subtropical deserts were under-modeled (audit H9). The moisture
+    // rain model is built for signed uplift (`static_rain_rate` baseline+signed).
+    let convergence: Vec<f32> = phi.iter().map(|&p| p - phi_mean).collect();
 
     // Orographic uplift proxy from upslope flow (terrain-following kinematics).
     let mut orographic = vec![0.0_f32; num_cells];
@@ -907,14 +913,18 @@ fn compute_uplift(
         // coastal shelf step (otherwise uplift is a ring hugging every
         // coastline and "orographic" rain is mostly coastal rain).
         let height_factor = (elevation.values[i] / OROGRAPHIC_FULL_HEIGHT).clamp(0.0, 1.0);
+        // SIGNED: windward (wind up the gradient) lifts -> rain; lee (wind down
+        // the gradient) subsides -> rain shadow (negative). Old code clamped to
+        // >=0, so lee slopes got no orographic drying (audit H9).
         let w = wind_final[i].dot(grad) * mean_spacing * height_factor;
-        orographic[i] = w.max(0.0);
+        orographic[i] = w;
     }
 
     // Convergence and orographic components have arbitrary relative units;
-    // normalize each before weighting so the weights mean what they say.
-    let convergence = normalize_positive_field(convergence, UPLIFT_NORM_PERCENTILE);
-    let orographic = normalize_positive_field(orographic, UPLIFT_NORM_PERCENTILE);
+    // normalize each (signed) before weighting so the weights mean what they say
+    // and subsidence/lee terms keep their rain-suppressing sign.
+    let convergence = normalize_signed_field(convergence, UPLIFT_NORM_PERCENTILE);
+    let orographic = normalize_signed_field(orographic, UPLIFT_NORM_PERCENTILE);
     let circulation_vertical = normalize_signed_field(
         (0..num_cells)
             .map(|i| circulation.vertical_motion_at(tessellation.cell_center(i)))
