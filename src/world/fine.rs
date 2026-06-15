@@ -56,6 +56,10 @@ pub struct FineBase {
 pub struct FineSurface {
     pub elevation: Elevation,
     pub hydrology: Hydrology,
+    /// Precipitation this surface's hydrology used. For the eroded surface this
+    /// is the orographic precip recomputed on the eroded relief (rain shadows);
+    /// for the pre-erosion surface it is the transferred coarse precip.
+    pub precipitation: Vec<f32>,
 }
 
 /// Smooth fields transferred to the fine mesh.
@@ -65,6 +69,9 @@ pub struct FineFields {
     pub temperature: Vec<f32>,
     pub precipitation: Vec<f32>,
     pub uplift: Vec<f32>,
+    /// Surface wind (transferred), for modulating precip by orographic forcing
+    /// on the eroded relief (climate↔erosion feedback).
+    pub wind: Vec<Vec3>,
 }
 
 impl FineWorld {
@@ -93,7 +100,12 @@ impl FineWorld {
             max_cells,
         );
         // Pre-erosion surface: hydrology rides the un-eroded interpolated base.
-        let pre = FineSurface::from_eroded(seed, &base, &base.base_elevation);
+        let pre = FineSurface::from_eroded(
+            seed,
+            &base,
+            &base.base_elevation,
+            &base.fields.precipitation,
+        );
         log::info!(
             "fine mesh: stage-3 base+pre {:.2?}, cells={}, density_ratio={:.1}:1",
             total.elapsed(),
@@ -261,7 +273,11 @@ impl FineBase {
             1.0
         };
         let density: Vec<f32> = raw_density.iter().map(|&g| g * scale).collect();
-        let density_min = density.iter().copied().fold(f32::INFINITY, f32::min).max(1e-12);
+        let density_min = density
+            .iter()
+            .copied()
+            .fold(f32::INFINITY, f32::min)
+            .max(1e-12);
         let density_max = density.iter().copied().fold(f32::NEG_INFINITY, f32::max);
         let achieved_density_ratio = density_max / density_min;
         log::info!(
@@ -348,14 +364,30 @@ impl FineSurface {
             params,
         );
         log::info!("fine mesh: erosion {:.2?}", t0.elapsed());
-        Self::from_eroded(seed, base, &eroded_base)
+
+        // Climate feedback: recompute orographic precipitation on the eroded
+        // relief (rain shadows behind the carved ranges) for the final hydrology.
+        let t0 = Instant::now();
+        let precip = fine_precipitation(
+            &base.tessellation,
+            &eroded_base,
+            &base.fields.wind,
+            &base.fields.precipitation,
+            params.orographic_precip_strength,
+        );
+        log::info!(
+            "fine mesh: orographic precip modulation {:.2?}",
+            t0.elapsed()
+        );
+
+        Self::from_eroded(seed, base, &eroded_base, &precip)
     }
 
     /// Build the surface (micro-noise elevation + hydrology) from an already-
     /// eroded elevation. Shared by full generation and the UI erosion stepper,
     /// which supplies the current elevation of a resumable `ErosionState` (step 0
     /// = the un-eroded `base.base_elevation`).
-    pub fn from_eroded(seed: u64, base: &FineBase, eroded: &[f32]) -> Self {
+    pub fn from_eroded(seed: u64, base: &FineBase, eroded: &[f32], precipitation: &[f32]) -> Self {
         // Cosmetic micro noise rides on the eroded surface; this is the elevation
         // hydrology and rendering consume.
         let mut elev_rng = ChaCha8Rng::seed_from_u64(seed.wrapping_add(3));
@@ -367,7 +399,7 @@ impl FineSurface {
             &base.tessellation,
             &base.fields.elevation_fields.continentality,
             &elevation,
-            &base.fields.precipitation,
+            precipitation,
             &base.fields.temperature,
         );
         log::info!("fine mesh: hydrology {:.2?}", t0.elapsed());
@@ -375,6 +407,7 @@ impl FineSurface {
         Self {
             elevation,
             hydrology,
+            precipitation: precipitation.to_vec(),
         }
     }
 }
@@ -403,6 +436,100 @@ fn lithology_erodibility(tess: &Tessellation, seed: u64, sigma: f32) -> Vec<f32>
     {
         (0..n).map(sample).collect()
     }
+}
+
+/// Climate↔erosion feedback: modulate the (correct) coarse precipitation by the
+/// orographic forcing on the eroded fine relief — windward slopes wetter, lee
+/// drier (rain shadows behind the carved ranges). The coarse moisture model
+/// already supplied the large-scale transport and interior drying; this adds the
+/// fine-scale rain shadow the coarse mesh couldn't resolve. Re-running the full
+/// transport on the adaptive fine mesh over-dries interiors (tiny land cells →
+/// tiny CFL dt), so we modulate rather than re-transport. Renormalized to land
+/// mean 1.0 so hydrology budgets are unchanged in the mean.
+fn fine_precipitation(
+    tess: &Tessellation,
+    elevation: &[f32],
+    wind: &[Vec3],
+    coarse_precip: &[f32],
+    strength: f32,
+) -> Vec<f32> {
+    let n = tess.num_cells();
+    if strength <= 0.0 {
+        return coarse_precip.to_vec();
+    }
+
+    // Signed orographic forcing: wind·∇elev (chord gradient — acos collapses on
+    // the fine mesh), positive upslope (windward), negative downslope (lee),
+    // weighted by height so high terrain forces hardest.
+    let mut oro = vec![0.0f32; n];
+    for i in 0..n {
+        if elevation[i] <= 0.0 {
+            continue;
+        }
+        let grad = chord_gradient(tess, elevation, i);
+        if grad.length_squared() < 1e-10 {
+            continue;
+        }
+        let height_factor = (elevation[i] / OROGRAPHIC_FULL_HEIGHT).clamp(0.0, 1.0);
+        oro[i] = wind[i].dot(grad) * height_factor;
+    }
+
+    // Mesh-independent scale: a high percentile of |oro| maps to the full
+    // modulation strength (so the knob means the same on any resolution).
+    let mut mags: Vec<f32> = oro.iter().map(|o| o.abs()).filter(|m| *m > 0.0).collect();
+    let scale = if mags.is_empty() {
+        1.0
+    } else {
+        mags.sort_by(f32::total_cmp);
+        mags[((mags.len() - 1) as f32 * UPLIFT_NORM_PERCENTILE) as usize].max(1e-12)
+    };
+
+    // Windward wetter / lee drier on top of the coarse precip.
+    let mut precip: Vec<f32> = (0..n)
+        .map(|i| {
+            let f = (1.0 + strength * (oro[i] / scale).clamp(-1.0, 1.0))
+                .clamp(OROGRAPHIC_PRECIP_MIN, OROGRAPHIC_PRECIP_MAX);
+            (coarse_precip[i] * f).max(0.0)
+        })
+        .collect();
+
+    // Renormalize to land mean 1.0.
+    let (mut sum, mut cnt) = (0.0f64, 0usize);
+    for i in 0..n {
+        if elevation[i] >= 0.0 {
+            sum += precip[i] as f64;
+            cnt += 1;
+        }
+    }
+    if cnt > 0 {
+        let mean = (sum / cnt as f64) as f32;
+        if mean > 1e-6 {
+            for p in &mut precip {
+                *p /= mean;
+            }
+        }
+    }
+    precip
+}
+
+/// Tangent-plane elevation gradient using CHORD neighbour distance (f32-robust
+/// at the fine mesh's km scale, unlike acos(dot)). Magnitude ~ Δelev / Δarc.
+fn chord_gradient(tess: &Tessellation, values: &[f32], i: usize) -> Vec3 {
+    let cell_elev = values[i];
+    let cell_pos = tess.cell_center(i);
+    let mut gradient = Vec3::ZERO;
+    for &nb in tess.neighbors(i) {
+        let nb_pos = tess.cell_center(nb);
+        let to_nb = nb_pos - cell_pos;
+        let tangent = to_nb - cell_pos * cell_pos.dot(to_nb);
+        let tlen = tangent.length();
+        let dist = to_nb.length();
+        if tlen < 1e-6 || dist < 1e-9 {
+            continue;
+        }
+        gradient += tangent.normalize() * ((values[nb] - cell_elev) / dist);
+    }
+    gradient
 }
 
 fn build_coarse_tree(tessellation: &Tessellation) -> CoarseTree {
@@ -468,8 +595,7 @@ fn compute_areal_density(
     let g_mountain = cell_size_km_to_density(FINE_MOUNTAIN_CELL_KM);
     let g_ocean = cell_size_km_to_density(FINE_OCEAN_CELL_KM);
     let e = FINE_DENSITY_FEATURE_EXPONENT;
-    let wsum =
-        FINE_SLOPE_DENSITY_WEIGHT + FINE_FLOW_DENSITY_WEIGHT + FINE_ACTIVITY_DENSITY_WEIGHT;
+    let wsum = FINE_SLOPE_DENSITY_WEIGHT + FINE_FLOW_DENSITY_WEIGHT + FINE_ACTIVITY_DENSITY_WEIGHT;
 
     let mut density = Vec::with_capacity(n);
     for i in 0..n {
@@ -526,7 +652,11 @@ fn mesh_quality_probe(tessellation: &Tessellation) {
         }
     };
     #[cfg(not(feature = "single-threaded"))]
-    let mut rho: Vec<f32> = (0..n).into_par_iter().map(rho_of).filter(|r| r.is_finite()).collect();
+    let mut rho: Vec<f32> = (0..n)
+        .into_par_iter()
+        .map(rho_of)
+        .filter(|r| r.is_finite())
+        .collect();
     #[cfg(feature = "single-threaded")]
     let mut rho: Vec<f32> = (0..n).map(rho_of).filter(|r| r.is_finite()).collect();
     if rho.is_empty() {
@@ -819,7 +949,10 @@ fn interpolate_coarse_elevation(
         let pos = fine.cell_center(i);
         let nearest = coarse_cell[i];
         let mut support = InterpolationSupport::new();
-        support.push(nearest, interpolation_weight(coarse.cell_center(nearest), pos));
+        support.push(
+            nearest,
+            interpolation_weight(coarse.cell_center(nearest), pos),
+        );
         for &nb in coarse.neighbors(nearest) {
             support.push(nb, interpolation_weight(coarse.cell_center(nb), pos));
         }
@@ -892,6 +1025,7 @@ fn transfer_fields(
     let mut temperature = Vec::with_capacity(n);
     let mut precipitation = Vec::with_capacity(n);
     let mut uplift = Vec::with_capacity(n);
+    let mut wind = Vec::with_capacity(n);
 
     for cell in transferred {
         elevation_fields.crust_thickness.push(cell.crust_thickness);
@@ -912,6 +1046,7 @@ fn transfer_fields(
         temperature.push(cell.temperature);
         precipitation.push(cell.precipitation);
         uplift.push(cell.uplift);
+        wind.push(cell.wind);
     }
 
     FineFields {
@@ -919,6 +1054,7 @@ fn transfer_fields(
         temperature,
         precipitation,
         uplift,
+        wind,
     }
 }
 
@@ -936,6 +1072,7 @@ struct TransferredCell {
     temperature: f32,
     precipitation: f32,
     uplift: f32,
+    wind: Vec3,
 }
 
 fn transfer_cell(
@@ -969,6 +1106,7 @@ fn transfer_cell(
         temperature: support.interpolate(&atmosphere.temperature, 0.0),
         precipitation: support.interpolate(&atmosphere.precipitation, 0.0).max(0.0),
         uplift: support.interpolate(&atmosphere.uplift, 0.0),
+        wind: support.interpolate_vec3(&atmosphere.wind),
     }
 }
 
@@ -1017,6 +1155,32 @@ impl InterpolationSupport {
             weighted / total
         } else {
             fallback
+        }
+    }
+
+    /// Inverse-distance interpolate a Vec3 field (no renormalization — wind is a
+    /// velocity, not a direction). ZERO fallback if no finite support.
+    fn interpolate_vec3(&self, field: &[Vec3]) -> Vec3 {
+        let mut weighted = Vec3::ZERO;
+        let mut total = 0.0f32;
+        for &(idx, weight) in &self.entries[..self.len] {
+            let v = field[idx];
+            if v.is_finite() {
+                weighted += v * weight;
+                total += weight;
+            }
+        }
+        for &(idx, weight) in &self.overflow {
+            let v = field[idx];
+            if v.is_finite() {
+                weighted += v * weight;
+                total += weight;
+            }
+        }
+        if total > 0.0 {
+            weighted / total
+        } else {
+            Vec3::ZERO
         }
     }
 }

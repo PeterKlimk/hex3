@@ -766,3 +766,23 @@ pub const EROSION_LITHO_FREQUENCY: f64 = 12.0;
 
 /// fBm octaves for the lithology field (multi-scale terrane → formation grain).
 pub const EROSION_LITHO_OCTAVES: usize = 4;
+
+// --- Orographic precipitation feedback (climate↔erosion) ---------------------
+//
+// After erosion carves the fine relief, the coarse precipitation is modulated by
+// the orographic forcing (wind·∇elev) on the NEW relief: windward slopes wetter,
+// lee drier (rain shadows behind the carved ranges). The coarse moisture model
+// already handled the large-scale transport; this adds the fine-scale detail the
+// coarse mesh couldn't resolve. Renormalized to land mean 1.0 so hydrology
+// budgets are unchanged in the mean.
+
+/// Strength of the orographic precip modulation. The per-cell factor is
+/// (1 + STRENGTH * signed_orographic_norm), clamped to [MIN, MAX]. 0 disables it
+/// (precip = coarse). Up = sharper rain shadows. Conservative default — the
+/// effect is local (windward/lee of a range) so it's judged on maps, not the
+/// global drainage-density probe; sweep with diagnose --erosion-orographic-strength.
+pub const OROGRAPHIC_PRECIP_STRENGTH: f32 = 0.6;
+/// Lower clamp on the modulation factor (driest lee = MIN x coarse precip).
+pub const OROGRAPHIC_PRECIP_MIN: f32 = 0.3;
+/// Upper clamp on the modulation factor (wettest windward = MAX x coarse precip).
+pub const OROGRAPHIC_PRECIP_MAX: f32 = 2.5;

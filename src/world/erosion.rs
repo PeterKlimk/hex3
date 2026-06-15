@@ -76,6 +76,9 @@ pub struct ErosionParams {
     /// multiplier is exp(sigma * fbm), normalized to unit mean over land so it
     /// only redistributes incision. 0 = uniform K.
     pub litho_sigma: f32,
+    /// Strength of the orographic precip modulation on the eroded fine relief
+    /// (climate↔erosion feedback: windward wetter, lee drier). 0 = coarse precip.
+    pub orographic_precip_strength: f32,
 }
 
 impl Default for ErosionParams {
@@ -92,6 +95,7 @@ impl Default for ErosionParams {
             deposit_fill_fraction: EROSION_DEPOSIT_FILL_FRACTION,
             channel_support_km2: EROSION_CHANNEL_SUPPORT_KM2,
             litho_sigma: EROSION_LITHO_SIGMA,
+            orographic_precip_strength: OROGRAPHIC_PRECIP_STRENGTH,
         }
     }
 }

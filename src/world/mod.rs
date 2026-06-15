@@ -46,8 +46,8 @@ pub use crust::{Crust, CrustType};
 pub const NUM_PLATES_DEFAULT: usize = 14;
 pub use dynamics::{Dynamics, EulerPole};
 pub use elevation::{Elevation, NoiseLayerData};
-pub use features::FeatureFields;
 pub use erosion::ErosionParams;
+pub use features::FeatureFields;
 pub use fine::{FineBase, FineFields, FineSurface, FineWorld};
 pub use fine_cache::FineCacheMode;
 pub use hydrology::{Basin, CellWaterState, Hydrology, WaterBody, DEFAULT_CLIMATE_RATIO};
@@ -374,7 +374,14 @@ impl World {
     pub fn active_elevation(&self) -> Option<&Elevation> {
         if self.shows_fine() {
             // Stage 3 -> pre-erosion surface; stage 4 -> eroded surface.
-            return Some(&self.fine.as_ref().unwrap().surface_for(self.view_stage).elevation);
+            return Some(
+                &self
+                    .fine
+                    .as_ref()
+                    .unwrap()
+                    .surface_for(self.view_stage)
+                    .elevation,
+            );
         }
         // Elevation is stage 1, shown at any view stage >= 1.
         self.elevation.as_ref()
@@ -425,7 +432,7 @@ impl World {
                 self.fine
                     .as_ref()
                     .unwrap()
-                    .fields()
+                    .surface_for(self.view_stage)
                     .precipitation
                     .as_slice(),
             );

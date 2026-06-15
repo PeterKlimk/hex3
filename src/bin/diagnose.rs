@@ -54,6 +54,10 @@ struct Cli {
     /// default; 0 = relaxation only (no uplift).
     #[arg(long, default_value_t = -1.0)]
     erosion_uplift_scale: f32,
+    /// Override orographic precip modulation strength (climate↔erosion: windward
+    /// wetter, lee drier). <0 = use OROGRAPHIC_PRECIP_STRENGTH; 0 = coarse precip.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_orographic_strength: f32,
 }
 
 fn main() {
@@ -91,6 +95,9 @@ fn main() {
     }
     if cli.erosion_uplift_scale >= 0.0 {
         world.erosion_params.uplift_scale = cli.erosion_uplift_scale;
+    }
+    if cli.erosion_orographic_strength >= 0.0 {
+        world.erosion_params.orographic_precip_strength = cli.erosion_orographic_strength;
     }
     if cli.fine_max > 0 {
         world.generate_hydrology_with_fine_cap(cli.fine_max);
