@@ -37,32 +37,27 @@ pub struct Elevation {
     /// Elevation at each cell.
     pub values: Vec<f32>,
 
-    /// Combined simulation noise contribution at each cell (macro + hills + ridges).
+    /// Simulation noise contribution at each cell (macro only; hills/ridge retired).
     ///
-    /// This excludes micro noise, which is cosmetic-only and stored separately in `noise_layers`.
+    /// Excludes micro noise, which is cosmetic-only and stored separately in `noise_layers`.
     pub noise_contribution: Vec<f32>,
 
     /// Individual noise layer contributions (for visualization).
     pub noise_layers: NoiseLayerData,
 }
 
-/// Individual noise layer contributions for visualization.
+/// Individual noise layer contributions for visualization (macro + micro only;
+/// hills/ridge retired — see docs/specs/erosion-v2.md).
 pub struct NoiseLayerData {
     /// Macro layer (continental tilt).
     pub macro_layer: Vec<f32>,
-    /// Hills layer (regional terrain).
-    pub hills_layer: Vec<f32>,
-    /// Ridge layer (drainage divides).
-    pub ridge_layer: Vec<f32>,
     /// Micro layer (surface texture).
     pub micro_layer: Vec<f32>,
 }
 
-/// Collection of noise generators for the four terrain layers.
+/// Noise generators for the two surviving terrain layers (macro + micro).
 struct TerrainNoise {
     macro_fbm: Fbm<Perlin>,
-    hills_fbm: Fbm<Perlin>,
-    ridge_fbm: Fbm<Perlin>,
     micro_fbm: Fbm<Perlin>,
 }
 
@@ -96,8 +91,6 @@ impl TerrainNoise {
     fn new<R: Rng>(rng: &mut R) -> Self {
         Self {
             macro_fbm: Fbm::new(rng.gen()).set_octaves(MACRO_OCTAVES),
-            hills_fbm: Fbm::new(rng.gen()).set_octaves(HILLS_OCTAVES),
-            ridge_fbm: Fbm::new(rng.gen()).set_octaves(RIDGE_OCTAVES),
             micro_fbm: Fbm::new(rng.gen()).set_octaves(MICRO_OCTAVES),
         }
     }
@@ -115,63 +108,10 @@ impl TerrainNoise {
         sample * MACRO_THICKNESS_AMPLITUDE * mult
     }
 
-    /// Sample the surface noise layers at a position, with modulation.
-    /// Returns (hills, ridge, micro) contributions.
-    fn sample(
-        &self,
-        pos: Vec3,
-        convergent: f32,
-        divergent: f32,
-        is_continental: bool,
-        is_underwater: bool,
-    ) -> (f32, f32, f32) {
-        let comp_driver = convergent.clamp(0.0, 1.0);
-        let ext_driver = divergent.clamp(0.0, 1.0);
-
-        // Hills layer: regional terrain.
-        // Suppressed in active compressional orogens.
-        let hills_pos = pos * HILLS_FREQUENCY as f32;
-        let mut hills_sample =
-            self.hills_fbm
-                .get([hills_pos.x as f64, hills_pos.y as f64, hills_pos.z as f64])
-                as f32;
-        // In extension on continents, bias hills slightly downward to suggest rift basins/grabens.
-        if is_continental {
-            hills_sample -= HILLS_EXT_BIAS * ext_driver;
-        }
-        let hills_plate_mult = if is_continental {
-            1.0
-        } else {
-            HILLS_OCEANIC_MULT
-        };
-        let hills_orogen_suppress = 1.0 - comp_driver * 0.8;
-        let hills_amp = HILLS_AMPLITUDE * hills_plate_mult * hills_orogen_suppress;
-        let hills_contrib = hills_sample * hills_amp;
-
-        // Ridge layer: simple 3D noise, biased upward, modulated by convergence
-        let ridge_contrib = {
-            let ridge_pos = pos * RIDGE_FREQUENCY as f32;
-            let ridge_raw =
-                self.ridge_fbm
-                    .get([ridge_pos.x as f64, ridge_pos.y as f64, ridge_pos.z as f64])
-                    as f32;
-
-            // Remap from observed range [-0.5, 0.5] to [0, 1]
-            let ridge_biased = (ridge_raw + 0.5).clamp(0.0, 1.0);
-
-            // Modulate by convergence so it only affects mountains
-            let mountain_factor = comp_driver;
-
-            let plate_mult = if is_continental {
-                1.0
-            } else {
-                RIDGE_OCEANIC_MULT
-            };
-
-            ridge_biased * mountain_factor * RIDGE_AMPLITUDE * plate_mult
-        };
-
-        // Micro layer: surface texture (cosmetic)
+    /// Sample the cosmetic micro-texture noise at a position (the only surface
+    /// noise still applied — hills/ridge were retired; erosion supplies real
+    /// relief). Simulation-excluded; consumed only by rendering.
+    fn sample_micro(&self, pos: Vec3, is_underwater: bool) -> f32 {
         let micro_pos = pos * MICRO_FREQUENCY as f32;
         let micro_sample =
             self.micro_fbm
@@ -183,9 +123,7 @@ impl TerrainNoise {
             } else {
                 1.0
             };
-        let micro_contrib = micro_sample * micro_amp;
-
-        (hills_contrib, ridge_contrib, micro_contrib)
+        micro_sample * micro_amp
     }
 }
 
@@ -224,20 +162,18 @@ impl Elevation {
         let n = tessellation.num_cells();
 
         let micro_layer: Vec<f32> = {
-            let sample_micro = |i: usize| {
+            let micro_at = |i: usize| {
                 let pos = tessellation.cell_center(i);
                 let underwater = base_elevation[i] < 0.0;
-                let (_hills, _ridge, micro) =
-                    noise.sample(pos, 0.0, 0.0, !underwater, underwater);
-                micro
+                noise.sample_micro(pos, underwater)
             };
             #[cfg(not(feature = "single-threaded"))]
             {
-                (0..n).into_par_iter().map(sample_micro).collect()
+                (0..n).into_par_iter().map(micro_at).collect()
             }
             #[cfg(feature = "single-threaded")]
             {
-                (0..n).map(sample_micro).collect()
+                (0..n).map(micro_at).collect()
             }
         };
 
@@ -246,8 +182,6 @@ impl Elevation {
             noise_contribution: vec![0.0; n],
             noise_layers: NoiseLayerData {
                 macro_layer: vec![0.0; n],
-                hills_layer: vec![0.0; n],
-                ridge_layer: vec![0.0; n],
                 micro_layer,
             },
         }
@@ -449,16 +383,12 @@ fn assemble_heightmap_with_noise(
     let mut elevations = Vec::with_capacity(num_cells);
     let mut noise_contributions = Vec::with_capacity(num_cells);
     let mut macro_layer = Vec::with_capacity(num_cells);
-    let mut hills_layer = Vec::with_capacity(num_cells);
-    let mut ridge_layer = Vec::with_capacity(num_cells);
     let mut micro_layer = Vec::with_capacity(num_cells);
 
     for cell in assembled {
         elevations.push(cell.elevation);
         noise_contributions.push(cell.noise_contribution);
         macro_layer.push(cell.macro_layer);
-        hills_layer.push(cell.hills_layer);
-        ridge_layer.push(cell.ridge_layer);
         micro_layer.push(cell.micro_layer);
     }
 
@@ -501,8 +431,6 @@ fn assemble_heightmap_with_noise(
 
     let noise_layers = NoiseLayerData {
         macro_layer,
-        hills_layer,
-        ridge_layer,
         micro_layer,
     };
 
@@ -513,8 +441,6 @@ struct AssembledElevationCell {
     elevation: f32,
     noise_contribution: f32,
     macro_layer: f32,
-    hills_layer: f32,
-    ridge_layer: f32,
     micro_layer: f32,
 }
 
@@ -525,10 +451,7 @@ fn assemble_elevation_cell(
     slope: f32,
     i: usize,
 ) -> AssembledElevationCell {
-    let is_continental = fields.is_continental[i];
     let pos = tessellation.cell_center(i);
-    let convergent = fields.convergent[i];
-    let divergent = fields.divergent[i];
 
     // --- 1. Crust thickness ---
     let cont = fields.continentality[i];
@@ -549,30 +472,18 @@ fn assemble_elevation_cell(
         + fields.ridge[i]
         - fields.trench[i];
 
-    // --- 3. Surface noise (hills / ridge / micro) ---
+    // --- 3. Cosmetic micro texture (the only surface noise: hills/ridge were
+    // retired, erosion supplies real relief). Neither micro nor macro enters the
+    // simulation elevation; macro is reported as its isostatic elevation
+    // contribution for the noise viz.
     let is_underwater = structural_elevation < 0.0;
-    let (hills_c, ridge_c, micro_c) =
-        noise.sample(pos, convergent, divergent, is_continental, is_underwater);
-
-    // Simulation elevation excludes micro noise (micro is cosmetic only).
-    // The macro layer is reported as its isostatic elevation contribution
-    // for visualization continuity.
-    //
-    // Phase 1 (erosion-v2): hills + ridge are appearance-paint that erosion now
-    // supersedes, so they no longer contribute to terrain — only macro (a crust-
-    // thickness perturbation) and the structural relief do. hills_c / ridge_c are
-    // still sampled into the viz layers below; the full plumbing/constant removal
-    // is a separate cleanup once the look is signed off.
+    let micro_c = noise.sample_micro(pos, is_underwater);
     let macro_c = macro_dt * slope;
-    let simulation_noise = macro_c;
-    let elevation = structural_elevation;
 
     AssembledElevationCell {
-        elevation,
-        noise_contribution: simulation_noise,
+        elevation: structural_elevation,
+        noise_contribution: macro_c,
         macro_layer: macro_c,
-        hills_layer: hills_c,
-        ridge_layer: ridge_c,
         micro_layer: micro_c,
     }
 }

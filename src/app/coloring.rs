@@ -199,9 +199,9 @@ pub fn cell_color_terrain(world: &World, cell_idx: usize) -> Vec3 {
     }
 
     // Land (or dry basin) - use elevation + micro noise for color variation
-    let visual_elevation = elevation.values[cell_idx]
-        + elevation.noise_layers.micro_layer[cell_idx]
-        + 0.25 * elevation.noise_layers.hills_layer[cell_idx];
+    // (hills layer retired; erosion now supplies sub-cell relief).
+    let visual_elevation =
+        elevation.values[cell_idx] + elevation.noise_layers.micro_layer[cell_idx];
 
     // Slope for rock exposure.
     let slope = compute_slope(world, cell_idx);
@@ -299,8 +299,6 @@ pub fn cell_color_noise(world: &World, cell_idx: usize, layer: NoiseLayer) -> Ve
     let noise = match layer {
         NoiseLayer::Combined => elevation.noise_contribution[cell_idx],
         NoiseLayer::Macro => elevation.noise_layers.macro_layer[cell_idx],
-        NoiseLayer::Hills => elevation.noise_layers.hills_layer[cell_idx],
-        NoiseLayer::Ridges => elevation.noise_layers.ridge_layer[cell_idx],
         NoiseLayer::Micro => elevation.noise_layers.micro_layer[cell_idx],
         NoiseLayer::ArcShape => {
             world
@@ -315,8 +313,6 @@ pub fn cell_color_noise(world: &World, cell_idx: usize, layer: NoiseLayer) -> Ve
     let scale = match layer {
         NoiseLayer::Combined => 10.0,
         NoiseLayer::Macro => 15.0,
-        NoiseLayer::Hills => 12.0,
-        NoiseLayer::Ridges => 10.0,
         NoiseLayer::Micro => 50.0, // Micro is very small, needs big scale
         NoiseLayer::ArcShape => 1.0,
     };

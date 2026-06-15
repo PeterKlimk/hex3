@@ -236,60 +236,19 @@ pub const NOISE_FREQUENCY: f64 = 2.0;
 /// Number of octaves for fBm noise.
 pub const NOISE_OCTAVES: usize = 4;
 
-// Multi-layer elevation noise system
-//
-// Four layers with different scales and purposes:
-// - Macro: continental-scale tilt (very smooth, large features) - PRIMARY vertical contributor
-// - Hills: regional rolling terrain (medium scale) - secondary character
-// - Ridges: mountain grain/spines (RidgedMulti, high freq) - ruggedness in high-stress areas
-// - Micro: surface texture (fine detail, cosmetic only)
-//
-// Design principles:
-// - Macro > Hills amplitude (broad plateaus/basins, not just regional bumpiness)
-// - Ridges freq > Hills freq (ridges are finer grain than regional hills)
-// - Ridges octaves low (2-3) to avoid "crinkly everywhere" pocketing
-// - Micro very small, mostly cosmetic
+// Elevation noise (post erosion-v2). Only two layers remain: hills and ridge
+// were appearance-paint that erosion now supersedes (docs/specs/erosion-v2.md
+// "Noise philosophy") and were retired. Macro is a crust-thickness perturbation
+// (isostatically compensated — the model of "the crust isn't uniform"); micro is
+// cosmetic surface texture, simulation-excluded. Neither paints terrain relief.
 
-// --- Stress modulation ---
-/// Lower stress threshold for regime weighting.
-/// Used with `STRESS_HIGH_THRESHOLD` in a smoothstep to map stress → 0..1.
-pub const STRESS_LOW_THRESHOLD: f32 = 0.05;
-/// Upper stress threshold for regime weighting smoothstep.
-pub const STRESS_HIGH_THRESHOLD: f32 = 0.4;
-
-// --- Macro layer (continental tilt) ---
+// --- Macro layer (crust-thickness perturbation; amplitude is MACRO_THICKNESS_AMPLITUDE) ---
 /// Frequency for macro layer (very low = large features).
 pub const MACRO_FREQUENCY: f64 = 1.1;
 /// Octaves for macro layer (few = smooth).
 pub const MACRO_OCTAVES: usize = 2;
 /// Amplitude multiplier for oceanic plates (flatter ocean floor).
 pub const MACRO_OCEANIC_MULT: f32 = 0.5;
-
-// --- Hills layer (regional terrain) ---
-/// Base amplitude for hills layer - secondary to macro.
-pub const HILLS_AMPLITUDE: f32 = 0.07;
-/// Frequency for hills layer.
-pub const HILLS_FREQUENCY: f64 = 3.0;
-/// Octaves for hills layer.
-pub const HILLS_OCTAVES: usize = 3;
-/// Amplitude multiplier for oceanic plates.
-pub const HILLS_OCEANIC_MULT: f32 = 0.2;
-// Hills are suppressed in active compressional orogens (see TerrainNoise::sample).
-/// Downward bias applied to continental hills in extensional regimes.
-/// Helps suggest rift basins/grabens in bedrock before erosion/sedimentation.
-pub const HILLS_EXT_BIAS: f32 = 0.25;
-
-// --- Ridge layer (mountain detail noise) ---
-// Simple 3D noise, biased upward, modulated by convergence.
-
-/// Base amplitude for ridge layer.
-pub const RIDGE_AMPLITUDE: f32 = 0.2;
-/// Octaves for ridge noise.
-pub const RIDGE_OCTAVES: usize = 2;
-/// Base frequency for ridge noise.
-pub const RIDGE_FREQUENCY: f64 = 6.0;
-/// Amplitude multiplier for oceanic plates (weaker offshore).
-pub const RIDGE_OCEANIC_MULT: f32 = 0.15;
 
 // --- Micro layer (surface texture) ---
 /// Base amplitude for micro layer - cosmetic only.

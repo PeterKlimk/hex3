@@ -113,8 +113,6 @@ struct FeatureData {
 struct NoiseData {
     combined: Vec<f32>,
     macro_layer: Vec<f32>,
-    hills_layer: Vec<f32>,
-    ridge_layer: Vec<f32>,
     micro_layer: Vec<f32>,
 }
 
@@ -216,8 +214,6 @@ impl WorldExport {
         let noise = NoiseData {
             combined: elevation.noise_contribution.clone(),
             macro_layer: elevation.noise_layers.macro_layer.clone(),
-            hills_layer: elevation.noise_layers.hills_layer.clone(),
-            ridge_layer: elevation.noise_layers.ridge_layer.clone(),
             micro_layer: elevation.noise_layers.micro_layer.clone(),
         };
 
