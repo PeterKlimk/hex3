@@ -519,6 +519,19 @@ pub const MOISTURE_CAP_COLD: f32 = 0.35;
 /// Moisture carrying capacity of warm air (temperature 1).
 pub const MOISTURE_CAP_WARM: f32 = 1.0;
 
+/// Global planet wetness: the target area-weighted LAND mean of the precipitation
+/// field. The moisture model produces a *relative* rainfall pattern; this sets its
+/// absolute level, which is what was lost when precip is renormalized. It scales
+/// every absolute water consumer — fluvial discharge (so a wetter planet incises
+/// deeper, drives bigger rivers) and lake catchment budgets (bigger lakes) — while
+/// leaving the channel-initiation support area (a geometric threshold) invariant,
+/// so drainage-network *density* is unchanged; only its vigour scales.
+///
+/// Distinct from the hydrology `climate_ratio` (the lake P/E balance, which only
+/// moves lake levels). 1.0 = today's behaviour; >1 = wet world (lush, dissected,
+/// many lakes); <1 = arid world (sparse rivers, shrunken lakes, less erosion).
+pub const PRECIP_GLOBAL_SCALE: f32 = 1.0;
+
 /// Baseline fraction of airborne moisture raining out per iteration.
 /// Controls how far moisture travels inland before drying out.
 pub const RAINOUT_BASE: f32 = 0.025;

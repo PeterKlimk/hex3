@@ -624,8 +624,11 @@ fn fine_precipitation(
     if asum > 0.0 {
         let mean = (wsum / asum) as f32;
         if mean > 1e-6 {
+            // Renormalize to the planet-wetness mean (not 1.0), preserving the
+            // absolute level the coarse moisture set rather than stripping it.
+            let k = PRECIP_GLOBAL_SCALE / mean;
             for p in &mut precip {
-                *p /= mean;
+                *p *= k;
             }
         }
     }
@@ -701,8 +704,10 @@ fn boost_precip_near_lakes(
     if asum > 0.0 {
         let mean = (wsum / asum) as f32;
         if mean > 1e-6 {
+            // Preserve the planet-wetness mean (see fine_precipitation).
+            let k = PRECIP_GLOBAL_SCALE / mean;
             for p in &mut out {
-                *p /= mean;
+                *p *= k;
             }
         }
     }

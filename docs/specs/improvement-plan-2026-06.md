@@ -31,6 +31,19 @@ one bug and a set of physical/aesthetic gaps:
 | 7 | Tectonics is a snapshot, not a history | Long horizon | 4 |
 | 8 | Dead `FineFields.uplift` transfer | Trivial cleanup | 3 |
 
+### Implementation status (June 2026)
+
+- **Phase 1 — DONE** (item 1). Hydrology area-weighted end to end; `flow_accumulation`
+  is now a physical discharge with `mean_cell_discharge` for legacy count thresholds.
+- **Phase 2 — DONE** (items 2, 3). Terminal-lake base levels + transport-aware
+  (repose-slope) deposition; lost-to-ocean 43%→15% at the default, mass closes.
+- **Phase 3 — DONE** (items 4, 5, 8). Balance re-verified resolution-robust at
+  300k–2.5M (no retune; comment-truth pass instead). Erodibility tied to geology
+  (cratons hard / arcs soft). Item 8 was a non-issue — `FineFields.uplift` IS read
+  via `World::active_uplift` for the fine Climate→Uplift view + export.
+- **Phase 4 — IN PROGRESS**. Item 6 (global wetness, `PRECIP_GLOBAL_SCALE`) done.
+  Item 7 (geologic epochs / time evolution) is the open long-horizon project.
+
 ---
 
 ## Phase 1 — Area-weight hydrology end-to-end (the bug)

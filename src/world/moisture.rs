@@ -202,9 +202,11 @@ pub fn simulate_moisture(
         std::mem::swap(&mut moisture, &mut next);
     }
 
-    // Normalize precipitation so the LAND mean is 1.0: land rainfall is what
-    // hydrology consumes (river thresholds and lake budgets are calibrated in
-    // average-land-cell units), and ocean rain would otherwise dilute it.
+    // Normalize precipitation so the LAND mean is PRECIP_GLOBAL_SCALE (planet
+    // wetness): land rainfall is what hydrology consumes (river thresholds and
+    // lake budgets are calibrated in average-land-cell units), and ocean rain
+    // would otherwise dilute it. The scale sets the absolute water level the
+    // relative pattern is multiplied up to.
     let (land_total, land_count) = precip_accum
         .iter()
         .zip(is_water.iter())
@@ -216,9 +218,10 @@ pub fn simulate_moisture(
         precip_accum.iter().sum::<f32>() / num_cells as f32 // waterworld fallback
     };
     let precipitation: Vec<f32> = if mean > 1e-12 {
-        precip_accum.iter().map(|&p| p / mean).collect()
+        let k = PRECIP_GLOBAL_SCALE / mean;
+        precip_accum.iter().map(|&p| p * k).collect()
     } else {
-        vec![1.0; num_cells] // degenerate (no rain anywhere): fall back to uniform
+        vec![PRECIP_GLOBAL_SCALE; num_cells] // degenerate (no rain): uniform
     };
 
     MoistureResult {
