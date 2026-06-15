@@ -472,7 +472,7 @@ impl FineSurface {
         // Glacial sculpting on the carved relief: snowline-driven ice over-
         // deepening (U-troughs, tarns) that sharpens the peaks between glaciers.
         let t0 = Instant::now();
-        super::erosion::glacial_erode(&base.tessellation, &mut eroded, params);
+        super::erosion::glacial_erode(&base.tessellation, &mut eroded, &lake_base, params);
         log::info!("fine mesh: glacial pass {:.2?}", t0.elapsed());
 
         Self::from_eroded(seed, base, &eroded, &precip, params.lake_evap_strength)
@@ -640,7 +640,11 @@ fn apply_fault_scarps(base_elev: &mut [f32], fields: &ElevationFields, scarp_hei
         if scarp < 0.0 {
             scarp *= FAULT_BASIN_DROP_FRAC;
         }
-        base_elev[i] += scarp;
+        // Clamp to sea level: the basin-drop must never push a coastal land cell
+        // below 0. Hydrology's lake/ocean set was derived from the UN-faulted
+        // base, so a scarp silently submerging a cell it considered dry would
+        // desync the erosion datum from the lake topology (audit H7).
+        base_elev[i] = (base_elev[i] + scarp).max(0.0);
     }
 }
 

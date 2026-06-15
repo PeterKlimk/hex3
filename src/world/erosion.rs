@@ -182,7 +182,12 @@ pub(crate) fn erode(
 /// out sharper (arêtes, horns). Ice ablates below the snowline, giving glaciers
 /// bounded tongues. Works in elevation space (no isostatic response in v1) and
 /// never carves below sea level. U-shape valley *widening* is the deferred v2 part.
-pub(crate) fn glacial_erode(tess: &Tessellation, elev: &mut [f32], params: ErosionParams) {
+pub(crate) fn glacial_erode(
+    tess: &Tessellation,
+    elev: &mut [f32],
+    lake_base: &[f32],
+    params: ErosionParams,
+) {
     if params.glacial_k <= 0.0 || params.glacial_steps == 0 {
         return;
     }
@@ -214,12 +219,14 @@ pub(crate) fn glacial_erode(tess: &Tessellation, elev: &mut [f32], params: Erosi
         }
     }
 
-    // Ice grades to sea level (no lake base levels for the ice routing).
-    let no_lakes = vec![f32::NEG_INFINITY; n];
+    // Ice routes to the SAME base levels as the fluvial stage: sea level, or a
+    // terminal lake's surface (audit H6). Without this the ice routed to sea
+    // level everywhere and could gouge a glaciated cell below the lake floor the
+    // fluvial pass graded to.
     let mut total_abraded = 0.0f64;
 
     for _ in 0..params.glacial_steps {
-        let Some(routing) = Routing::build(elev, &geom, &no_lakes) else {
+        let Some(routing) = Routing::build(elev, &geom, lake_base) else {
             break;
         };
 
@@ -245,7 +252,10 @@ pub(crate) fn glacial_erode(tess: &Tessellation, elev: &mut [f32], params: Erosi
                 continue;
             }
             let r = routing.receiver[i];
-            let floor = (pre[r] - params.glacial_overdeepen_max).max(0.0);
+            // Floor at the cell's terminal base level (sea level, or the surface
+            // of the terminal lake it drains into), not just sea level — so ice
+            // can't over-deepen below a carved lake floor (audit H6).
+            let floor = (pre[r] - params.glacial_overdeepen_max).max(routing.base_floor[i]);
             let lowered = (pre[i] - params.glacial_k * flux[i]).max(floor);
             if lowered < pre[i] {
                 total_abraded += ((pre[i] - lowered) * areas[i]) as f64;

@@ -206,8 +206,13 @@ fn compute_ocean_ocean_polarities(
             let tangent_normal = boundary_tangent_normal(boundary_point, pos_a, pos_b);
             let convergence = relative_vel.dot(tangent_normal);
 
-            // Only care about convergent edges for subduction
-            if convergence <= TRANSFORM_NORMAL_THRESHOLD {
+            // Vote on every CONVERGENT ocean-ocean edge (weighted by convergence
+            // below), not just strongly-convergent ones. This guarantees any
+            // convergent ocean-ocean pair gets a motion-derived polarity, so
+            // `lookup_subduction_polarity` never falls back to the motion-
+            // independent `ASubducts` constant on a near-threshold pair. Weak
+            // edges contribute proportionally little via the convergence weight.
+            if convergence <= 0.0 {
                 continue;
             }
 

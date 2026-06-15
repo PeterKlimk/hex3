@@ -337,7 +337,24 @@ Applied and verified (`cargo build`/`test`/`clippy` clean, 52 tests pass):
 
 Withdrawn: **H2** (no real cycle bug — see above).
 
-Not yet addressed: **H6/H7/H8/H9**, all **M*/L*** items.
+Fixed in follow-up branch `erosion-audit-fixes` (2026-06-15):
+
+- **H6** — `erosion.rs` `glacial_erode`: ice now routes to the same base levels as the fluvial stage
+  (sea level OR terminal-lake surface) instead of sea level everywhere, and abrasion is floored at
+  `routing.base_floor[i]` (the lake surface) not `0.0` — so glaciers can't over-deepen a cell below
+  the lake floor the fluvial pass graded to. (Non-conservation of abraded rock left as documented v1.)
+- **H7** — `fine.rs` `apply_fault_scarps`: the scarp result is clamped `.max(0.0)`, so the basin-drop
+  can't push a coastal land cell below sea level (hydrology's lake/ocean set was derived from the
+  un-faulted base; silent submergence desynced the datum).
+- **H8** — `boundary.rs`: ocean-ocean subduction-polarity votes now gate on `convergence > 0` instead
+  of `> TRANSFORM_NORMAL_THRESHOLD`, so every convergent pair gets a motion-derived polarity and
+  `lookup_subduction_polarity` no longer falls back to the motion-independent `ASubducts` constant.
+
+Deferred (not a contained bug): **H9** — climate uplift can't suppress rain (subtropical deserts
+under-modeled). The convergence/orographic uplift terms are clamped `≥0` so only the signed
+circulation term opposes rain. Letting them keep sign (subsidence → drier) is a *climate-model
+change* that reshapes global precipitation and cascades into rivers/lakes — it needs its own
+validation pass, not bundling with the correctness fixes. Also still open: the **M*/L*** items.
 
 ---
 
