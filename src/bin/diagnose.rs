@@ -479,19 +479,31 @@ fn main() {
     );
 
     // ---- Climate ----
-    let land_precip: Vec<f32> = (0..n)
-        .filter(|&i| land[i])
-        .map(|i| precipitation[i])
-        .collect();
-    let arid =
-        land_precip.iter().filter(|&&p| p < 0.35).count() as f32 / land_precip.len().max(1) as f32;
-    let humid =
-        land_precip.iter().filter(|&&p| p > 1.5).count() as f32 / land_precip.len().max(1) as f32;
-    println!("\n-- Climate --   [Earth: ~33% of land arid/semi-arid]");
+    // Aridity index AI = P / PET (precip ÷ evaporative demand), the Earth-standard
+    // way to define arid — NOT raw precip. PET rises with temperature (warm air
+    // evaporates more), so a cold low-precip region (poles) is NOT arid the way a
+    // hot low-precip one (subtropics) is. PET proxy: temperature in ~[0,1] mapped
+    // to a 0.2..1.0 demand (same shape as the moisture model's carrying_capacity).
+    // AI normalized to land-mean 1 so the threshold is a relative water-stress
+    // cutoff; report the ZONAL AI pattern too (that's the threshold-robust signal).
+    let pet = |i: usize| 0.2 + 0.8 * temperature[i].clamp(0.0, 1.0);
+    let ai_raw: Vec<f32> = (0..n).map(|i| precipitation[i] / pet(i).max(1e-6)).collect();
+    let land_idx: Vec<usize> = (0..n).filter(|&i| land[i]).collect();
+    let ai_mean = land_idx.iter().map(|&i| ai_raw[i]).sum::<f32>() / land_idx.len().max(1) as f32;
+    let ai: Vec<f32> = ai_raw.iter().map(|&v| v / ai_mean.max(1e-9)).collect();
+    let frac = |pred: &dyn Fn(usize) -> bool| -> f32 {
+        100.0 * land_idx.iter().filter(|&&i| pred(i)).count() as f32 / land_idx.len().max(1) as f32
+    };
+    // Raw-precip arid (the OLD metric) for comparison, then the AI-based one.
+    let arid_precip = frac(&|i| precipitation[i] < 0.35);
+    let arid_ai = frac(&|i| ai[i] < 0.4); // hot+dry water stress (relative threshold)
+    let humid_ai = frac(&|i| ai[i] > 2.0);
+    println!("\n-- Climate --   [arid by P/PET (aridity index), not raw P — Earth arid+semiarid ~33%]");
     println!(
-        "  land precip: arid {:.0}%  humid {:.0}%  | lakes {:.2}% of surface",
-        100.0 * arid,
-        100.0 * humid,
+        "  aridity index (P/PET, land-mean 1): arid(AI<0.4) {:.0}%  humid(AI>2) {:.0}%  | raw-precip<0.35 {:.0}% (old, temp-blind) | lakes {:.2}%",
+        arid_ai,
+        humid_ai,
+        arid_precip,
         100.0
             * hydrology
                 .water_bodies
@@ -500,6 +512,28 @@ fn main() {
                 .sum::<usize>() as f32
             / n as f32
     );
+    // Zonal aridity index (mean AI per 15° band): deserts are LOW-AI bands; on a
+    // physical planet they sit in the hot subtropics, not the cold poles.
+    {
+        const BW: f32 = 15.0;
+        let nb = (180.0 / BW) as usize;
+        let (mut s, mut c) = (vec![0.0f64; nb], vec![0u32; nb]);
+        for &i in &land_idx {
+            let lat = tess.cell_center(i).y.clamp(-1.0, 1.0).asin().to_degrees();
+            let b = (((lat + 90.0) / BW) as usize).min(nb - 1);
+            s[b] += ai[i] as f64;
+            c[b] += 1;
+        }
+        let mut line = String::new();
+        for b in (0..nb).rev() {
+            if c[b] == 0 {
+                continue;
+            }
+            let lo = -90.0 + b as f32 * BW;
+            line.push_str(&format!("  [{:+.0}] {:.2}", lo + BW * 0.5, s[b] / c[b] as f64));
+        }
+        println!("  zonal aridity index (AI, mid-band lat):{line}");
+    }
     let mean_evap = if hydrology.basins.is_empty() {
         1.0
     } else {

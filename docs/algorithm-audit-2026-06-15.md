@@ -357,10 +357,19 @@ uplift (`static_rain_rate`), so this is the input it expected. **Effect is modes
 subtropical-desert transformation the finding implied: a zonal precip probe (added to `diagnose`)
 shows it mainly dries high/polar latitudes (polar deserts — physical) and marginally sharpens the
 existing equator-wet/subtropics-dry contrast; the equator stays wet. arid 71%→74%. The physics is now
-correct; whether the precip *map* is better is a visual call (and the convergence/circulation weights
-could amplify it if wanted). Verdict deferred to visual review. Separate observation: the world is
-already ~71% arid land (Earth ~33%) — a possible over-aridity issue (precip scale / threshold)
-independent of H9.
+correct (kept), though re-judging under a proper aridity metric (below) shows the effect is **marginal,
+not the subtropical-desert fix the finding implied**: zonal aridity barely moves in the subtropics
+(already dry at baseline); H9 mainly wets the equator (ITCZ) and dries the poles. Kept anyway —
+signed uplift is the honest physics and the moisture model was built for it.
+
+**Aridity metric correction (the "71% arid" was a red herring).** The old "arid = raw precip < 0.35×
+land-mean" is NOT comparable to Earth's ~33%: (a) it ignores evaporative demand, so cold low-precip
+regions (poles) wrongly count as arid; (b) the relative-to-mean threshold on a right-skewed field is
+distribution-dependent. Earth uses an **aridity index AI = P/PET**. `diagnose` now computes AI (PET a
+temperature proxy) and a **zonal AI profile** — and the world's pattern is physically correct: arid
+hot subtropics (AI ~0.1–0.4), wet equator (~1.8), non-arid cold poles (~3). The *fraction* stays
+threshold/units-dependent (don't compare it to 33%); the **pattern** is the comparable signal. So
+there is no over-aridity bug — just a bad metric, now fixed.
 
 Still open: the **M*/L*** items.
 
