@@ -316,7 +316,25 @@ Applied and verified (`cargo build`/`test`/`clippy` clean, 52 tests pass):
   Feature values do shift slightly at 100k (multi-edge boundary cells now average, not sum); the
   fine-cache key hashes feature fields directly, so it auto-invalidates (no version bump).
 
+- **H4 + M8** — basin water-budget rewrite (follow-up commit). Two coupled fixes:
+  - **Local catchment (H4):** `compute_basin_catchments` no longer reads `flow_accumulation`
+    (which routes through filled basins as if all spill). Each cell is now attributed to the
+    **first basin its drainage reaches** (`compute_capturing_basin`), so an upstream basin's water
+    is counted once, in that basin — not also downstream. `compute_flow_accumulations` is kept (it
+    still feeds rivers / the density prior) but simplified to return just the discharge field.
+  - **Topological cascade + merge (M8):** `calculate_water_levels` now merges mutually-overflowing
+    basins (cycles in the functional overflow graph, via `group_overflow_cycles`) into one lake
+    group with combined catchment + hypsometry, bounded by the group's lowest external saddle, then
+    solves groups in **topological order** (Kahn) so received overflow is known before a group's
+    level is computed. The old single pass ordered by spill elevation and silently dropped overflow
+    into any downstream basin with a higher spill.
+  - Verified by `basin_catchments_use_local_first_basin_attribution` (corrected the prior test,
+    which had encoded the double-count: downstream 15→9), `overflow_cascade_follows_topology_not_
+    spill_elevation`, and `mutually_overflowing_basins_merge_to_one_level`. Full-res stage-3 headless
+    runs clean at 2.16M cells. **Behavior note:** removing the double-counted inflow makes some lakes
+    smaller — expected and more correct; `climate_ratio` (Up/Down keys) compensates if lakes read too
+    sparse. Needs Windows visual review.
+
 Withdrawn: **H2** (no real cycle bug — see above).
 
-Not yet addressed: **H4/M8** (basin overflow-cascade accounting — next),
-**H6/H7/H8/H9**, all **M*/L*** items.
+Not yet addressed: **H6/H7/H8/H9**, all **M*/L*** items.

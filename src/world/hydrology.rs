@@ -238,21 +238,18 @@ impl Hydrology {
 
         // Step 5: Accumulate flow (precipitation-weighted)
         let t0 = Instant::now();
-        let (flow_accumulation, catchment_cell_accumulation, temperature_accumulation) =
-            compute_flow_accumulations(&drainage_dir, precipitation, temperature, &areas);
+        let flow_accumulation = compute_flow_accumulations(&drainage_dir, precipitation, &areas);
         let global_mean_temperature = mean_temperature(temperature, &areas);
         log::info!("hydrology: flow accumulations {:.2?}", t0.elapsed());
 
-        // Step 6: Compute catchment budget for each basin
+        // Step 6: Compute each basin's LOCAL catchment budget (first-basin
+        // attribution); inter-basin transfer is handled by the overflow cascade.
         let t0 = Instant::now();
         compute_basin_catchments(
             &mut basins,
             &basin_id,
             &drainage_dir,
-            &flow_accumulation,
             precipitation,
-            &catchment_cell_accumulation,
-            &temperature_accumulation,
             temperature,
             &areas,
             global_mean_temperature,
@@ -755,68 +752,99 @@ fn priority_flood_with_basins(
     (filled, basin_id, basins, flood_parent)
 }
 
-/// Compute catchment area for each basin.
+/// For each cell, the basin that CAPTURES its runoff: the first basin reached by
+/// following drainage (the cell's own basin if it is in one), or `None` if the
+/// path reaches the ocean / a no-outlet cell without entering any basin.
 ///
-/// The catchment is the total upstream area that drains into the basin.
-/// We use flow accumulation at cells that drain into basin cells.
+/// This makes basins act as sinks: a cell's water is attributed to exactly one
+/// basin (the first it reaches), never double-counted downstream. Inter-basin
+/// transfer is handled separately by the overflow cascade in
+/// `calculate_water_levels`. Memoized, O(n).
+fn compute_capturing_basin(
+    basin_id: &[Option<usize>],
+    drainage_dir: &[Option<usize>],
+) -> Vec<Option<usize>> {
+    let n = basin_id.len();
+    let mut capturing: Vec<Option<usize>> = vec![None; n];
+    let mut resolved = vec![false; n];
+
+    for start in 0..n {
+        if resolved[start] {
+            continue;
+        }
+        let mut path: Vec<usize> = Vec::new();
+        let mut cur = start;
+        let result;
+        loop {
+            if resolved[cur] {
+                result = capturing[cur];
+                break;
+            }
+            if let Some(b) = basin_id[cur] {
+                result = Some(b);
+                break;
+            }
+            path.push(cur);
+            match drainage_dir[cur] {
+                Some(next) => cur = next,
+                None => {
+                    result = None;
+                    break;
+                }
+            }
+            // Drainage is acyclic (steepest descent only targets strictly-lower
+            // cells), but bound the walk defensively so a future change can't hang.
+            if path.len() > n {
+                result = None;
+                break;
+            }
+        }
+        for &c in &path {
+            capturing[c] = result;
+            resolved[c] = true;
+        }
+        if !resolved[cur] {
+            capturing[cur] = result;
+            resolved[cur] = true;
+        }
+    }
+    capturing
+}
+
+/// Compute each basin's LOCAL catchment budget: the area-weighted discharge
+/// (Σ precip·area) of the cells it captures (first basin on their drainage path),
+/// plus the area-weighted mean temperature of those cells. Upstream basins that
+/// capture their own water are NOT included here — if they overflow, that excess
+/// is routed to this basin by the overflow cascade, so counting it here too would
+/// double-count it.
 fn compute_basin_catchments(
     basins: &mut [Basin],
     basin_id: &[Option<usize>],
     drainage_dir: &[Option<usize>],
-    flow_accumulation: &[f32],
     precipitation: &[f32],
-    catchment_cell_accumulation: &[f32],
-    temperature_accumulation: &[f32],
     temperature: &[f32],
     areas: &[f32],
     global_mean_temperature: f32,
 ) {
-    // Start each basin with its own rainfall and thermal budget, all area-weighted
-    // so they share the discharge (precip × steradian) and drained-area units the
-    // cross-boundary accumulations carry.
-    let mut catchment: Vec<f32> = basins
-        .iter()
-        .map(|basin| {
-            basin
-                .cells
-                .iter()
-                .map(|&c| precipitation[c] * areas[c])
-                .sum()
-        })
-        .collect();
-    // Drained surface area of the basin's own cells (steradians); the divisor for
-    // the area-weighted mean temperature.
-    let mut catchment_area_sum: Vec<f32> = basins
-        .iter()
-        .map(|basin| basin.cells.iter().map(|&c| areas[c]).sum())
-        .collect();
-    let mut temperature_sum: Vec<f32> = basins
-        .iter()
-        .map(|basin| basin.cells.iter().map(|&c| temperature[c] * areas[c]).sum())
-        .collect();
+    let capturing = compute_capturing_basin(basin_id, drainage_dir);
 
-    // Count upstream flow entering basin cells from outside. Scanning drainage
-    // edges once avoids repeating a full world pass for every basin.
-    for (cell, &downstream) in drainage_dir.iter().enumerate() {
-        let Some(downstream) = downstream else {
-            continue;
-        };
-        let Some(target_basin) = basin_id[downstream] else {
-            continue;
-        };
-        if basin_id[cell] == Some(target_basin) {
-            continue;
+    let nb = basins.len();
+    let mut discharge = vec![0.0f32; nb]; // Σ precip·area
+    let mut area_sum = vec![0.0f32; nb]; // Σ area (mean-temperature divisor)
+    let mut temperature_sum = vec![0.0f32; nb]; // Σ temp·area
+
+    for cell in 0..capturing.len() {
+        if let Some(b) = capturing[cell] {
+            discharge[b] += precipitation[cell] * areas[cell];
+            area_sum[b] += areas[cell];
+            temperature_sum[b] += temperature[cell] * areas[cell];
         }
-
-        catchment[target_basin] += flow_accumulation[cell];
-        catchment_area_sum[target_basin] += catchment_cell_accumulation[cell];
-        temperature_sum[target_basin] += temperature_accumulation[cell];
     }
 
     for (idx, basin) in basins.iter_mut().enumerate() {
-        basin.catchment_area = catchment[idx];
-        basin.mean_temperature = if catchment_area_sum[idx] > 0.0 {
-            temperature_sum[idx] / catchment_area_sum[idx]
+        basin.catchment_area = discharge[idx];
+        basin.mean_temperature = if area_sum[idx] > 0.0 {
+            temperature_sum[idx] / area_sum[idx]
         } else {
             global_mean_temperature
         };
@@ -881,82 +909,227 @@ fn compute_overflow_targets(
     }
 }
 
-/// Calculate equilibrium water levels for each basin using evaporation balance,
-/// with overflow cascade from higher basins to lower ones.
+/// Assign a group id to each node of a functional graph (each node has at most
+/// one successor). Nodes lying on a common cycle share a group id; every other
+/// node becomes its own singleton group. Used to merge mutually-overflowing
+/// basins (B spills into C and C spills into B) into a single lake.
+fn group_overflow_cycles(succ: &[Option<usize>]) -> Vec<usize> {
+    let n = succ.len();
+    // 0 = unvisited, 1 = on current walk, 2 = done.
+    let mut color = vec![0u8; n];
+    let mut group_of = vec![usize::MAX; n];
+    let mut next_group = 0usize;
+
+    for start in 0..n {
+        if color[start] != 0 {
+            continue;
+        }
+        let mut stack: Vec<usize> = Vec::new();
+        let mut cur = start;
+        loop {
+            match color[cur] {
+                0 => {
+                    color[cur] = 1;
+                    stack.push(cur);
+                    match succ[cur] {
+                        Some(next) => cur = next,
+                        None => break, // chain terminates (drains out): no cycle
+                    }
+                }
+                1 => {
+                    // Cycle: the suffix of `stack` from the first occurrence of cur.
+                    let g = next_group;
+                    next_group += 1;
+                    let start_idx = stack.iter().position(|&x| x == cur).unwrap();
+                    for &node in &stack[start_idx..] {
+                        group_of[node] = g;
+                    }
+                    break;
+                }
+                _ => break, // merged into an already-processed chain: no new cycle
+            }
+        }
+        for &node in &stack {
+            color[node] = 2;
+        }
+    }
+
+    // Everything not on a cycle is its own singleton group.
+    for g in group_of.iter_mut() {
+        if *g == usize::MAX {
+            *g = next_group;
+            next_group += 1;
+        }
+    }
+    group_of
+}
+
+/// Calculate equilibrium water levels with an overflow cascade.
 ///
-/// At equilibrium: inflow = evaporation
-///   inflow ∝ catchment_area × precipitation
-///   evaporation ∝ lake_surface_area × evaporation_rate
+/// At equilibrium inflow = evaporation, so a lake's surface area =
+/// catchment_discharge × (precip/evap) = `catchment_area × effective_ratio`.
 ///
-/// Therefore: lake_surface_area = catchment_area × (precip / evap) = catchment × climate_ratio
-///
-/// When a basin overflows, excess water cascades to downstream basins.
-/// We process basins from highest spill elevation to lowest (single pass).
+/// Basins that mutually overflow are MERGED into one lake group: they equilibrate
+/// to a shared surface bounded by the group's lowest external saddle, with a
+/// combined catchment and hypsometry. Groups are then solved in TOPOLOGICAL order
+/// of the (now acyclic) overflow graph, so a group's received overflow is known
+/// before its level is computed — fixing the double-count (catchment is now the
+/// local, first-basin discharge) and the old spill-elevation cascade ordering.
 fn calculate_water_levels(basins: &mut [Basin], climate_ratio: f32) {
     if basins.is_empty() {
         return;
     }
-
     let n = basins.len();
 
-    // Sort basin indices by spill elevation descending (highest first)
-    // Higher basins overflow into lower ones, so process high to low
-    let mut order: Vec<usize> = (0..n).collect();
-    order.sort_by(|&a, &b| {
-        basins[b]
-            .spill_elevation
-            .partial_cmp(&basins[a].spill_elevation)
-            .unwrap()
-    });
+    // 1. Merge mutually-overflowing basins. The overflow graph is functional
+    //    (each basin has ≤1 target), so its only multi-node SCCs are simple cycles.
+    let succ: Vec<Option<usize>> = basins.iter().map(|b| b.overflow_target).collect();
+    let group_of = group_overflow_cycles(&succ);
+    let num_groups = group_of.iter().copied().max().map_or(0, |m| m + 1);
+    let mut members: Vec<Vec<usize>> = vec![Vec::new(); num_groups];
+    for (b, &g) in group_of.iter().enumerate() {
+        members[g].push(b);
+    }
 
-    // Track overflow received by each basin from upstream
-    let mut overflow_catchment = vec![0.0f32; n];
+    // 2. Per-group properties: combined catchment, evaporation, the external exit
+    //    (lowest member spill leaving the group), and the fillable hypsometry
+    //    (cells below that exit — cells above it can't hold water).
+    struct Group {
+        catchment: f32,
+        sorted_elev: Vec<f32>,
+        sorted_area: Vec<f32>,
+        capacity: f32,
+        spill_elevation: f32,
+        bottom_elevation: f32,
+        overflow_group: Option<usize>,
+        eff_ratio: f32,
+    }
 
-    for &i in &order {
-        let basin = &basins[i];
-
-        if basin.cells.is_empty() || basin.sorted_elevations.is_empty() {
-            continue;
+    let mut groups: Vec<Group> = Vec::with_capacity(num_groups);
+    for mem in &members {
+        // External spill: lowest member spill whose overflow leaves the group.
+        let mut spill_elevation = f32::INFINITY;
+        let mut overflow_group: Option<usize> = None;
+        for &b in mem {
+            let external = match basins[b].overflow_target {
+                Some(t) => group_of[t] != group_of[b], // points to a different group
+                None => true,                          // ocean / void: an external exit
+            };
+            if external && basins[b].spill_elevation < spill_elevation {
+                spill_elevation = basins[b].spill_elevation;
+                overflow_group = basins[b].overflow_target.map(|t| group_of[t]);
+            }
+        }
+        if !spill_elevation.is_finite() {
+            // Fully enclosed cycle (endorheic): cap at the lowest member rim.
+            spill_elevation = mem
+                .iter()
+                .map(|&b| basins[b].spill_elevation)
+                .fold(f32::INFINITY, f32::min);
+            overflow_group = None;
         }
 
-        // Effective catchment = own catchment + overflow from upstream basins
-        // (both are discharge: precip × steradian).
-        let effective_catchment = basin.catchment_area + overflow_catchment[i];
-
-        let effective_ratio = if basin.evaporation_factor > 0.0 {
-            climate_ratio / basin.evaporation_factor
+        let mut pairs: Vec<(f32, f32)> = Vec::new();
+        let mut bottom_elevation = f32::INFINITY;
+        let mut catchment = 0.0f32;
+        let mut evap_accum = 0.0f32;
+        let mut evap_weight = 0.0f32;
+        for &b in mem {
+            catchment += basins[b].catchment_area;
+            let w = basins[b].catchment_area.max(1e-12);
+            evap_accum += basins[b].evaporation_factor * w;
+            evap_weight += w;
+            bottom_elevation = bottom_elevation.min(basins[b].bottom_elevation);
+            for (e, a) in basins[b]
+                .sorted_elevations
+                .iter()
+                .zip(basins[b].sorted_areas.iter())
+            {
+                if *e < spill_elevation {
+                    pairs.push((*e, *a));
+                }
+            }
+        }
+        pairs.sort_by(|x, y| x.0.partial_cmp(&y.0).unwrap_or(std::cmp::Ordering::Equal));
+        let capacity: f32 = pairs.iter().map(|&(_, a)| a).sum();
+        let sorted_elev: Vec<f32> = pairs.iter().map(|&(e, _)| e).collect();
+        let sorted_area: Vec<f32> = pairs.iter().map(|&(_, a)| a).collect();
+        let evap_factor = if evap_weight > 0.0 {
+            evap_accum / evap_weight
+        } else {
+            1.0
+        };
+        let eff_ratio = if evap_factor > 0.0 {
+            climate_ratio / evap_factor
         } else {
             climate_ratio
         };
-        // Equilibrium lake SURFACE AREA (steradians): inflow = evaporation
-        // => area = catchment_discharge × (precip/evap). Measured and filled by
-        // area, not cell count, so it is correct on the adaptive mesh.
-        let target_area = effective_catchment * effective_ratio;
-        let capacity = basin.total_area;
 
-        // Determine water level and potential overflow
-        let (water_level, _overflows) = if target_area <= 0.0 || effective_ratio <= 0.0 {
-            // No water - dry basin
-            (basin.bottom_elevation - 1.0, false)
-        } else if target_area >= capacity {
-            // Basin overflows - fills to spill point. Overflow discharge =
-            // inflow - the discharge needed to evaporate a spill-full lake.
-            let overflow_amount = effective_catchment - (capacity / effective_ratio);
+        groups.push(Group {
+            catchment,
+            sorted_elev,
+            sorted_area,
+            capacity,
+            spill_elevation,
+            bottom_elevation,
+            overflow_group,
+            eff_ratio,
+        });
+    }
 
-            if let Some(downstream) = basin.overflow_target {
-                overflow_catchment[downstream] += overflow_amount.max(0.0);
+    // 3. Topological order of the group overflow DAG (Kahn). Sources (most
+    //    upstream) first, so received overflow is known before a group is solved.
+    let mut indeg = vec![0usize; num_groups];
+    for grp in &groups {
+        if let Some(t) = grp.overflow_group {
+            indeg[t] += 1;
+        }
+    }
+    let mut queue: Vec<usize> = (0..num_groups).filter(|&g| indeg[g] == 0).collect();
+    let mut topo: Vec<usize> = Vec::with_capacity(num_groups);
+    while let Some(g) = queue.pop() {
+        topo.push(g);
+        if let Some(t) = groups[g].overflow_group {
+            indeg[t] -= 1;
+            if indeg[t] == 0 {
+                queue.push(t);
             }
+        }
+    }
 
-            (basin.spill_elevation, true)
+    // 4. Solve each group's level in topological order, cascading overflow.
+    let mut received = vec![0.0f32; num_groups];
+    let mut group_level = vec![f32::NEG_INFINITY; num_groups];
+    for &g in &topo {
+        let effective_catchment = groups[g].catchment + received[g];
+        let eff_ratio = groups[g].eff_ratio;
+        let target_area = effective_catchment * eff_ratio;
+        let capacity = groups[g].capacity;
+        let spill = groups[g].spill_elevation;
+        let bottom = groups[g].bottom_elevation;
+
+        // A group too shallow overall doesn't form a lake even if it overflows.
+        if spill - bottom < MIN_LAKE_DEPTH {
+            group_level[g] = bottom - 1.0;
+            continue;
+        }
+
+        group_level[g] = if target_area <= 0.0 || eff_ratio <= 0.0 || groups[g].sorted_elev.is_empty()
+        {
+            bottom - 1.0
+        } else if target_area >= capacity {
+            // Overflows to the external saddle; route excess to the downstream group.
+            let overflow_amount = effective_catchment - (capacity / eff_ratio);
+            if let Some(t) = groups[g].overflow_group {
+                received[t] += overflow_amount.max(0.0);
+            }
+            spill
         } else {
-            // Partial fill: submerge whole cells (by AREA) whose cumulative area
-            // fits within the target; the level sits between the last submerged
-            // cell and the next one up. Reduces exactly to the old cell-count
-            // fill on an equal-area mesh (the `<= target` walk mirrors the old
-            // `floor`).
+            // Partial fill by AREA: submerge whole cells whose cumulative area
+            // fits; the level sits between the last submerged cell and the next.
             let mut cumulative = 0.0f32;
             let mut last_submerged: Option<usize> = None;
-            for (idx, &area) in basin.sorted_areas.iter().enumerate() {
+            for (idx, &area) in groups[g].sorted_area.iter().enumerate() {
                 if cumulative + area > target_area {
                     break;
                 }
@@ -964,27 +1137,18 @@ fn calculate_water_levels(basins: &mut [Basin], climate_ratio: f32) {
                 last_submerged = Some(idx);
             }
             match last_submerged {
-                // Less than one cell's worth of water: dry (old floor -> 0).
-                None => (basin.bottom_elevation - 1.0, false),
-                Some(k) if k + 1 < basin.sorted_elevations.len() => (
-                    (basin.sorted_elevations[k] + basin.sorted_elevations[k + 1]) / 2.0,
-                    false,
-                ),
-                Some(_) => (basin.spill_elevation, false),
+                None => bottom - 1.0,
+                Some(k) if k + 1 < groups[g].sorted_elev.len() => {
+                    (groups[g].sorted_elev[k] + groups[g].sorted_elev[k + 1]) / 2.0
+                }
+                Some(_) => spill,
             }
         };
+    }
 
-        // Apply minimum depth threshold based on maximum possible depth
-        // A basin that's too shallow overall shouldn't form a lake even if it overflows
-        let max_depth = basin.spill_elevation - basin.bottom_elevation;
-        let final_level = if max_depth < MIN_LAKE_DEPTH {
-            basin.bottom_elevation - 1.0 // Basin too shallow to form a lake
-        } else {
-            water_level
-        };
-
-        // We need to mutate, so access again
-        basins[i].water_level = final_level;
+    // 5. Write each group's surface level back to its member basins.
+    for b in 0..n {
+        basins[b].water_level = group_level[group_of[b]];
     }
 }
 
@@ -1046,51 +1210,17 @@ fn compute_steepest_descent(
     drainage
 }
 
+/// Area-weighted discharge accumulated down the drainage graph:
+/// `flow[c] = Σ precip·area` over every cell whose drainage path passes through
+/// `c` (including `c`). Used for river extraction and the fine-mesh density
+/// prior. NOTE: this routes through filled depressions (basins are not sinks
+/// here), so it is NOT the basin water budget — that is computed by
+/// `compute_basin_catchments`, which attributes each cell to the first basin its
+/// drainage reaches.
 fn compute_flow_accumulations(
     drainage_dir: &[Option<usize>],
     precipitation: &[f32],
-    temperature: &[f32],
     areas: &[f32],
-) -> (Vec<f32>, Vec<f32>, Vec<f32>) {
-    let n = drainage_dir.len();
-
-    // Count how many cells drain into each cell (upstream count)
-    let mut upstream_count = vec![0usize; n];
-    for downstream in drainage_dir.iter().flatten() {
-        upstream_count[*downstream] += 1;
-    }
-
-    // Use one topological traversal for all source fields that share the
-    // same drainage graph. Every source is AREA-WEIGHTED so the accumulations
-    // are physical integrals over the adaptive mesh, not cell counts:
-    //   - precipitation_flow = Σ precip·area  (discharge, = erosion's wet area)
-    //   - cell_flow          = Σ area         (drained surface area)
-    //   - temperature_flow   = Σ temp·area    (area-weighted, divided by cell_flow)
-    let mut precipitation_flow: Vec<f32> = (0..n).map(|i| precipitation[i] * areas[i]).collect();
-    let mut cell_flow: Vec<f32> = areas.to_vec();
-    let mut temperature_flow: Vec<f32> = (0..n).map(|i| temperature[i] * areas[i]).collect();
-    let mut remaining_upstream = upstream_count.clone();
-    let mut ready: Vec<usize> = (0..n).filter(|&c| upstream_count[c] == 0).collect();
-
-    while let Some(cell) = ready.pop() {
-        if let Some(downstream) = drainage_dir[cell] {
-            precipitation_flow[downstream] += precipitation_flow[cell];
-            cell_flow[downstream] += cell_flow[cell];
-            temperature_flow[downstream] += temperature_flow[cell];
-            remaining_upstream[downstream] -= 1;
-            if remaining_upstream[downstream] == 0 {
-                ready.push(downstream);
-            }
-        }
-    }
-
-    (precipitation_flow, cell_flow, temperature_flow)
-}
-
-#[cfg(test)]
-fn compute_flow_accumulation_with_sources(
-    drainage_dir: &[Option<usize>],
-    source: &[f32],
 ) -> Vec<f32> {
     let n = drainage_dir.len();
 
@@ -1100,14 +1230,13 @@ fn compute_flow_accumulation_with_sources(
         upstream_count[*downstream] += 1;
     }
 
-    // Use topological sort: process cells with no remaining upstream dependencies
-    let mut flow = source.to_vec(); // Each cell starts with its local source
+    let mut precipitation_flow: Vec<f32> = (0..n).map(|i| precipitation[i] * areas[i]).collect();
     let mut remaining_upstream = upstream_count.clone();
     let mut ready: Vec<usize> = (0..n).filter(|&c| upstream_count[c] == 0).collect();
 
     while let Some(cell) = ready.pop() {
         if let Some(downstream) = drainage_dir[cell] {
-            flow[downstream] += flow[cell];
+            precipitation_flow[downstream] += precipitation_flow[cell];
             remaining_upstream[downstream] -= 1;
             if remaining_upstream[downstream] == 0 {
                 ready.push(downstream);
@@ -1115,7 +1244,7 @@ fn compute_flow_accumulation_with_sources(
         }
     }
 
-    flow
+    precipitation_flow
 }
 
 /// Area-weighted global mean surface temperature (the neutral point of the
@@ -1261,8 +1390,14 @@ mod tests {
         assert_eq!(basins[0].water_level, 3.5);
     }
 
+    /// Each cell is attributed to the FIRST basin its drainage reaches, so an
+    /// upstream basin's water is NOT also counted in a downstream basin (the old
+    /// filled-graph accounting double-counted it). Here cells 0,1,2 drain into
+    /// basin 0; cells 3,4 drain into basin 1 — basin 1 does NOT inherit basin 0's
+    /// catchment. (Inter-basin transfer, if basin 0 overflowed, would be the
+    /// cascade's job, not the catchment's.)
     #[test]
-    fn basin_catchments_count_crossing_drainage_edges_once() {
+    fn basin_catchments_use_local_first_basin_attribution() {
         let mut basins = vec![
             Basin {
                 cells: vec![2],
@@ -1297,33 +1432,25 @@ mod tests {
         let drainage_dir = vec![Some(1), Some(2), Some(3), Some(4), None];
         let precipitation = vec![1.0, 2.0, 3.0, 4.0, 5.0];
         let temperature = vec![10.0, 20.0, 30.0, 40.0, 50.0];
-        let flow_accumulation =
-            compute_flow_accumulation_with_sources(&drainage_dir, &precipitation);
-        let catchment_cell_accumulation =
-            compute_flow_accumulation_with_sources(&drainage_dir, &vec![1.0; precipitation.len()]);
-        let temperature_accumulation =
-            compute_flow_accumulation_with_sources(&drainage_dir, &temperature);
-        // Unit areas: the area-weighted catchments reduce to the old count-based
-        // budgets, so the cross-edge accounting is exercised against known values.
         let areas = vec![1.0; precipitation.len()];
 
         compute_basin_catchments(
             &mut basins,
             &basin_id,
             &drainage_dir,
-            &flow_accumulation,
             &precipitation,
-            &catchment_cell_accumulation,
-            &temperature_accumulation,
             &temperature,
             &areas,
             30.0,
         );
 
+        // basin 0 captures cells {0,1,2}: precip 1+2+3=6, temp (10+20+30)/3=20.
         assert_eq!(basins[0].catchment_area, 6.0);
         assert_eq!(basins[0].mean_temperature, 20.0);
-        assert_eq!(basins[1].catchment_area, 15.0);
-        assert_eq!(basins[1].mean_temperature, 30.0);
+        // basin 1 captures only {3,4}: precip 4+5=9, temp (40+50)/2=45 — it does
+        // NOT include basin 0's cells (old buggy value was 15 / 30).
+        assert_eq!(basins[1].catchment_area, 9.0);
+        assert_eq!(basins[1].mean_temperature, 45.0);
     }
 
     /// The hypsometric fill measures the submerged surface by AREA, not cell
@@ -1350,5 +1477,97 @@ mod tests {
         // A cell-COUNT fill (floor(5)=5 cells >= 4) would instead overflow to 4.0.
         calculate_water_levels(&mut basins, 0.5);
         assert_eq!(basins[0].water_level, 1.5);
+    }
+
+    /// Overflow cascades in TOPOLOGICAL order, not by spill elevation. An upstream
+    /// basin with a LOWER spill overflows into a downstream basin with a HIGHER
+    /// spill; the downstream basin must still receive that water. The old
+    /// spill-elevation-descending single pass processed the downstream basin
+    /// first and silently dropped the upstream overflow.
+    #[test]
+    fn overflow_cascade_follows_topology_not_spill_elevation() {
+        let mut basins = vec![
+            // Upstream basin A: low spill, tiny capacity, big catchment -> overflows.
+            Basin {
+                cells: vec![0],
+                sorted_elevations: vec![0.0],
+                sorted_areas: vec![0.5],
+                total_area: 0.5,
+                spill_elevation: 1.0, // LOWER than B's spill
+                bottom_elevation: 0.0,
+                spill_target_cell: 0,
+                overflow_target: Some(1),
+                catchment_area: 10.0,
+                mean_temperature: 0.5,
+                evaporation_factor: 1.0,
+                water_level: f32::NEG_INFINITY,
+            },
+            // Downstream basin B: high spill, no catchment of its own.
+            Basin {
+                cells: vec![1, 2],
+                sorted_elevations: vec![2.0, 3.0],
+                sorted_areas: vec![1.0, 1.0],
+                total_area: 2.0,
+                spill_elevation: 5.0, // HIGHER than A's spill
+                bottom_elevation: 2.0,
+                spill_target_cell: 1,
+                overflow_target: None,
+                catchment_area: 0.0,
+                mean_temperature: 0.5,
+                evaporation_factor: 1.0,
+                water_level: f32::NEG_INFINITY,
+            },
+        ];
+        calculate_water_levels(&mut basins, 1.0);
+        // A overflows (target 10 >> capacity 0.5).
+        assert!(basins[0].is_overflowing());
+        // B received A's overflow despite its higher spill -> it holds water.
+        assert!(
+            basins[1].has_water(),
+            "downstream basin must receive upstream overflow: level={}",
+            basins[1].water_level
+        );
+    }
+
+    /// Two basins that overflow into each other are merged into one lake group
+    /// with a shared surface level and a combined catchment + hypsometry.
+    #[test]
+    fn mutually_overflowing_basins_merge_to_one_level() {
+        let mut basins = vec![
+            Basin {
+                cells: vec![0, 1],
+                sorted_elevations: vec![0.0, 2.0],
+                sorted_areas: vec![1.0, 1.0],
+                total_area: 2.0,
+                spill_elevation: 4.0,
+                bottom_elevation: 0.0,
+                spill_target_cell: 0,
+                overflow_target: Some(1),
+                catchment_area: 1.5,
+                mean_temperature: 0.5,
+                evaporation_factor: 1.0,
+                water_level: f32::NEG_INFINITY,
+            },
+            Basin {
+                cells: vec![2, 3],
+                sorted_elevations: vec![1.0, 3.0],
+                sorted_areas: vec![1.0, 1.0],
+                total_area: 2.0,
+                spill_elevation: 4.0,
+                bottom_elevation: 1.0,
+                spill_target_cell: 2,
+                overflow_target: Some(0),
+                catchment_area: 1.5,
+                mean_temperature: 0.5,
+                evaporation_factor: 1.0,
+                water_level: f32::NEG_INFINITY,
+            },
+        ];
+        calculate_water_levels(&mut basins, 1.0);
+        // Shared surface: combined catchment 3.0, ratio 1.0 -> target area 3.0 over
+        // the merged hypsometry [(0,1),(1,1),(2,1),(3,1)] submerges 3 cells; level
+        // sits between elev 2 and 3 = 2.5. Both members read the same level.
+        assert_eq!(basins[0].water_level, basins[1].water_level);
+        assert_eq!(basins[0].water_level, 2.5);
     }
 }
