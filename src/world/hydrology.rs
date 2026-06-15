@@ -1021,11 +1021,20 @@ fn calculate_water_levels(basins: &mut [Basin], climate_ratio: f32) {
             }
         }
         if !spill_elevation.is_finite() {
-            // Fully enclosed cycle (endorheic): cap at the lowest member rim.
+            // A multi-member cycle: every member's overflow_target points at
+            // another member, so none is "external" and we reach here. The merged
+            // lake's TRUE external outlet is the lowest saddle out of the cell
+            // union, which per-basin spill data can't recover (each member's spill
+            // is an INTERNAL connector to another member). We approximate the
+            // merged lake as endorheic, and cap at the HIGHEST member rim so the
+            // `*e < spill_elevation` filter keeps every union cell fillable (a min
+            // cap would wrongly drop the higher member's cells). Cycles are rare;
+            // a rigorous external outlet would need saddle tracking in the
+            // priority-flood. See docs/algorithm-audit-2026-06-15.md.
             spill_elevation = mem
                 .iter()
                 .map(|&b| basins[b].spill_elevation)
-                .fold(f32::INFINITY, f32::min);
+                .fold(f32::NEG_INFINITY, f32::max);
             overflow_group = None;
         }
 
@@ -1569,5 +1578,48 @@ mod tests {
         // sits between elev 2 and 3 = 2.5. Both members read the same level.
         assert_eq!(basins[0].water_level, basins[1].water_level);
         assert_eq!(basins[0].water_level, 2.5);
+    }
+
+    /// A merged cycle with UNEQUAL member spills must keep the higher member's
+    /// cells fillable (cap at the max rim, not the min). With the old min cap the
+    /// higher basin's cells were filtered out and the lake capped at the low rim.
+    #[test]
+    fn merged_cycle_with_unequal_spills_keeps_higher_cells() {
+        let mut basins = vec![
+            Basin {
+                cells: vec![0, 1],
+                sorted_elevations: vec![0.0, 1.0],
+                sorted_areas: vec![1.0, 1.0],
+                total_area: 2.0,
+                spill_elevation: 2.0, // low rim
+                bottom_elevation: 0.0,
+                spill_target_cell: 0,
+                overflow_target: Some(1),
+                catchment_area: 1.5,
+                mean_temperature: 0.5,
+                evaporation_factor: 1.0,
+                water_level: f32::NEG_INFINITY,
+            },
+            Basin {
+                cells: vec![2, 3],
+                sorted_elevations: vec![3.0, 5.0],
+                sorted_areas: vec![1.0, 1.0],
+                total_area: 2.0,
+                spill_elevation: 6.0, // high rim
+                bottom_elevation: 3.0,
+                spill_target_cell: 2,
+                overflow_target: Some(0),
+                catchment_area: 1.5,
+                mean_temperature: 0.5,
+                evaporation_factor: 1.0,
+                water_level: f32::NEG_INFINITY,
+            },
+        ];
+        calculate_water_levels(&mut basins, 1.0);
+        // Merged hypsometry [(0,1),(1,1),(3,1),(5,1)], target 3.0 submerges 3 cells
+        // -> level between elev 3 and 5 = 4.0, well above the low rim (2.0) the old
+        // min cap would have produced. Both members share it.
+        assert_eq!(basins[0].water_level, basins[1].water_level);
+        assert_eq!(basins[0].water_level, 4.0);
     }
 }

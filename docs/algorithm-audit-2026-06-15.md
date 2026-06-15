@@ -338,3 +338,35 @@ Applied and verified (`cargo build`/`test`/`clippy` clean, 52 tests pass):
 Withdrawn: **H2** (no real cycle bug — see above).
 
 Not yet addressed: **H6/H7/H8/H9**, all **M*/L*** items.
+
+---
+
+## Codex re-review of the fixes (2026-06-15)
+
+A second `codex exec` pass reviewed the shipped fixes adversarially (diff `58d8ce1..HEAD`). It
+cleared the cache/wind key, the circumcenter sign change, and the feature-seed normalization
+("mathematically sound", "no concrete bug"). It raised three points; assessment of each:
+
+- **R1 (fixed) — merged-cycle endorheic cap was wrong.** In `calculate_water_levels`, every member
+  of an overflow cycle points inside the group, so the endorheic branch always fired AND capped the
+  merged lake at the **lowest** member rim, which then excluded the higher member's cells via the
+  `*e < spill_elevation` fillable filter. Fixed to cap at the **highest** member rim (all union
+  cells stay fillable); kept endorheic. The merged cycle's *true* external outlet (the lowest saddle
+  out of the cell union) is genuinely unrecoverable from per-basin spill data — each member's spill
+  is an internal connector — so a rigorous outlet would need saddle tracking in the priority-flood.
+  Cycles are rare; documented in code. Regression: `merged_cycle_with_unequal_spills_keeps_higher_cells`.
+
+- **R2 (accepted tradeoff) — orphan repair adds a non-geometric edge.** `tessellation.rs` links an
+  orphan cell to its nearest generator; that edge need not be a true Voronoi neighbor, so
+  `shared_edge_length` falls back to half the inter-generator chord (and `debug_assert`s in debug
+  builds). This is a strict improvement over the prior behavior (a fully disconnected no-drainage
+  island) for a rare s2 degeneracy; the synthetic edge's approximate length affects only those few
+  cells. A rigorous fix would reconstruct the real topological edge. Left as a documented
+  approximation, not a regression.
+
+- **R3 (accepted tradeoff) — erosion uplift gate uses `base < 0`.** This excludes *below-sea-level
+  land* basins (endorheic, e.g. Dead-Sea-like) from tectonic uplift, and is static (`u_thick` from
+  the immutable `base`, while the routing sink test uses live `elev`). Defensible: such basins are
+  almost always extensional/subsiding (negative `rift_delta`), and the immutable sea-level datum is
+  the right reference for "ocean floor" — using live `elev` would let erosion flip the gate. Minor
+  practical impact; left as the documented choice.
