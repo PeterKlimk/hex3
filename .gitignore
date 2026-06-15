@@ -18,3 +18,7 @@ perf-callgraph.txt
 analysis_*.md
 analysis_*.png
 map_*.png
+
+# Claude Code personal/per-machine settings (allowlist, local overrides).
+# Shared settings belong in .claude/settings.json instead.
+.claude/settings.local.json
