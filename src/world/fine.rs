@@ -14,7 +14,7 @@ use super::constants::*;
 use super::elevation::{coarse_elevation_fields, ElevationFields};
 use super::erosion::ErosionParams;
 use super::fine_cache::{self, FineCacheMode};
-use super::{Atmosphere, Crust, Elevation, FeatureFields, Hydrology, Tessellation};
+use super::{Atmosphere, CellWaterState, Crust, Elevation, FeatureFields, Hydrology, Tessellation};
 
 type CoarseTree = ImmutableKdTree<f32, 3>;
 
@@ -105,6 +105,7 @@ impl FineWorld {
             &base,
             &base.base_elevation,
             &base.fields.precipitation,
+            0.0,
         );
         log::info!(
             "fine mesh: stage-3 base+pre {:.2?}, cells={}, density_ratio={:.1}:1",
@@ -353,61 +354,99 @@ impl FineSurface {
         // evolving crust thickness (isostasy responds). Runs on the fine mesh
         // before final hydrology; sea level is the fixed datum inherited via
         // `base_elevation`. See docs/specs/erosion.md.
-        let t0 = Instant::now();
         let erodibility = lithology_erodibility(&base.tessellation, seed, params.litho_sigma);
-        let eroded_base = super::erosion::erode(
-            &base.tessellation,
-            &base.fields.elevation_fields,
-            &base.base_elevation,
-            &base.fields.precipitation,
-            &erodibility,
-            params,
-        );
-        log::info!("fine mesh: erosion {:.2?}", t0.elapsed());
 
-        // Climate feedback: recompute orographic precipitation on the eroded
-        // relief (rain shadows behind the carved ranges) for the final hydrology.
-        let t0 = Instant::now();
-        let precip = fine_precipitation(
-            &base.tessellation,
-            &eroded_base,
-            &base.fields.wind,
-            &base.fields.precipitation,
-            params.orographic_precip_strength,
-        );
-        log::info!(
-            "fine mesh: orographic precip modulation {:.2?}",
-            t0.elapsed()
-        );
+        // Coupled erode↔precip loop: each pass re-carves the base relief with the
+        // rain-shadow precip from the previous pass (windward flanks, wetter,
+        // dissect more than lee). Pass 1 erodes with the coarse precip; later
+        // passes use the orographic-modulated precip. The precip is always a
+        // modulation of the COARSE field on the CURRENT relief, so it tracks the
+        // carved ranges. Converges in a couple of passes.
+        let iters = params.precip_outer_iters.max(1);
+        let mut precip = base.fields.precipitation.clone();
+        let mut eroded = base.base_elevation.clone();
+        for outer in 0..iters {
+            let t0 = Instant::now();
+            eroded = super::erosion::erode(
+                &base.tessellation,
+                &base.fields.elevation_fields,
+                &base.base_elevation,
+                &precip,
+                &erodibility,
+                params,
+            );
+            let t_erode = t0.elapsed();
+            let t1 = Instant::now();
+            precip = fine_precipitation(
+                &base.tessellation,
+                &eroded,
+                &base.fields.wind,
+                &base.fields.precipitation,
+                params.orographic_precip_strength,
+            );
+            log::info!(
+                "fine mesh: erode+precip pass {}/{} (erode {:.2?}, precip {:.2?})",
+                outer + 1,
+                iters,
+                t_erode,
+                t1.elapsed(),
+            );
+        }
 
-        Self::from_eroded(seed, base, &eroded_base, &precip)
+        Self::from_eroded(seed, base, &eroded, &precip, params.lake_evap_strength)
     }
 
     /// Build the surface (micro-noise elevation + hydrology) from an already-
-    /// eroded elevation. Shared by full generation and the UI erosion stepper,
-    /// which supplies the current elevation of a resumable `ErosionState` (step 0
-    /// = the un-eroded `base.base_elevation`).
-    pub fn from_eroded(seed: u64, base: &FineBase, eroded: &[f32], precipitation: &[f32]) -> Self {
+    /// eroded elevation. `lake_evap_strength > 0` adds the lakes-as-evaporation
+    /// pass (re-runs hydrology once with lake-boosted precip).
+    pub fn from_eroded(
+        seed: u64,
+        base: &FineBase,
+        eroded: &[f32],
+        precipitation: &[f32],
+        lake_evap_strength: f32,
+    ) -> Self {
         // Cosmetic micro noise rides on the eroded surface; this is the elevation
         // hydrology and rendering consume.
         let mut elev_rng = ChaCha8Rng::seed_from_u64(seed.wrapping_add(3));
         let elevation = Elevation::refine_from_base(&base.tessellation, eroded, &mut elev_rng);
         log_resolution_probe(&base.tessellation, &elevation);
 
+        let hydro = |precip: &[f32]| {
+            Hydrology::generate_from_continentality(
+                &base.tessellation,
+                &base.fields.elevation_fields.continentality,
+                &elevation,
+                precip,
+                &base.fields.temperature,
+            )
+        };
+
         let t0 = Instant::now();
-        let hydrology = Hydrology::generate_from_continentality(
-            &base.tessellation,
-            &base.fields.elevation_fields.continentality,
-            &elevation,
-            precipitation,
-            &base.fields.temperature,
-        );
+        let mut precip = precipitation.to_vec();
+        let mut hydrology = hydro(&precip);
         log::info!("fine mesh: hydrology {:.2?}", t0.elapsed());
+
+        // Lakes as evaporation sources: standing water adds local humidity, so
+        // boost precip in a halo around the lakes and re-run hydrology once. Local
+        // (no transport on the fine mesh), one pass = no runaway lake growth.
+        if lake_evap_strength > 0.0 {
+            let t0 = Instant::now();
+            precip = boost_precip_near_lakes(
+                &base.tessellation,
+                &elevation.values,
+                &precip,
+                &hydrology,
+                lake_evap_strength,
+            );
+            hydrology = hydro(&precip);
+            log::info!("fine mesh: lake-evap + re-hydrology {:.2?}", t0.elapsed());
+        }
 
         Self {
             elevation,
             hydrology,
-            precipitation: precipitation.to_vec(),
+            precipitation: precip,
         }
     }
 }
@@ -530,6 +569,61 @@ fn chord_gradient(tess: &Tessellation, values: &[f32], i: usize) -> Vec3 {
         gradient += tangent.normalize() * ((values[nb] - cell_elev) / dist);
     }
     gradient
+}
+
+/// Lakes-as-evaporation: boost precipitation in a halo around lake cells (standing
+/// water adds local humidity). Lake presence is diffused into the surrounding
+/// land, precip multiplied by (1 + strength * halo), then renormalized to land
+/// mean 1.0. Local only — the fine mesh doesn't re-advect moisture, so this is a
+/// halo, not a downwind plume.
+fn boost_precip_near_lakes(
+    tess: &Tessellation,
+    elevation: &[f32],
+    precip: &[f32],
+    hydrology: &Hydrology,
+    strength: f32,
+) -> Vec<f32> {
+    let n = tess.num_cells();
+    let is_lake: Vec<bool> = (0..n)
+        .map(|i| hydrology.water_state(i) == CellWaterState::LakeWater)
+        .collect();
+
+    // Diffuse lake presence into a halo (sources pinned at 1.0).
+    let mut hum: Vec<f32> = is_lake.iter().map(|&l| if l { 1.0 } else { 0.0 }).collect();
+    for _ in 0..LAKE_EVAP_DIFFUSE_STEPS {
+        let prev = hum.clone();
+        for i in 0..n {
+            if is_lake[i] {
+                continue;
+            }
+            let nbs = tess.neighbors(i);
+            if nbs.is_empty() {
+                continue;
+            }
+            let mean: f32 = nbs.iter().map(|&j| prev[j]).sum::<f32>() / nbs.len() as f32;
+            hum[i] = 0.5 * prev[i] + 0.5 * mean;
+        }
+    }
+
+    let mut out: Vec<f32> = (0..n)
+        .map(|i| precip[i] * (1.0 + strength * hum[i]))
+        .collect();
+    let (mut sum, mut cnt) = (0.0f64, 0usize);
+    for i in 0..n {
+        if elevation[i] >= 0.0 {
+            sum += out[i] as f64;
+            cnt += 1;
+        }
+    }
+    if cnt > 0 {
+        let mean = (sum / cnt as f64) as f32;
+        if mean > 1e-6 {
+            for p in &mut out {
+                *p /= mean;
+            }
+        }
+    }
+    out
 }
 
 fn build_coarse_tree(tessellation: &Tessellation) -> CoarseTree {

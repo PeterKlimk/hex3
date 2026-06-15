@@ -786,3 +786,20 @@ pub const OROGRAPHIC_PRECIP_STRENGTH: f32 = 0.6;
 pub const OROGRAPHIC_PRECIP_MIN: f32 = 0.3;
 /// Upper clamp on the modulation factor (wettest windward = MAX x coarse precip).
 pub const OROGRAPHIC_PRECIP_MAX: f32 = 2.5;
+
+/// Coupled erode↔precip feedback passes. Each pass re-carves the base relief with
+/// the rain-shadow precipitation from the previous pass, so windward flanks
+/// (wetter) dissect more than lee. 1 = erode once (precip still recomputed for
+/// hydrology, but no erosion feedback); 2 = one feedback pass. Cost is ~linear
+/// (each pass is a full erosion run), so keep it small. Dial to 1 if stage-4 is
+/// too slow at full resolution.
+pub const EROSION_PRECIP_OUTER_ITERS: usize = 2;
+
+/// Lakes as evaporation sources: standing water adds local humidity, boosting
+/// precipitation in a halo around lakes. The per-cell factor is (1 + STRENGTH *
+/// lake_halo), renormalized to land mean 1.0. Local only (the fine mesh doesn't
+/// re-advect moisture), applied once after the lakes are known, so no runaway
+/// lake growth. 0 disables.
+pub const LAKE_EVAP_STRENGTH: f32 = 0.5;
+/// Diffusion steps that spread the lake humidity into the surrounding halo.
+pub const LAKE_EVAP_DIFFUSE_STEPS: usize = 5;

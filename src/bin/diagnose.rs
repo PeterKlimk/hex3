@@ -58,6 +58,14 @@ struct Cli {
     /// wetter, lee drier). <0 = use OROGRAPHIC_PRECIP_STRENGTH; 0 = coarse precip.
     #[arg(long, default_value_t = -1.0)]
     erosion_orographic_strength: f32,
+    /// Override coupled erode↔precip feedback passes. 0 = use
+    /// EROSION_PRECIP_OUTER_ITERS default; 1 = no erosion feedback.
+    #[arg(long, default_value_t = 0)]
+    erosion_precip_iters: usize,
+    /// Override lakes-as-evaporation precip boost strength. <0 = use
+    /// LAKE_EVAP_STRENGTH default; 0 = off.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_lake_evap: f32,
 }
 
 fn main() {
@@ -98,6 +106,12 @@ fn main() {
     }
     if cli.erosion_orographic_strength >= 0.0 {
         world.erosion_params.orographic_precip_strength = cli.erosion_orographic_strength;
+    }
+    if cli.erosion_precip_iters > 0 {
+        world.erosion_params.precip_outer_iters = cli.erosion_precip_iters;
+    }
+    if cli.erosion_lake_evap >= 0.0 {
+        world.erosion_params.lake_evap_strength = cli.erosion_lake_evap;
     }
     if cli.fine_max > 0 {
         world.generate_hydrology_with_fine_cap(cli.fine_max);

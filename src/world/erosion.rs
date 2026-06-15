@@ -79,6 +79,10 @@ pub struct ErosionParams {
     /// Strength of the orographic precip modulation on the eroded fine relief
     /// (climate↔erosion feedback: windward wetter, lee drier). 0 = coarse precip.
     pub orographic_precip_strength: f32,
+    /// Coupled erode↔precip feedback passes (≥1). 2 = one feedback pass.
+    pub precip_outer_iters: usize,
+    /// Lakes-as-evaporation precip boost strength (local humidity halo). 0 = off.
+    pub lake_evap_strength: f32,
 }
 
 impl Default for ErosionParams {
@@ -96,6 +100,8 @@ impl Default for ErosionParams {
             channel_support_km2: EROSION_CHANNEL_SUPPORT_KM2,
             litho_sigma: EROSION_LITHO_SIGMA,
             orographic_precip_strength: OROGRAPHIC_PRECIP_STRENGTH,
+            precip_outer_iters: EROSION_PRECIP_OUTER_ITERS,
+            lake_evap_strength: LAKE_EVAP_STRENGTH,
         }
     }
 }
