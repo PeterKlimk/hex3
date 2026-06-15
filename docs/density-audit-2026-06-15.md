@@ -104,9 +104,15 @@ mountain share** — the gentle-terrain over-resolution funds finer mountains:
 | plains 20 + ocean 100 + exponent 4 | 1.23M | **−43%** | **25.8%** |
 | plains 25 + ocean 100 + exponent 4 | 1.11M | **−49%** | ~26% |
 
-The rebalance also improves the equidistribution ratio (mtn/lowland 12.7× → 6.2×). The production
-`FINE_*` constants are **unchanged** pending a visual sign-off — applying the rebalance is a next
-step, not done here.
+The rebalance also improves the equidistribution ratio (mtn/lowland 12.7× → 6.2×).
+
+**APPLIED (2026-06-15, after erosion grading was validated):** `FINE_PLAINS_CELL_KM` 12→20,
+`FINE_OCEAN_CELL_KM` 60→120, `FINE_DENSITY_FEATURE_EXPONENT` 3→4. Full-res validation (seed 12345):
+**2.16M → 1.21M cells (−44%)**, mountain share 18.6%→**26.8%**, ocean 9.3%→6.7%, local relief R25 p90
+0.220→0.226 (preserved), rivers still graded (aggregate bow −0.25, 80% concave). `FINE_MOUNTAIN_CELL_KM`
+left at 1.5 (the convergence study showed it adequate). The fine-base cache key hashes the density
+knobs, so the constant change auto-invalidates it (no version bump). Wants a visual confirmation that
+coastlines aren't blocky at the coarser ocean.
 
 ## Open items / next steps
 

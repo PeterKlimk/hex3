@@ -600,11 +600,17 @@ pub const PLANET_RADIUS_KM: f32 = 6371.0;
 pub const FINE_MOUNTAIN_CELL_KM: f32 = 1.5;
 
 /// Coarsest land cell size, in km (flat plains floor). Gentle, low-flow land
-/// carries little erosion detail, so it sits here.
-pub const FINE_PLAINS_CELL_KM: f32 = 12.0;
+/// carries little erosion detail, so it sits here. Raised 12->20 by the 2026-06
+/// density audit: plains/upland were ~72% of the cell budget at 8-16x lower
+/// relief-per-cell than mountains (over-resolved). See
+/// docs/density-audit-2026-06-15.md.
+pub const FINE_PLAINS_CELL_KM: f32 = 20.0;
 
-/// Ocean-floor cell size, in km. Featureless seabed needs almost nothing.
-pub const FINE_OCEAN_CELL_KM: f32 = 60.0;
+/// Ocean-floor cell size, in km. Featureless seabed needs almost nothing, and
+/// erosion skips it. Raised 60->120 (density audit): a weak lever on count
+/// (~9% of cells) but free — coarsen the underwater floor we don't render in
+/// detail. (A near-shore band may be wanted later if coastlines look blocky.)
+pub const FINE_OCEAN_CELL_KM: f32 = 120.0;
 
 /// Hard ceiling on fine-mesh cell count (memory/perf guardrail). The count is
 /// NOT a target: it emerges from the resolution criterion. If the emergent count
@@ -617,8 +623,12 @@ pub const FINE_MAX_CELLS: usize = 8_000_000;
 /// Exponent applied to each normalized refinement feature (slope, flow,
 /// activity). 1.0 = linear (gentle terrain refines quickly); >1.0 keeps
 /// flat/gentle land near the plains size and concentrates resolution on the
-/// steepest ground and main channels. 2.0 = square, 3.0 = cube.
-pub const FINE_DENSITY_FEATURE_EXPONENT: f32 = 3.0;
+/// steepest ground and main channels. 2.0 = square, 3.0 = cube. Raised 3->4 by
+/// the density audit: sharpening the demand curve concentrates the budget on
+/// mountains (which carry the relief and were under-allocated — achieving ~3.9km
+/// vs the 1.5km knob) while gentle terrain coarsens. With the plains/ocean
+/// changes this is ~-44% cells, mountain share 18.6%->26.8%, grading preserved.
+pub const FINE_DENSITY_FEATURE_EXPONENT: f32 = 4.0;
 
 /// Relative importance of coarse slope in the refinement demand (0..1 blend
 /// weight; only the ratio between the three weights matters — absolute scale
