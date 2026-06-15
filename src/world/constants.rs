@@ -717,10 +717,27 @@ pub const EROSION_REROUTE_INTERVAL: usize = 6;
 /// only (peaks decay); up = taller, more actively-rising orogens.
 pub const EROSION_UPLIFT_SCALE: f32 = 0.003;
 
-/// Fraction of a coastal sink's depth-to-sea-level that routed sediment may fill
-/// (delta building at river mouths). Sediment beyond this cap is "lost to the
-/// ocean" for the mass-balance log. Keeps deposition from breaching sea level.
+/// Fraction of a terminal sink's depth-to-base-level (sea level, or a lake
+/// surface) that routed sediment may fill (delta / lake-infill building at the
+/// mouth). Sediment beyond this cap is "lost to the ocean" for the mass-balance
+/// log. Keeps deposition from breaching the local water surface.
 pub const EROSION_DEPOSIT_FILL_FRACTION: f32 = 0.5;
+
+/// Depositional repose slope (elevation per radian) for en-route aggradation. As
+/// sediment routes to the sea/lakes, a reach aggrades toward the surface that
+/// grades to its receiver at this slope — so low-gradient reaches (valley floors,
+/// alluvial fans where mountains meet plains, lake/coast margins) fill while steep
+/// reaches pass their load downstream. This is the transport-limited half of the
+/// sediment cycle: it builds floodplains, fans, foreland-style fills, and broad
+/// deltas rather than dumping each catchment's load at one mouth.
+///
+/// Units match the incision slope (Δelevation / Δarc-radian). Larger = sediment
+/// aggrades steeper reaches too (more pervasive valley fill, less relief); smaller
+/// = deposition confined to the flattest ground (closer to sink-fill only). 0
+/// disables en-route deposition. The primary deposition knob; sweep with diagnose
+/// --erosion-deposition-slope and read the mass ledger (lost-to-ocean should drop)
+/// alongside the maps. Starting value — calibrate by eye, not to a target.
+pub const EROSION_DEPOSITION_SLOPE: f32 = 1.0;
 
 /// Channel-initiation support area (km²) at MEAN land wetness. Stream-power
 /// incision acts only on cells whose precip-weighted drainage (discharge)

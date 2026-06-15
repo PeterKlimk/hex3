@@ -121,10 +121,16 @@ impl FineWorld {
     }
 
     /// Compute the eroded surface (stage 4) over the existing base if absent.
+    /// The pre-erosion (stage-3) hydrology supplies terminal-lake base levels.
     pub fn compute_eroded(&mut self, seed: u64, params: ErosionParams) {
         if self.eroded.is_none() {
             let t = Instant::now();
-            self.eroded = Some(FineSurface::generate(seed, &self.base, params));
+            self.eroded = Some(FineSurface::generate(
+                seed,
+                &self.base,
+                &self.pre.hydrology,
+                params,
+            ));
             log::info!("fine mesh: stage-4 erosion surface {:.2?}", t.elapsed());
         }
     }
@@ -132,7 +138,12 @@ impl FineWorld {
     /// Re-run the eroded surface with (possibly tweaked) params, replacing it
     /// (no mesh recompute — reuses the base).
     pub fn rerun_eroded(&mut self, seed: u64, params: ErosionParams) {
-        self.eroded = Some(FineSurface::generate(seed, &self.base, params));
+        self.eroded = Some(FineSurface::generate(
+            seed,
+            &self.base,
+            &self.pre.hydrology,
+            params,
+        ));
     }
 
     /// Whether the eroded (stage-4) surface exists yet.
@@ -349,12 +360,22 @@ impl FineSurface {
     /// Stages 3b+3c: carve the base into river valleys, then derive hydrology.
     /// Reads `base` by reference so it can be re-run cheaply with new erosion
     /// knobs (`params`). `seed` drives only the cosmetic micro-noise rng.
-    pub fn generate(seed: u64, base: &FineBase, params: ErosionParams) -> Self {
+    pub fn generate(
+        seed: u64,
+        base: &FineBase,
+        pre_hydrology: &Hydrology,
+        params: ErosionParams,
+    ) -> Self {
         // Fluvial erosion: carve the interpolated base into real river valleys by
         // evolving crust thickness (isostasy responds). Runs on the fine mesh
         // before final hydrology; sea level is the fixed datum inherited via
         // `base_elevation`. See docs/specs/erosion.md.
         let erodibility = lithology_erodibility(&base.tessellation, seed, params.litho_sigma);
+
+        // Terminal (endorheic) lakes from the pre-erosion hydrology act as fixed
+        // local base levels, so inflowing rivers grade to the lake surface and
+        // closed basins drain internally instead of being carved over their spill.
+        let lake_base = terminal_lake_base_levels(&base.tessellation, pre_hydrology);
 
         // Coupled erode↔precip loop: each pass re-carves the base relief with the
         // rain-shadow precip from the previous pass (windward flanks, wetter,
@@ -373,6 +394,7 @@ impl FineSurface {
                 &base.base_elevation,
                 &precip,
                 &erodibility,
+                &lake_base,
                 params,
             );
             let t_erode = t0.elapsed();
@@ -475,6 +497,30 @@ fn lithology_erodibility(tess: &Tessellation, seed: u64, sigma: f32) -> Vec<f32>
     {
         (0..n).map(sample).collect()
     }
+}
+
+/// Per-cell base level from terminal (endorheic) pre-erosion lakes: a lake whose
+/// basin does NOT overflow is a true sink, so its surface elevation becomes a
+/// fixed base level for the erosion loop — inflowing rivers grade to it and the
+/// basin drains internally instead of being carved over its spill. Overflowing
+/// (through-flowing) lakes are left to the priority-flood spill routing.
+/// NEG_INFINITY for non-lake cells (no constraint beyond sea level), so a
+/// lakeless world reproduces the sea-level-only behaviour exactly.
+fn terminal_lake_base_levels(tess: &Tessellation, hydrology: &Hydrology) -> Vec<f32> {
+    let n = tess.num_cells();
+    let mut lake_base = vec![f32::NEG_INFINITY; n];
+    for i in 0..n {
+        if hydrology.water_state(i) != CellWaterState::LakeWater {
+            continue;
+        }
+        if let Some(bid) = hydrology.basin_id[i] {
+            let basin = &hydrology.basins[bid];
+            if !basin.is_overflowing() {
+                lake_base[i] = basin.water_level;
+            }
+        }
+    }
+    lake_base
 }
 
 /// Climate↔erosion feedback: modulate the (correct) coarse precipitation by the

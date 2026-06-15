@@ -66,6 +66,11 @@ struct Cli {
     /// LAKE_EVAP_STRENGTH default; 0 = off.
     #[arg(long, default_value_t = -1.0)]
     erosion_lake_evap: f32,
+    /// Override depositional repose slope (en-route aggradation: fans/floodplains/
+    /// deltas). <0 = use EROSION_DEPOSITION_SLOPE default; 0 = sink-fill only.
+    /// Read the mass ledger (lost-to-ocean should drop) as you raise it.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_deposition_slope: f32,
 }
 
 fn main() {
@@ -112,6 +117,9 @@ fn main() {
     }
     if cli.erosion_lake_evap >= 0.0 {
         world.erosion_params.lake_evap_strength = cli.erosion_lake_evap;
+    }
+    if cli.erosion_deposition_slope >= 0.0 {
+        world.erosion_params.deposition_slope = cli.erosion_deposition_slope;
     }
     if cli.fine_max > 0 {
         world.generate_hydrology_with_fine_cap(cli.fine_max);

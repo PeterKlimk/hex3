@@ -1,8 +1,11 @@
 //! Fluvial erosion on the fine mesh (docs/specs/erosion.md).
 //!
 //! Detachment-limited stream power (Braun & Willett 2013 implicit scheme, n = 1)
-//! with linear hillslope diffusion, plus simple coastal/sink deposition. The
-//! loop runs once after fine-elevation refinement and before final hydrology.
+//! with linear hillslope diffusion, plus transport-aware deposition (en-route
+//! aggradation toward a repose-slope surface — fans/floodplains/deltas — and
+//! base-level sink fill). Terminal (endorheic) pre-erosion lakes act as fixed
+//! local base levels. The loop runs once after fine-elevation refinement and
+//! before final hydrology.
 //!
 //! State is CRUST THICKNESS, not elevation. Elevation is coupled to thickness as
 //! an isostatic (Airy) delta on top of the interpolated coarse base:
@@ -66,8 +69,13 @@ pub struct ErosionParams {
     pub reroute_interval: usize,
     /// Tectonic uplift source scale (thickness units).
     pub uplift_scale: f32,
-    /// Fraction of a sink's depth-to-sea-level that deposition may fill.
+    /// Fraction of a sink's depth-to-base-level that deposition may fill.
     pub deposit_fill_fraction: f32,
+    /// Depositional repose slope (elevation per radian). En route to the sea/lakes,
+    /// sediment aggrades reaches whose bed lies below the surface grading to the
+    /// receiver at this slope — building fans, floodplains, and deltas. 0 = no
+    /// en-route deposition (terminal-sink fill only).
+    pub deposition_slope: f32,
     /// Channel-initiation support area (km²) at mean land wetness. Below the
     /// equivalent discharge a cell is a hillslope (diffusion only, no
     /// stream-power incision). 0 = off (incise wherever downhill).
@@ -97,6 +105,7 @@ impl Default for ErosionParams {
             reroute_interval: EROSION_REROUTE_INTERVAL,
             uplift_scale: EROSION_UPLIFT_SCALE,
             deposit_fill_fraction: EROSION_DEPOSIT_FILL_FRACTION,
+            deposition_slope: EROSION_DEPOSITION_SLOPE,
             channel_support_km2: EROSION_CHANNEL_SUPPORT_KM2,
             litho_sigma: EROSION_LITHO_SIGMA,
             orographic_precip_strength: OROGRAPHIC_PRECIP_STRENGTH,
@@ -120,10 +129,19 @@ pub(crate) fn erode(
     base: &[f32],
     precipitation: &[f32],
     erodibility: &[f32],
+    lake_base: &[f32],
     params: ErosionParams,
 ) -> Vec<f32> {
     roughness_report(tess, base, "base ");
-    let mut state = ErosionState::new(tess, fields, base, precipitation, erodibility, params);
+    let mut state = ErosionState::new(
+        tess,
+        fields,
+        base,
+        precipitation,
+        erodibility,
+        lake_base,
+        params,
+    );
     state.step(params.steps);
     state.log_summary();
     let final_elev = state.elevation();
@@ -156,6 +174,10 @@ pub(crate) struct ErosionState {
     precipitation: Vec<f32>,
     /// Tectonic uplift source in THICKNESS units per step (see `new`).
     u_thick: Vec<f32>,
+    /// Terminal (endorheic) lake surface per cell (finite => lake sink), or
+    /// NEG_INFINITY. Frozen from the pre-erosion hydrology; defines extra sinks
+    /// and the per-cell base level the routing grades to.
+    lake_base: Vec<f32>,
     areas: Vec<f32>,
     geom: NeighborGeometry,
     params: ErosionParams,
@@ -195,6 +217,7 @@ impl ErosionState {
         base: &[f32],
         precipitation: &[f32],
         erodibility_in: &[f32],
+        lake_base: &[f32],
         params: ErosionParams,
     ) -> Self {
         let n = tess.num_cells();
@@ -272,6 +295,7 @@ impl ErosionState {
             thick_init,
             precipitation: precipitation.to_vec(),
             u_thick,
+            lake_base: lake_base.to_vec(),
             areas,
             geom,
             params,
@@ -325,7 +349,7 @@ impl ErosionState {
         //    descent. Cells below sea level are fixed base-level sinks.
         if self.step % self.params.reroute_interval == 0 {
             s = Instant::now();
-            let Some(r) = Routing::build(&elev, &self.geom) else {
+            let Some(r) = Routing::build(&elev, &self.geom, &self.lake_base) else {
                 // No sinks (e.g. an all-land world): nothing to erode toward.
                 self.halted = true;
                 return;
@@ -358,15 +382,18 @@ impl ErosionState {
             self.params.m,
             self.params.dt,
         );
-        // No fluvial erosion below sea level (sea level is fixed): land cells
-        // may incise down to, but not past, the datum.
+        // No fluvial erosion below the local base level (sea level, or a terminal
+        // lake's surface for cells draining into it): land cells may incise down
+        // to, but not past, that datum. `floor.min(pre)` stops incision without
+        // ever raising terrain that already sits below the base level.
         let mut eroded_vol = vec![0.0f32; n];
         for i in 0..n {
             if routing.is_sink[i] {
                 continue;
             }
-            if elev[i] < 0.0 {
-                elev[i] = 0.0;
+            let floor = routing.base_floor[i].min(pre[i]);
+            if elev[i] < floor {
+                elev[i] = floor;
             }
             let drop = pre[i] - elev[i];
             if drop > 0.0 {
@@ -407,10 +434,9 @@ impl ErosionState {
         }
         self.t_misc += s.elapsed().as_secs_f64();
 
-        // 7. Deposit: route sediment to the coastal sink it drains into and
-        //    drop it there (capped so deltas don't breach sea level). Spreading
-        //    over a basin's low cells is simplified to per-mouth deposition;
-        //    full transport-limited routing is out of scope (see spec).
+        // 7. Deposit: aggrade low-gradient reaches toward a repose-slope surface
+        //    en route (floodplains, fans, deltas), then fill terminal sinks toward
+        //    their local base level (sea level or a lake surface).
         s = Instant::now();
         let (deposited, lost) = deposit(
             routing,
@@ -419,6 +445,7 @@ impl ErosionState {
             &self.areas,
             self.slope,
             self.params.deposit_fill_fraction,
+            self.params.deposition_slope,
             &mut self.thick,
         );
         self.total_eroded += eroded_vol.iter().map(|&v| v as f64).sum::<f64>();
@@ -608,22 +635,33 @@ fn incise_step(
 }
 
 /// Steepest-descent receivers over a priority-flood-filled surface, plus a
-/// downstream-first processing order. Cells below sea level are fixed sinks.
+/// downstream-first processing order. Fixed sinks are cells below sea level and
+/// cells flooded by a terminal (endorheic) pre-erosion lake.
 struct Routing {
     /// receiver[i]; for sinks receiver[i] == i.
     receiver: Vec<usize>,
-    /// Below sea level (fixed base level); not incised/diffused.
+    /// Fixed base level (below sea level, or terminal-lake water); not
+    /// incised/diffused.
     is_sink: Vec<bool>,
     /// Arc distance to receiver (radians on the unit sphere); 0 for sinks.
     dist: Vec<f32>,
     /// Downstream-first: every cell's receiver precedes it.
     order: Vec<usize>,
+    /// Lowest elevation each cell may incise to: the base level of the terminal
+    /// sink it drains into — 0 (sea level) for cells reaching the ocean, the lake
+    /// surface for cells draining into a terminal lake. Propagated upstream.
+    base_floor: Vec<f32>,
 }
 
 impl Routing {
-    fn build(elev: &[f32], geom: &NeighborGeometry) -> Option<Routing> {
+    /// `lake_base[i]` is the surface elevation of the terminal lake flooding cell
+    /// `i` (finite => that cell is a lake sink), or NEG_INFINITY for non-lake
+    /// cells. All-NEG_INFINITY reproduces the sea-level-only behaviour.
+    fn build(elev: &[f32], geom: &NeighborGeometry, lake_base: &[f32]) -> Option<Routing> {
         let n = geom.num_cells();
-        let is_sink: Vec<bool> = elev.iter().map(|&e| e < 0.0).collect();
+        let is_sink: Vec<bool> = (0..n)
+            .map(|i| elev[i] < 0.0 || lake_base[i].is_finite())
+            .collect();
         if !is_sink.iter().any(|&s| s) {
             return None;
         }
@@ -719,11 +757,27 @@ impl Routing {
             }
         }
 
+        // Base level per cell: a sink's own datum (lake surface, else sea level),
+        // inherited by every cell that drains into it. `order` is downstream-first
+        // (a cell's receiver precedes it), so one forward pass propagates it.
+        let mut base_floor = vec![0.0f32; n];
+        for i in 0..n {
+            if is_sink[i] && lake_base[i].is_finite() {
+                base_floor[i] = lake_base[i];
+            }
+        }
+        for &cell in &order {
+            if !is_sink[cell] {
+                base_floor[cell] = base_floor[receiver[cell]];
+            }
+        }
+
         Some(Routing {
             receiver,
             is_sink,
             dist,
             order,
+            base_floor,
         })
     }
 }
@@ -820,9 +874,18 @@ fn diffuse_land(
     elev.copy_from_slice(&cur);
 }
 
-/// Route eroded sediment to the coastal sink each catchment drains into and
-/// deposit it there, capped at `EROSION_DEPOSIT_FILL_FRACTION` of the sink's
-/// depth-to-sea-level (delta building). Returns (deposited, lost) volumes.
+/// Transport-aware deposition. Routes eroded sediment downstream; along the way,
+/// where the bed lies below the surface that grades to the receiver at the
+/// depositional repose slope (low-gradient reaches: valley floors, alluvial fans
+/// at range fronts, lake/coast margins), it aggrades the bed toward that surface.
+/// This builds floodplains, fans, and deltas instead of dumping every catchment's
+/// load at a single river mouth. Whatever still reaches a terminal sink fills it
+/// toward the LOCAL base level (sea level, or a lake surface) up to
+/// `deposit_fill_fraction`; the remainder is lost to the deep ocean. Returns
+/// (deposited, lost) thickness-volumes.
+///
+/// `deposition_slope = 0` disables en-route aggradation (sink-fill only), which
+/// reproduces the old behaviour generalized to the per-sink base level.
 fn deposit(
     routing: &Routing,
     eroded_vol: &[f32],
@@ -830,27 +893,46 @@ fn deposit(
     areas: &[f32],
     slope: f32,
     deposit_fill_fraction: f32,
+    deposition_slope: f32,
     thick: &mut [f32],
 ) -> (f64, f64) {
     let n = eroded_vol.len();
     let mut sed = eroded_vol.to_vec();
-    // Accumulate downstream into sinks (upstream-first).
-    for &cell in routing.order.iter().rev() {
-        if routing.is_sink[cell] {
-            continue;
-        }
-        sed[routing.receiver[cell]] += sed[cell];
-    }
-
     let mut deposited = 0.0f64;
     let mut lost = 0.0f64;
+
+    // Upstream-first: every cell's donors have already routed their sediment into
+    // it. Aggrade low-gradient reaches toward the repose-slope surface, then pass
+    // the remainder to the receiver (processed later in this same pass).
+    for &c in routing.order.iter().rev() {
+        if routing.is_sink[c] {
+            continue;
+        }
+        let r = routing.receiver[c];
+        if sed[c] > 0.0 && deposition_slope > 0.0 {
+            // Depositional surface grading to the receiver at the repose slope;
+            // aggrade only where the current bed sits below it.
+            let target = elev[r] + deposition_slope * routing.dist[c];
+            if elev[c] < target {
+                let room = (target - elev[c]) / slope * areas[c];
+                let dep = sed[c].min(room.max(0.0));
+                if dep > 0.0 {
+                    thick[c] += dep / areas[c].max(1e-12);
+                    deposited += dep as f64;
+                    sed[c] -= dep;
+                }
+            }
+        }
+        sed[r] += sed[c];
+    }
+
+    // Terminal sinks: fill toward the local base level (sea level 0, or a terminal
+    // lake's surface via base_floor) up to the fill fraction; lose the rest.
     for i in 0..n {
         if !routing.is_sink[i] || sed[i] <= 0.0 {
             continue;
         }
-        // Max thickness-volume that fills this sink toward (but not past) sea
-        // level, times the allowed fill fraction.
-        let depth = (-elev[i]).max(0.0); // elevation units below datum
+        let depth = (routing.base_floor[i] - elev[i]).max(0.0); // below local datum
         let cap = deposit_fill_fraction * depth / slope * areas[i];
         let take = sed[i].min(cap.max(0.0));
         if take > 0.0 {
@@ -1027,5 +1109,76 @@ mod tests {
             elev[n / 2] - elev[receiver[n / 2]]
         };
         assert!(drop(4.0) < drop(1.0));
+    }
+
+    /// Deposition conserves mass (deposited + lost == eroded) and aggrades a
+    /// low-gradient reach en route instead of carrying everything to the sink.
+    #[test]
+    fn deposition_aggrades_flats_and_conserves_mass() {
+        // chain: source 2 -> flat 1 -> sink 0 (sea). Cell 2 is steep (passes its
+        // load on); cell 1 is a flat just above sea level (aggrades).
+        let routing = Routing {
+            receiver: vec![0, 0, 1],
+            is_sink: vec![true, false, false],
+            dist: vec![0.0, 1.0, 1.0],
+            order: vec![0, 1, 2],            // downstream-first
+            base_floor: vec![0.0, 0.0, 0.0], // sea level
+        };
+        let elev = vec![-0.05, 0.0, 0.1];
+        let areas = vec![1.0, 1.0, 1.0];
+        let eroded_vol = vec![0.0, 0.0, 0.05];
+        let mut thick = vec![0.0; 3];
+
+        let (deposited, lost) = deposit(
+            &routing,
+            &eroded_vol,
+            &elev,
+            &areas,
+            0.7, // isostasy slope
+            0.5, // deposit_fill_fraction
+            0.1, // deposition_slope
+            &mut thick,
+        );
+
+        let total: f64 = eroded_vol.iter().map(|&v| v as f64).sum();
+        assert!(
+            (deposited + lost - total).abs() < 1e-6,
+            "mass not conserved"
+        );
+        assert!(thick[1] > 0.0, "flat reach should aggrade");
+        assert_eq!(thick[2], 0.0, "steep source should not aggrade");
+    }
+
+    /// With `deposition_slope = 0` there is no en-route aggradation: everything
+    /// reaches the sink, where the base-level fill cap applies.
+    #[test]
+    fn deposition_off_is_sink_fill_only() {
+        let routing = Routing {
+            receiver: vec![0, 0, 1],
+            is_sink: vec![true, false, false],
+            dist: vec![0.0, 1.0, 1.0],
+            order: vec![0, 1, 2],
+            base_floor: vec![0.0, 0.0, 0.0],
+        };
+        let elev = vec![-0.05, 0.0, 0.1];
+        let areas = vec![1.0, 1.0, 1.0];
+        let eroded_vol = vec![0.0, 0.0, 0.05];
+        let mut thick = vec![0.0; 3];
+
+        let (deposited, lost) = deposit(
+            &routing,
+            &eroded_vol,
+            &elev,
+            &areas,
+            0.7,
+            0.5,
+            0.0,
+            &mut thick,
+        );
+
+        assert_eq!(thick[1], 0.0, "no en-route deposition when slope is 0");
+        // Sink fill cap = 0.5 * depth(0.05) / slope(0.7) * area(1) = 0.0357.
+        assert!((deposited - 0.5 * 0.05 / 0.7).abs() < 1e-6);
+        assert!((deposited + lost - 0.05).abs() < 1e-6);
     }
 }
