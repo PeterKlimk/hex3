@@ -42,7 +42,24 @@ one bug and a set of physical/aesthetic gaps:
   (cratons hard / arcs soft). Item 8 was a non-issue — `FineFields.uplift` IS read
   via `World::active_uplift` for the fine Climate→Uplift view + export.
 - **Phase 4 — IN PROGRESS**. Item 6 (global wetness, `PRECIP_GLOBAL_SCALE`) done.
-  Item 7 (geologic epochs / time evolution) is the open long-horizon project.
+  Item 7 (geologic epochs / time evolution) is the open long-horizon project,
+  deferred — it's about tectonic *history*, not per-range visual quality.
+
+### Erosion-visual track ("make erosion look good")
+
+A separate track from the phases above: how mountains *read*, independent of
+tectonic history (the `ideas.md` lithosphere-structure + glacial cluster). The
+`ideas.md` review split "mountains look generic" three ways, each a spatial fix:
+
+- Textural sameness (one K) → geology-tied erodibility — **DONE (Phase 3 item 5)**.
+- Rounded/blobby crests → **glacial erosion — v1 DONE** (`glacial_erode`: snowline
+  ice over-deepening → U-troughs, tarns, sharpened peaks). **v2 DEFERRED**: explicit
+  U-valley *widening* (cross-valley planation) — the genuinely hard part on an
+  irregular Voronoi mesh; revisit only if v1's troughs read as too V-shaped.
+- Isotropic dendritic everywhere → **structural grain** (anisotropic/striped
+  erodibility along fold axes → ridge-and-valley / trellis drainage) — **next**.
+  Experimental: `ideas.md` flags trellis as "an outcome to test, not a promise."
+- (Range-scale blobbiness → discrete faulting / range-front facets — not started.)
 
 ---
 

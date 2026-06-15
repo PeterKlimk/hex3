@@ -76,6 +76,10 @@ struct Cli {
     /// and abraded volume as you sweep it.
     #[arg(long, default_value_t = -1.0)]
     glacial_k: f32,
+    /// Override structural-grain erodibility strength (fold-belt ridge-and-valley).
+    /// <0 = use EROSION_LITHO_GRAIN_STRENGTH default; 0 = no grain. Experimental.
+    #[arg(long, default_value_t = -1.0)]
+    litho_grain_strength: f32,
 }
 
 fn main() {
@@ -128,6 +132,9 @@ fn main() {
     }
     if cli.glacial_k >= 0.0 {
         world.erosion_params.glacial_k = cli.glacial_k;
+    }
+    if cli.litho_grain_strength >= 0.0 {
+        world.erosion_params.litho_grain_strength = cli.litho_grain_strength;
     }
     if cli.fine_max > 0 {
         world.generate_hydrology_with_fine_cap(cli.fine_max);

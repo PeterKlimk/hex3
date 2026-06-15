@@ -84,6 +84,9 @@ pub struct ErosionParams {
     /// multiplier is exp(sigma * fbm), normalized to unit mean over land so it
     /// only redistributes incision. 0 = uniform K.
     pub litho_sigma: f32,
+    /// Log-amplitude of the structural-grain (fold-belt) erodibility contrast.
+    /// 0 = no grain. Experimental (ridge-and-valley / trellis drainage).
+    pub litho_grain_strength: f32,
     /// Strength of the orographic precip modulation on the eroded fine relief
     /// (climate↔erosion feedback: windward wetter, lee drier). 0 = coarse precip.
     pub orographic_precip_strength: f32,
@@ -120,6 +123,7 @@ impl Default for ErosionParams {
             deposition_slope: EROSION_DEPOSITION_SLOPE,
             channel_support_km2: EROSION_CHANNEL_SUPPORT_KM2,
             litho_sigma: EROSION_LITHO_SIGMA,
+            litho_grain_strength: EROSION_LITHO_GRAIN_STRENGTH,
             orographic_precip_strength: OROGRAPHIC_PRECIP_STRENGTH,
             precip_outer_iters: EROSION_PRECIP_OUTER_ITERS,
             lake_evap_strength: LAKE_EVAP_STRENGTH,

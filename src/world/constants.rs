@@ -814,6 +814,21 @@ pub const EROSION_LITHO_OCTAVES: usize = 4;
 /// fBm-only lithology.
 pub const EROSION_LITHO_GEO_STRENGTH: f32 = 0.5;
 
+/// Log-amplitude of the STRUCTURAL-GRAIN erodibility contrast: alternating hard/
+/// soft bands in convergent belts, `grain_log = STRENGTH · conv · sin(τ·conv /
+/// WAVELENGTH)`, where `conv` is the land-normalized convergence. The bands strike
+/// along iso-convergent contours (≈ the collision front / fold-axis strike) and
+/// strengthen toward the suture — a fold-and-thrust fabric the incision can express
+/// as ridge-and-valley / trellis drainage. EXPERIMENTAL (trellis is an outcome to
+/// test, not a promise). 0 = no grain. Sweep with diagnose --litho-grain-strength.
+pub const EROSION_LITHO_GRAIN_STRENGTH: f32 = 0.6;
+
+/// Fold wavelength of the structural grain, in units of normalized convergence
+/// (0..1 across a belt). ~0.15 gives ~6–7 bands across the convergent gradient,
+/// tightest near the suture (where the convergence gradient is steepest). Smaller
+/// = more, tighter folds.
+pub const EROSION_FOLD_WAVELENGTH: f32 = 0.15;
+
 // --- Orographic precipitation feedback (climate↔erosion) ---------------------
 //
 // After erosion carves the fine relief, the coarse precipitation is modulated by
