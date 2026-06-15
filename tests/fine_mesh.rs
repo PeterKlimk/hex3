@@ -1,7 +1,8 @@
-use hex3::world::{FineCacheMode, FineWorld, World};
+use hex3::world::{ErosionParams, FineCacheMode, FineWorld, World};
 
-#[test]
-fn fine_mesh_pipeline_smoke() {
+/// Build a tiny coarse world through stage 2 (atmosphere) — shared setup for the
+/// fine-mesh smoke tests.
+fn coarse_world() -> World {
     let mut world = World::new(2027, 1200, 1);
     world.generate_plates(6);
     world.generate_crust();
@@ -9,11 +10,11 @@ fn fine_mesh_pipeline_smoke() {
     world.generate_features();
     world.generate_elevation();
     world.generate_atmosphere();
+    world
+}
 
-    // Build the stage-3 base + pre-erosion surface (cache disabled so the smoke
-    // test stays hermetic). `base` holds the mesh + transferred fields; `pre`
-    // holds the (un-eroded) elevation + hydrology.
-    let fine = FineWorld::generate_pre(
+fn generate_pre(world: &World) -> FineWorld {
+    FineWorld::generate_pre(
         world.seed,
         &world.tessellation,
         world.crust.as_ref().unwrap(),
@@ -22,7 +23,17 @@ fn fine_mesh_pipeline_smoke() {
         world.atmosphere.as_ref().unwrap(),
         4000,
         FineCacheMode::Disabled,
-    );
+    )
+}
+
+#[test]
+fn fine_mesh_pipeline_smoke() {
+    let world = coarse_world();
+
+    // Build the stage-3 base + pre-erosion surface (cache disabled so the smoke
+    // test stays hermetic). `base` holds the mesh + transferred fields; `pre`
+    // holds the (un-eroded) elevation + hydrology.
+    let fine = generate_pre(&world);
 
     let tess = &fine.base.tessellation;
     let n = tess.num_cells();
@@ -63,4 +74,39 @@ fn fine_mesh_pipeline_smoke() {
     );
     assert!(tess.morans_i(&fine.base.fields.temperature) > 0.85);
     assert!(tess.morans_i(&fine.base.fields.precipitation) > 0.55);
+}
+
+/// Stage 4 exercises the whole erosion path: fluvial incision + transport-aware
+/// deposition + terminal-lake base levels + the glacial pass. Smoke-check it runs
+/// and leaves a finite, sane surface (sea level still a fixed datum).
+#[test]
+fn fine_mesh_erosion_stage4_smoke() {
+    let world = coarse_world();
+    let mut fine = generate_pre(&world);
+
+    fine.compute_eroded(world.seed, ErosionParams::default());
+    assert!(fine.has_eroded());
+
+    let eroded = fine.surface_for(4);
+    let tess = &fine.base.tessellation;
+    let n = tess.num_cells();
+    assert_eq!(eroded.elevation.values.len(), n);
+    assert_eq!(eroded.hydrology.flow_accumulation.len(), n);
+    assert!(eroded.elevation.values.iter().all(|v| v.is_finite()));
+
+    // Erosion + glacial only sculpt land; sea level stays the fixed datum, so the
+    // land-area fraction stays in the same sane band as the pre-erosion surface.
+    let areas = tess.cell_areas();
+    let total: f32 = areas.iter().sum();
+    let land: f32 = areas
+        .iter()
+        .zip(eroded.elevation.values.iter())
+        .filter(|(_, &e)| e >= 0.0)
+        .map(|(&a, _)| a)
+        .sum();
+    let land_fraction = land / total;
+    assert!(
+        (0.15..0.45).contains(&land_fraction),
+        "post-erosion land fraction {land_fraction} outside sane band"
+    );
 }

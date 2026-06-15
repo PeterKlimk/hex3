@@ -421,6 +421,12 @@ impl FineSurface {
             );
         }
 
+        // Glacial sculpting on the carved relief: snowline-driven ice over-
+        // deepening (U-troughs, tarns) that sharpens the peaks between glaciers.
+        let t0 = Instant::now();
+        super::erosion::glacial_erode(&base.tessellation, &mut eroded, params);
+        log::info!("fine mesh: glacial pass {:.2?}", t0.elapsed());
+
         Self::from_eroded(seed, base, &eroded, &precip, params.lake_evap_strength)
     }
 

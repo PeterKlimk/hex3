@@ -91,6 +91,18 @@ pub struct ErosionParams {
     pub precip_outer_iters: usize,
     /// Lakes-as-evaporation precip boost strength (local humidity halo). 0 = off.
     pub lake_evap_strength: f32,
+    /// Glacial abrasion coefficient (ice flux → bed lowering). 0 = no glacial pass.
+    pub glacial_k: f32,
+    /// Glacial sub-steps (re-route + accumulate + abrade).
+    pub glacial_steps: usize,
+    /// Snowline elevation at the equator (only terrain above it glaciates).
+    pub glacial_snowline_equator: f32,
+    /// Snowline elevation at the poles (lower; uplands glaciate toward the coast).
+    pub glacial_snowline_pole: f32,
+    /// Ice ablation rate below the snowline (bounds glacier tongue length).
+    pub glacial_ablation: f32,
+    /// Max reverse gradient glacial abrasion may carve (tarn / over-deepening depth).
+    pub glacial_overdeepen_max: f32,
 }
 
 impl Default for ErosionParams {
@@ -111,6 +123,12 @@ impl Default for ErosionParams {
             orographic_precip_strength: OROGRAPHIC_PRECIP_STRENGTH,
             precip_outer_iters: EROSION_PRECIP_OUTER_ITERS,
             lake_evap_strength: LAKE_EVAP_STRENGTH,
+            glacial_k: GLACIAL_K,
+            glacial_steps: GLACIAL_STEPS,
+            glacial_snowline_equator: GLACIAL_SNOWLINE_EQUATOR,
+            glacial_snowline_pole: GLACIAL_SNOWLINE_POLE,
+            glacial_ablation: GLACIAL_ABLATION,
+            glacial_overdeepen_max: GLACIAL_OVERDEEPEN_MAX,
         }
     }
 }
@@ -147,6 +165,99 @@ pub(crate) fn erode(
     let final_elev = state.elevation();
     roughness_report(tess, &final_elev, "eroded");
     final_elev
+}
+
+/// Glacial erosion pass (v1). A snowline-driven ice over-deepening applied on top
+/// of the fluvial surface: terrain above a latitude-dependent snowline carries
+/// ice; the ice routes downslope (reusing the fluvial [`Routing`]) and abrades its
+/// bed in proportion to ice flux, so trunk glaciers over-deepen into troughs and
+/// tarn basins while the low-flux peaks/divides between them erode little and stand
+/// out sharper (arêtes, horns). Ice ablates below the snowline, giving glaciers
+/// bounded tongues. Works in elevation space (no isostatic response in v1) and
+/// never carves below sea level. U-shape valley *widening* is the deferred v2 part.
+pub(crate) fn glacial_erode(tess: &Tessellation, elev: &mut [f32], params: ErosionParams) {
+    if params.glacial_k <= 0.0 || params.glacial_steps == 0 {
+        return;
+    }
+    let n = tess.num_cells();
+    let geom = NeighborGeometry::build(tess);
+    let areas = tess.cell_areas();
+
+    // Latitude-dependent snowline elevation: EQUATOR at the equator, POLE at the
+    // poles, sin²(lat) between. cell_center.y is sin(latitude) on the unit sphere.
+    // Elevation is deliberately kept out of the snowline (it is the ice-load term),
+    // so the two don't double-count the way the lapse-baked temperature field would.
+    let snowline: Vec<f32> = (0..n)
+        .map(|i| {
+            let s = tess.cell_center(i).y;
+            let lat2 = (s * s).clamp(0.0, 1.0);
+            params.glacial_snowline_equator
+                + (params.glacial_snowline_pole - params.glacial_snowline_equator) * lat2
+        })
+        .collect();
+
+    // Coverage diagnostic measured on the input (fluvial) surface.
+    let (mut gl_land, mut land) = (0usize, 0usize);
+    for i in 0..n {
+        if elev[i] >= 0.0 {
+            land += 1;
+            if elev[i] > snowline[i] {
+                gl_land += 1;
+            }
+        }
+    }
+
+    // Ice grades to sea level (no lake base levels for the ice routing).
+    let no_lakes = vec![f32::NEG_INFINITY; n];
+    let mut total_abraded = 0.0f64;
+
+    for _ in 0..params.glacial_steps {
+        let Some(routing) = Routing::build(elev, &geom, &no_lakes) else {
+            break;
+        };
+
+        // Ice flux: accumulate the above-snowline ice load downstream (upstream-
+        // first), melting it in proportion to how far each cell sits below the
+        // snowline, so glaciers reach a bounded distance past the snowline.
+        let mut flux: Vec<f32> = (0..n).map(|i| (elev[i] - snowline[i]).max(0.0)).collect();
+        for &cell in routing.order.iter().rev() {
+            if routing.is_sink[cell] {
+                continue;
+            }
+            let below = (snowline[cell] - elev[cell]).max(0.0);
+            flux[cell] = (flux[cell] - params.glacial_ablation * below).max(0.0);
+            flux[routing.receiver[cell]] += flux[cell];
+        }
+
+        // Abrasion: lower the bed by k·flux, allowing limited over-deepening below
+        // the receiver (tarns) but never below sea level. Snapshot so every cell
+        // uses the pre-step surface (consistent receiver elevations).
+        let pre = elev.to_vec();
+        for i in 0..n {
+            if routing.is_sink[i] || flux[i] <= 0.0 {
+                continue;
+            }
+            let r = routing.receiver[i];
+            let floor = (pre[r] - params.glacial_overdeepen_max).max(0.0);
+            let lowered = (pre[i] - params.glacial_k * flux[i]).max(floor);
+            if lowered < pre[i] {
+                total_abraded += ((pre[i] - lowered) * areas[i]) as f64;
+                elev[i] = lowered;
+            }
+        }
+    }
+
+    log::info!(
+        "glacial: {} steps, snowline {:.3}..{:.3} (pole..eq) | glaciated land {:.2}% | abraded volume(elev*sr)={:.3e}",
+        params.glacial_steps,
+        params.glacial_snowline_pole,
+        params.glacial_snowline_equator,
+        100.0 * gl_land as f32 / land.max(1) as f32,
+        total_abraded,
+    );
+    // Post-glacial relief probe (compare to the "eroded" line for the glacial
+    // delta: glaciated valleys deepen, peaks/divides between them stand out).
+    roughness_report(tess, elev, "glacial");
 }
 
 /// Resumable erosion. `ErosionState::new(..).step(EROSION_STEPS)` reproduces the

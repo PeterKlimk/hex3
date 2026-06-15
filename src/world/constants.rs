@@ -850,3 +850,45 @@ pub const EROSION_PRECIP_OUTER_ITERS: usize = 2;
 pub const LAKE_EVAP_STRENGTH: f32 = 0.5;
 /// Diffusion steps that spread the lake humidity into the surrounding halo.
 pub const LAKE_EVAP_DIFFUSE_STEPS: usize = 5;
+
+// --- Glacial erosion (v1: snowline-driven ice over-deepening) -----------------
+//
+// A post-fluvial pass on the fine mesh. Cells above a latitude-dependent snowline
+// accumulate ice; ice routes downslope (reusing the fluvial routing) and abrades
+// its bed in proportion to ice flux, so trunk glaciers over-deepen into U-troughs
+// and tarn basins while the low-flux peaks/divides between them erode little and
+// stand out sharper (arêtes, horns). Works in elevation space (no isostatic
+// response in v1). U-shape valley *widening* is the deferred v2 piece.
+
+/// Glacial abrasion coefficient (ice-flux → bed lowering). The master "how
+/// glacial" knob. 0 disables the whole pass (no glaciers). Up = deeper troughs /
+/// more over-deepening. Sweep with diagnose --glacial-k and read the glaciated
+/// coverage + relief change it logs (a reference, not a target).
+pub const GLACIAL_K: f32 = 6.0e-3;
+
+/// Glacial sub-steps (re-route + accumulate + abrade each), letting troughs and
+/// over-deepened basins develop. A handful suffices; the routing dominates cost.
+pub const GLACIAL_STEPS: usize = 6;
+
+/// Snowline (equilibrium-line) ELEVATION at the equator, in the normalized
+/// elevation units (sea level 0). Only terrain above the local snowline glaciates,
+/// so near the equator just the highest peaks carry ice.
+pub const GLACIAL_SNOWLINE_EQUATOR: f32 = 0.30;
+
+/// Snowline ELEVATION at the poles. Lower than the equator (cold), so polar
+/// uplands glaciate down toward the coast. The per-cell snowline interpolates as
+/// EQUATOR + (POLE − EQUATOR)·sin²(lat), latitude from the cell position (this
+/// keeps elevation out of the snowline so it isn't double-counted against the
+/// ice-load term, unlike the lapse-baked temperature field).
+pub const GLACIAL_SNOWLINE_POLE: f32 = 0.02;
+
+/// Ice ablation rate below the snowline: ice flux loses ABLATION × (depth below
+/// snowline) per cell, so glaciers extend a bounded tongue below the snowline
+/// rather than flowing forever. Up = shorter tongues (ice melts faster).
+pub const GLACIAL_ABLATION: f32 = 6.0;
+
+/// Maximum reverse gradient (elevation) glacial abrasion may carve below a cell's
+/// receiver — the over-deepening that makes closed rock basins (tarns / paternoster
+/// steps) which later fill as lakes. Capped so over-deepening stays bounded; never
+/// carves below sea level. Up = deeper tarns.
+pub const GLACIAL_OVERDEEPEN_MAX: f32 = 0.012;

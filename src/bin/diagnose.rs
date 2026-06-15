@@ -71,6 +71,11 @@ struct Cli {
     /// Read the mass ledger (lost-to-ocean should drop) as you raise it.
     #[arg(long, default_value_t = -1.0)]
     erosion_deposition_slope: f32,
+    /// Override glacial abrasion coefficient (ice-flux over-deepening). <0 = use
+    /// GLACIAL_K default; 0 = no glacial pass. Read the logged glaciated coverage
+    /// and abraded volume as you sweep it.
+    #[arg(long, default_value_t = -1.0)]
+    glacial_k: f32,
 }
 
 fn main() {
@@ -120,6 +125,9 @@ fn main() {
     }
     if cli.erosion_deposition_slope >= 0.0 {
         world.erosion_params.deposition_slope = cli.erosion_deposition_slope;
+    }
+    if cli.glacial_k >= 0.0 {
+        world.erosion_params.glacial_k = cli.glacial_k;
     }
     if cli.fine_max > 0 {
         world.generate_hydrology_with_fine_cap(cli.fine_max);
