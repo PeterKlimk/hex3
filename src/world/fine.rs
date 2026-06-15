@@ -370,7 +370,13 @@ impl FineSurface {
         // evolving crust thickness (isostasy responds). Runs on the fine mesh
         // before final hydrology; sea level is the fixed datum inherited via
         // `base_elevation`. See docs/specs/erosion.md.
-        let erodibility = lithology_erodibility(&base.tessellation, seed, params.litho_sigma);
+        let erodibility = lithology_erodibility(
+            &base.tessellation,
+            &base.fields.elevation_fields,
+            seed,
+            params.litho_sigma,
+            EROSION_LITHO_GEO_STRENGTH,
+        );
 
         // Terminal (endorheic) lakes from the pre-erosion hydrology act as fixed
         // local base levels, so inflowing rivers grade to the lake surface and
@@ -473,21 +479,47 @@ impl FineSurface {
     }
 }
 
-/// Per-cell lithologic erodibility multiplier on the fine mesh: a role-1 fBm
-/// "rock varies" seed (re-evaluated at fine cell centers, never interpolated)
-/// that the incision step organizes into drainage-aligned differential relief.
-/// Returns exp(sigma * fbm), un-normalized — erosion normalizes it to unit land
-/// mean so it redistributes rather than scales incision. All-ones when sigma<=0.
-fn lithology_erodibility(tess: &Tessellation, seed: u64, sigma: f32) -> Vec<f32> {
+/// Per-cell lithologic erodibility multiplier on the fine mesh. Sums two role-1
+/// "rock varies" log-contrasts that the incision step organizes into drainage-
+/// aligned differential relief, then exponentiates:
+///   - GEOLOGY (transferred fields): deep continental interiors are old, hard
+///     cratonic basement (lower K); volcanic arcs are fresh, fractured terrain
+///     (higher K). Tied to the same continentality/arc machinery elevation uses,
+///     so the grain follows the world's geology, not just free noise.
+///   - TEXTURE (fBm at fine cell centers, never interpolated): sub-unit variation
+///     at terrane→formation scale.
+/// Returned un-normalized; erosion normalizes it to unit land mean so it only
+/// REDISTRIBUTES incision. All-ones when both knobs are 0.
+fn lithology_erodibility(
+    tess: &Tessellation,
+    fields: &ElevationFields,
+    seed: u64,
+    sigma: f32,
+    geo_strength: f32,
+) -> Vec<f32> {
     let n = tess.num_cells();
-    if sigma <= 0.0 {
+    if sigma <= 0.0 && geo_strength <= 0.0 {
         return vec![1.0; n];
     }
-    let fbm = Fbm::<Perlin>::new(seed.wrapping_add(47) as u32).set_octaves(EROSION_LITHO_OCTAVES);
+    // Arc forcing normalized to [0,1] by its land maximum (robust to weak/strong-
+    // arc worlds; the result is re-normalized to unit mean downstream anyway).
+    let arc_max = fields.arc.iter().copied().fold(0.0f32, f32::max).max(1e-6);
+    let fbm = (sigma > 0.0).then(|| {
+        Fbm::<Perlin>::new(seed.wrapping_add(47) as u32).set_octaves(EROSION_LITHO_OCTAVES)
+    });
     let sample = |i: usize| {
-        let p = tess.cell_center(i) * EROSION_LITHO_FREQUENCY as f32;
-        let v = fbm.get([p.x as f64, p.y as f64, p.z as f64]) as f32;
-        (sigma * v).exp()
+        let craton = fields.continentality[i].clamp(0.0, 1.0); // 1 = deep interior
+        let arc_soft = (fields.arc[i].max(0.0) / arc_max).clamp(0.0, 1.0);
+        // Geology: harder in cratons, softer in arcs (log-K contrast).
+        let geo_log = geo_strength * (arc_soft - craton);
+        let fbm_log = match &fbm {
+            Some(f) => {
+                let p = tess.cell_center(i) * EROSION_LITHO_FREQUENCY as f32;
+                sigma * f.get([p.x as f64, p.y as f64, p.z as f64]) as f32
+            }
+            None => 0.0,
+        };
+        (geo_log + fbm_log).exp()
     };
     #[cfg(not(feature = "single-threaded"))]
     {

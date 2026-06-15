@@ -630,15 +630,19 @@ pub const FINE_RELAX_PASSES: usize = 3;
 
 /// Number of implicit incision timesteps. The implicit scheme is
 /// unconditionally stable, so a few dozen large steps suffice. With uplift ON
-/// (the Phase 3 "Hold & carve" default) the step count sets the uplift/erosion
-/// BALANCE: uplift-in grows linearly with steps while erosion (on an
-/// increasingly graded profile) grows sublinearly, so their ratio rises with
-/// steps and crosses ~1 — true mass balance — near 60 for the reference world
-/// (seed 12345, 300k): peaks held, valleys graded, maximum relief at conserved
-/// mass. Fewer steps under-balance (net erosion, less relief); many more tip to
-/// net growth (the orogen inflates). With uplift OFF (relaxation) there is no
-/// equilibrium and the count is just a visual stopping time. Linear cost (~4s at
-/// 60 / 300k); the dominant per-step cost is re-routing, so also the runtime knob.
+/// (the Phase 3 "Hold & carve" default) the step count sets how far the orogen
+/// evolves: uplift holds the divides while channels grade, so RELIEF builds with
+/// steps and then plateaus as the profile approaches graded. At ~60 the reference
+/// world (seed 12345) sits in that plateau — peaks held above the un-eroded base
+/// (max ~+15%), valleys graded — and the OUTCOME is resolution-robust: the eroded
+/// height distribution (mean/p90/p99/max, land volume) is stable to a few percent
+/// across 300k–2.5M cells, even though gross incision *throughput* falls with
+/// resolution. Judge the balance by that held-peaks/bounded-relief outcome, NOT by
+/// "uplift-in ≈ eroded" (a 300k coincidence: the throughput ledger is resolution-
+/// dependent and Phase-2 deposition sits on its denudation side). Fewer steps =
+/// less relief; far more = over-graded lowlands. With uplift OFF (relaxation) the
+/// count is just a visual stopping time. Per-step cost is dominated by re-routing,
+/// so this is also the runtime knob.
 pub const EROSION_STEPS: usize = 60;
 
 /// Timestep (dimensionless; folded into K / uplift scale). Kept explicit so the
@@ -708,13 +712,16 @@ pub const EROSION_REROUTE_INTERVAL: usize = 6;
 /// height — so SCALE buys only the ongoing uplift during the erosion epoch and
 /// must stay small.
 ///
-/// Calibration (seed 12345, --fine-max 300000, sweeps on --erosion-uplift-scale
-/// and --erosion-steps): at 0.003 with the default 60 steps, uplift-in (5.6e-2) ≈
-/// eroded (5.6e-2) — TRUE mass balance. High terrain is held/raised (p90/p99/max
-/// above the un-eroded base, peak ~+15%) while mean/volume fall as valleys incise:
-/// relief up at conserved mass, not the old net-addition inflation. The step count
-/// co-sets the ratio (see EROSION_STEPS), so retune them together. 0 = relaxation
-/// only (peaks decay); up = taller, more actively-rising orogens.
+/// Calibration (seed 12345, sweeps on --erosion-uplift-scale / --erosion-steps):
+/// at 0.003 with the default 60 steps the eroded surface holds high terrain above
+/// the un-eroded base (p90/p99/max raised, peak ~+15%) while valleys incise — the
+/// "Hold & carve" outcome. Verified resolution-robust: that height distribution is
+/// stable to a few percent across 300k–2.5M cells (see EROSION_STEPS). Read the
+/// held-peaks/bounded-relief OUTCOME, not the throughput ledger — gross eroded
+/// falls with resolution and Phase-2 deposition feeds it, so "uplift-in ≈ eroded"
+/// is not the invariant. The step count co-sets how far relief evolves (see
+/// EROSION_STEPS), so move them together. 0 = relaxation only (peaks decay); up =
+/// taller, more actively-rising orogens.
 pub const EROSION_UPLIFT_SCALE: f32 = 0.003;
 
 /// Fraction of a terminal sink's depth-to-base-level (sea level, or a lake
@@ -783,6 +790,16 @@ pub const EROSION_LITHO_FREQUENCY: f64 = 12.0;
 
 /// fBm octaves for the lithology field (multi-scale terrane → formation grain).
 pub const EROSION_LITHO_OCTAVES: usize = 4;
+
+/// Log-amplitude of the GEOLOGY-tied erodibility contrast, layered on top of the
+/// fBm texture (added in log-K space). Deep continental interiors are old, hard
+/// cratonic basement (lower K) and volcanic arcs are fresh, fractured terrain
+/// (higher K): per-cell `geo_log = STRENGTH * (arc_norm − continentality)`, so
+/// 0.5 spans ~exp(±0.5) ≈ 0.6–1.6x on top of the fBm. Unlike the free fBm, this
+/// grain follows the world's geology (same continentality/arc fields elevation
+/// uses). Normalized to unit land mean downstream (pure redistribution). 0 =
+/// fBm-only lithology.
+pub const EROSION_LITHO_GEO_STRENGTH: f32 = 0.5;
 
 // --- Orographic precipitation feedback (climate↔erosion) ---------------------
 //
