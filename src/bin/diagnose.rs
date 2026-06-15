@@ -516,33 +516,69 @@ fn main() {
         hydrology.basins.len()
     );
 
-    // ---- River concavity (population slope-area) ----
-    // Detachment-limited stream power at steady state gives channel slope
-    // S ~ A^(-theta), theta = m/n (~0.5 here): concave-up graded rivers. Rather
-    // than trace stems (which lakes truncate), use the standard population
-    // method: over every channel cell (flow above a support threshold, draining
-    // downhill) take S = drop/dist to its receiver and A = flow, bin by ln(A),
-    // take the median ln(S) per bin, and regress bin medians -> theta = -slope.
-    // Median bins are robust to lakes/outliers. theta<=0 (convex/flat) = rivers
-    // not graded (erosion too weak / K too low).
+    // ---- River concavity (population slope-area) — UNRELIABLE, see note ----
+    // WARNING (2026-06-15): this population slope-area theta is NOT trustworthy on
+    // this adaptive mesh. It returns flat/negative theta (~0) even when the river
+    // long profiles are demonstrably concave-up/graded, and swings wildly (+0.8 to
+    // -0.2) under small parameter changes. Causes: flow_accumulation routes through
+    // filled/non-overflowing lakes (artificial drainage area), single-edge drop/dist
+    // is noisy on irregular Voronoi cells, and the channel population mixes regimes.
+    // It sent a whole erosion investigation chasing a phantom "under-graded" bug
+    // that did not exist (the aggregate long-profile probe below showed rivers ARE
+    // graded). KEPT only as a documented negative result; judge grading by the
+    // "River grading (aggregate ...)" probe, not this theta. See
+    // docs/erosion-validation-2026-06-15.md.
+    // Detachment-limited stream power at steady state gives S ~ A^(-theta),
+    // theta = m/n (~0.5). Population method: over channel cells (flow > support,
+    // draining downhill) take S = drop/dist, A = flow, bin by ln(A), regress
+    // median ln(S) per bin -> theta = -slope.
     {
         // Count-equivalent flow (hydrology stores physical precip×area discharge),
         // so the absolute channel-support threshold stays in upstream-cell units.
         let flow: Vec<f32> = (0..n).map(|i| hydrology.flow_count_equiv(i)).collect();
         let drainage = &hydrology.drainage_dir;
         let channel_thresh = 50.0f32;
+        // Exclude cells whose flow_accumulation is contaminated by lake routing:
+        // lake-water cells, and cells inside a non-overflowing (terminal) basin
+        // whose drainage is captured by the lake rather than reaching the ocean.
+        // flow_accumulation routes through filled basins, so without this the
+        // slope-area population mixes real channels with lake-spill artifacts.
+        let in_terminal_basin = |c: usize| -> bool {
+            match hydrology.basin_id[c] {
+                Some(b) => !hydrology.basins[b].is_overflowing(),
+                None => false,
+            }
+        };
+        let is_lake = |c: usize| hydrology.water_state(c) == CellWaterState::LakeWater;
         let mut pts: Vec<(f32, f32)> = Vec::new(); // (ln A, ln S)
+        let mut skipped_lake = 0usize;
         for c in 0..n {
             if !land[c] || flow[c] < channel_thresh {
                 continue;
             }
+            if is_lake(c) || in_terminal_basin(c) {
+                skipped_lake += 1;
+                continue;
+            }
             let Some(d) = drainage[c] else { continue };
+            // Receiver in a lake: the "slope" is to a lake surface, not a graded
+            // channel — drop it.
+            if is_lake(d) {
+                skipped_lake += 1;
+                continue;
+            }
             let dz = elevation[c] - elevation[d];
             let dx = (tess.cell_center(c) - tess.cell_center(d)).length() * EARTH_RADIUS_KM;
             if dz <= 0.0 || dx <= 0.0 {
                 continue;
             }
             pts.push((flow[c].ln(), (dz / dx).ln()));
+        }
+        if skipped_lake > 0 {
+            println!(
+                "  (excluded {} lake/terminal-basin channel cells from slope-area)",
+                skipped_lake
+            );
         }
         println!("\n-- River concavity (slope-area)  [stream-power theta=m/n ~0.5, concave-up] --");
         if pts.len() < 50 {
@@ -580,17 +616,118 @@ fn main() {
                 f32::NAN
             };
             println!(
-                "  channel cells {} | bins fitted {} | theta = {:+.2}  ({})",
+                "  channel cells {} | bins fitted {} | theta = {:+.2}  (UNRELIABLE on this mesh — judge grading by the aggregate long-profile probe below, not this)",
                 pts.len(),
                 k,
                 theta,
-                if theta > 0.15 {
-                    "concave-up / graded"
-                } else if theta > -0.15 {
-                    "~flat (under-graded)"
+            );
+        }
+    }
+
+    // ---- River grading: aggregate long-profile concavity (ground truth) ----
+    // A SINGLE river's profile is too sensitive to which head gets picked (and the
+    // population slope-area theta is noisy on this mesh), so aggregate over the N
+    // largest mountain rivers. Trace each (highest unused channel head -> sea),
+    // measure its concavity, and report the MEDIAN: a graded landscape has rivers
+    // that are concave-up (steep source, gentle mouth) — negative normalized bow,
+    // source/mouth slope ratio > 1. This cancels single-river selection noise.
+    {
+        let cflow: Vec<f32> = (0..n).map(|i| hydrology.flow_count_equiv(i)).collect();
+        let mut heads: Vec<usize> = (0..n).filter(|&i| land[i] && cflow[i] > 100.0).collect();
+        heads.sort_by(|&a, &b| elevation[b].total_cmp(&elevation[a])); // highest first
+        let mut visited = vec![false; n];
+        let mut bows: Vec<f32> = Vec::new(); // normalized bow (bow/drop): <0 = concave-up
+        let mut ratios: Vec<f32> = Vec::new(); // source-third / mouth-third slope
+        let (mut lake_sum, mut stem_sum) = (0usize, 0usize);
+        const N_RIVERS: usize = 50;
+        const MIN_KM: f32 = 200.0;
+        for &head in &heads {
+            if bows.len() >= N_RIVERS {
+                break;
+            }
+            if visited[head] {
+                continue;
+            }
+            let mut stem = vec![head];
+            visited[head] = true;
+            let mut cur = head;
+            while let Some(d) = hydrology.drainage_dir[cur] {
+                if hydrology.water_state(d) == CellWaterState::Ocean || visited[d] || stem.len() > n
+                {
+                    break;
+                }
+                visited[d] = true;
+                stem.push(d);
+                cur = d;
+            }
+            if stem.len() < 8 {
+                continue;
+            }
+            let mut dist = vec![0.0f32; stem.len()];
+            for k in 1..stem.len() {
+                dist[k] = dist[k - 1]
+                    + (tess.cell_center(stem[k]) - tess.cell_center(stem[k - 1])).length()
+                        * EARTH_RADIUS_KM;
+            }
+            let total_len = dist[stem.len() - 1];
+            let drop = elevation[head] - elevation[*stem.last().unwrap()];
+            if total_len < MIN_KM || drop <= 1e-4 {
+                continue;
+            }
+            let mid = total_len * 0.5;
+            let mk = (0..stem.len())
+                .min_by(|&a, &b| (dist[a] - mid).abs().total_cmp(&(dist[b] - mid).abs()))
+                .unwrap();
+            let chord = elevation[head] + (elevation[*stem.last().unwrap()] - elevation[head]) * 0.5;
+            bows.push((elevation[stem[mk]] - chord) / drop);
+            let seg = |lo: f32, hi: f32| -> f32 {
+                let (mut dz, mut dx) = (0.0f32, 0.0f32);
+                for k in 1..stem.len() {
+                    if dist[k] > lo * total_len && dist[k] <= hi * total_len {
+                        dz += elevation[stem[k - 1]] - elevation[stem[k]];
+                        dx += dist[k] - dist[k - 1];
+                    }
+                }
+                if dx > 0.0 {
+                    dz / dx
                 } else {
-                    "convex (not graded)"
+                    0.0
+                }
+            };
+            let (ss, sm) = (seg(0.0, 0.333), seg(0.667, 1.0));
+            if sm > 1e-9 {
+                ratios.push(ss / sm);
+            }
+            lake_sum += stem
+                .iter()
+                .filter(|&&c| hydrology.water_state(c) == CellWaterState::LakeWater)
+                .count();
+            stem_sum += stem.len();
+        }
+        println!("\n-- River grading (aggregate over largest mountain rivers, source -> sea) --   [graded = concave-up]");
+        if bows.is_empty() {
+            println!("  (no qualifying rivers)");
+        } else {
+            bows.sort_by(f32::total_cmp);
+            ratios.sort_by(f32::total_cmp);
+            let med_bow = bows[bows.len() / 2];
+            let pct_concave =
+                100.0 * bows.iter().filter(|&&b| b < 0.0).count() as f32 / bows.len() as f32;
+            let med_ratio = ratios.get(ratios.len() / 2).copied().unwrap_or(f32::NAN);
+            println!(
+                "  rivers {} | median norm-bow {:+.3} ({}) | concave {:.0}% | median source/mouth slope ratio {:.2} (graded >1) | lake reaches {:.0}%",
+                bows.len(),
+                med_bow,
+                if med_bow < -0.02 {
+                    "concave-up / graded"
+                } else if med_bow > 0.02 {
+                    "convex (NOT graded)"
+                } else {
+                    "~uniform"
                 },
+                pct_concave,
+                med_ratio,
+                100.0 * lake_sum as f32 / stem_sum.max(1) as f32,
             );
         }
     }
@@ -806,5 +943,51 @@ fn main() {
             100.0 * ocean_cells as f32 / n as f32,
             100.0 * ocean_area / total_area,
         );
+
+        // ---- Fine-scale local relief (scale-controlled convergence probe) ----
+        // Fixed PHYSICAL-radius local relief (max-min eroded elevation within R km).
+        // Unlike per-cell Δh (which shrinks trivially with cell size), this is
+        // independent of resolution, so across a FINE_MOUNTAIN_CELL_KM sweep it
+        // reveals whether finer cells keep uncovering dissection (rising ->
+        // under-resolved) or it has converged (flat -> dense enough). Sampled over
+        // mountain-class cells (the relief-bearing terrain).
+        use kiddo::{ImmutableKdTree, SquaredEuclidean};
+        let entries: Vec<[f32; 3]> = (0..n).map(|i| tess.cell_center(i).to_array()).collect();
+        let tree: ImmutableKdTree<f32, 3> = ImmutableKdTree::new_from_slice(&entries);
+        let mtn: Vec<usize> = (0..n).filter(|&i| elevation[i] >= RANGE_ELEV).collect();
+        let stride = (mtn.len() / 20_000).max(1);
+        let sample: Vec<usize> = mtn.iter().copied().step_by(stride).collect();
+        println!(
+            "\n-- Fine-scale local relief (fixed-radius max-min elev, {} mountain samples) --",
+            sample.len()
+        );
+        println!("   (scale-controlled: across a mountain-density sweep, rising p90 => still under-resolved, flat => converged)");
+        for &rk in &[10.0f32, 25.0f32] {
+            let rad = rk / EARTH_RADIUS_KM; // small-angle: chord ≈ arc
+            let rsq = rad * rad;
+            let mut relief_r: Vec<f32> = sample
+                .iter()
+                .map(|&i| {
+                    let mut lo = f32::INFINITY;
+                    let mut hi = f32::NEG_INFINITY;
+                    for nb in tree.within_unsorted::<SquaredEuclidean>(&entries[i], rsq) {
+                        let e = elevation[nb.item as usize];
+                        lo = lo.min(e);
+                        hi = hi.max(e);
+                    }
+                    (hi - lo).max(0.0)
+                })
+                .collect();
+            relief_r.sort_by(f32::total_cmp);
+            let m = relief_r.len().max(1);
+            let q = |p: f32| relief_r[(((m - 1) as f32) * p) as usize];
+            println!(
+                "  R={:>2.0} km: local relief p50 {:.4} | p90 {:.4} | p99 {:.4}",
+                rk,
+                q(0.50),
+                q(0.90),
+                q(0.99)
+            );
+        }
     }
 }
