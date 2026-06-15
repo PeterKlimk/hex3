@@ -106,6 +106,8 @@ pub struct ErosionParams {
     pub glacial_ablation: f32,
     /// Max reverse gradient glacial abrasion may carve (tarn / over-deepening depth).
     pub glacial_overdeepen_max: f32,
+    /// Fault range-front scarp relief imposed on the base before erosion. 0 = off.
+    pub fault_scarp_height: f32,
 }
 
 impl Default for ErosionParams {
@@ -133,6 +135,7 @@ impl Default for ErosionParams {
             glacial_snowline_pole: GLACIAL_SNOWLINE_POLE,
             glacial_ablation: GLACIAL_ABLATION,
             glacial_overdeepen_max: GLACIAL_OVERDEEPEN_MAX,
+            fault_scarp_height: FAULT_SCARP_HEIGHT,
         }
     }
 }

@@ -907,3 +907,35 @@ pub const GLACIAL_ABLATION: f32 = 6.0;
 /// steps) which later fill as lakes. Capped so over-deepening stays bounded; never
 /// carves below sea level. Up = deeper tarns.
 pub const GLACIAL_OVERDEEPEN_MAX: f32 = 0.012;
+
+// --- Fault range fronts (v1 proxy: sharpen active orogen margins) -------------
+//
+// The lithosphere is a smooth isostatic field, so range fronts grade out softly —
+// real fault-bounded ranges rise abruptly along a near-linear front. Rather than a
+// discrete fault-trace generator (deferred), this imposes a localized scarp on the
+// fine base BEFORE erosion, at the contour of the orogen forcing (collision +
+// convergence) — which follows the plate boundary, so the front is boundary-seeded.
+// The scarp is the derivative-of-Gaussian of the (normalized) forcing across that
+// contour: footwall edge up, hanging-wall/basin edge down, tapering to zero in the
+// deep interior and far basin (a steepening, not a second uplift). Erosion then cuts
+// canyons through the steepened front and the triangular facets EMERGE between them.
+
+/// Scarp relief (elevation units) imposed at the active range front. The master
+/// knob; 0 disables the pass (no front sharpening). Peak offset is ~0.6x this at
+/// the band centre. Sweep with diagnose --fault-scarp.
+pub const FAULT_SCARP_HEIGHT: f32 = 0.04;
+
+/// Front location: the fraction of the land-max orogen forcing whose contour marks
+/// the range front (where the scarp centres). ~0.4 puts it on the flank of the
+/// orogen where it meets the lowland.
+pub const FAULT_FRONT_THRESHOLD: f32 = 0.4;
+
+/// Front width in normalized-forcing units: how far either side of the threshold
+/// contour the scarp reaches. Smaller = sharper, more sharply localized front.
+pub const FAULT_FRONT_BAND: f32 = 0.2;
+
+/// Hanging-wall (basin) subsidence as a fraction of footwall uplift. Real range
+/// fronts express footwall uplift far more than basin drop (basins fill with
+/// sediment), and a symmetric scarp over-drops the lowlands and drowns coastal
+/// land, so the basin side is damped well below 1.0.
+pub const FAULT_BASIN_DROP_FRAC: f32 = 0.25;

@@ -80,6 +80,10 @@ struct Cli {
     /// <0 = use EROSION_LITHO_GRAIN_STRENGTH default; 0 = no grain. Experimental.
     #[arg(long, default_value_t = -1.0)]
     litho_grain_strength: f32,
+    /// Override fault range-front scarp relief (sharpen active orogen margins).
+    /// <0 = use FAULT_SCARP_HEIGHT default; 0 = off (smooth fronts).
+    #[arg(long, default_value_t = -1.0)]
+    fault_scarp: f32,
 }
 
 fn main() {
@@ -135,6 +139,9 @@ fn main() {
     }
     if cli.litho_grain_strength >= 0.0 {
         world.erosion_params.litho_grain_strength = cli.litho_grain_strength;
+    }
+    if cli.fault_scarp >= 0.0 {
+        world.erosion_params.fault_scarp_height = cli.fault_scarp;
     }
     if cli.fine_max > 0 {
         world.generate_hydrology_with_fine_cap(cli.fine_max);

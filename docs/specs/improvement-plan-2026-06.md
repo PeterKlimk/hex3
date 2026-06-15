@@ -59,7 +59,10 @@ tectonic history (the `ideas.md` lithosphere-structure + glacial cluster). The
 - Isotropic dendritic everywhere → **structural grain** (anisotropic/striped
   erodibility along fold axes → ridge-and-valley / trellis drainage) — **next**.
   Experimental: `ideas.md` flags trellis as "an outcome to test, not a promise."
-- (Range-scale blobbiness → discrete faulting / range-front facets — not started.)
+- Range-scale blobbiness → **fault range fronts — v1 DONE** (`apply_fault_scarps`:
+  a boundary-seeded scarp at the orogen-forcing contour sharpens active margins
+  before erosion; facets emerge from incision). v1 is the proxy (no discrete fault
+  traces / horst-graben); the full fault-trace generator is the deferred escalation.
 
 ---
 

@@ -384,6 +384,16 @@ impl FineSurface {
         // closed basins drain internally instead of being carved over their spill.
         let lake_base = terminal_lake_base_levels(&base.tessellation, pre_hydrology);
 
+        // Fault range-front scarps: sharpen active orogen margins so ranges rise
+        // along near-linear fronts; erosion then cuts canyons through them and the
+        // triangular facets emerge. Applied to the base erosion carves into.
+        let mut faulted_base = base.base_elevation.clone();
+        apply_fault_scarps(
+            &mut faulted_base,
+            &base.fields.elevation_fields,
+            params.fault_scarp_height,
+        );
+
         // Coupled erode↔precip loop: each pass re-carves the base relief with the
         // rain-shadow precip from the previous pass (windward flanks, wetter,
         // dissect more than lee). Pass 1 erodes with the coarse precip; later
@@ -392,13 +402,13 @@ impl FineSurface {
         // carved ranges. Converges in a couple of passes.
         let iters = params.precip_outer_iters.max(1);
         let mut precip = base.fields.precipitation.clone();
-        let mut eroded = base.base_elevation.clone();
+        let mut eroded = faulted_base.clone();
         for outer in 0..iters {
             let t0 = Instant::now();
             eroded = super::erosion::erode(
                 &base.tessellation,
                 &base.fields.elevation_fields,
-                &base.base_elevation,
+                &faulted_base,
                 &precip,
                 &erodibility,
                 &lake_base,
@@ -556,6 +566,44 @@ fn lithology_erodibility(
     #[cfg(feature = "single-threaded")]
     {
         (0..n).map(sample).collect()
+    }
+}
+
+/// Fault range-front scarps (v1 proxy): sharpen active orogen margins on the fine
+/// base BEFORE erosion. The lithosphere is a smooth isostatic field, so orogen
+/// margins grade out softly; this imposes a localized scarp at the contour of the
+/// (land-normalized) collision+convergence forcing — which follows the plate
+/// boundary, so the front is boundary-seeded. The displacement is the derivative-
+/// of-Gaussian of the forcing across that contour: footwall edge up, hanging-wall/
+/// basin edge down, tapering to zero in the deep interior and far basin (a
+/// steepening, not a second uplift). Erosion then cuts canyons through the abrupt
+/// front and triangular facets emerge between them. Land cells only; 0 = no-op.
+fn apply_fault_scarps(base_elev: &mut [f32], fields: &ElevationFields, scarp_height: f32) {
+    if scarp_height <= 0.0 {
+        return;
+    }
+    let n = base_elev.len();
+    let forcing: Vec<f32> = (0..n)
+        .map(|i| (fields.collision[i] + fields.convergent[i]).max(0.0))
+        .collect();
+    // Normalize by the land maximum (robust across weak/strong-orogen worlds).
+    let fmax = (0..n)
+        .filter(|&i| base_elev[i] >= 0.0)
+        .map(|i| forcing[i])
+        .fold(0.0f32, f32::max)
+        .max(1e-6);
+    for i in 0..n {
+        if base_elev[i] < 0.0 {
+            continue; // land only
+        }
+        let z = (forcing[i] / fmax - FAULT_FRONT_THRESHOLD) / FAULT_FRONT_BAND;
+        // +ve just inside the contour (footwall up), −ve just outside (basin down,
+        // damped so it sharpens the front without drowning the lowland).
+        let mut scarp = scarp_height * z * (-0.5 * z * z).exp();
+        if scarp < 0.0 {
+            scarp *= FAULT_BASIN_DROP_FRAC;
+        }
+        base_elev[i] += scarp;
     }
 }
 
