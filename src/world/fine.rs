@@ -532,16 +532,19 @@ fn fine_precipitation(
         })
         .collect();
 
-    // Renormalize to land mean 1.0.
-    let (mut sum, mut cnt) = (0.0f64, 0usize);
+    // Renormalize to AREA-weighted land mean 1.0: on the adaptive mesh the many
+    // tiny land cells must not dominate the mean, and hydrology now integrates
+    // precip × area, so the budget it calibrates against is the area-weighted one.
+    let areas = tess.cell_areas();
+    let (mut wsum, mut asum) = (0.0f64, 0.0f64);
     for i in 0..n {
         if elevation[i] >= 0.0 {
-            sum += precip[i] as f64;
-            cnt += 1;
+            wsum += (precip[i] * areas[i]) as f64;
+            asum += areas[i] as f64;
         }
     }
-    if cnt > 0 {
-        let mean = (sum / cnt as f64) as f32;
+    if asum > 0.0 {
+        let mean = (wsum / asum) as f32;
         if mean > 1e-6 {
             for p in &mut precip {
                 *p /= mean;
@@ -608,15 +611,17 @@ fn boost_precip_near_lakes(
     let mut out: Vec<f32> = (0..n)
         .map(|i| precip[i] * (1.0 + strength * hum[i]))
         .collect();
-    let (mut sum, mut cnt) = (0.0f64, 0usize);
+    // Area-weighted land-mean-1.0 renormalization (see fine_precipitation).
+    let areas = tess.cell_areas();
+    let (mut wsum, mut asum) = (0.0f64, 0.0f64);
     for i in 0..n {
         if elevation[i] >= 0.0 {
-            sum += out[i] as f64;
-            cnt += 1;
+            wsum += (out[i] * areas[i]) as f64;
+            asum += areas[i] as f64;
         }
     }
-    if cnt > 0 {
-        let mean = (sum / cnt as f64) as f32;
+    if asum > 0.0 {
+        let mean = (wsum / asum) as f32;
         if mean > 1e-6 {
             for p in &mut out {
                 *p /= mean;
@@ -678,10 +683,10 @@ fn compute_areal_density(
         .map(|i| elevation.slope(tessellation, i))
         .fold(0.0_f32, f32::max)
         .max(1e-6);
-    let max_flow_ln = preview_hydrology
-        .flow_accumulation
-        .iter()
-        .map(|f| f.max(1.0).ln())
+    // flow_count_equiv (not raw discharge) so the .max(1.0) log floor stays in
+    // count units after hydrology became area-weighted.
+    let max_flow_ln = (0..n)
+        .map(|i| preview_hydrology.flow_count_equiv(i).max(1.0).ln())
         .fold(0.0_f32, f32::max)
         .max(1e-6);
 
@@ -702,7 +707,7 @@ fn compute_areal_density(
         // demand in [0,1] (0 = flat plains, 1 = all features maxed). Weights are
         // relative importances; absolute scale comes from the cell-size scales.
         let slope = (elevation.slope(tessellation, i) / max_slope).powf(e);
-        let flow = (preview_hydrology.flow_accumulation[i].max(1.0).ln() / max_flow_ln).powf(e);
+        let flow = (preview_hydrology.flow_count_equiv(i).max(1.0).ln() / max_flow_ln).powf(e);
         let activity = features.activity[i].clamp(0.0, 1.0).powf(e);
         let demand = (FINE_SLOPE_DENSITY_WEIGHT * slope
             + FINE_FLOW_DENSITY_WEIGHT * flow

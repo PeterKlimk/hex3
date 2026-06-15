@@ -451,7 +451,9 @@ fn main() {
     // Median bins are robust to lakes/outliers. theta<=0 (convex/flat) = rivers
     // not graded (erosion too weak / K too low).
     {
-        let flow = &hydrology.flow_accumulation;
+        // Count-equivalent flow (hydrology stores physical precip×area discharge),
+        // so the absolute channel-support threshold stays in upstream-cell units.
+        let flow: Vec<f32> = (0..n).map(|i| hydrology.flow_count_equiv(i)).collect();
         let drainage = &hydrology.drainage_dir;
         let channel_thresh = 50.0f32;
         let mut pts: Vec<(f32, f32)> = Vec::new(); // (ln A, ln S)
@@ -525,7 +527,9 @@ fn main() {
     // land has more flow trivially -- read the ratio as directional (wet should
     // be denser), and the upland-restricted line controls somewhat for uplift.
     {
-        let flow = &hydrology.flow_accumulation;
+        // Count-equivalent flow (see river-concavity probe) for the absolute
+        // channel-support threshold below.
+        let flow: Vec<f32> = (0..n).map(|i| hydrology.flow_count_equiv(i)).collect();
         let areas = tess.cell_areas();
         let mut lp: Vec<f32> = (0..n)
             .filter(|&i| land[i])

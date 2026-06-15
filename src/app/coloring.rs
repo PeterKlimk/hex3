@@ -209,7 +209,7 @@ pub fn cell_color_terrain(world: &World, cell_idx: usize) -> Vec3 {
     // Cheap moisture proxy: flow accumulation (if hydrology exists).
     // Purposefully subtle: greener valleys without requiring a full climate model.
     let moisture = world.active_hydrology().map_or(0.0, |hydrology| {
-        let flow = hydrology.flow_accumulation[cell_idx].max(1.0);
+        let flow = hydrology.flow_count_equiv(cell_idx).max(1.0);
         let ln_flow = flow.ln();
         let ln_n = (world.num_cells() as f32).ln().max(1.0);
         let flow_t = (ln_flow / ln_n).clamp(0.0, 1.0);
@@ -376,7 +376,7 @@ pub fn cell_color_hydrology(world: &World, cell_idx: usize) -> Vec3 {
             // Land - color by flow accumulation (drainage intensity)
             // Low flow = drier uplands (tan/brown)
             // High flow = wetter valleys (greener)
-            let flow = hydrology.flow_accumulation[cell_idx];
+            let flow = hydrology.flow_count_equiv(cell_idx);
             let flow_t = (flow.ln().max(0.0) / 7.0).clamp(0.0, 1.0);
             let dry = Vec3::new(0.6, 0.55, 0.4); // tan/brown (ridges, divides)
             let wet = Vec3::new(0.25, 0.45, 0.25); // green (valleys, drainage)

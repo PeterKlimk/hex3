@@ -42,6 +42,14 @@ pub struct Basin {
     /// Cell elevations sorted ascending (for hypsometric lookup).
     /// sorted_elevations[i] is the elevation of the i-th lowest cell.
     pub sorted_elevations: Vec<f32>,
+    /// Cell areas (steradians) aligned with `sorted_elevations`: sorted_areas[i]
+    /// is the area of the i-th lowest cell. Lets the hypsometric fill measure the
+    /// submerged surface by AREA, not cell count — essential on the adaptive fine
+    /// mesh where basin cells span ~50:1 in area.
+    pub sorted_areas: Vec<f32>,
+    /// Total basin surface area (steradians) = sum of `sorted_areas`. The lake's
+    /// maximum (spill-full) surface area.
+    pub total_area: f32,
     /// Spill elevation - maximum possible water level.
     pub spill_elevation: f32,
     /// Bottom elevation - lowest point in the basin.
@@ -51,8 +59,9 @@ pub struct Basin {
     pub spill_target_cell: usize,
     /// Which basin this one overflows into (None = drains to ocean).
     pub overflow_target: Option<usize>,
-    /// Precipitation-weighted upstream budget draining into this basin
-    /// (units: average-cell rainfall equivalents).
+    /// Upstream discharge draining into this basin: precipitation-weighted
+    /// drainage AREA (units: rainfall × steradian), so it shares erosion's
+    /// "wet area" definition and is correct on the adaptive mesh.
     pub catchment_area: f32,
     /// Area-weighted mean surface temperature of the basin catchment.
     pub mean_temperature: f32,
@@ -136,6 +145,14 @@ pub struct Hydrology {
     /// Current climate ratio (precipitation / evaporation).
     /// Controls how full lakes are. Higher = wetter = more/larger lakes.
     pub climate_ratio: f32,
+
+    /// Precipitation-weighted mean cell area, Σ(precip·area) / Σ(precip)
+    /// (steradians). `flow_accumulation` is a physical discharge (precip ×
+    /// steradian); dividing by this converts it back to a count-equivalent
+    /// (≈ the old precip-weighted upstream cell count on the equal-area coarse
+    /// mesh), so legacy count-based thresholds (river density, density prior,
+    /// coloring) keep their meaning and become resolution-independent.
+    pub mean_cell_discharge: f32,
 }
 
 /// Minimum ocean component size as fraction of total cells.
@@ -187,17 +204,25 @@ impl Hydrology {
         let total = Instant::now();
         // Use raw elevation directly - MIN_LAKE_DEPTH filters spurious puddles
         let raw_elevation = &elevation.values;
+        // Per-cell areas (steradians). Every water budget below is an AREA
+        // integral, not a cell count — essential on the adaptive fine mesh where
+        // land cells span ~50:1 in area and oceans are a few huge cells.
+        let areas = tessellation.cell_areas();
 
         // Step 1: Identify ocean cells (connected below-sea-level touching oceanic crust)
         let t0 = Instant::now();
-        let is_ocean =
-            identify_ocean_cells_from_continentality(tessellation, continentality, raw_elevation);
+        let is_ocean = identify_ocean_cells_from_continentality(
+            tessellation,
+            continentality,
+            raw_elevation,
+            &areas,
+        );
         log::info!("hydrology: identify ocean cells {:.2?}", t0.elapsed());
 
         // Step 2: Priority-flood from ocean to detect all basins
         let t0 = Instant::now();
         let (filled_elevation, basin_id, mut basins, flood_parent) =
-            priority_flood_with_basins(tessellation, raw_elevation, &is_ocean);
+            priority_flood_with_basins(tessellation, raw_elevation, &areas, &is_ocean);
         log::info!(
             "hydrology: priority flood {:.2?} ({} basins)",
             t0.elapsed(),
@@ -214,8 +239,8 @@ impl Hydrology {
         // Step 5: Accumulate flow (precipitation-weighted)
         let t0 = Instant::now();
         let (flow_accumulation, catchment_cell_accumulation, temperature_accumulation) =
-            compute_flow_accumulations(&drainage_dir, precipitation, temperature);
-        let global_mean_temperature = mean_temperature(temperature);
+            compute_flow_accumulations(&drainage_dir, precipitation, temperature, &areas);
+        let global_mean_temperature = mean_temperature(temperature, &areas);
         log::info!("hydrology: flow accumulations {:.2?}", t0.elapsed());
 
         // Step 6: Compute catchment budget for each basin
@@ -229,6 +254,7 @@ impl Hydrology {
             &catchment_cell_accumulation,
             &temperature_accumulation,
             temperature,
+            &areas,
             global_mean_temperature,
         );
         log::info!("hydrology: basin catchments {:.2?}", t0.elapsed());
@@ -260,6 +286,24 @@ impl Hydrology {
             tessellation.num_cells()
         );
 
+        // Precip-weighted mean cell area, Σ(precip·area)/Σ(precip). Converts the
+        // physical discharge in `flow_accumulation` back to a count-equivalent for
+        // the legacy count-based thresholds (see field docs).
+        let mean_cell_discharge = {
+            let mut wsum = 0.0f64;
+            let mut psum = 0.0f64;
+            for i in 0..areas.len() {
+                let p = precipitation[i].max(0.0);
+                wsum += (p * areas[i]) as f64;
+                psum += p as f64;
+            }
+            if psum > 0.0 {
+                (wsum / psum) as f32
+            } else {
+                1.0
+            }
+        };
+
         Self {
             elevation: raw_elevation.clone(),
             filled_elevation,
@@ -271,6 +315,7 @@ impl Hydrology {
             water_bodies,
             cell_water_body,
             climate_ratio,
+            mean_cell_discharge,
         }
     }
 
@@ -354,12 +399,24 @@ impl Hydrology {
         self.drainage_dir[cell_idx]
     }
 
-    /// Get river cells (land cells with flow above threshold).
+    /// Count-equivalent flow at a cell: the physical discharge in
+    /// `flow_accumulation` (precip × steradian) rescaled by `mean_cell_discharge`
+    /// so it matches the old precip-weighted upstream cell count on an equal-area
+    /// mesh. Use for count-based thresholds and log-scale river visualization;
+    /// use the raw `flow_accumulation` where a physical discharge is wanted.
+    pub fn flow_count_equiv(&self, cell_idx: usize) -> f32 {
+        self.flow_accumulation[cell_idx] / self.mean_cell_discharge.max(1e-12)
+    }
+
+    /// Get river cells (land cells with flow above threshold). `threshold` is a
+    /// count-equivalent (≈ upstream cells); it is converted to the physical
+    /// discharge scale via `mean_cell_discharge` so it means the same on any mesh.
     pub fn river_cells(&self, threshold: f32) -> Vec<usize> {
+        let flow_threshold = threshold * self.mean_cell_discharge;
         self.flow_accumulation
             .iter()
             .enumerate()
-            .filter(|(i, &flow)| flow >= threshold && !self.is_submerged(*i))
+            .filter(|(i, &flow)| flow >= flow_threshold && !self.is_submerged(*i))
             .map(|(i, _)| i)
             .collect()
     }
@@ -383,6 +440,11 @@ impl Hydrology {
     ) -> Vec<bool> {
         let n = self.drainage_dir.len();
         let mut is_major = vec![false; n];
+
+        // Thresholds arrive as count-equivalents; scale to the physical discharge
+        // units of `flow_accumulation` (see `mean_cell_discharge`).
+        let outlet_threshold = outlet_threshold * self.mean_cell_discharge;
+        let branch_threshold = branch_threshold * self.mean_cell_discharge;
 
         // Build reverse graph: for each cell, who drains INTO it
         let mut drains_into: Vec<Vec<usize>> = vec![Vec::new(); n];
@@ -511,9 +573,14 @@ fn identify_ocean_cells_from_continentality(
     tessellation: &Tessellation,
     continentality: &[f32],
     elevation: &[f32],
+    areas: &[f32],
 ) -> Vec<bool> {
     let n = tessellation.num_cells();
-    let min_ocean_area = ((n as f32) * MIN_OCEAN_AREA_FRACTION).ceil() as usize;
+    // Minimum ocean size as a fraction of total surface AREA (not cell count):
+    // on the adaptive mesh open ocean is a few huge cells, so a count threshold
+    // would wrongly reject it.
+    let total_area: f32 = areas.iter().sum();
+    let min_ocean_area = total_area * MIN_OCEAN_AREA_FRACTION;
     let mut is_ocean = vec![false; n];
     let mut visited = vec![false; n];
 
@@ -525,6 +592,7 @@ fn identify_ocean_cells_from_continentality(
 
         // BFS to find this connected component
         let mut component = Vec::new();
+        let mut component_area = 0.0f32;
         let mut touches_oceanic = false;
         let mut queue = VecDeque::new();
 
@@ -533,6 +601,7 @@ fn identify_ocean_cells_from_continentality(
 
         while let Some(cell) = queue.pop_front() {
             component.push(cell);
+            component_area += areas[cell];
 
             // Check if this cell is on oceanic crust
             if continentality[cell] < 0.5 {
@@ -549,7 +618,7 @@ fn identify_ocean_cells_from_continentality(
         }
 
         // Mark as ocean if it touches oceanic crust and meets minimum size
-        if touches_oceanic && component.len() >= min_ocean_area {
+        if touches_oceanic && component_area >= min_ocean_area {
             for &cell in &component {
                 is_ocean[cell] = true;
             }
@@ -571,6 +640,7 @@ fn identify_ocean_cells_from_continentality(
 fn priority_flood_with_basins(
     tessellation: &Tessellation,
     elevation: &[f32],
+    areas: &[f32],
     is_ocean_cell: &[bool],
 ) -> (Vec<f32>, Vec<Option<usize>>, Vec<Basin>, Vec<Option<usize>>) {
     let n = tessellation.num_cells();
@@ -651,15 +721,24 @@ fn priority_flood_with_basins(
                     }
                 }
 
-                // Build sorted elevations for hypsometric lookup
-                let mut sorted_elevations: Vec<f32> =
-                    basin_cells.iter().map(|&c| elevation[c]).collect();
-                sorted_elevations.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                // Build sorted (elevation, area) for the hypsometric lookup; the
+                // fill submerges cells by AREA, so the areas must track the
+                // elevation sort order.
+                let mut sorted: Vec<(f32, f32)> = basin_cells
+                    .iter()
+                    .map(|&c| (elevation[c], areas[c]))
+                    .collect();
+                sorted.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+                let sorted_elevations: Vec<f32> = sorted.iter().map(|&(e, _)| e).collect();
+                let sorted_areas: Vec<f32> = sorted.iter().map(|&(_, a)| a).collect();
+                let total_area: f32 = sorted_areas.iter().sum();
 
                 // Create the basin (catchment, overflow_target, water_level computed later)
                 basins.push(Basin {
                     cells: basin_cells,
                     sorted_elevations,
+                    sorted_areas,
+                    total_area,
                     spill_elevation,
                     bottom_elevation,
                     spill_target_cell: cell, // The cell outside basin where overflow exits
@@ -689,20 +768,31 @@ fn compute_basin_catchments(
     catchment_cell_accumulation: &[f32],
     temperature_accumulation: &[f32],
     temperature: &[f32],
+    areas: &[f32],
     global_mean_temperature: f32,
 ) {
-    // Start each basin with its own rainfall and thermal budget.
+    // Start each basin with its own rainfall and thermal budget, all area-weighted
+    // so they share the discharge (precip × steradian) and drained-area units the
+    // cross-boundary accumulations carry.
     let mut catchment: Vec<f32> = basins
         .iter()
-        .map(|basin| basin.cells.iter().map(|&c| precipitation[c]).sum())
+        .map(|basin| {
+            basin
+                .cells
+                .iter()
+                .map(|&c| precipitation[c] * areas[c])
+                .sum()
+        })
         .collect();
-    let mut catchment_cells: Vec<f32> = basins
+    // Drained surface area of the basin's own cells (steradians); the divisor for
+    // the area-weighted mean temperature.
+    let mut catchment_area_sum: Vec<f32> = basins
         .iter()
-        .map(|basin| basin.cells.len() as f32)
+        .map(|basin| basin.cells.iter().map(|&c| areas[c]).sum())
         .collect();
     let mut temperature_sum: Vec<f32> = basins
         .iter()
-        .map(|basin| basin.cells.iter().map(|&c| temperature[c]).sum())
+        .map(|basin| basin.cells.iter().map(|&c| temperature[c] * areas[c]).sum())
         .collect();
 
     // Count upstream flow entering basin cells from outside. Scanning drainage
@@ -719,14 +809,14 @@ fn compute_basin_catchments(
         }
 
         catchment[target_basin] += flow_accumulation[cell];
-        catchment_cells[target_basin] += catchment_cell_accumulation[cell];
+        catchment_area_sum[target_basin] += catchment_cell_accumulation[cell];
         temperature_sum[target_basin] += temperature_accumulation[cell];
     }
 
     for (idx, basin) in basins.iter_mut().enumerate() {
         basin.catchment_area = catchment[idx];
-        basin.mean_temperature = if catchment_cells[idx] > 0.0 {
-            temperature_sum[idx] / catchment_cells[idx]
+        basin.mean_temperature = if catchment_area_sum[idx] > 0.0 {
+            temperature_sum[idx] / catchment_area_sum[idx]
         } else {
             global_mean_temperature
         };
@@ -814,27 +904,28 @@ fn calculate_water_levels(basins: &mut [Basin], climate_ratio: f32) {
         }
 
         // Effective catchment = own catchment + overflow from upstream basins
+        // (both are discharge: precip × steradian).
         let effective_catchment = basin.catchment_area + overflow_catchment[i];
 
-        // Target surface area (in cells) at equilibrium.
-        // Using floor helps suppress tiny "on/off" lakes caused by rounding.
         let effective_ratio = if basin.evaporation_factor > 0.0 {
             climate_ratio / basin.evaporation_factor
         } else {
             climate_ratio
         };
-        let target_surface = (effective_catchment * effective_ratio).floor() as usize;
-        let capacity = basin.cells.len();
+        // Equilibrium lake SURFACE AREA (steradians): inflow = evaporation
+        // => area = catchment_discharge × (precip/evap). Measured and filled by
+        // area, not cell count, so it is correct on the adaptive mesh.
+        let target_area = effective_catchment * effective_ratio;
+        let capacity = basin.total_area;
 
         // Determine water level and potential overflow
-        let (water_level, _overflows) = if target_surface == 0 || effective_ratio <= 0.0 {
+        let (water_level, _overflows) = if target_area <= 0.0 || effective_ratio <= 0.0 {
             // No water - dry basin
             (basin.bottom_elevation - 1.0, false)
-        } else if target_surface >= capacity {
-            // Basin overflows - fills to spill point
-            // Overflow amount = effective_catchment - catchment_needed_to_fill
-            // catchment_needed_to_fill = capacity / effective_ratio
-            let overflow_amount = effective_catchment - (capacity as f32 / effective_ratio);
+        } else if target_area >= capacity {
+            // Basin overflows - fills to spill point. Overflow discharge =
+            // inflow - the discharge needed to evaporate a spill-full lake.
+            let overflow_amount = effective_catchment - (capacity / effective_ratio);
 
             if let Some(downstream) = basin.overflow_target {
                 overflow_catchment[downstream] += overflow_amount.max(0.0);
@@ -842,18 +933,29 @@ fn calculate_water_levels(basins: &mut [Basin], climate_ratio: f32) {
 
             (basin.spill_elevation, true)
         } else {
-            // Partial fill - find water level from hypsometric curve
-            let submerge_idx = target_surface - 1;
-            let cell_elev = basin.sorted_elevations[submerge_idx];
-
-            let level = if target_surface < basin.sorted_elevations.len() {
-                let next_elev = basin.sorted_elevations[target_surface];
-                (cell_elev + next_elev) / 2.0
-            } else {
-                basin.spill_elevation
-            };
-
-            (level, false)
+            // Partial fill: submerge whole cells (by AREA) whose cumulative area
+            // fits within the target; the level sits between the last submerged
+            // cell and the next one up. Reduces exactly to the old cell-count
+            // fill on an equal-area mesh (the `<= target` walk mirrors the old
+            // `floor`).
+            let mut cumulative = 0.0f32;
+            let mut last_submerged: Option<usize> = None;
+            for (idx, &area) in basin.sorted_areas.iter().enumerate() {
+                if cumulative + area > target_area {
+                    break;
+                }
+                cumulative += area;
+                last_submerged = Some(idx);
+            }
+            match last_submerged {
+                // Less than one cell's worth of water: dry (old floor -> 0).
+                None => (basin.bottom_elevation - 1.0, false),
+                Some(k) if k + 1 < basin.sorted_elevations.len() => (
+                    (basin.sorted_elevations[k] + basin.sorted_elevations[k + 1]) / 2.0,
+                    false,
+                ),
+                Some(_) => (basin.spill_elevation, false),
+            }
         };
 
         // Apply minimum depth threshold based on maximum possible depth
@@ -919,6 +1021,7 @@ fn compute_flow_accumulations(
     drainage_dir: &[Option<usize>],
     precipitation: &[f32],
     temperature: &[f32],
+    areas: &[f32],
 ) -> (Vec<f32>, Vec<f32>, Vec<f32>) {
     let n = drainage_dir.len();
 
@@ -929,10 +1032,14 @@ fn compute_flow_accumulations(
     }
 
     // Use one topological traversal for all source fields that share the
-    // same drainage graph.
-    let mut precipitation_flow = precipitation.to_vec();
-    let mut cell_flow = vec![1.0f32; n];
-    let mut temperature_flow = temperature.to_vec();
+    // same drainage graph. Every source is AREA-WEIGHTED so the accumulations
+    // are physical integrals over the adaptive mesh, not cell counts:
+    //   - precipitation_flow = Σ precip·area  (discharge, = erosion's wet area)
+    //   - cell_flow          = Σ area         (drained surface area)
+    //   - temperature_flow   = Σ temp·area    (area-weighted, divided by cell_flow)
+    let mut precipitation_flow: Vec<f32> = (0..n).map(|i| precipitation[i] * areas[i]).collect();
+    let mut cell_flow: Vec<f32> = areas.to_vec();
+    let mut temperature_flow: Vec<f32> = (0..n).map(|i| temperature[i] * areas[i]).collect();
     let mut remaining_upstream = upstream_count.clone();
     let mut ready: Vec<usize> = (0..n).filter(|&c| upstream_count[c] == 0).collect();
 
@@ -982,11 +1089,20 @@ fn compute_flow_accumulation_with_sources(
     flow
 }
 
-fn mean_temperature(temperature: &[f32]) -> f32 {
-    if temperature.is_empty() {
-        0.0
+/// Area-weighted global mean surface temperature (the neutral point of the
+/// per-basin evaporation factor). Area-weighted so the adaptive mesh's many
+/// tiny mountain cells don't bias the mean cold.
+fn mean_temperature(temperature: &[f32], areas: &[f32]) -> f32 {
+    let mut wsum = 0.0f64;
+    let mut asum = 0.0f64;
+    for i in 0..temperature.len() {
+        wsum += (temperature[i] * areas[i]) as f64;
+        asum += areas[i] as f64;
+    }
+    if asum > 0.0 {
+        (wsum / asum) as f32
     } else {
-        temperature.iter().sum::<f32>() / temperature.len() as f32
+        0.0
     }
 }
 
@@ -1089,6 +1205,8 @@ mod tests {
         Basin {
             cells: (0..10).collect(),
             sorted_elevations: (0..10).map(|i| i as f32).collect(),
+            sorted_areas: vec![1.0; 10],
+            total_area: 10.0,
             spill_elevation: 10.0,
             bottom_elevation: 0.0,
             spill_target_cell: 0,
@@ -1120,6 +1238,8 @@ mod tests {
             Basin {
                 cells: vec![2],
                 sorted_elevations: vec![0.0],
+                sorted_areas: vec![1.0],
+                total_area: 1.0,
                 spill_elevation: 1.0,
                 bottom_elevation: 0.0,
                 spill_target_cell: 1,
@@ -1132,6 +1252,8 @@ mod tests {
             Basin {
                 cells: vec![4],
                 sorted_elevations: vec![0.0],
+                sorted_areas: vec![1.0],
+                total_area: 1.0,
                 spill_elevation: 1.0,
                 bottom_elevation: 0.0,
                 spill_target_cell: 3,
@@ -1152,6 +1274,9 @@ mod tests {
             compute_flow_accumulation_with_sources(&drainage_dir, &vec![1.0; precipitation.len()]);
         let temperature_accumulation =
             compute_flow_accumulation_with_sources(&drainage_dir, &temperature);
+        // Unit areas: the area-weighted catchments reduce to the old count-based
+        // budgets, so the cross-edge accounting is exercised against known values.
+        let areas = vec![1.0; precipitation.len()];
 
         compute_basin_catchments(
             &mut basins,
@@ -1162,6 +1287,7 @@ mod tests {
             &catchment_cell_accumulation,
             &temperature_accumulation,
             &temperature,
+            &areas,
             30.0,
         );
 
@@ -1169,5 +1295,31 @@ mod tests {
         assert_eq!(basins[0].mean_temperature, 20.0);
         assert_eq!(basins[1].catchment_area, 15.0);
         assert_eq!(basins[1].mean_temperature, 30.0);
+    }
+
+    /// The hypsometric fill measures the submerged surface by AREA, not cell
+    /// count: a basin with unequal cell areas fills to the level where the
+    /// cumulative cell area reaches the target, not where the cell *count* does.
+    #[test]
+    fn lake_level_fills_by_area_not_cell_count() {
+        let mut basins = vec![Basin {
+            cells: (0..4).collect(),
+            sorted_elevations: vec![0.0, 1.0, 2.0, 3.0],
+            sorted_areas: vec![1.0, 2.0, 3.0, 4.0],
+            total_area: 10.0,
+            spill_elevation: 4.0,
+            bottom_elevation: 0.0,
+            spill_target_cell: 0,
+            overflow_target: None,
+            catchment_area: 10.0,
+            mean_temperature: 0.5,
+            evaporation_factor: 1.0,
+            water_level: f32::NEG_INFINITY,
+        }];
+        // target_area = 10 * 0.5 = 5.0 sr. Cumulative area: cell0=1, +cell1=3,
+        // +cell2=6 (> 5) -> submerge cells 0,1; level sits between elev 1 and 2.
+        // A cell-COUNT fill (floor(5)=5 cells >= 4) would instead overflow to 4.0.
+        calculate_water_levels(&mut basins, 0.5);
+        assert_eq!(basins[0].water_level, 1.5);
     }
 }

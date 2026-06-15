@@ -258,10 +258,10 @@ fn log_hydrology_stats(world: &World) {
 
     let river_min_flow = (num_cells as f32 * RIVER_MIN_FLOW_FRACTION).max(1.0);
     let river_cells = hydrology.river_cells(river_min_flow);
-    let max_flow = hydrology
-        .flow_accumulation
-        .iter()
-        .copied()
+    // Count-equivalent so the logged figure stays comparable to river_min_flow
+    // (both in upstream-cell units) regardless of mesh.
+    let max_flow = (0..num_cells)
+        .map(|i| hydrology.flow_count_equiv(i))
         .fold(0.0f32, f32::max);
 
     log::info!(
@@ -311,10 +311,14 @@ fn river_cell_mask(
 ) -> Vec<bool> {
     match set {
         RiverSet::All => {
+            // `river_cells` converts the count-based threshold to the physical
+            // discharge scale (mean_cell_discharge) internally.
             let (min_flow, _, _) = river_thresholds(num_cells);
-            (0..num_cells)
-                .map(|i| hydrology.flow_accumulation[i] >= min_flow && !hydrology.is_submerged(i))
-                .collect()
+            let mut mask = vec![false; num_cells];
+            for c in hydrology.river_cells(min_flow) {
+                mask[c] = true;
+            }
+            mask
         }
         RiverSet::Major => {
             let (_, outlet_threshold, branch_threshold) = river_thresholds(num_cells);
@@ -840,11 +844,11 @@ fn generate_river_vertices(world: &World, set: RiverSet) -> Vec<SurfaceVertex> {
 
     let include = river_cell_mask(hydrology, tessellation.num_cells(), set);
 
-    // Find max flow for normalization
-    let max_flow = hydrology
-        .flow_accumulation
-        .iter()
-        .copied()
+    // Find max flow for normalization. Count-equivalent (mesh-independent) so the
+    // log alpha ramp below means the same on the coarse and adaptive meshes; the
+    // log ratio is not scale-invariant, unlike the sqrt width ramp.
+    let max_flow = (0..tessellation.num_cells())
+        .map(|i| hydrology.flow_count_equiv(i))
         .fold(0.0f32, f32::max);
     let log_max = max_flow.ln();
 
@@ -863,7 +867,7 @@ fn generate_river_vertices(world: &World, set: RiverSet) -> Vec<SurfaceVertex> {
             river_segment_geometry(tessellation, elevation, hydrology, cell_idx, downstream_idx);
 
         // Alpha based on logarithmic flow
-        let flow = hydrology.flow_accumulation[cell_idx];
+        let flow = hydrology.flow_count_equiv(cell_idx);
         let alpha = 0.15 + 0.55 * (flow.ln() / log_max).clamp(0.0, 1.0);
 
         vertices.push(SurfaceVertex::new(

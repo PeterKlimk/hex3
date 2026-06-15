@@ -25,7 +25,9 @@ use super::{Atmosphere, Crust, Elevation, FeatureFields, Tessellation};
 /// transfer / density logic) in a way the content hash below can't observe.
 /// Constant changes ARE caught by the content hash (they move elevation /
 /// atmosphere / the generators) and do not need a bump.
-const FINE_BASE_CACHE_VERSION: u32 = 1;
+/// v2: hydrology became area-weighted; the fine-mesh density prior now reads
+/// flow as a count-equivalent (`flow_count_equiv`), shifting the sampled mesh.
+const FINE_BASE_CACHE_VERSION: u32 = 2;
 
 /// How the fine-mesh base should use the on-disk cache.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
