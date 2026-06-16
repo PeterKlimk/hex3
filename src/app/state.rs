@@ -17,9 +17,8 @@ use hex3::world::{FineCacheMode, VoronoiBackend, World};
 use super::view::{ClimateLayer, FeatureLayer, NoiseLayer, RenderMode, RiverMode, ViewMode};
 use super::world::{
     advance_to_stage_2, advance_to_stage_3, advance_to_stage_4, create_world_with_options,
-    generate_colored_mesh,
-    generate_elevation_mesh_buffers, generate_relief_edge_buffers, generate_world_buffers,
-    WorldBuffers,
+    generate_colored_mesh, generate_elevation_mesh_buffers, generate_relief_edge_buffers,
+    generate_world_buffers, WorldBuffers, NUM_CELLS,
 };
 
 pub struct AppState {
@@ -83,7 +82,7 @@ impl AppState {
         let gpu = GpuContext::new(window.clone()).await;
         println!("{:.1}ms", start.elapsed().as_secs_f64() * 1000.0);
 
-        let world_data = create_world_with_options(seed, voronoi_backend, fine_cache);
+        let world_data = create_world_with_options(seed, NUM_CELLS, voronoi_backend, fine_cache);
         let initial_viewed_stage = world_data.current_stage();
         let world_buffers = generate_world_buffers(&gpu.device, &world_data);
 
@@ -158,7 +157,8 @@ impl AppState {
     }
 
     pub fn regenerate_world(&mut self, seed: u64) {
-        self.world_data = create_world_with_options(seed, self.voronoi_backend, self.fine_cache);
+        self.world_data =
+            create_world_with_options(seed, NUM_CELLS, self.voronoi_backend, self.fine_cache);
         self.viewed_stage = self.world_data.current_stage();
         self.inactive_buffers.clear(); // stale across a new world
         self.world_buffers = generate_world_buffers(&self.gpu.device, &self.world_data);

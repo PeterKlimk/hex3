@@ -101,6 +101,12 @@ struct Cli {
     fine_flow_weight: f32,
     #[arg(long, default_value_t = -1.0)]
     fine_activity_weight: f32,
+    /// Uniform multiplier on the fine-mesh cell-size targets (plains/mountain/
+    /// ocean km) — one knob to sweep fine-mesh resolution. >1 coarsens, <1
+    /// refines. Forces fine-base regeneration (no cache). Use with the
+    /// "Fine-scale local relief" convergence probe.
+    #[arg(long, default_value_t = 1.0)]
+    fine_scale: f32,
 }
 
 fn main() {
@@ -178,6 +184,14 @@ fn main() {
             *target = v;
             density_overridden = true;
         }
+    }
+    // Uniform fine-resolution multiplier, applied after any explicit per-class
+    // overrides so it scales whatever budget is in effect.
+    if (cli.fine_scale - 1.0).abs() > f32::EPSILON {
+        dp.plains_km *= cli.fine_scale;
+        dp.mountain_km *= cli.fine_scale;
+        dp.ocean_km *= cli.fine_scale;
+        density_overridden = true;
     }
     if density_overridden {
         world.fine_density_params = dp;
@@ -487,7 +501,9 @@ fn main() {
     // AI normalized to land-mean 1 so the threshold is a relative water-stress
     // cutoff; report the ZONAL AI pattern too (that's the threshold-robust signal).
     let pet = |i: usize| 0.2 + 0.8 * temperature[i].clamp(0.0, 1.0);
-    let ai_raw: Vec<f32> = (0..n).map(|i| precipitation[i] / pet(i).max(1e-6)).collect();
+    let ai_raw: Vec<f32> = (0..n)
+        .map(|i| precipitation[i] / pet(i).max(1e-6))
+        .collect();
     let land_idx: Vec<usize> = (0..n).filter(|&i| land[i]).collect();
     let ai_mean = land_idx.iter().map(|&i| ai_raw[i]).sum::<f32>() / land_idx.len().max(1) as f32;
     let ai: Vec<f32> = ai_raw.iter().map(|&v| v / ai_mean.max(1e-9)).collect();
@@ -498,7 +514,9 @@ fn main() {
     let arid_precip = frac(&|i| precipitation[i] < 0.35);
     let arid_ai = frac(&|i| ai[i] < 0.4); // hot+dry water stress (relative threshold)
     let humid_ai = frac(&|i| ai[i] > 2.0);
-    println!("\n-- Climate --   [arid by P/PET (aridity index), not raw P — Earth arid+semiarid ~33%]");
+    println!(
+        "\n-- Climate --   [arid by P/PET (aridity index), not raw P — Earth arid+semiarid ~33%]"
+    );
     println!(
         "  aridity index (P/PET, land-mean 1): arid(AI<0.4) {:.0}%  humid(AI>2) {:.0}%  | raw-precip<0.35 {:.0}% (old, temp-blind) | lakes {:.2}%",
         arid_ai,
@@ -530,7 +548,11 @@ fn main() {
                 continue;
             }
             let lo = -90.0 + b as f32 * BW;
-            line.push_str(&format!("  [{:+.0}] {:.2}", lo + BW * 0.5, s[b] / c[b] as f64));
+            line.push_str(&format!(
+                "  [{:+.0}] {:.2}",
+                lo + BW * 0.5,
+                s[b] / c[b] as f64
+            ));
         }
         println!("  zonal aridity index (AI, mid-band lat):{line}");
     }
@@ -744,7 +766,8 @@ fn main() {
             let mk = (0..stem.len())
                 .min_by(|&a, &b| (dist[a] - mid).abs().total_cmp(&(dist[b] - mid).abs()))
                 .unwrap();
-            let chord = elevation[head] + (elevation[*stem.last().unwrap()] - elevation[head]) * 0.5;
+            let chord =
+                elevation[head] + (elevation[*stem.last().unwrap()] - elevation[head]) * 0.5;
             bows.push((elevation[stem[mk]] - chord) / drop);
             let seg = |lo: f32, hi: f32| -> f32 {
                 let (mut dz, mut dx) = (0.0f32, 0.0f32);
@@ -884,7 +907,7 @@ fn main() {
     if let Some(fine) = &world.fine {
         let areas = tess.cell_areas();
         let density = fine.density(); // intended areal density g (cells/steradian)
-        // Δh per cell: max elevation step to a neighbour.
+                                      // Δh per cell: max elevation step to a neighbour.
         let relief: Vec<f32> = (0..n)
             .map(|i| {
                 let e = elevation[i];
@@ -918,7 +941,15 @@ fn main() {
         println!("   (cell km is cap-dependent: --fine-max coarsens uniformly; relief RATIOS and %cells are cap-robust)");
         println!(
             "{:<9} {:>9} {:>6} {:>9} {:>6} {:>8} {:>9} {:>9} {:>10}",
-            "class", "cells", "%cell", "area Mkm²", "%area", "cell km", "Δh/cell p90", "awΔh p90", "slope p90"
+            "class",
+            "cells",
+            "%cell",
+            "area Mkm²",
+            "%area",
+            "cell km",
+            "Δh/cell p90",
+            "awΔh p90",
+            "slope p90"
         );
         let total_area: f32 = areas.iter().sum();
         let mut p90_by_class = [0.0f32; 4]; // area-weighted Δh p90 (the steerable monitor)
@@ -1000,10 +1031,7 @@ fn main() {
             slope_p90_by_class[3] / safe(slope_p90_by_class[2]),
         );
         let ocean_cells = (0..n).filter(|&i| class_of(i) == 0).count();
-        let ocean_area: f32 = (0..n)
-            .filter(|&i| class_of(i) == 0)
-            .map(|i| areas[i])
-            .sum();
+        let ocean_area: f32 = (0..n).filter(|&i| class_of(i) == 0).map(|i| areas[i]).sum();
         println!(
             "  budget: ocean = {:.1}% of cells for {:.1}% of surface; coarsening ocean kx shrinks ocean cells k²-fold",
             100.0 * ocean_cells as f32 / n as f32,
@@ -1017,9 +1045,15 @@ fn main() {
         // reveals whether finer cells keep uncovering dissection (rising ->
         // under-resolved) or it has converged (flat -> dense enough). Sampled over
         // mountain-class cells (the relief-bearing terrain).
-        use kiddo::{ImmutableKdTree, SquaredEuclidean};
+        // Mutable KdTree (not ImmutableKdTree): the immutable optimal-layout
+        // build panics with "mid > len" on the near-coincident points that
+        // appear at multi-million-cell fine meshes (see fine.rs:1167).
+        use kiddo::{KdTree, SquaredEuclidean};
         let entries: Vec<[f32; 3]> = (0..n).map(|i| tess.cell_center(i).to_array()).collect();
-        let tree: ImmutableKdTree<f32, 3> = ImmutableKdTree::new_from_slice(&entries);
+        let mut tree = KdTree::<f32, 3>::with_capacity(entries.len());
+        for (i, e) in entries.iter().enumerate() {
+            tree.add(e, i as u64);
+        }
         let mtn: Vec<usize> = (0..n).filter(|&i| elevation[i] >= RANGE_ELEV).collect();
         let stride = (mtn.len() / 20_000).max(1);
         let sample: Vec<usize> = mtn.iter().copied().step_by(stride).collect();

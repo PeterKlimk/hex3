@@ -44,6 +44,18 @@ struct Cli {
     #[arg(long)]
     seed: Option<u64>,
 
+    /// Coarse Voronoi cell count (default 100000). Sweep this to test
+    /// resolution independence of stages 1-2 (lithosphere/atmosphere).
+    #[arg(long, default_value_t = 100_000)]
+    cells: usize,
+
+    /// Uniform multiplier on the fine-mesh cell-size targets (plains/mountain/
+    /// ocean km). >1 coarsens the fine mesh, <1 refines it. Sweep this to test
+    /// resolution independence of stages 3-4 (erosion/fine hydrology). A value
+    /// other than 1.0 disables the fine-base disk cache.
+    #[arg(long, default_value_t = 1.0)]
+    fine_scale: f32,
+
     /// Export world data to file (supports .json and .json.gz)
     #[arg(long, value_name = "FILE")]
     export: Option<PathBuf>,
@@ -90,14 +102,25 @@ fn main() {
     };
 
     if cli.headless {
-        run_headless(cli.seed, target_stage, cli.export, backend, fine_cache);
+        run_headless(
+            cli.seed,
+            cli.cells,
+            cli.fine_scale,
+            target_stage,
+            cli.export,
+            backend,
+            fine_cache,
+        );
     } else {
         run_interactive(cli.seed, target_stage, cli.export, backend, fine_cache);
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_headless(
     seed: Option<u64>,
+    num_cells: usize,
+    fine_scale: f32,
     target_stage: u32,
     export_path: Option<PathBuf>,
     voronoi_backend: VoronoiBackend,
@@ -105,14 +128,24 @@ fn run_headless(
 ) {
     let seed = seed.unwrap_or_else(rand::random);
     println!(
-        "Headless mode: seed={}, target_stage={}, voronoi_backend={}",
-        seed, target_stage, voronoi_backend
+        "Headless mode: seed={}, cells={}, fine_scale={}, target_stage={}, voronoi_backend={}",
+        seed, num_cells, fine_scale, target_stage, voronoi_backend
     );
 
     // Generate world
     print!("Generating world... ");
     let start = std::time::Instant::now();
-    let mut world = create_world_with_options(seed, voronoi_backend, fine_cache);
+    let mut world = create_world_with_options(seed, num_cells, voronoi_backend, fine_cache);
+    // Apply the fine-mesh resolution multiplier. A non-default scale changes the
+    // sampled mesh, so the disk cache (keyed on the density params) would miss
+    // anyway; disable it to avoid writing a base per scale.
+    if (fine_scale - 1.0).abs() > f32::EPSILON {
+        let dp = &mut world.fine_density_params;
+        dp.plains_km *= fine_scale;
+        dp.mountain_km *= fine_scale;
+        dp.ocean_km *= fine_scale;
+        world.fine_cache = FineCacheMode::Disabled;
+    }
     println!("{:.1}ms", start.elapsed().as_secs_f64() * 1000.0);
 
     // Advance to target stage
