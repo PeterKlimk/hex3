@@ -114,6 +114,7 @@ impl WorldBuffers {
 
 pub fn create_world_with_options(
     seed: u64,
+    num_cells: usize,
     backend: VoronoiBackend,
     fine_cache: FineCacheMode,
 ) -> World {
@@ -121,7 +122,7 @@ pub fn create_world_with_options(
     log::info!(
         "Generating world: seed={}, cells={}, lloyd={}, plates={}, voronoi_backend={}",
         seed,
-        NUM_CELLS,
+        num_cells,
         LLOYD_ITERATIONS,
         NUM_PLATES,
         backend
@@ -129,7 +130,7 @@ pub fn create_world_with_options(
 
     let mut world = {
         let _t = Timed::info("Tessellation");
-        World::new_with_options(seed, NUM_CELLS, LLOYD_ITERATIONS, backend)
+        World::new_with_options(seed, num_cells, LLOYD_ITERATIONS, backend)
     };
     world.fine_cache = fine_cache;
 
