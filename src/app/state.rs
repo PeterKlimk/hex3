@@ -18,7 +18,7 @@ use super::view::{ClimateLayer, FeatureLayer, NoiseLayer, RenderMode, RiverMode,
 use super::world::{
     advance_to_stage_2, advance_to_stage_3, advance_to_stage_4, create_world_with_options,
     generate_colored_mesh, generate_elevation_mesh_buffers, generate_relief_edge_buffers,
-    generate_world_buffers, WorldBuffers, NUM_CELLS,
+    generate_world_buffers, ErosionOverrides, WorldBuffers, NUM_CELLS,
 };
 
 pub struct AppState {
@@ -36,6 +36,8 @@ pub struct AppState {
     pub seed: u64,
     pub voronoi_backend: VoronoiBackend,
     pub fine_cache: FineCacheMode,
+    /// CLI erosion-knob overrides, re-applied to each (re)generated world.
+    erosion_overrides: ErosionOverrides,
     /// Stage currently being rendered (<= computed stage). Lets Space/Backspace
     /// move the view forward/back without recompute.
     pub viewed_stage: u32,
@@ -74,6 +76,7 @@ impl AppState {
         seed: u64,
         voronoi_backend: VoronoiBackend,
         fine_cache: FineCacheMode,
+        erosion_overrides: ErosionOverrides,
     ) -> Self {
         let total_start = Instant::now();
 
@@ -82,7 +85,9 @@ impl AppState {
         let gpu = GpuContext::new(window.clone()).await;
         println!("{:.1}ms", start.elapsed().as_secs_f64() * 1000.0);
 
-        let world_data = create_world_with_options(seed, NUM_CELLS, voronoi_backend, fine_cache);
+        let mut world_data =
+            create_world_with_options(seed, NUM_CELLS, voronoi_backend, fine_cache);
+        erosion_overrides.apply(&mut world_data);
         let initial_viewed_stage = world_data.current_stage();
         let world_buffers = generate_world_buffers(&gpu.device, &world_data);
 
@@ -129,6 +134,7 @@ impl AppState {
             seed,
             voronoi_backend,
             fine_cache,
+            erosion_overrides,
             viewed_stage: initial_viewed_stage,
             inactive_buffers: std::collections::HashMap::new(),
             show_edges: false,
@@ -159,6 +165,7 @@ impl AppState {
     pub fn regenerate_world(&mut self, seed: u64) {
         self.world_data =
             create_world_with_options(seed, NUM_CELLS, self.voronoi_backend, self.fine_cache);
+        self.erosion_overrides.apply(&mut self.world_data);
         self.viewed_stage = self.world_data.current_stage();
         self.inactive_buffers.clear(); // stale across a new world
         self.world_buffers = generate_world_buffers(&self.gpu.device, &self.world_data);

@@ -26,6 +26,7 @@ pub struct AppConfig {
     pub target_stage: u32,
     pub voronoi_backend: VoronoiBackend,
     pub fine_cache: FineCacheMode,
+    pub erosion: crate::app::world::ErosionOverrides,
 }
 
 pub struct App {
@@ -64,6 +65,7 @@ impl ApplicationHandler for App {
             seed,
             self.config.voronoi_backend,
             self.config.fine_cache,
+            self.config.erosion,
         ));
 
         // Advance to target stage

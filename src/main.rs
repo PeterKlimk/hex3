@@ -72,6 +72,17 @@ struct Cli {
     #[arg(long)]
     rebuild_fine_cache: bool,
 
+    /// MFD erosion exponent (routing ladder Rung 2/3). <0 = EROSION_MFD_EXPONENT
+    /// default (off); 0 = single-flow; ~1 dispersive .. high ≈ single-flow. Set
+    /// >0 to visually A/B MFD incision. See docs/specs/erosion-routing-ladder.md.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_mfd_exponent: f32,
+
+    /// Barnes convergent flat resolution (Rung 1). -1 = default (on); 0 = off
+    /// (old flood_parent wavefront); 1 = on. A/B the spiral-on-flats fix.
+    #[arg(long, default_value_t = -1)]
+    erosion_flat_resolution: i8,
+
     /// Legacy flag: equivalent to --stage 2
     #[arg(long, hide = true)]
     stage2: bool,
@@ -93,6 +104,11 @@ fn main() {
     };
 
     let backend = VoronoiBackend::from(cli.voronoi_backend);
+    let erosion = app::world::ErosionOverrides {
+        mfd_exponent: (cli.erosion_mfd_exponent >= 0.0).then_some(cli.erosion_mfd_exponent),
+        flat_resolution: (cli.erosion_flat_resolution >= 0)
+            .then_some(cli.erosion_flat_resolution != 0),
+    };
     let fine_cache = if cli.no_fine_cache {
         FineCacheMode::Disabled
     } else if cli.rebuild_fine_cache {
@@ -110,9 +126,17 @@ fn main() {
             cli.export,
             backend,
             fine_cache,
+            erosion,
         );
     } else {
-        run_interactive(cli.seed, target_stage, cli.export, backend, fine_cache);
+        run_interactive(
+            cli.seed,
+            target_stage,
+            cli.export,
+            backend,
+            fine_cache,
+            erosion,
+        );
     }
 }
 
@@ -125,6 +149,7 @@ fn run_headless(
     export_path: Option<PathBuf>,
     voronoi_backend: VoronoiBackend,
     fine_cache: FineCacheMode,
+    erosion: app::world::ErosionOverrides,
 ) {
     let seed = seed.unwrap_or_else(rand::random);
     println!(
@@ -136,6 +161,7 @@ fn run_headless(
     print!("Generating world... ");
     let start = std::time::Instant::now();
     let mut world = create_world_with_options(seed, num_cells, voronoi_backend, fine_cache);
+    erosion.apply(&mut world);
     // Apply the fine-mesh resolution multiplier. A non-default scale changes the
     // sampled mesh, so the disk cache (keyed on the density params) would miss
     // anyway; disable it to avoid writing a base per scale.
@@ -186,6 +212,7 @@ fn run_interactive(
     export_path: Option<PathBuf>,
     voronoi_backend: VoronoiBackend,
     fine_cache: FineCacheMode,
+    erosion: app::world::ErosionOverrides,
 ) {
     let event_loop = EventLoop::new().expect("Failed to create event loop");
     event_loop.set_control_flow(ControlFlow::Wait);
@@ -199,6 +226,7 @@ fn run_interactive(
         target_stage,
         voronoi_backend,
         fine_cache,
+        erosion,
     };
 
     let mut app = app::App::new(config);

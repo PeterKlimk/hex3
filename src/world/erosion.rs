@@ -1028,8 +1028,6 @@ fn build_mfd_flow(
     filled: &[f32],
     is_flat: &[bool],
     flat_mask: &[i64],
-    receiver: &[usize],
-    recv_dist: &[f32],
     is_sink: &[bool],
     geom: &NeighborGeometry,
     exponent: f32,
@@ -1085,12 +1083,30 @@ fn build_mfd_flow(
                 }
             }
         } else {
-            // Flat: single convergent receiver carries flow off the flat.
-            let r = receiver[i];
-            if r != i {
-                nbr.push(r);
+            // Flat: route by the Barnes mask, to the lowest-key same-level
+            // neighbour — a non-flat drain (outlet or same-level sink, key MIN) or
+            // the lowest-mask flat neighbour. This makes the flat edge consistent
+            // with `order` (always strictly-lower key, since BFS guarantees a
+            // lower-mask neighbour for non-outlet flats) INDEPENDENT of the SFD
+            // `flat_resolution` toggle — so the DAG stays a valid topological order
+            // even when that toggle is off. A stranded flat (no same-level
+            // neighbour) contributes no edge.
+            let mut best_k: Option<usize> = None;
+            let mut best_key = i64::MAX;
+            for (k, &nb) in nbs.iter().enumerate() {
+                if filled[nb] != fi {
+                    continue;
+                }
+                let key = if is_flat[nb] { flat_mask[nb] } else { i64::MIN };
+                if key < best_key {
+                    best_key = key;
+                    best_k = Some(k);
+                }
+            }
+            if let Some(k) = best_k {
+                nbr.push(nbs[k]);
                 w.push(1.0);
-                d.push(recv_dist[i].max(1e-12));
+                d.push(ds[k].max(1e-12));
             }
         }
     }
@@ -1306,18 +1322,19 @@ impl Routing {
                 }
                 best
             } else {
-                // Flat: route to an adjacent same-level outlet (a non-flat,
-                // non-sink cell at the same filled level, which drains lower) if
-                // present, else to the lowest-`mask` flat neighbour (toward
-                // outlets / away from walls). flood_parent is the last resort.
+                // Flat: route to an adjacent same-level DRAIN (a non-flat cell at
+                // the same filled level — an outlet that drains lower, or a fixed
+                // lake/sea sink) if present, else to the lowest-`mask` flat
+                // neighbour (toward outlets / away from walls). flood_parent is the
+                // last resort.
                 let mut best = flood_parent[i];
                 let mut best_key = i64::MAX;
                 for &nb in geom.tess_neighbors(i) {
                     if filled[nb] != filled[i] {
                         continue; // only same-level (flat) edges
                     }
-                    let key = if !is_flat[nb] && !is_sink[nb] {
-                        i64::MIN // same-level outlet: most attractive
+                    let key = if !is_flat[nb] {
+                        i64::MIN // same-level drain (outlet or sink): most attractive
                     } else {
                         flat_mask[nb]
                     };
@@ -1398,8 +1415,6 @@ impl Routing {
                 &filled,
                 &is_flat,
                 &flat_mask,
-                &receiver,
-                &dist,
                 &is_sink,
                 geom,
                 mfd_exponent,

@@ -114,6 +114,27 @@ impl WorldBuffers {
     }
 }
 
+/// Runtime erosion-knob overrides from the CLI, applied to a freshly created
+/// world before its stages are computed. `None` keeps the `EROSION_*` default.
+/// Lets the interactive app A/B the routing-ladder rungs (e.g. MFD incision) on
+/// Windows without a recompile. See docs/specs/erosion-routing-ladder.md.
+#[derive(Clone, Copy, Default)]
+pub struct ErosionOverrides {
+    pub mfd_exponent: Option<f32>,
+    pub flat_resolution: Option<bool>,
+}
+
+impl ErosionOverrides {
+    pub fn apply(&self, world: &mut World) {
+        if let Some(p) = self.mfd_exponent {
+            world.erosion_params.mfd_exponent = p;
+        }
+        if let Some(f) = self.flat_resolution {
+            world.erosion_params.flat_resolution = f;
+        }
+    }
+}
+
 pub fn create_world_with_options(
     seed: u64,
     num_cells: usize,
