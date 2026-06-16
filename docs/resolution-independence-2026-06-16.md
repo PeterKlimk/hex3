@@ -111,6 +111,39 @@ One metric still trends: **drainage-density wet/arid ratio rises 1.96→4.57** w
 resolution — finer meshes resolve more low-order channels in wet uplands. Worth a
 look if drainage texture matters.
 
+### Fine-axis spatial convergence (`--mode fine`)
+
+Because the coarse world is *fixed* across `--fine-scale`, cell-for-cell spatial
+comparison IS valid here. Stage-4 exports at F=1.5/1.0/0.8 (645k/1443k/2251k fine
+cells), rasterized to a 720×360 grid and compared to the finest as reference
+(`--mode fine --plot`):
+
+| field | 645k (nRMSE/corr) | 1443k (nRMSE/corr) | trend |
+|---|---|---|---|
+| elevation | 0.140 / 0.990 | 0.102 / 0.995 | **converging** |
+| temperature | 0.026 / 1.000 | 0.017 / 1.000 | converged |
+| precipitation | 0.175 / 0.995 | 0.081 / 0.998 | converging |
+| uplift | 0.084 / 0.996 | 0.057 / 0.998 | converging |
+| feat_* (trench/arc/…) | 0.22–0.47 / 0.89–0.98 | 0.16–0.34 / 0.94–0.99 | converging |
+| **log_flow (rivers)** | 1.36 / 0.43 | 1.16 / **0.41** | **NOT converging** |
+
+Eroded **terrain, climate, and features all converge** (corr → 1, nRMSE → 0 as
+resolution rises). The elevation difference map shows residual only as thin lines
+on coastlines and ridge crests (sub-grid-sharp edges), white interiors — the
+signature of a converged field.
+
+The **river flow field does not converge spatially** (corr ~0.41): the drainage
+network reorganizes between fine meshes. The flow difference map concentrates in
+the wet climate bands — a mix of (a) diffuse low-order accumulation being
+discretization-dependent (finer mesh spreads upstream area over more cells) and
+(b) trunk channels taking different paths. The aggregate drainage *density* is
+roughly stable, but individual channel *placement* is resolution-sensitive — the
+fine-axis counterpart to the coarse "geography moves with N" finding, and largely
+inherent to drainage networks on adaptive meshes. (`max_flow_equiv` appears to
+drift 75%, but that is a metric artifact: the count-equivalent divides physical
+discharge by `mean_cell_discharge`, which shrinks as the adaptive mesh refines —
+the physical discharge is the invariant.)
+
 ### Known issue surfaced — FIXED
 
 `diagnose`'s final "Fine-scale local relief" probe panicked (exit 101) at ~3.37M
