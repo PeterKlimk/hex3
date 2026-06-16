@@ -719,8 +719,11 @@ pub fn roughness_counters(tess: &Tessellation, elev: &[f32]) -> RoughnessCounter
         // with no downhill land neighbour (local pits/flats).
         if let Some((r, re)) = lowest_nb {
             if re < elev[i] && pos.y.abs() < 0.999 {
-                let east = Vec3::Y.cross(pos).normalize();
-                let north = pos.cross(east);
+                // East/north tangent basis matching the project's longitude
+                // convention (atan2(z, x), see app/export.rs): at (1,0,0) east is
+                // +Z. R/entropy are reflection-invariant, but keep real bearings.
+                let east = pos.cross(Vec3::Y).normalize();
+                let north = east.cross(pos);
                 let chord = tess.cell_center(r) - pos;
                 let tang = chord - pos * chord.dot(pos); // project to tangent plane
                 let (e, no) = (tang.dot(east), tang.dot(north));

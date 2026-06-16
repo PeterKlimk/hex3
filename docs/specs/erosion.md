@@ -111,15 +111,25 @@ incision plus a bare priority-flood receiver on flats. Both are known to
 manufacture texture that is *not* terrain:
 
 - **SFD** carves 1-cell-wide channels with no flow divergence, leaving 1-cell
-  ridges between them that hillslope diffusion may not erase. MFD is "believed
-  to be indispensable for development of tree-shaped river channel networks"
-  (Liu et al. 2025, *Geomorphology*); D8 "does not capture the transition from
-  smooth to dissected landscape" (Anand et al. 2020, *PNAS*).
+  ridges between them that hillslope diffusion may not erase. On an *irregular*
+  mesh this is worse: SFD drainage is sensitive to node placement, so the
+  network is partly a triangulation artifact, and increasing the number of
+  downslope directions (MFD) reduces that mesh sensitivity — the directly
+  applicable result, since eSCAPE runs implicit MFD on unstructured global
+  meshes at exactly hex3's node count (Salles et al. 2019, *Geosci. Model Dev.*
+  12:4165). D8 also fails to capture the smooth→channelized transition that MFD
+  reproduces (Anand, Hooshyar & Porporato 2020, *Env. Modelling & Software* 133;
+  and 2020, *PNAS* 117:2.); MFD is "indispensable for development of tree-shaped
+  river channel networks" (Liu et al. 2025, *Geomorphology*).
 - **Flat drainage** via the priority-flood `flood_parent` wavefront (no
   convergence term) produces *parallel / spiralling* flow — exactly the case
   Barnes, Lehman & Mulla (2014, *Computers & Geosciences* 62:128–135) fix by
   superimposing gradient-away-from-high + gradient-toward-low. Incising along
   that wavefront carves spiral grooves into ground that should be flat.
+
+The fix direction, if these counters confirm the artifact, is MFD drainage-area
+accumulation (+ a convergent flat-resolution) rather than steepest-descent SFD —
+the eSCAPE/Anand line above is the precedent for doing it on a mesh like ours.
 
 The counters:
 

@@ -288,9 +288,13 @@ fn main() {
         );
         // ---- Erosion roughness counters (artifact vs. genuine dissection) ----
         // pit% is the swiss-cheese meter (a drained surface is ~0); checkerboard%
-        // the SFD-groove banding; aspect R/entropy the spiral / mesh-locking bias.
-        // Pre-erosion (stage 3) vs eroded (stage 4) on the SAME fine mesh, so the
-        // delta isolates what erosion added. See docs/specs/erosion.md.
+        // the SFD-groove banding; aspect R/entropy catch GLOBAL anisotropy / mesh-
+        // axis locking only (a local spiral with balanced azimuths stays hidden —
+        // judge spirals on the map). Pre-erosion (stage 3) vs eroded (stage 4) on
+        // the SAME fine mesh. NOTE: the land mask is recomputed per surface, so the
+        // `land` column shifts if erosion moves cells across sea level — a falling
+        // pit% with a falling `land` may be submergence, not artifact removal.
+        // See docs/specs/erosion.md.
         let ftess = fine.tessellation();
         let pre = hex3::world::roughness_counters(ftess, &fine.surface_for(3).elevation.values);
         let ero = hex3::world::roughness_counters(ftess, &fine.surface_for(4).elevation.values);
@@ -299,13 +303,14 @@ fn main() {
             world.erosion_params.reroute_interval
         );
         println!(
-            "             {:>10} {:>10} {:>10} {:>12} {:>9} {:>9}",
-            "pit%", "peak%", "checker%", "curv-rms", "aspectR", "entropy"
+            "             {:>9} {:>10} {:>10} {:>10} {:>12} {:>9} {:>9}",
+            "land", "pit%", "peak%", "checker%", "curv-rms", "aspectR", "entropy"
         );
         let row = |label: &str, c: &hex3::world::RoughnessCounters| {
             println!(
-                "  {:<8}   {:>10.3} {:>10.3} {:>10.2} {:>12.3e} {:>9.3} {:>9.3}",
+                "  {:<8}   {:>9} {:>10.3} {:>10.3} {:>10.2} {:>12.3e} {:>9.3} {:>9.3}",
                 label,
+                c.land,
                 c.pit_pct,
                 c.peak_pct,
                 c.checkerboard_pct,
@@ -317,8 +322,9 @@ fn main() {
         row("pre", &pre);
         row("eroded", &ero);
         println!(
-            "  {:<8}   {:>+10.3} {:>+10.3} {:>+10.2} {:>12} {:>+9.3} {:>+9.3}",
+            "  {:<8}   {:>+9} {:>+10.3} {:>+10.3} {:>+10.2} {:>12} {:>+9.3} {:>+9.3}",
             "delta",
+            ero.land as i64 - pre.land as i64,
             ero.pit_pct - pre.pit_pct,
             ero.peak_pct - pre.peak_pct,
             ero.checkerboard_pct - pre.checkerboard_pct,
