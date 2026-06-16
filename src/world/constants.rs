@@ -765,6 +765,20 @@ pub const EROSION_REROUTE_INTERVAL: usize = 6;
 /// docs/specs/erosion-routing-ladder.md (Rung 1).
 pub const EROSION_FLAT_RESOLUTION: bool = true;
 
+/// Multiple-flow-direction drainage-area exponent (Rung 2). Each cell spreads its
+/// flow to all downslope neighbours weighted by `slope^p`; `p` is the SFD↔MFD dial
+/// — `p → ∞` recovers single-flow (sharp, 1-cell channels), `p ≈ 1` is fully
+/// dispersive. `0` = pure SFD (the old single-receiver accumulation).
+///
+/// DEFAULT OFF. Sweeping it (seed 12345, 600k) showed MFD *area alone* is a
+/// near-no-op for the perforation (curv-rms −1.5..3.5%, elevation unchanged):
+/// incision still carves toward the single SFD receiver, so the 1-cell channel/
+/// ridge structure is unchanged regardless of how smooth `A` is. This accumulator
+/// is the SUBSTRATE for Rung 3 (MFD-DAG incision, which distributes the carving);
+/// turn it on there. Until then it only adds a per-reroute sort for ~no gain.
+/// A/B with `--erosion-mfd-exponent`. See docs/specs/erosion-routing-ladder.md.
+pub const EROSION_MFD_EXPONENT: f32 = 0.0;
+
 /// Scales tectonic uplift added to crust thickness each step. Source is the
 /// transferred feature forcing: (arc + collision) are elevation magnitudes
 /// (converted to thickness by dividing the Airy slope) and rift_delta is

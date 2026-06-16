@@ -71,9 +71,9 @@ out of the MFD machinery for free.
 | Rung | Change | Value | Effort | Status |
 |---|---|---|---|---|
 | 0 | Diffusivity sweep + `reroute=1` — **diagnostic only** | (info) | ~free | **done** (both knobs ruled out — perforation is structural) |
-| 1 | Convergent flat resolution (Barnes 2014b) | very high | low–med | **landed** (knob `flat_resolution`, default on; engages 5.3% of mesh, 0 stranded; global counters blind → **visual call**) |
-| 2 | MFD drainage-*area* only (SFD incision kept) | high | med | TODO |
-| 3 | Full MFD-DAG implicit incision | highest | high | TODO |
+| 1 | Convergent flat resolution (Barnes 2014b) | very high | low–med | **signed off** (more natural; slightly too clean in places — convergent routing concentrates flow; expect MFD to relax it) |
+| 2 | MFD drainage-*area* only (SFD incision kept) | high | med | **landed as infra** (knob `mfd_exponent`, default **off**) — MFD area *alone* is a near-no-op for perforation (curv-rms −1.5..3.5%, elevation unchanged); single-receiver incision still carves 1-cell. Substrate for Rung 3. |
+| 3 | Full MFD-DAG implicit incision | highest | high | **next** (the real perforation fix — distribute the carving, turn `mfd_exponent` on here) |
 | 4 | MFD sediment / deposition (same fractions) | high | med–high | TODO |
 | 5 | Channelization-instability initiation | very high (philosophy) | high | future |
 

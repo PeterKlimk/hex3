@@ -71,6 +71,9 @@ pub struct ErosionParams {
     /// Barnes convergent flat resolution on the priority-flood surface (vs the
     /// bare `flood_parent` wavefront that spirals). See `EROSION_FLAT_RESOLUTION`.
     pub flat_resolution: bool,
+    /// Multiple-flow-direction drainage-area exponent (`slope^p` flow split);
+    /// 0 = single-flow. See `EROSION_MFD_EXPONENT`.
+    pub mfd_exponent: f32,
     /// Tectonic uplift source scale (thickness units).
     pub uplift_scale: f32,
     /// Fraction of a sink's depth-to-base-level that deposition may fill.
@@ -125,6 +128,7 @@ impl Default for ErosionParams {
             diffusion_iters: EROSION_DIFFUSION_ITERS,
             reroute_interval: EROSION_REROUTE_INTERVAL,
             flat_resolution: EROSION_FLAT_RESOLUTION,
+            mfd_exponent: EROSION_MFD_EXPONENT,
             uplift_scale: EROSION_UPLIFT_SCALE,
             deposit_fill_fraction: EROSION_DEPOSIT_FILL_FRACTION,
             deposition_slope: EROSION_DEPOSITION_SLOPE,
@@ -505,9 +509,20 @@ impl ErosionState {
             };
             self.t_route += s.elapsed().as_secs_f64();
 
-            // 2. Accumulate precipitation-weighted drainage area ("wet area").
+            // 2. Accumulate precipitation-weighted drainage area ("wet area"):
+            //    single-flow (SFD) or multiple-flow (MFD, Rung 2) per the exponent.
             s = Instant::now();
-            self.area = accumulate_wet_area(&r, &self.precipitation, &self.areas);
+            self.area = if self.params.mfd_exponent > 0.0 {
+                accumulate_wet_area_mfd(
+                    &r,
+                    &self.geom,
+                    &self.precipitation,
+                    &self.areas,
+                    self.params.mfd_exponent,
+                )
+            } else {
+                accumulate_wet_area(&r, &self.precipitation, &self.areas)
+            };
             self.t_accum += s.elapsed().as_secs_f64();
 
             self.routing = Some(r);
@@ -974,6 +989,15 @@ struct Routing {
     /// sink it drains into — 0 (sea level) for cells reaching the ocean, the lake
     /// surface for cells draining into a terminal lake. Propagated upstream.
     base_floor: Vec<f32>,
+    /// Pit-filled surface (the routing potential). Kept for MFD drainage-area
+    /// accumulation (Rung 2): a cell distributes flow to filled-downslope neighbours.
+    filled: Vec<f32>,
+    /// Per-cell flat flag + convergent flat-routing mask (Barnes resolution).
+    /// `is_flat[i]` = non-sink cell with no strictly-lower filled neighbour;
+    /// `flat_mask` (lower = nearer outlet) orders MFD accumulation across flats.
+    /// Always computed; `flat_resolution` only controls whether `receiver_of` uses it.
+    is_flat: Vec<bool>,
+    flat_mask: Vec<i64>,
 }
 
 /// Barnes-style convergent flat resolution (Barnes, Lehman & Mulla 2014, *Computers
@@ -1151,12 +1175,10 @@ impl Routing {
 
         // Barnes convergent flat resolution (Rung 1): a synthetic descent over
         // filled flats that routes toward outlets and away from higher walls,
-        // replacing the spiral-prone `flood_parent` wavefront. Empty when off.
-        let (is_flat, flat_mask) = if flat_resolution {
-            resolve_flats(&filled, geom, &is_sink)
-        } else {
-            (Vec::new(), Vec::new())
-        };
+        // replacing the spiral-prone `flood_parent` wavefront. Always computed
+        // (MFD accumulation needs the flat flag + mask to order across flats);
+        // `flat_resolution` only gates whether `receiver_of` uses it below.
+        let (is_flat, flat_mask) = resolve_flats(&filled, geom, &is_sink);
 
         // Receivers: steepest descent on the filled surface; on flats, convergent
         // flat resolution (or the flood-parent wavefront when disabled). Distance
@@ -1270,6 +1292,9 @@ impl Routing {
             dist,
             order,
             base_floor,
+            filled,
+            is_flat,
+            flat_mask,
         })
     }
 }
@@ -1288,6 +1313,81 @@ fn accumulate_wet_area(routing: &Routing, precipitation: &[f32], areas: &[f32]) 
         }
         let r = routing.receiver[cell];
         acc[r] += acc[cell];
+    }
+    acc
+}
+
+/// Multiple-flow-direction drainage area (Rung 2). Each cell distributes its
+/// accumulated flow to ALL filled-downslope neighbours, weighted by `slope^p`
+/// (Holmgren MFD), instead of dumping it on the single SFD receiver — so discharge
+/// disperses on hillslopes (less 1-cell striping) and reconverges in valleys.
+/// `exponent` is the SFD↔MFD dial: `p → ∞` recovers single-flow, `p ≈ 1` is fully
+/// dispersive. Flats (no downslope filled neighbour) keep the single convergent
+/// SFD receiver so flow still crosses them to the outlet. Only the AREA changes;
+/// incision still follows `routing.receiver`.
+///
+/// Processing order is `filled` descending, then flat-`mask` descending so every
+/// cell is finalised after all donors (non-flat cells sort last within a filled
+/// level — they are the drains). Serial + deterministic (ties broken by index) to
+/// keep float accumulation reproducible.
+fn accumulate_wet_area_mfd(
+    routing: &Routing,
+    geom: &NeighborGeometry,
+    precipitation: &[f32],
+    areas: &[f32],
+    exponent: f32,
+) -> Vec<f32> {
+    let n = areas.len();
+    let filled = &routing.filled;
+
+    let key_mask = |i: usize| -> i64 {
+        if routing.is_flat[i] {
+            routing.flat_mask[i]
+        } else {
+            i64::MIN // drains: processed last within their filled level
+        }
+    };
+    let mut order: Vec<usize> = (0..n).collect();
+    order.sort_unstable_by(|&a, &b| {
+        filled[b]
+            .total_cmp(&filled[a])
+            .then_with(|| key_mask(b).cmp(&key_mask(a)))
+            .then(a.cmp(&b))
+    });
+
+    let mut acc: Vec<f32> = (0..n)
+        .map(|i| precipitation[i].max(0.0) * areas[i])
+        .collect();
+    for &i in &order {
+        if routing.is_sink[i] {
+            continue;
+        }
+        let fi = filled[i];
+        let nbs = geom.tess_neighbors(i);
+        let ds = geom.dists(i);
+        // Total downslope weight (slope^p over filled-lower neighbours).
+        let mut total_w = 0.0f32;
+        for (k, &nb) in nbs.iter().enumerate() {
+            if filled[nb] < fi {
+                let slope = (fi - filled[nb]) / ds[k].max(1e-12);
+                total_w += slope.powf(exponent);
+            }
+        }
+        if total_w > 0.0 {
+            let inv = acc[i] / total_w;
+            for (k, &nb) in nbs.iter().enumerate() {
+                if filled[nb] < fi {
+                    let slope = (fi - filled[nb]) / ds[k].max(1e-12);
+                    acc[nb] += slope.powf(exponent) * inv;
+                }
+            }
+        } else {
+            // Flat: single convergent receiver carries flow off the flat.
+            let r = routing.receiver[i];
+            if r != i {
+                acc[r] += acc[i];
+            }
+        }
     }
     acc
 }
@@ -1511,6 +1611,11 @@ impl NeighborGeometry {
         &self.neighbors[self.offsets[i]..self.offsets[i + 1]]
     }
 
+    /// Per-neighbor chord distances for cell `i`, aligned with `tess_neighbors(i)`.
+    fn dists(&self, i: usize) -> &[f32] {
+        &self.dist[self.offsets[i]..self.offsets[i + 1]]
+    }
+
     fn weight(&self, i: usize, k: usize) -> f32 {
         self.weight[self.offsets[i] + k]
     }
@@ -1623,6 +1728,9 @@ mod tests {
             dist: vec![0.0, 2.0e-3, 2.0e-3],
             order: vec![0, 1, 2],            // downstream-first
             base_floor: vec![0.0, 0.0, 0.0], // sea level
+            filled: vec![-0.02, -0.015, 0.02],
+            is_flat: vec![false; 3],
+            flat_mask: vec![0; 3],
         };
         // slope*dist = 6.0 * 2e-3 = 0.012 repose offset above the receiver.
         // reach 1 (elev -0.015, receiver 0 at -0.02): target -0.008 > -0.015 -> aggrades.
@@ -1662,6 +1770,9 @@ mod tests {
             dist: vec![0.0, 1.0, 1.0],
             order: vec![0, 1, 2],
             base_floor: vec![0.0, 0.0, 0.0],
+            filled: vec![-0.05, 0.0, 0.1],
+            is_flat: vec![false; 3],
+            flat_mask: vec![0; 3],
         };
         let elev = vec![-0.05, 0.0, 0.1];
         let areas = vec![1.0, 1.0, 1.0];

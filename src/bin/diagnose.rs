@@ -56,6 +56,11 @@ struct Cli {
     /// 1 = on. A/B the spiral-on-flats fix (docs/specs/erosion-routing-ladder.md).
     #[arg(long, default_value_t = -1)]
     erosion_flat_resolution: i8,
+    /// MFD drainage-area exponent (Rung 2). <0 = use EROSION_MFD_EXPONENT; 0 =
+    /// single-flow (SFD); higher = sharper (p→∞ ≈ SFD), lower ≈ 1 = dispersive.
+    /// Sweep to A/B multi-flow vs single-flow discharge.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_mfd_exponent: f32,
     /// Override lithologic erodibility contrast (exp-amplitude sigma). <0 = use
     /// the EROSION_LITHO_SIGMA default; 0 = uniform K (no lithology).
     #[arg(long, default_value_t = -1.0)]
@@ -155,6 +160,9 @@ fn main() {
     }
     if cli.erosion_flat_resolution >= 0 {
         world.erosion_params.flat_resolution = cli.erosion_flat_resolution != 0;
+    }
+    if cli.erosion_mfd_exponent >= 0.0 {
+        world.erosion_params.mfd_exponent = cli.erosion_mfd_exponent;
     }
     if cli.erosion_litho_sigma >= 0.0 {
         world.erosion_params.litho_sigma = cli.erosion_litho_sigma;
