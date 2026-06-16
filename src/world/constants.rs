@@ -60,6 +60,13 @@ pub const DIFFUSION_TOLERANCE: f32 = 0.001;
 // linear). The slope/offset are derived from two anchor points:
 // (CRUST_THICKNESS_CONTINENTAL -> CONTINENTAL_BASE) and
 // (CRUST_THICKNESS_OCEANIC -> ABYSSAL_DEPTH).
+//
+// CANONICAL VERTICAL SCALE: elevation is a normalized unit-sphere field (sea
+// level = 0); 1 elevation unit ≈ 10 km. This is the single reference for every
+// "≈ N m" annotation below (it is the scale the ocean anchors and the
+// land↔ocean isostasy gap imply). The world is physically inspired, not
+// Earth-accurate, so this is for intuition/tuning only — nothing in the code
+// reads a vertical metres conversion; horizontal distances use PLANET_RADIUS_KM.
 
 /// Reference thickness of undisturbed continental crust (definition scale).
 pub const CRUST_THICKNESS_CONTINENTAL: f32 = 1.0;
@@ -67,7 +74,7 @@ pub const CRUST_THICKNESS_CONTINENTAL: f32 = 1.0;
 /// Reference thickness of oceanic crust.
 pub const CRUST_THICKNESS_OCEANIC: f32 = 0.25;
 
-/// Elevation of reference continental crust (~500m above sea level).
+/// Elevation of reference continental crust (~800m above sea level, at 10 km/unit).
 /// Isostasy anchor point.
 pub const CONTINENTAL_BASE: f32 = 0.08;
 
@@ -116,7 +123,7 @@ pub const LAND_FRACTION: f32 = 0.26;
 pub const RIDGE_CREST_DEPTH: f32 = -0.25;
 
 /// Depth of old oceanic crust far from ridges (abyssal plain).
-/// Represents ~4500-5000m below sea level (thermally subsided).
+/// Represents ~4500m below sea level (thermally subsided).
 pub const ABYSSAL_DEPTH: f32 = -0.45;
 
 /// Ocean depth for crust on plates with no ridge (no age information).
@@ -793,14 +800,14 @@ pub const EROSION_DEPOSIT_FILL_FRACTION: f32 = 0.5;
 ///
 /// PHYSICAL SCALE (the knob's real meaning, cell-size-independent): a reach
 /// aggrades only where its bed grade is gentler than this slope. Converting to a
-/// surface grade, `grade ≈ SLOPE · (m per elev-unit) / R` with ~6300 m/unit
-/// (CONTINENTAL_BASE 0.08 ≈ 500 m) and R = 6.371e6 m, so `grade ≈ SLOPE × 0.1%`.
-/// The old value 1.0 was a 0.1% repose grade — only deltas/lake floors are that
+/// surface grade, `grade ≈ SLOPE · (m per elev-unit) / R` with ~10 km/unit (the
+/// canonical vertical scale) and R = 6.371e6 m, so `grade ≈ SLOPE × 0.16%`.
+/// The old value 1.0 was a ~0.16% repose grade — only deltas/lake floors are that
 /// flat, so en-route deposition was effectively inert (sink-fill only) at the
 /// fine mesh's radian-scale receiver distances. Floodplains and alluvial fans sit
-/// at ~0.5–2%, i.e. SLOPE ≈ 5–20. 6.0 (~0.6% grade) is a conservative starting
+/// at ~0.5–2%, i.e. SLOPE ≈ 3–13. 6.0 (~0.9% grade) is a conservative starting
 /// point in that band — meaningful valley-floor / fan aggradation without
-/// over-filling; raise toward 20 for more pervasive fill. Calibrate on renders.
+/// over-filling; raise toward 13 for more pervasive fill. Calibrate on renders.
 pub const EROSION_DEPOSITION_SLOPE: f32 = 6.0;
 
 /// Channel-initiation support area (km²) at MEAN land wetness. Stream-power
