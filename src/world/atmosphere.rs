@@ -1040,7 +1040,6 @@ mod tests {
             noise_contribution: vec![0.0; num_cells],
             noise_layers: NoiseLayerData {
                 macro_layer: vec![0.0; num_cells],
-                micro_layer: vec![0.0; num_cells],
             },
         };
 

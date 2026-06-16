@@ -226,11 +226,12 @@ pub const NOISE_FREQUENCY: f64 = 2.0;
 /// Number of octaves for fBm noise.
 pub const NOISE_OCTAVES: usize = 4;
 
-// Elevation noise (post erosion-v2). Only two layers remain: hills and ridge
-// were appearance-paint that erosion now supersedes (docs/specs/erosion-v2.md
-// "Noise philosophy") and were retired. Macro is a crust-thickness perturbation
-// (isostatically compensated — the model of "the crust isn't uniform"); micro is
-// cosmetic surface texture, simulation-excluded. Neither paints terrain relief.
+// Elevation noise (post erosion-v2). Only the macro layer remains in the
+// simulation: hills and ridge were appearance-paint that erosion now supersedes
+// (docs/specs/erosion-v2.md "Noise philosophy") and were retired; cosmetic micro
+// texture was demoted to a render-only concern (see `app::coloring`). Macro is a
+// crust-thickness perturbation (isostatically compensated — the model of "the
+// crust isn't uniform"); it does not paint terrain relief.
 
 // --- Macro layer (crust-thickness perturbation; amplitude is MACRO_THICKNESS_AMPLITUDE) ---
 /// Frequency for macro layer (very low = large features).
@@ -239,17 +240,6 @@ pub const MACRO_FREQUENCY: f64 = 1.1;
 pub const MACRO_OCTAVES: usize = 2;
 /// Amplitude multiplier for oceanic plates (flatter ocean floor).
 pub const MACRO_OCEANIC_MULT: f32 = 0.5;
-
-// --- Micro layer (surface texture) ---
-/// Base amplitude for micro layer - cosmetic only.
-/// Note: For unified shader path, see MICRO_AMPLITUDE in unified.wgsl
-pub const MICRO_AMPLITUDE: f32 = 0.02;
-/// Frequency for micro layer (high = fine detail).
-pub const MICRO_FREQUENCY: f64 = 16.0;
-/// Octaves for micro layer.
-pub const MICRO_OCTAVES: usize = 2;
-/// Amplitude multiplier for underwater areas.
-pub const MICRO_UNDERWATER_MULT: f32 = 0.8;
 
 // Climate mechanisms
 

@@ -4,7 +4,7 @@
 //! it does):
 //!
 //!   elevation = isostatic(thickness) + thermal(ocean age)
-//!             + dynamic(trench flexure/outer rise) + surface noise
+//!             + dynamic(trench flexure/outer rise)
 //!
 //! Thickness = margin ramp (continental thick, oceanic thin) + macro-scale
 //! thickness noise (cratonic cores / interior basins) + tectonic thickening
@@ -17,10 +17,10 @@
 //!
 //! Sea level is solved (uniform shift) so land fraction hits LAND_FRACTION.
 //!
-//! Surface noise layers:
-//! - Hills: regional rolling terrain (suppressed in active areas)
-//! - Ridges: drainage divides (amplified in active areas)
-//! - Micro: fine surface texture (cosmetic)
+//! The only surface noise in the simulation is the macro thickness
+//! perturbation (folded into `thickness` above, isostatically compensated).
+//! Hills/ridge were retired and cosmetic micro texture was removed entirely;
+//! erosion supplies real fine relief on the fine mesh.
 
 use glam::Vec3;
 use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
@@ -38,27 +38,24 @@ pub struct Elevation {
     pub values: Vec<f32>,
 
     /// Simulation noise contribution at each cell (macro only; hills/ridge retired).
-    ///
-    /// Excludes micro noise, which is cosmetic-only and stored separately in `noise_layers`.
     pub noise_contribution: Vec<f32>,
 
     /// Individual noise layer contributions (for visualization).
     pub noise_layers: NoiseLayerData,
 }
 
-/// Individual noise layer contributions for visualization (macro + micro only;
-/// hills/ridge retired — see docs/specs/erosion-v2.md).
+/// Individual noise layer contributions for visualization (macro only;
+/// hills/ridge retired, micro removed — see
+/// docs/specs/erosion-v2.md "Noise philosophy").
 pub struct NoiseLayerData {
     /// Macro layer (continental tilt).
     pub macro_layer: Vec<f32>,
-    /// Micro layer (surface texture).
-    pub micro_layer: Vec<f32>,
 }
 
-/// Noise generators for the two surviving terrain layers (macro + micro).
+/// Noise generator for the one surviving simulation terrain layer (macro).
+/// Micro is render-only now and lives in `app::coloring`.
 struct TerrainNoise {
     macro_fbm: Fbm<Perlin>,
-    micro_fbm: Fbm<Perlin>,
 }
 
 /// Structural inputs to elevation assembly.
@@ -91,7 +88,6 @@ impl TerrainNoise {
     fn new<R: Rng>(rng: &mut R) -> Self {
         Self {
             macro_fbm: Fbm::new(rng.gen()).set_octaves(MACRO_OCTAVES),
-            micro_fbm: Fbm::new(rng.gen()).set_octaves(MICRO_OCTAVES),
         }
     }
 
@@ -106,24 +102,6 @@ impl TerrainNoise {
                 as f32;
         let mult = MACRO_OCEANIC_MULT + (1.0 - MACRO_OCEANIC_MULT) * continentality;
         sample * MACRO_THICKNESS_AMPLITUDE * mult
-    }
-
-    /// Sample the cosmetic micro-texture noise at a position (the only surface
-    /// noise still applied — hills/ridge were retired; erosion supplies real
-    /// relief). Simulation-excluded; consumed only by rendering.
-    fn sample_micro(&self, pos: Vec3, is_underwater: bool) -> f32 {
-        let micro_pos = pos * MICRO_FREQUENCY as f32;
-        let micro_sample =
-            self.micro_fbm
-                .get([micro_pos.x as f64, micro_pos.y as f64, micro_pos.z as f64])
-                as f32;
-        let micro_amp = MICRO_AMPLITUDE
-            * if is_underwater {
-                MICRO_UNDERWATER_MULT
-            } else {
-                1.0
-            };
-        micro_sample * micro_amp
     }
 }
 
@@ -148,41 +126,18 @@ impl Elevation {
     }
 
     /// Build a fine-mesh elevation by refining an already-solved base elevation
-    /// (interpolated from the coarse mesh, so it is on the fixed sea-level datum)
-    /// with cosmetic micro noise. There is NO sea-level re-solve: sea level is a
-    /// global planet datum, chosen once on the coarse mesh, and inherited here.
-    /// The simulation values are the smooth interpolated base (erosion carves the
-    /// fine detail later); micro noise is cosmetic only, as on the coarse mesh.
-    pub(crate) fn refine_from_base<R: Rng>(
-        tessellation: &Tessellation,
-        base_elevation: &[f32],
-        rng: &mut R,
-    ) -> Self {
-        let noise = TerrainNoise::new(rng);
+    /// (interpolated from the coarse mesh, so it is on the fixed sea-level datum).
+    /// There is NO sea-level re-solve: sea level is a global planet datum, chosen
+    /// once on the coarse mesh, and inherited here. The simulation values are the
+    /// smooth interpolated base (erosion carves the fine detail later); there is
+    /// no cosmetic surface noise.
+    pub(crate) fn refine_from_base(tessellation: &Tessellation, base_elevation: &[f32]) -> Self {
         let n = tessellation.num_cells();
-
-        let micro_layer: Vec<f32> = {
-            let micro_at = |i: usize| {
-                let pos = tessellation.cell_center(i);
-                let underwater = base_elevation[i] < 0.0;
-                noise.sample_micro(pos, underwater)
-            };
-            #[cfg(not(feature = "single-threaded"))]
-            {
-                (0..n).into_par_iter().map(micro_at).collect()
-            }
-            #[cfg(feature = "single-threaded")]
-            {
-                (0..n).map(micro_at).collect()
-            }
-        };
-
         Self {
             values: base_elevation.to_vec(),
             noise_contribution: vec![0.0; n],
             noise_layers: NoiseLayerData {
                 macro_layer: vec![0.0; n],
-                micro_layer,
             },
         }
     }
@@ -383,13 +338,11 @@ fn assemble_heightmap_with_noise(
     let mut elevations = Vec::with_capacity(num_cells);
     let mut noise_contributions = Vec::with_capacity(num_cells);
     let mut macro_layer = Vec::with_capacity(num_cells);
-    let mut micro_layer = Vec::with_capacity(num_cells);
 
     for cell in assembled {
         elevations.push(cell.elevation);
         noise_contributions.push(cell.noise_contribution);
         macro_layer.push(cell.macro_layer);
-        micro_layer.push(cell.micro_layer);
     }
 
     // --- 4. Sea-level solve: uniform shift so the land AREA fraction is exact ---
@@ -429,10 +382,7 @@ fn assemble_heightmap_with_noise(
         }
     }
 
-    let noise_layers = NoiseLayerData {
-        macro_layer,
-        micro_layer,
-    };
+    let noise_layers = NoiseLayerData { macro_layer };
 
     (elevations, noise_contributions, noise_layers)
 }
@@ -441,7 +391,6 @@ struct AssembledElevationCell {
     elevation: f32,
     noise_contribution: f32,
     macro_layer: f32,
-    micro_layer: f32,
 }
 
 fn assemble_elevation_cell(
@@ -472,18 +421,15 @@ fn assemble_elevation_cell(
         + fields.ridge[i]
         - fields.trench[i];
 
-    // --- 3. Cosmetic micro texture (the only surface noise: hills/ridge were
-    // retired, erosion supplies real relief). Neither micro nor macro enters the
-    // simulation elevation; macro is reported as its isostatic elevation
-    // contribution for the noise viz.
-    let is_underwater = structural_elevation < 0.0;
-    let micro_c = noise.sample_micro(pos, is_underwater);
+    // --- 3. Macro thickness is reported as its isostatic elevation contribution
+    // for the noise viz (it does not enter the simulation elevation directly; it
+    // acts through `thickness`). Cosmetic micro texture is applied render-side
+    // (see `app::coloring`), not here.
     let macro_c = macro_dt * slope;
 
     AssembledElevationCell {
         elevation: structural_elevation,
         noise_contribution: macro_c,
         macro_layer: macro_c,
-        micro_layer: micro_c,
     }
 }

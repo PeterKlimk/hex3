@@ -131,13 +131,8 @@ impl FineWorld {
             density_params,
         );
         // Pre-erosion surface: hydrology rides the un-eroded interpolated base.
-        let pre = FineSurface::from_eroded(
-            seed,
-            &base,
-            &base.base_elevation,
-            &base.fields.precipitation,
-            0.0,
-        );
+        let pre =
+            FineSurface::from_eroded(&base, &base.base_elevation, &base.fields.precipitation, 0.0);
         log::info!(
             "fine mesh: stage-3 base+pre {:.2?}, cells={}, density_ratio={:.1}:1",
             total.elapsed(),
@@ -475,23 +470,20 @@ impl FineSurface {
         super::erosion::glacial_erode(&base.tessellation, &mut eroded, &lake_base, params);
         log::info!("fine mesh: glacial pass {:.2?}", t0.elapsed());
 
-        Self::from_eroded(seed, base, &eroded, &precip, params.lake_evap_strength)
+        Self::from_eroded(base, &eroded, &precip, params.lake_evap_strength)
     }
 
     /// Build the surface (micro-noise elevation + hydrology) from an already-
     /// eroded elevation. `lake_evap_strength > 0` adds the lakes-as-evaporation
     /// pass (re-runs hydrology once with lake-boosted precip).
     pub fn from_eroded(
-        seed: u64,
         base: &FineBase,
         eroded: &[f32],
         precipitation: &[f32],
         lake_evap_strength: f32,
     ) -> Self {
-        // Cosmetic micro noise rides on the eroded surface; this is the elevation
-        // hydrology and rendering consume.
-        let mut elev_rng = ChaCha8Rng::seed_from_u64(seed.wrapping_add(3));
-        let elevation = Elevation::refine_from_base(&base.tessellation, eroded, &mut elev_rng);
+        // The eroded surface is the elevation hydrology and rendering consume.
+        let elevation = Elevation::refine_from_base(&base.tessellation, eroded);
         log_resolution_probe(&base.tessellation, &elevation);
 
         // Correct temperature for the relief erosion carved. `fields.temperature`

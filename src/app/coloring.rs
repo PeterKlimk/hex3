@@ -175,7 +175,6 @@ pub fn compute_slope(world: &World, cell_idx: usize) -> f32 {
 ///
 /// Uses water state classification from hydrology.
 /// This is the primary view that shows the "finished" terrain.
-/// Micro noise is added to land elevation for color variation (cosmetic only).
 /// Snow caps are applied based on elevation and latitude.
 pub fn cell_color_terrain(world: &World, cell_idx: usize) -> Vec3 {
     let elevation = world
@@ -198,10 +197,9 @@ pub fn cell_color_terrain(world: &World, cell_idx: usize) -> Vec3 {
         }
     }
 
-    // Land (or dry basin) - use elevation + micro noise for color variation
-    // (hills layer retired; erosion now supplies sub-cell relief).
-    let visual_elevation =
-        elevation.values[cell_idx] + elevation.noise_layers.micro_layer[cell_idx];
+    // Land (or dry basin) - hypsometric color from elevation (hills/micro
+    // retired; erosion now supplies sub-cell relief).
+    let visual_elevation = elevation.values[cell_idx];
 
     // Slope for rock exposure.
     let slope = compute_slope(world, cell_idx);
@@ -299,7 +297,6 @@ pub fn cell_color_noise(world: &World, cell_idx: usize, layer: NoiseLayer) -> Ve
     let noise = match layer {
         NoiseLayer::Combined => elevation.noise_contribution[cell_idx],
         NoiseLayer::Macro => elevation.noise_layers.macro_layer[cell_idx],
-        NoiseLayer::Micro => elevation.noise_layers.micro_layer[cell_idx],
         NoiseLayer::ArcShape => {
             world
                 .features
@@ -313,7 +310,6 @@ pub fn cell_color_noise(world: &World, cell_idx: usize, layer: NoiseLayer) -> Ve
     let scale = match layer {
         NoiseLayer::Combined => 10.0,
         NoiseLayer::Macro => 15.0,
-        NoiseLayer::Micro => 50.0, // Micro is very small, needs big scale
         NoiseLayer::ArcShape => 1.0,
     };
 

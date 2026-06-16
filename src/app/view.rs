@@ -42,8 +42,6 @@ pub enum NoiseLayer {
     Combined,
     /// Macro layer (continental tilt)
     Macro,
-    /// Micro layer (surface texture)
-    Micro,
     /// Arc shape noise (oceanic arc coastline variation)
     ArcShape,
 }
@@ -53,8 +51,7 @@ impl NoiseLayer {
     pub fn cycle(self) -> Self {
         match self {
             Self::Combined => Self::Macro,
-            Self::Macro => Self::Micro,
-            Self::Micro => Self::ArcShape,
+            Self::Macro => Self::ArcShape,
             Self::ArcShape => Self::Combined,
         }
     }
@@ -63,7 +60,6 @@ impl NoiseLayer {
         match self {
             Self::Combined => "Combined",
             Self::Macro => "Macro",
-            Self::Micro => "Micro",
             Self::ArcShape => "ArcShape",
         }
     }
