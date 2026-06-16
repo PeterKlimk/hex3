@@ -70,19 +70,26 @@ out of the MFD machinery for free.
 
 | Rung | Change | Value | Effort | Status |
 |---|---|---|---|---|
-| 0 | Diffusivity sweep + `reroute=1` — **diagnostic only** | (info) | ~free | knobs wired |
-| 1 | Convergent flat resolution (Barnes 2014b) | very high | low–med | TODO |
+| 0 | Diffusivity sweep + `reroute=1` — **diagnostic only** | (info) | ~free | **done** (both knobs ruled out — perforation is structural) |
+| 1 | Convergent flat resolution (Barnes 2014b) | very high | low–med | **landed** (knob `flat_resolution`, default on; pending visual sign-off) |
 | 2 | MFD drainage-*area* only (SFD incision kept) | high | med | TODO |
 | 3 | Full MFD-DAG implicit incision | highest | high | TODO |
 | 4 | MFD sediment / deposition (same fractions) | high | med–high | TODO |
 | 5 | Channelization-instability initiation | very high (philosophy) | high | future |
 
-**Rung 0 — diagnostic, not a milestone.** Run the diffusivity sweep and
-`--erosion-reroute-interval 1` once to quantify how much perforation is
-*regenerated each step* (routing will fix) vs *residual baseline mesh texture*
-(may still want nonlinear diffusion, Rung 5+). **Do not adopt diffusion as the
-fix** — if routing keeps cutting 1-cell channels, diffusion is only a texture
-knob hiding the wound. Information for one run, then move to Rung 1 regardless.
+**Rung 0 — diagnostic, not a milestone. DONE (seed 12345, fine-max 600k).** Both
+cheap knobs are ruled out, so we skip straight to the structural rungs:
+- **Diffusion is not the fix.** Raising `EROSION_DIFFUSIVITY` ×1000 (2e-8→2e-5)
+  leaves the cell-scale banding amplitude (`curv-rms`) *flat* (~2.3e-2) and pushes
+  `checker%` *up* toward 50% (white-noise) — at high D the under-converged Jacobi
+  injects its own cell-scale noise. Only `pit%` nibbles down (0.78→0.51). Incision
+  regenerates the perforation every step faster than diffusion removes it.
+- **Reroute frequency is irrelevant.** `reroute=1` vs `=6` is identical to 3
+  decimals on every counter — stale routing contributes nothing.
+- Conclusion: the perforation is **structural to SFD incision** (→ Rung 3 MFD),
+  not a diffusion/reroute tuning problem. **Do not adopt diffusion as the fix** —
+  if routing keeps cutting 1-cell channels, diffusion is only a texture knob hiding
+  the wound (confirmed: it can't fill them).
 
 **Rung 1 — convergent flat resolution.** Replace the bare `flood_parent`
 direction on flats with Barnes' superimposed gradients (away-from-higher +

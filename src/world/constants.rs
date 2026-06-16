@@ -757,6 +757,14 @@ pub const EROSION_DIFFUSION_ITERS: usize = 6;
 /// staler network between re-routes.
 pub const EROSION_REROUTE_INTERVAL: usize = 6;
 
+/// Barnes-style convergent flat resolution (Barnes, Lehman & Mulla 2014): on a
+/// priority-flood-filled surface, drain flat interiors with a synthetic descent
+/// toward outlets and away from higher walls, instead of the bare priority-flood
+/// wavefront (`flood_parent`) which spirals and gets incised as spiral grooves.
+/// `false` reproduces the old wavefront routing (for A/B). See
+/// docs/specs/erosion-routing-ladder.md (Rung 1).
+pub const EROSION_FLAT_RESOLUTION: bool = true;
+
 /// Scales tectonic uplift added to crust thickness each step. Source is the
 /// transferred feature forcing: (arc + collision) are elevation magnitudes
 /// (converted to thickness by dividing the Airy slope) and rift_delta is

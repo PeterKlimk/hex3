@@ -51,6 +51,11 @@ struct Cli {
     /// artifacts (see docs/specs/erosion.md "Roughness counters").
     #[arg(long, default_value_t = 0)]
     erosion_reroute_interval: usize,
+    /// Barnes convergent flat resolution (Rung 1). -1 = use the
+    /// EROSION_FLAT_RESOLUTION default; 0 = off (old flood_parent wavefront);
+    /// 1 = on. A/B the spiral-on-flats fix (docs/specs/erosion-routing-ladder.md).
+    #[arg(long, default_value_t = -1)]
+    erosion_flat_resolution: i8,
     /// Override lithologic erodibility contrast (exp-amplitude sigma). <0 = use
     /// the EROSION_LITHO_SIGMA default; 0 = uniform K (no lithology).
     #[arg(long, default_value_t = -1.0)]
@@ -147,6 +152,9 @@ fn main() {
     }
     if cli.erosion_reroute_interval > 0 {
         world.erosion_params.reroute_interval = cli.erosion_reroute_interval;
+    }
+    if cli.erosion_flat_resolution >= 0 {
+        world.erosion_params.flat_resolution = cli.erosion_flat_resolution != 0;
     }
     if cli.erosion_litho_sigma >= 0.0 {
         world.erosion_params.litho_sigma = cli.erosion_litho_sigma;

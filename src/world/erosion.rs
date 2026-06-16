@@ -68,6 +68,9 @@ pub struct ErosionParams {
     pub diffusion_iters: usize,
     /// Re-route (and re-accumulate drainage area) every this many steps.
     pub reroute_interval: usize,
+    /// Barnes convergent flat resolution on the priority-flood surface (vs the
+    /// bare `flood_parent` wavefront that spirals). See `EROSION_FLAT_RESOLUTION`.
+    pub flat_resolution: bool,
     /// Tectonic uplift source scale (thickness units).
     pub uplift_scale: f32,
     /// Fraction of a sink's depth-to-base-level that deposition may fill.
@@ -121,6 +124,7 @@ impl Default for ErosionParams {
             diffusivity: EROSION_DIFFUSIVITY,
             diffusion_iters: EROSION_DIFFUSION_ITERS,
             reroute_interval: EROSION_REROUTE_INTERVAL,
+            flat_resolution: EROSION_FLAT_RESOLUTION,
             uplift_scale: EROSION_UPLIFT_SCALE,
             deposit_fill_fraction: EROSION_DEPOSIT_FILL_FRACTION,
             deposition_slope: EROSION_DEPOSITION_SLOPE,
@@ -227,7 +231,7 @@ pub(crate) fn glacial_erode(
     let mut total_abraded = 0.0f64;
 
     for _ in 0..params.glacial_steps {
-        let Some(routing) = Routing::build(elev, &geom, lake_base) else {
+        let Some(routing) = Routing::build(elev, &geom, lake_base, params.flat_resolution) else {
             break;
         };
 
@@ -489,7 +493,12 @@ impl ErosionState {
         //    descent. Cells below sea level are fixed base-level sinks.
         if self.step % self.params.reroute_interval == 0 {
             s = Instant::now();
-            let Some(r) = Routing::build(&elev, &self.geom, &self.lake_base) else {
+            let Some(r) = Routing::build(
+                &elev,
+                &self.geom,
+                &self.lake_base,
+                self.params.flat_resolution,
+            ) else {
                 // No sinks (e.g. an all-land world): nothing to erode toward.
                 self.halted = true;
                 return;
@@ -967,11 +976,127 @@ struct Routing {
     base_floor: Vec<f32>,
 }
 
+/// Barnes-style convergent flat resolution (Barnes, Lehman & Mulla 2014, *Computers
+/// & Geosciences* 62:128–135). On a priority-flood-filled surface the interior of a
+/// filled flat has no descending neighbour, so the bare priority-flood wavefront
+/// (`flood_parent`) drains it in parallel/spiral paths that then get incised as
+/// spiral grooves. This builds a synthetic descent over each flat from two integer
+/// BFS distance fields — `to_low` (hops to the flat's outlets) and `from_high`
+/// (hops from the surrounding higher walls) — combined as `mask = 2*to_low -
+/// from_high`. Steepest descent on `mask` flows toward outlets (down `to_low`) and
+/// away from walls (the `from_high` term): convergent drainage, not a spiral.
+///
+/// Returns `(is_flat, mask)`. `is_flat[i]` marks non-sink cells with no strictly
+/// lower filled neighbour (the cells that otherwise fall back to `flood_parent`);
+/// `mask` is meaningful only there. The `to_low` weight 2 > `from_high` weight 1
+/// guarantees every non-outlet flat cell has a lower-`mask` neighbour, i.e. a
+/// descending path to an outlet exists.
+fn resolve_flats(
+    filled: &[f32],
+    geom: &NeighborGeometry,
+    is_sink: &[bool],
+) -> (Vec<bool>, Vec<i64>) {
+    let n = geom.num_cells();
+
+    // Flat = non-sink with no strictly-lower filled neighbour (would otherwise use
+    // flood_parent). Such cells touch lower terrain only through a same-level outlet.
+    let mut is_flat = vec![false; n];
+    for i in 0..n {
+        if is_sink[i] {
+            continue;
+        }
+        is_flat[i] = !geom
+            .tess_neighbors(i)
+            .iter()
+            .any(|&nb| filled[nb] < filled[i]);
+    }
+
+    // Multi-source BFS over the flat subgraph (edges between equal-`filled` flat
+    // cells). `to_low` seeds: flat cells adjacent to a same-level outlet (a
+    // non-flat, non-sink cell at the same filled level, which drains lower).
+    // `from_high` seeds: flat cells adjacent to a strictly-higher filled cell.
+    let mut to_low = vec![u32::MAX; n];
+    let mut from_high = vec![u32::MAX; n];
+    let mut queue: VecDeque<usize> = VecDeque::new();
+
+    for i in 0..n {
+        if is_flat[i]
+            && geom
+                .tess_neighbors(i)
+                .iter()
+                .any(|&nb| filled[nb] == filled[i] && !is_flat[nb] && !is_sink[nb])
+        {
+            to_low[i] = 0;
+            queue.push_back(i);
+        }
+    }
+    bfs_flat(&mut to_low, &mut queue, &is_flat, filled, geom);
+
+    for i in 0..n {
+        if is_flat[i]
+            && geom
+                .tess_neighbors(i)
+                .iter()
+                .any(|&nb| filled[nb] > filled[i])
+        {
+            from_high[i] = 0;
+            queue.push_back(i);
+        }
+    }
+    bfs_flat(&mut from_high, &mut queue, &is_flat, filled, geom);
+
+    let mask: Vec<i64> = (0..n)
+        .map(|i| {
+            if !is_flat[i] {
+                return 0;
+            }
+            // Unreached (no outlet/wall in this flat) -> 0, a benign neutral level.
+            let l = if to_low[i] == u32::MAX {
+                0
+            } else {
+                to_low[i] as i64
+            };
+            let h = if from_high[i] == u32::MAX {
+                0
+            } else {
+                from_high[i] as i64
+            };
+            2 * l - h
+        })
+        .collect();
+    (is_flat, mask)
+}
+
+/// Multi-source BFS over the flat subgraph: relaxes `dist` across edges between
+/// flat cells at the same `filled` level, starting from the seeds already enqueued.
+fn bfs_flat(
+    dist: &mut [u32],
+    queue: &mut VecDeque<usize>,
+    is_flat: &[bool],
+    filled: &[f32],
+    geom: &NeighborGeometry,
+) {
+    while let Some(c) = queue.pop_front() {
+        let d = dist[c];
+        for &nb in geom.tess_neighbors(c) {
+            if is_flat[nb] && filled[nb] == filled[c] && dist[nb] == u32::MAX {
+                dist[nb] = d + 1;
+                queue.push_back(nb);
+            }
+        }
+    }
+}
+
 impl Routing {
     /// `lake_base[i]` is the surface elevation of the terminal lake flooding cell
     /// `i` (finite => that cell is a lake sink), or NEG_INFINITY for non-lake
     /// cells. All-NEG_INFINITY reproduces the sea-level-only behaviour.
-    fn build(elev: &[f32], geom: &NeighborGeometry, lake_base: &[f32]) -> Option<Routing> {
+    fn build(
+        elev: &[f32],
+        geom: &NeighborGeometry,
+        lake_base: &[f32],
+        flat_resolution: bool,
+    ) -> Option<Routing> {
         let n = geom.num_cells();
         let is_sink: Vec<bool> = (0..n)
             .map(|i| elev[i] < 0.0 || lake_base[i].is_finite())
@@ -1007,22 +1132,58 @@ impl Routing {
             }
         }
 
-        // Receivers: steepest descent on the filled surface, flood-parent
-        // fallback on flats. Distance is the chord to the receiver. Both are
-        // per-cell and read-only over shared state -> parallel.
+        // Barnes convergent flat resolution (Rung 1): a synthetic descent over
+        // filled flats that routes toward outlets and away from higher walls,
+        // replacing the spiral-prone `flood_parent` wavefront. Empty when off.
+        let (is_flat, flat_mask) = if flat_resolution {
+            resolve_flats(&filled, geom, &is_sink)
+        } else {
+            (Vec::new(), Vec::new())
+        };
+
+        // Receivers: steepest descent on the filled surface; on flats, convergent
+        // flat resolution (or the flood-parent wavefront when disabled). Distance
+        // is the chord to the receiver. Per-cell, read-only over shared state ->
+        // parallel.
         let receiver_of = |i: usize| -> usize {
             if is_sink[i] {
                 return i;
             }
-            let mut best = flood_parent[i];
-            let mut best_elev = filled[i];
-            for &nb in geom.tess_neighbors(i) {
-                if filled[nb] < best_elev {
-                    best_elev = filled[nb];
-                    best = nb;
+            if !flat_resolution || !is_flat[i] {
+                // Non-flat: steepest descent (a strictly-lower neighbour exists).
+                // flood_parent covers the flat-resolution-off flat case.
+                let mut best = flood_parent[i];
+                let mut best_elev = filled[i];
+                for &nb in geom.tess_neighbors(i) {
+                    if filled[nb] < best_elev {
+                        best_elev = filled[nb];
+                        best = nb;
+                    }
                 }
+                best
+            } else {
+                // Flat: route to an adjacent same-level outlet (a non-flat,
+                // non-sink cell at the same filled level, which drains lower) if
+                // present, else to the lowest-`mask` flat neighbour (toward
+                // outlets / away from walls). flood_parent is the last resort.
+                let mut best = flood_parent[i];
+                let mut best_key = i64::MAX;
+                for &nb in geom.tess_neighbors(i) {
+                    if filled[nb] != filled[i] {
+                        continue; // only same-level (flat) edges
+                    }
+                    let key = if !is_flat[nb] && !is_sink[nb] {
+                        i64::MIN // same-level outlet: most attractive
+                    } else {
+                        flat_mask[nb]
+                    };
+                    if key < best_key {
+                        best_key = key;
+                        best = nb;
+                    }
+                }
+                best
             }
-            best
         };
         #[cfg(not(feature = "single-threaded"))]
         let receiver: Vec<usize> = (0..n).into_par_iter().map(receiver_of).collect();
