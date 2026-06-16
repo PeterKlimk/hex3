@@ -494,13 +494,27 @@ impl FineSurface {
         let elevation = Elevation::refine_from_base(&base.tessellation, eroded, &mut elev_rng);
         log_resolution_probe(&base.tessellation, &elevation);
 
+        // Correct temperature for the relief erosion carved. `fields.temperature`
+        // is the coarse field interpolated onto the fine mesh, so its lapse is
+        // baked against the pre-erosion datum (`base_elevation`). Re-apply the
+        // lapse delta against the eroded relief (held/sharpened peaks, carved
+        // valleys) so basin evaporation sees the terrain it actually drains. Only
+        // positive elevation lapses (matches `generate_surface_temperature`); this
+        // is a no-op for the pre-erosion surface (eroded == base_elevation).
+        let temperature: Vec<f32> = (0..base.tessellation.num_cells())
+            .map(|i| {
+                let delta = eroded[i].max(0.0) - base.base_elevation[i].max(0.0);
+                base.fields.temperature[i] - super::atmosphere::LAPSE_RATE * delta
+            })
+            .collect();
+
         let hydro = |precip: &[f32]| {
             Hydrology::generate_from_continentality(
                 &base.tessellation,
                 &base.fields.elevation_fields.continentality,
                 &elevation,
                 precip,
-                &base.fields.temperature,
+                &temperature,
             )
         };
 

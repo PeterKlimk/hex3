@@ -120,8 +120,13 @@ fn select_craton_seeds<R: Rng>(
 ) -> Vec<usize> {
     let num_cells = tessellation.num_cells();
 
-    // Ideal spacing for evenly distributed seeds on the sphere.
-    let ideal_spacing = (4.0 * std::f32::consts::PI / num_cratons as f32).sqrt();
+    // Ideal angular spacing for evenly distributed seeds on the sphere: the
+    // spherical-cap radius whose N equal caps tile the unit sphere, `acos(1 -
+    // 2/N)`. This matches plate seeding (`plates.rs`) and is compared against
+    // angular distances below — the old `sqrt(4π/N)` was a flat-area (linear)
+    // spacing, geometrically inconsistent with the angular comparison, which
+    // over-spaced the seeds and leaned on the relaxation loop to recover.
+    let ideal_spacing = (1.0 - 2.0 / num_cratons as f32).clamp(-1.0, 1.0).acos();
     let base_min_dist = ideal_spacing * CRATON_SEED_SPACING_FRACTION;
 
     let mut indices: Vec<usize> = (0..num_cells).collect();

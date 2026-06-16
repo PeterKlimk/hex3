@@ -515,10 +515,33 @@ pub const SOR_OMEGA: f32 = 1.0;
 
 // Moisture & precipitation.
 
-/// Number of moisture advection iterations (steady-state relaxation).
-pub const MOISTURE_ITERATIONS: usize = 80;
+/// Reference advective timestep that the per-iteration reaction rates
+/// (`EVAPORATION_RATE`, the `RAINOUT_*` family, `MOISTURE_DIFFUSIVITY`) are
+/// calibrated against. The advection pass advances physical time `dt =
+/// MOISTURE_CFL/max_outflow` per iteration, but those reaction/mixing constants
+/// were tuned as per-iteration fractions (an implicit `dt = 1`). To make the
+/// reaction:advection balance — and thus how far moisture penetrates inland —
+/// independent of mesh resolution and wind speed (both of which move `dt`), the
+/// reactions are scaled by `dt / MOISTURE_DT_REF`. At the design coarse
+/// resolution (100k cells, where the live `dt ≈ 0.01`) the factor is ≈1, so the
+/// generated world's climate is unchanged; at other resolutions it scales
+/// correctly instead of drifting. This anchors the constants — changing it
+/// rescales every reaction rate. (It also removes the old spurious dependence of
+/// the climate on a world's peak wind, which set the CFL `dt`.)
+pub const MOISTURE_DT_REF: f32 = 0.01;
 
-/// Iterations at the end of the run to average precipitation over.
+/// Hard cap on moisture relaxation iterations. The loop runs to a steady state
+/// (see `MOISTURE_CONV_TOL`) rather than a fixed count, because the reaction
+/// timestep `dt/MOISTURE_DT_REF` shrinks with resolution, so the iteration count
+/// to converge grows. At the 100k design resolution it converges in ~50 iters
+/// and breaks early; this cap only bounds far finer meshes.
+pub const MOISTURE_MAX_ITERATIONS: usize = 2000;
+
+/// Steady-state tolerance: the relaxation stops once the max per-iteration change
+/// in cell moisture falls below this fraction of the mean moisture.
+pub const MOISTURE_CONV_TOL: f32 = 1.0e-4;
+
+/// Iterations after convergence to average precipitation over.
 pub const MOISTURE_AVG_WINDOW: usize = 20;
 
 /// Fraction of a water cell's capacity deficit replenished per iteration.
@@ -778,7 +801,18 @@ pub const EROSION_DEPOSIT_FILL_FRACTION: f32 = 0.5;
 /// disables en-route deposition. The primary deposition knob; sweep with diagnose
 /// --erosion-deposition-slope and read the mass ledger (lost-to-ocean should drop)
 /// alongside the maps. Starting value — calibrate by eye, not to a target.
-pub const EROSION_DEPOSITION_SLOPE: f32 = 1.0;
+///
+/// PHYSICAL SCALE (the knob's real meaning, cell-size-independent): a reach
+/// aggrades only where its bed grade is gentler than this slope. Converting to a
+/// surface grade, `grade ≈ SLOPE · (m per elev-unit) / R` with ~6300 m/unit
+/// (CONTINENTAL_BASE 0.08 ≈ 500 m) and R = 6.371e6 m, so `grade ≈ SLOPE × 0.1%`.
+/// The old value 1.0 was a 0.1% repose grade — only deltas/lake floors are that
+/// flat, so en-route deposition was effectively inert (sink-fill only) at the
+/// fine mesh's radian-scale receiver distances. Floodplains and alluvial fans sit
+/// at ~0.5–2%, i.e. SLOPE ≈ 5–20. 6.0 (~0.6% grade) is a conservative starting
+/// point in that band — meaningful valley-floor / fan aggradation without
+/// over-filling; raise toward 20 for more pervasive fill. Calibrate on renders.
+pub const EROSION_DEPOSITION_SLOPE: f32 = 6.0;
 
 /// Channel-initiation support area (km²) at MEAN land wetness. Stream-power
 /// incision acts only on cells whose precip-weighted drainage (discharge)

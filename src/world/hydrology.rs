@@ -725,7 +725,7 @@ fn priority_flood_with_basins(
                     .iter()
                     .map(|&c| (elevation[c], areas[c]))
                     .collect();
-                sorted.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+                sorted.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
                 let sorted_elevations: Vec<f32> = sorted.iter().map(|&(e, _)| e).collect();
                 let sorted_areas: Vec<f32> = sorted.iter().map(|&(_, a)| a).collect();
                 let total_area: f32 = sorted_areas.iter().sum();

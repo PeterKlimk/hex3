@@ -126,28 +126,60 @@ pub fn simulate_moisture(
     };
 
     // --- Iterate to steady state ---
-    let mut moisture = vec![0.0f32; num_cells];
+    //
+    // Operator splitting with a consistent timestep. Advection advances physical
+    // time `dt = MOISTURE_CFL/max_outflow` per iteration. The reaction and mixing
+    // constants (evaporation, rainout, eddy diffusion) were tuned as per-iteration
+    // fractions (an implicit dt=1), so we scale them by `react_dt = dt/DT_REF` to
+    // put them on the same physical clock. This makes the reaction:advection
+    // balance — hence how far moisture penetrates inland — independent of mesh
+    // resolution and wind speed (which move `dt`); at the 100k design resolution
+    // `dt ≈ DT_REF` so `react_dt ≈ 1` and the generated climate is unchanged.
+    // Because `react_dt` shrinks with resolution, we iterate to a tolerance rather
+    // than a fixed count, and average precip over a trailing window once steady.
+    let react_dt = if MOISTURE_DT_REF > 0.0 {
+        dt / MOISTURE_DT_REF
+    } else {
+        0.0
+    };
+    // Saturating relaxation factor for evaporation (a monotone relax toward
+    // capacity is stable for factor <= 1; coarse meshes can push react_dt>1).
+    let evap_factor = (react_dt * EVAPORATION_RATE).min(1.0);
+    // Eddy-mixing fraction, kept < 0.5 for explicit stability after scaling.
+    let mix_frac = (react_dt * diffusion_frac).min(0.45);
+
+    // Warm start: water cells (the evaporative source) begin saturated, land dry.
+    // This skips the ocean's fill-up transient (~1/(react_dt·EVAPORATION_RATE)
+    // iterations) without changing the steady state the loop converges to.
+    let mut moisture: Vec<f32> = (0..num_cells)
+        .map(|i| if is_water[i] { capacity[i] } else { 0.0 })
+        .collect();
     let mut next = vec![0.0f32; num_cells];
     let mut precip_accum = vec![0.0f32; num_cells];
-    let avg_start = MOISTURE_ITERATIONS.saturating_sub(MOISTURE_AVG_WINDOW);
 
-    for iter in 0..MOISTURE_ITERATIONS {
-        let averaging = iter >= avg_start;
+    // Once the field is steady (or we hit the cap) average precip over the next
+    // MOISTURE_AVG_WINDOW iterations.
+    let force_at = MOISTURE_MAX_ITERATIONS.saturating_sub(MOISTURE_AVG_WINDOW);
+    let mut measuring = false;
+    let mut measure_count = 0usize;
+    let mut prev = vec![0.0f32; num_cells];
+    for iter in 0..MOISTURE_MAX_ITERATIONS {
+        prev.copy_from_slice(&moisture);
 
         for i in 0..num_cells {
             let mut m = moisture[i];
 
             // Evaporation: water cells relax toward carrying capacity.
             if is_water[i] {
-                m += EVAPORATION_RATE * (capacity[i] - m).max(0.0);
+                m += evap_factor * (capacity[i] - m).max(0.0);
             }
 
             // Rainout: static rate (baseline + orographic) plus convective
             // rain from warm humid air, plus gradual rainout of any moisture
-            // above carrying capacity (air cooling as it climbs or chills).
-            // Convective rain is land-only: maritime rain recycles into the
-            // ocean anyway, so modeling it would only drain moisture that
-            // should make landfall.
+            // above carrying capacity (air cooling as it climbs or chills), all
+            // scaled by react_dt. Convective rain is land-only: maritime rain
+            // recycles into the ocean anyway, so modeling it would only drain
+            // moisture that should make landfall.
             let humidity = (m / capacity[i]).clamp(0.0, 1.0);
             let convective = if is_water[i] {
                 0.0
@@ -155,13 +187,15 @@ pub fn simulate_moisture(
                 RAINOUT_CONVECTIVE * humidity * humidity * temp01[i]
             };
             let over_capacity = (m - capacity[i]).max(0.0);
-            let rain = (m * (rain_rate[i] + convective) + over_capacity * OVERFLOW_RAINOUT).min(m);
+            let rain =
+                (react_dt * (m * (rain_rate[i] + convective) + over_capacity * OVERFLOW_RAINOUT))
+                    .min(m);
             m -= rain;
             // Evapotranspiration recycling returns part of land rain to the air.
             if !is_water[i] {
                 m += rain * MOISTURE_RECYCLE_FRACTION;
             }
-            if averaging {
+            if measuring {
                 precip_accum[i] += rain;
             }
 
@@ -188,7 +222,8 @@ pub fn simulate_moisture(
         // Eddy diffusion: horizontal turbulent mixing alongside advection
         // (standard in atmospheric transport models). Keeps the moisture
         // field smooth at the mesh scale for physical reasons rather than
-        // post-hoc filtering.
+        // post-hoc filtering. Scaled by react_dt (via mix_frac) so total mixing
+        // is resolution-consistent.
         next.copy_from_slice(&moisture);
         for i in 0..num_cells {
             let neighbors = tessellation.neighbors(i);
@@ -197,9 +232,28 @@ pub fn simulate_moisture(
             }
             let mean: f32 =
                 neighbors.iter().map(|&n| moisture[n]).sum::<f32>() / neighbors.len() as f32;
-            next[i] = moisture[i] + diffusion_frac * (mean - moisture[i]);
+            next[i] = moisture[i] + mix_frac * (mean - moisture[i]);
         }
         std::mem::swap(&mut moisture, &mut next);
+
+        // Convergence: max per-cell change relative to mean moisture.
+        let mut max_delta = 0.0f32;
+        let mut total_m = 0.0f32;
+        for i in 0..num_cells {
+            max_delta = max_delta.max((moisture[i] - prev[i]).abs());
+            total_m += moisture[i];
+        }
+        let mean_m = total_m / num_cells as f32;
+        let converged = mean_m > 1e-12 && max_delta < MOISTURE_CONV_TOL * mean_m;
+
+        if measuring {
+            measure_count += 1;
+            if measure_count >= MOISTURE_AVG_WINDOW {
+                break;
+            }
+        } else if converged || iter >= force_at {
+            measuring = true;
+        }
     }
 
     // Normalize precipitation so the LAND mean is PRECIP_GLOBAL_SCALE (planet

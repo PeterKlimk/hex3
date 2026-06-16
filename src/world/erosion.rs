@@ -999,7 +999,11 @@ fn diffuse_land(
                     acc += geom.weight(i, k) * cur[nb];
                 }
             }
-            ((h_old[i] + f[i] * acc) / denom[i]).max(0.0)
+            // Clamp to the cell's LOCAL base level (sea level, or a terminal-lake
+            // surface), not a hard sea level. Incision grades cells down to
+            // `base_floor`; clamping diffusion only at 0.0 could push a cell graded
+            // to a lake surface L>0 below L, undoing that grade.
+            ((h_old[i] + f[i] * acc) / denom[i]).max(routing.base_floor[i])
         };
         #[cfg(not(feature = "single-threaded"))]
         {
@@ -1254,16 +1258,23 @@ mod tests {
     /// low-gradient reach en route instead of carrying everything to the sink.
     #[test]
     fn deposition_aggrades_flats_and_conserves_mass() {
-        // chain: source 2 -> flat 1 -> sink 0 (sea). Cell 2 is steep (passes its
-        // load on); cell 1 is a flat just above sea level (aggrades).
+        // chain: source 2 -> reach 1 -> sink 0 (sea). `dist` is a PRODUCTION-scale
+        // receiver distance (~2e-3 rad ≈ 13 km), not a full radian — so the repose
+        // offset `slope*dist` is small and the elevations are scaled to match.
+        // Reach 1 sits just below its repose surface (aggrades); the steeper source
+        // 2 passes its load on. (An earlier version used dist=1.0, which hid the
+        // slope's true production magnitude — see EROSION_DEPOSITION_SLOPE docs.)
         let routing = Routing {
             receiver: vec![0, 0, 1],
             is_sink: vec![true, false, false],
-            dist: vec![0.0, 1.0, 1.0],
+            dist: vec![0.0, 2.0e-3, 2.0e-3],
             order: vec![0, 1, 2],            // downstream-first
             base_floor: vec![0.0, 0.0, 0.0], // sea level
         };
-        let elev = vec![-0.05, 0.0, 0.1];
+        // slope*dist = 6.0 * 2e-3 = 0.012 repose offset above the receiver.
+        // reach 1 (elev -0.015, receiver 0 at -0.02): target -0.008 > -0.015 -> aggrades.
+        // source 2 (elev 0.02, receiver 1 at -0.015): target -0.003 < 0.02 -> passes on.
+        let elev = vec![-0.02, -0.015, 0.02];
         let areas = vec![1.0, 1.0, 1.0];
         let eroded_vol = vec![0.0, 0.0, 0.05];
         let mut thick = vec![0.0; 3];
@@ -1275,7 +1286,7 @@ mod tests {
             &areas,
             0.7, // isostasy slope
             0.5, // deposit_fill_fraction
-            0.1, // deposition_slope
+            6.0, // deposition_slope (production default)
             &mut thick,
         );
 
