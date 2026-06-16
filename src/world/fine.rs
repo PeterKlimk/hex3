@@ -391,7 +391,8 @@ impl FineBase {
 impl FineSurface {
     /// Stages 3b+3c: carve the base into river valleys, then derive hydrology.
     /// Reads `base` by reference so it can be re-run cheaply with new erosion
-    /// knobs (`params`). `seed` drives only the cosmetic micro-noise rng.
+    /// knobs (`params`). `seed` drives the stochastic erosion fields (lithologic
+    /// erodibility).
     pub fn generate(
         seed: u64,
         base: &FineBase,
@@ -473,8 +474,8 @@ impl FineSurface {
         Self::from_eroded(base, &eroded, &precip, params.lake_evap_strength)
     }
 
-    /// Build the surface (micro-noise elevation + hydrology) from an already-
-    /// eroded elevation. `lake_evap_strength > 0` adds the lakes-as-evaporation
+    /// Build the surface (eroded elevation + hydrology) from an already-eroded
+    /// elevation. `lake_evap_strength > 0` adds the lakes-as-evaporation
     /// pass (re-runs hydrology once with lake-boosted precip).
     pub fn from_eroded(
         base: &FineBase,

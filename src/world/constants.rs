@@ -229,17 +229,33 @@ pub const NOISE_OCTAVES: usize = 4;
 // Elevation noise (post erosion-v2). Only the macro layer remains in the
 // simulation: hills and ridge were appearance-paint that erosion now supersedes
 // (docs/specs/erosion-v2.md "Noise philosophy") and were retired; cosmetic micro
-// texture was demoted to a render-only concern (see `app::coloring`). Macro is a
-// crust-thickness perturbation (isostatically compensated — the model of "the
-// crust isn't uniform"); it does not paint terrain relief.
+// texture was removed entirely. Macro is a crust-thickness perturbation
+// (isostatically compensated — the model of "the crust isn't uniform"); it does
+// not paint terrain relief.
 
-// --- Macro layer (crust-thickness perturbation; amplitude is MACRO_THICKNESS_AMPLITUDE) ---
-/// Frequency for macro layer (very low = large features).
-pub const MACRO_FREQUENCY: f64 = 1.1;
-/// Octaves for macro layer (few = smooth).
-pub const MACRO_OCTAVES: usize = 2;
-/// Amplitude multiplier for oceanic plates (flatter ocean floor).
-pub const MACRO_OCEANIC_MULT: f32 = 0.5;
+// --- Macro layer (craton-structure crust-thickness perturbation) ---
+// Replaces free position-fBm with a structure-derived field: each continental
+// craton is a thick interior that tapers to its margins (an isostatic dome →
+// elevated shield), with a per-craton base amplitude (older/thicker shields vs
+// thinner cratons) and a decorrelated interior fBm for intracratonic basins and
+// swells. Oceanic cells get no perturbation (their relief is thermal + ridge).
+// Overall scale is MACRO_THICKNESS_AMPLITUDE.
+
+/// Distance scale (radians) over which the craton thickness dome saturates from
+/// margin (thin) to interior (full). 0.15 rad ≈ 955 km: interiors of large
+/// continents reach near-full thickness; small cratons stay margin-dominated.
+pub const MACRO_CRATON_DECAY: f32 = 0.15;
+/// Per-craton base thickness amplitude range (multiplies the dome). The spread
+/// gives thicker shields vs thinner cratons; both positive, so interiors thicken.
+pub const MACRO_CRATON_AMP_MIN: f32 = 0.4;
+pub const MACRO_CRATON_AMP_MAX: f32 = 1.0;
+/// Frequency of the intracratonic interior fBm (basins/swells within a craton).
+pub const MACRO_INTERIOR_FREQUENCY: f64 = 1.5;
+/// Octaves for the interior fBm (few = smooth).
+pub const MACRO_INTERIOR_OCTAVES: usize = 2;
+/// Interior fBm amplitude relative to the per-craton base; can locally invert the
+/// dome into a basin. 0.5 = basins/swells up to half the base amplitude.
+pub const MACRO_INTERIOR_RELIEF: f32 = 0.5;
 
 // Climate mechanisms
 

@@ -7,7 +7,8 @@
 //!             + dynamic(trench flexure/outer rise)
 //!
 //! Thickness = margin ramp (continental thick, oceanic thin) + macro-scale
-//! thickness noise (cratonic cores / interior basins) + tectonic thickening
+//! craton-structure thickness (thick shield interiors tapering to margins,
+//! with intracratonic basins) + tectonic thickening
 //! (collision, arcs) - rift thinning. The Airy relation (linear in
 //! thickness for uniform densities) converts thickness to base elevation,
 //! so plateaus, rift subsidence, and margin profiles all follow from one
@@ -30,6 +31,7 @@ use rayon::prelude::*;
 
 use super::constants::*;
 use super::crust::{Crust, CrustType};
+use super::plates::PLATE_NOISE_OFFSET_RANGE;
 use super::{FeatureFields, Tessellation};
 
 /// Terrain elevation data.
@@ -50,12 +52,6 @@ pub struct Elevation {
 pub struct NoiseLayerData {
     /// Macro layer (continental tilt).
     pub macro_layer: Vec<f32>,
-}
-
-/// Noise generator for the one surviving simulation terrain layer (macro).
-/// Micro is render-only now and lives in `app::coloring`.
-struct TerrainNoise {
-    macro_fbm: Fbm<Perlin>,
 }
 
 /// Structural inputs to elevation assembly.
@@ -84,24 +80,61 @@ pub struct ElevationFields {
     pub rift_delta: Vec<f32>,
 }
 
-impl TerrainNoise {
-    fn new<R: Rng>(rng: &mut R) -> Self {
-        Self {
-            macro_fbm: Fbm::new(rng.gen()).set_octaves(MACRO_OCTAVES),
-        }
-    }
+/// Per-cell macro crust-thickness perturbation (thickness units), derived from
+/// craton structure rather than free position noise. Each continental craton is
+/// a thick interior that tapers to its margins (an isostatic dome → elevated
+/// shield), with a per-craton base amplitude (older/thicker shields vs thinner
+/// cratons) and a decorrelated interior fBm for intracratonic basins and swells.
+/// Oceanic cells get no perturbation — their relief is thermal + ridge driven.
+/// Added to base thickness during assembly; Airy isostasy turns it into relief.
+fn macro_craton_thickness<R: Rng>(
+    tessellation: &Tessellation,
+    crust: &Crust,
+    rng: &mut R,
+) -> Vec<f32> {
+    let num_cells = tessellation.num_cells();
+    let num_cratons = crust.num_cratons.max(1);
 
-    /// Macro-scale crust thickness variation (thickness units).
-    /// `continentality` (0-1, the margin ramp parameter) scales amplitude
-    /// down over oceanic crust.
-    fn macro_thickness(&self, pos: Vec3, continentality: f32) -> f32 {
-        let macro_pos = pos * MACRO_FREQUENCY as f32;
-        let sample =
-            self.macro_fbm
-                .get([macro_pos.x as f64, macro_pos.y as f64, macro_pos.z as f64])
-                as f32;
-        let mult = MACRO_OCEANIC_MULT + (1.0 - MACRO_OCEANIC_MULT) * continentality;
-        sample * MACRO_THICKNESS_AMPLITUDE * mult
+    // Per-craton base amplitude and a decorrelated noise-domain offset, so each
+    // craton's interior relief is independent (mirrors craton/plate growth).
+    let craton_amp: Vec<f32> = (0..num_cratons)
+        .map(|_| rng.gen_range(MACRO_CRATON_AMP_MIN..=MACRO_CRATON_AMP_MAX))
+        .collect();
+    let craton_offset: Vec<Vec3> = (0..num_cratons)
+        .map(|_| {
+            Vec3::new(
+                rng.gen_range(-PLATE_NOISE_OFFSET_RANGE..PLATE_NOISE_OFFSET_RANGE),
+                rng.gen_range(-PLATE_NOISE_OFFSET_RANGE..PLATE_NOISE_OFFSET_RANGE),
+                rng.gen_range(-PLATE_NOISE_OFFSET_RANGE..PLATE_NOISE_OFFSET_RANGE),
+            )
+        })
+        .collect();
+    let interior_fbm = Fbm::<Perlin>::new(rng.gen()).set_octaves(MACRO_INTERIOR_OCTAVES);
+
+    let sample = |i: usize| -> f32 {
+        let craton = crust.cell_craton[i];
+        if craton == u32::MAX {
+            return 0.0; // oceanic: no cratonic structure
+        }
+        let craton = craton as usize;
+        // Distance into the continent (≥0 inland); the dome saturates over
+        // MACRO_CRATON_DECAY so margins stay thin and interiors reach full amp.
+        let d = crust.signed_margin_distance[i].max(0.0);
+        let dome = 1.0 - (-d / MACRO_CRATON_DECAY).exp();
+        let p =
+            tessellation.cell_center(i) * MACRO_INTERIOR_FREQUENCY as f32 + craton_offset[craton];
+        let interior = interior_fbm.get([p.x as f64, p.y as f64, p.z as f64]) as f32;
+        let amp = craton_amp[craton] + MACRO_INTERIOR_RELIEF * interior;
+        MACRO_THICKNESS_AMPLITUDE * dome * amp
+    };
+
+    #[cfg(not(feature = "single-threaded"))]
+    {
+        (0..num_cells).into_par_iter().map(sample).collect()
+    }
+    #[cfg(feature = "single-threaded")]
+    {
+        (0..num_cells).map(sample).collect()
     }
 }
 
@@ -113,10 +146,10 @@ impl Elevation {
         features: &FeatureFields,
         rng: &mut R,
     ) -> Self {
-        let noise = TerrainNoise::new(rng);
+        let macro_field = macro_craton_thickness(tessellation, crust, rng);
 
         let (values, noise_contribution, noise_layers) =
-            generate_heightmap_with_noise(tessellation, crust, features, &noise);
+            generate_heightmap(tessellation, crust, features, &macro_field);
 
         Self {
             values,
@@ -270,20 +303,17 @@ pub(crate) fn coarse_elevation_fields(
     for i in 0..num_cells {
         let crust_type = crust.crust_type(i);
         let continental = crust_type == CrustType::Continental;
-        let pos = tessellation.cell_center(i);
         let convergent = features.convergent[i];
 
         let cont = continentality(crust.signed_margin_distance[i], convergent);
         let base_thickness = CRUST_THICKNESS_OCEANIC
             + cont * (CRUST_THICKNESS_CONTINENTAL - CRUST_THICKNESS_OCEANIC);
-        let macro_dt = 0.0;
         let thickening = (features.arc[i] + features.collision[i]) / slope;
         let rift = features.rift_delta[i] * cont;
-        let thickness = (base_thickness + macro_dt + thickening + rift).max(0.05);
+        // Macro craton-thickness is added later, in assembly (it needs craton
+        // structure + per-craton RNG), so it stays out of this transferred field.
+        let thickness = (base_thickness + thickening + rift).max(0.05);
 
-        // `pos` is intentionally touched here so the loop mirrors the full
-        // assembly inputs; macro thickness is added in the noise assembly step.
-        let _ = pos;
         crust_thickness.push(thickness);
         continentality_field.push(cont);
         is_continental.push(continental);
@@ -304,22 +334,22 @@ pub(crate) fn coarse_elevation_fields(
     }
 }
 
-/// Generate heightmap: thickness field -> isostasy -> thermal/dynamic
-/// terms -> surface noise -> sea-level solve.
-fn generate_heightmap_with_noise(
+/// Generate heightmap: thickness field (incl. macro craton perturbation) ->
+/// isostasy -> thermal/dynamic terms -> sea-level solve.
+fn generate_heightmap(
     tessellation: &Tessellation,
     crust: &Crust,
     features: &FeatureFields,
-    noise: &TerrainNoise,
+    macro_field: &[f32],
 ) -> (Vec<f32>, Vec<f32>, NoiseLayerData) {
     let fields = coarse_elevation_fields(tessellation, crust, features);
-    assemble_heightmap_with_noise(tessellation, &fields, noise)
+    assemble_heightmap(tessellation, &fields, macro_field)
 }
 
-fn assemble_heightmap_with_noise(
+fn assemble_heightmap(
     tessellation: &Tessellation,
     fields: &ElevationFields,
-    noise: &TerrainNoise,
+    macro_field: &[f32],
 ) -> (Vec<f32>, Vec<f32>, NoiseLayerData) {
     let num_cells = tessellation.num_cells();
     let slope = isostasy_slope();
@@ -327,12 +357,12 @@ fn assemble_heightmap_with_noise(
     #[cfg(not(feature = "single-threaded"))]
     let assembled: Vec<AssembledElevationCell> = (0..num_cells)
         .into_par_iter()
-        .map(|i| assemble_elevation_cell(tessellation, fields, noise, slope, i))
+        .map(|i| assemble_elevation_cell(fields, macro_field, slope, i))
         .collect();
 
     #[cfg(feature = "single-threaded")]
     let assembled: Vec<AssembledElevationCell> = (0..num_cells)
-        .map(|i| assemble_elevation_cell(tessellation, fields, noise, slope, i))
+        .map(|i| assemble_elevation_cell(fields, macro_field, slope, i))
         .collect();
 
     let mut elevations = Vec::with_capacity(num_cells);
@@ -394,20 +424,18 @@ struct AssembledElevationCell {
 }
 
 fn assemble_elevation_cell(
-    tessellation: &Tessellation,
     fields: &ElevationFields,
-    noise: &TerrainNoise,
+    macro_field: &[f32],
     slope: f32,
     i: usize,
 ) -> AssembledElevationCell {
-    let pos = tessellation.cell_center(i);
-
     // --- 1. Crust thickness ---
     let cont = fields.continentality[i];
     let base_thickness = fields.crust_thickness[i];
 
-    // Macro-scale thickness variation: cratonic cores and interior basins.
-    let macro_dt = noise.macro_thickness(pos, cont);
+    // Macro-scale thickness variation: craton-structure cores and interior basins
+    // (precomputed per cell; see `macro_craton_thickness`).
+    let macro_dt = macro_field[i];
 
     let thickness = (base_thickness + macro_dt).max(0.05);
 
@@ -423,8 +451,7 @@ fn assemble_elevation_cell(
 
     // --- 3. Macro thickness is reported as its isostatic elevation contribution
     // for the noise viz (it does not enter the simulation elevation directly; it
-    // acts through `thickness`). Cosmetic micro texture is applied render-side
-    // (see `app::coloring`), not here.
+    // acts through `thickness`).
     let macro_c = macro_dt * slope;
 
     AssembledElevationCell {
