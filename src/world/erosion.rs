@@ -623,50 +623,53 @@ impl ErosionState {
     }
 }
 
-/// Numerical roughness probe (a REFERENCE, not an optimization target). On land
-/// cells it reports the local-slope distribution (|d elev| / km to the steepest
-/// neighbour), Moran's I of the whole field, and three counters aimed at telling
-/// genuine fluvial dissection apart from discretization artifacts (see
-/// docs/specs/erosion.md "roughness counters"):
-///
-/// * **pit% / peak%** — interior strict local minima / maxima among land cells.
-///   Pits are the unambiguous artifact: a drained fluvial surface has ~0% (every
-///   land cell routes to a sink). A high pit% is the "swiss-cheese perforation"
-///   signal. Peaks are split out because real horns/spires are peaks too.
-/// * **checkerboard%** — share of land-land edges whose two endpoints have
-///   OPPOSITE discrete curvature sign (one a local bump, one a local dip): the
-///   cell-scale high-low banding of SFD grooves that hillslope diffusion failed
-///   to erase. Reported beside the curvature RMS (amplitude of that banding, m).
-/// * **drainage aspect R / entropy** — over land cells with a downhill land
-///   neighbour, the mean-resultant length R and normalized entropy of the
-///   steepest-descent azimuth. Isotropic dendritic drainage gives R~0,
-///   entropy~1; mesh-direction locking or a global spiral bias pushes R up /
-///   entropy down. (A pure spiral covers all azimuths, so this catches GLOBAL
-///   anisotropy, not local curl — judge spirals on the map too.)
-///
-/// Compare `base ` vs `eroded` to see what erosion did to terrain coherence
-/// rather than guessing from a render.
-fn roughness_report(tess: &Tessellation, elev: &[f32], label: &str) {
+/// Artifact counters that separate genuine fluvial dissection from SFD +
+/// flat-routing discretization texture (the "fractal spiral ridge / swiss-cheese"
+/// look — see docs/specs/erosion.md "Roughness counters"). Computed over the land
+/// cells of `elev`. Pulled out of [`roughness_report`] so the diagnose binary can
+/// print them on any surface (e.g. pre-erosion vs eroded) in its own report style.
+pub struct RoughnessCounters {
+    /// Land cells (elev >= 0) considered.
+    pub land: usize,
+    /// % of land cells strictly lower than every land neighbour (closed sinks):
+    /// the unambiguous "swiss-cheese perforation" signal. A drained fluvial
+    /// surface is ~0% (every land cell routes to a sink), so this is the one
+    /// Goodhart-safe target — lower is unambiguously better.
+    pub pit_pct: f32,
+    /// % of land cells strictly higher than every land neighbour. Split from pits
+    /// because real horns/spires are peaks too (not purely an artifact).
+    pub peak_pct: f32,
+    /// % of land-land edges whose endpoints have OPPOSITE discrete-curvature sign
+    /// (a bump beside a dip): the cell-scale high-low banding of single-flow
+    /// grooves that hillslope diffusion failed to erase. Reference points: ~50%
+    /// is spatially-uncorrelated (white-noise) curvature, a coherent smooth
+    /// surface sits well below, so read the base→eroded *rise toward 50%*.
+    pub checkerboard_pct: f32,
+    /// RMS discrete curvature (elev-units; ~10 km/unit, so 1e-3 ≈ 10 m): the
+    /// amplitude of that cell-scale banding, read beside `checkerboard_pct`.
+    pub curv_rms: f32,
+    /// Steepest-descent azimuth mean-resultant length in [0,1] (0 = isotropic
+    /// dendritic drainage; up = mesh-direction locking / global spiral bias).
+    pub aspect_r: f32,
+    /// Steepest-descent azimuth entropy normalized by ln(bins) (1 = uniform across
+    /// sectors; down = anisotropy). A *pure* spiral covers all azimuths, so this
+    /// catches GLOBAL anisotropy, not local curl — judge spirals on the map too.
+    pub aspect_entropy: f32,
+    /// Land cells with a strictly-downhill land neighbour that fed the aspect stats.
+    pub aspect_n: usize,
+}
+
+/// Compute the [`RoughnessCounters`] for `elev` on `tess`. Two cheap passes over
+/// the mesh (per-cell curvature/extrema/aspect, then a curvature-sign edge pass).
+pub fn roughness_counters(tess: &Tessellation, elev: &[f32]) -> RoughnessCounters {
     const ASPECT_BINS: usize = 16;
     let n = tess.num_cells();
-    let mut slopes: Vec<f32> = Vec::new();
+    let mut land = 0usize;
     let mut pits = 0usize;
     let mut peaks = 0usize;
-    let mut land = 0usize;
-    let mut min_d_km = f32::INFINITY;
-    let mut edges_total = 0usize;
-    let mut edges_sub_100m = 0usize;
-    let mut edges_sub_1m = 0usize;
-    // Absolute land-elevation distribution + area-weighted volume. None of the
-    // shape probes (slope/concavity/extrema) measure net height, so an orogen
-    // can grow under "erosion" with every shape metric still looking right —
-    // compare these base-vs-eroded to catch that.
-    let areas = tess.cell_areas();
-    let mut elevs: Vec<f32> = Vec::new();
-    let mut land_volume = 0.0f64;
-    // Discrete curvature per cell (elev minus mean land-neighbour elev): the
-    // cell-scale relief sign + amplitude, used for the checkerboard index below.
-    // NaN marks ocean / no-land-neighbour cells so the edge pass can skip them.
+    // Discrete curvature per cell (elev minus mean land-neighbour elev): cell-scale
+    // relief sign + amplitude. NaN marks ocean / no-land-neighbour cells so the
+    // edge pass below can skip them.
     let mut curv = vec![f32::NAN; n];
     // Drainage-aspect accumulators: resultant (sum of unit azimuth vectors) and a
     // sector histogram, over land cells that have a strictly-lower land neighbour.
@@ -678,10 +681,7 @@ fn roughness_report(tess: &Tessellation, elev: &[f32], label: &str) {
             continue;
         }
         land += 1;
-        elevs.push(elev[i]);
-        land_volume += elev[i] as f64 * areas[i] as f64;
         let pos = tess.cell_center(i);
-        let mut steepest = 0.0f32;
         let mut all_higher = true;
         let mut all_lower = true;
         let mut has_land_nb = false;
@@ -698,19 +698,6 @@ fn roughness_report(tess: &Tessellation, elev: &[f32], label: &str) {
             if lowest_nb.is_none_or(|(_, e)| elev[nb] < e) {
                 lowest_nb = Some((nb, elev[nb]));
             }
-            // Chord distance (accurate in f32); acos(dot) collapses to 0 below ~3 km.
-            let d_km = (pos - tess.cell_center(nb)).length() * PLANET_RADIUS_KM;
-            if nb > i {
-                edges_total += 1;
-                min_d_km = min_d_km.min(d_km);
-                if d_km < 0.1 {
-                    edges_sub_100m += 1;
-                }
-                if d_km < 1e-3 {
-                    edges_sub_1m += 1;
-                }
-            }
-            steepest = steepest.max((elev[i] - elev[nb]).abs() / d_km.max(1e-6));
             if elev[nb] <= elev[i] {
                 all_higher = false;
             }
@@ -718,44 +705,40 @@ fn roughness_report(tess: &Tessellation, elev: &[f32], label: &str) {
                 all_lower = false;
             }
         }
-        if has_land_nb {
-            slopes.push(steepest);
-            if all_higher {
-                pits += 1; // strictly lower than every land neighbour (closed sink)
-            } else if all_lower {
-                peaks += 1;
-            }
-            curv[i] = elev[i] - nb_sum / nb_cnt as f32;
-            // Steepest-descent azimuth toward the lowest land neighbour, in the
-            // tangent plane at this cell. Skip near the poles (basis degenerates)
-            // and cells with no downhill land neighbour (local pits/flats).
-            if let Some((r, re)) = lowest_nb {
-                if re < elev[i] && pos.y.abs() < 0.999 {
-                    let east = Vec3::Y.cross(pos).normalize();
-                    let north = pos.cross(east);
-                    let chord = tess.cell_center(r) - pos;
-                    let tang = chord - pos * chord.dot(pos); // project to tangent plane
-                    let (e, no) = (tang.dot(east), tang.dot(north));
-                    if e.abs() + no.abs() > 1e-12 {
-                        let theta = e.atan2(no); // bearing, (-pi, pi]
-                        aspect_cos += theta.cos() as f64;
-                        aspect_sin += theta.sin() as f64;
-                        let b = (((theta + std::f32::consts::PI) / (2.0 * std::f32::consts::PI))
-                            * ASPECT_BINS as f32) as usize;
-                        aspect_hist[b.min(ASPECT_BINS - 1)] += 1;
-                        aspect_count += 1;
-                    }
+        if !has_land_nb {
+            continue;
+        }
+        if all_higher {
+            pits += 1; // strictly lower than every land neighbour (closed sink)
+        } else if all_lower {
+            peaks += 1;
+        }
+        curv[i] = elev[i] - nb_sum / nb_cnt as f32;
+        // Steepest-descent azimuth toward the lowest land neighbour, in the tangent
+        // plane at this cell. Skip near the poles (basis degenerates) and cells
+        // with no downhill land neighbour (local pits/flats).
+        if let Some((r, re)) = lowest_nb {
+            if re < elev[i] && pos.y.abs() < 0.999 {
+                let east = Vec3::Y.cross(pos).normalize();
+                let north = pos.cross(east);
+                let chord = tess.cell_center(r) - pos;
+                let tang = chord - pos * chord.dot(pos); // project to tangent plane
+                let (e, no) = (tang.dot(east), tang.dot(north));
+                if e.abs() + no.abs() > 1e-12 {
+                    let theta = e.atan2(no); // bearing, (-pi, pi]
+                    aspect_cos += theta.cos() as f64;
+                    aspect_sin += theta.sin() as f64;
+                    let b = (((theta + std::f32::consts::PI) / (2.0 * std::f32::consts::PI))
+                        * ASPECT_BINS as f32) as usize;
+                    aspect_hist[b.min(ASPECT_BINS - 1)] += 1;
+                    aspect_count += 1;
                 }
             }
         }
     }
-    if slopes.is_empty() {
-        return;
-    }
 
     // Checkerboard index: land-land edges whose endpoints have opposite curvature
-    // sign (a bump beside a dip) — the cell-scale banding signature. Plus the RMS
-    // curvature amplitude (m) so the index reads next to how strong the banding is.
+    // sign (a bump beside a dip), plus the RMS curvature amplitude.
     let (mut cb_edges, mut cb_total) = (0usize, 0usize);
     let (mut curv_sq, mut curv_cnt) = (0.0f64, 0usize);
     for i in 0..n {
@@ -773,14 +756,11 @@ fn roughness_report(tess: &Tessellation, elev: &[f32], label: &str) {
             }
         }
     }
-    // In elev-units, matching the slope line ("slope(elev/km)"); canonical scale
-    // is ~10 km/unit, so 1e-3 elev-unit ≈ 10 m of cell-scale relief.
-    let curv_rms = (curv_sq / curv_cnt.max(1) as f64).sqrt();
 
-    // Drainage aspect isotropy. R = |mean unit azimuth| in [0,1] (0 = isotropic);
-    // entropy normalized by ln(bins) (1 = uniform across sectors).
+    // Aspect isotropy. R = |mean unit azimuth| in [0,1] (0 = isotropic); entropy
+    // normalized by ln(bins) (1 = uniform across sectors).
     let aspect_r = if aspect_count > 0 {
-        (aspect_cos * aspect_cos + aspect_sin * aspect_sin).sqrt() / aspect_count as f64
+        ((aspect_cos * aspect_cos + aspect_sin * aspect_sin).sqrt() / aspect_count as f64) as f32
     } else {
         0.0
     };
@@ -794,11 +774,85 @@ fn roughness_report(tess: &Tessellation, elev: &[f32], label: &str) {
                 -p * p.ln()
             })
             .sum();
-        h / (ASPECT_BINS as f64).ln()
+        (h / (ASPECT_BINS as f64).ln()) as f32
     } else {
         0.0
     };
 
+    let pct = |num: usize, den: usize| 100.0 * num as f32 / den.max(1) as f32;
+    RoughnessCounters {
+        land,
+        pit_pct: pct(pits, land),
+        peak_pct: pct(peaks, land),
+        checkerboard_pct: pct(cb_edges, cb_total),
+        curv_rms: (curv_sq / curv_cnt.max(1) as f64).sqrt() as f32,
+        aspect_r,
+        aspect_entropy,
+        aspect_n: aspect_count,
+    }
+}
+
+/// Numerical roughness probe (a REFERENCE, not an optimization target). On land
+/// cells it reports the local-slope distribution (|d elev| / km to the steepest
+/// neighbour), Moran's I of the whole field, and the artifact [`RoughnessCounters`]
+/// (pit% / peak% / checkerboard% / drainage-aspect isotropy) that tell genuine
+/// fluvial dissection apart from SFD + flat-routing discretization texture.
+///
+/// Compare `base ` vs `eroded` to see what erosion did to terrain coherence
+/// rather than guessing from a render.
+fn roughness_report(tess: &Tessellation, elev: &[f32], label: &str) {
+    let n = tess.num_cells();
+    let mut slopes: Vec<f32> = Vec::new();
+    let mut land = 0usize;
+    let mut min_d_km = f32::INFINITY;
+    let mut edges_total = 0usize;
+    let mut edges_sub_100m = 0usize;
+    let mut edges_sub_1m = 0usize;
+    // Absolute land-elevation distribution + area-weighted volume. None of the
+    // shape probes (slope/concavity/extrema) measure net height, so an orogen
+    // can grow under "erosion" with every shape metric still looking right —
+    // compare these base-vs-eroded to catch that.
+    let areas = tess.cell_areas();
+    let mut elevs: Vec<f32> = Vec::new();
+    let mut land_volume = 0.0f64;
+    for i in 0..n {
+        if elev[i] < 0.0 {
+            continue;
+        }
+        land += 1;
+        elevs.push(elev[i]);
+        land_volume += elev[i] as f64 * areas[i] as f64;
+        let pos = tess.cell_center(i);
+        let mut steepest = 0.0f32;
+        let mut has_land_nb = false;
+        for &nb in tess.neighbors(i) {
+            if elev[nb] < 0.0 {
+                continue;
+            }
+            has_land_nb = true;
+            // Chord distance (accurate in f32); acos(dot) collapses to 0 below ~3 km.
+            let d_km = (pos - tess.cell_center(nb)).length() * PLANET_RADIUS_KM;
+            if nb > i {
+                edges_total += 1;
+                min_d_km = min_d_km.min(d_km);
+                if d_km < 0.1 {
+                    edges_sub_100m += 1;
+                }
+                if d_km < 1e-3 {
+                    edges_sub_1m += 1;
+                }
+            }
+            steepest = steepest.max((elev[i] - elev[nb]).abs() / d_km.max(1e-6));
+        }
+        if has_land_nb {
+            slopes.push(steepest);
+        }
+    }
+    if slopes.is_empty() {
+        return;
+    }
+
+    let c = roughness_counters(tess, elev);
     slopes.sort_by(f32::total_cmp);
     let pct = |p: f32| slopes[(((slopes.len() - 1) as f32) * p) as usize];
     log::info!(
@@ -814,13 +868,13 @@ fn roughness_report(tess: &Tessellation, elev: &[f32], label: &str) {
     log::info!(
         "erosion artifacts [{}]: pit {:.3}% peak {:.3}% | checkerboard {:.2}% (curv-rms {:.3e} elev) | aspect R={:.3} entropy={:.3} (n={})",
         label,
-        100.0 * pits as f32 / land.max(1) as f32,
-        100.0 * peaks as f32 / land.max(1) as f32,
-        100.0 * cb_edges as f32 / cb_total.max(1) as f32,
-        curv_rms,
-        aspect_r,
-        aspect_entropy,
-        aspect_count,
+        c.pit_pct,
+        c.peak_pct,
+        c.checkerboard_pct,
+        c.curv_rms,
+        c.aspect_r,
+        c.aspect_entropy,
+        c.aspect_n,
     );
     log::info!(
         "erosion roughness [{}]: land-land edges {} | min spacing {:.4} km | <100m {} ({:.4}%) | <1m {}",

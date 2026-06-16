@@ -45,6 +45,12 @@ struct Cli {
     /// under-converged (speckle).
     #[arg(long, default_value_t = 0)]
     erosion_diffusion_iters: usize,
+    /// Override the drainage re-route interval (steps between re-routings).
+    /// 0 = use the EROSION_REROUTE_INTERVAL default; 1 = re-route every step.
+    /// Set to 1 to test whether stale routing is driving the spiral/perforation
+    /// artifacts (see docs/specs/erosion.md "Roughness counters").
+    #[arg(long, default_value_t = 0)]
+    erosion_reroute_interval: usize,
     /// Override lithologic erodibility contrast (exp-amplitude sigma). <0 = use
     /// the EROSION_LITHO_SIGMA default; 0 = uniform K (no lithology).
     #[arg(long, default_value_t = -1.0)]
@@ -138,6 +144,9 @@ fn main() {
     }
     if cli.erosion_diffusion_iters > 0 {
         world.erosion_params.diffusion_iters = cli.erosion_diffusion_iters;
+    }
+    if cli.erosion_reroute_interval > 0 {
+        world.erosion_params.reroute_interval = cli.erosion_reroute_interval;
     }
     if cli.erosion_litho_sigma >= 0.0 {
         world.erosion_params.litho_sigma = cli.erosion_litho_sigma;
@@ -276,6 +285,46 @@ fn main() {
             world.tessellation.num_cells(),
             fine.tessellation().num_cells(),
             fine.achieved_density_ratio()
+        );
+        // ---- Erosion roughness counters (artifact vs. genuine dissection) ----
+        // pit% is the swiss-cheese meter (a drained surface is ~0); checkerboard%
+        // the SFD-groove banding; aspect R/entropy the spiral / mesh-locking bias.
+        // Pre-erosion (stage 3) vs eroded (stage 4) on the SAME fine mesh, so the
+        // delta isolates what erosion added. See docs/specs/erosion.md.
+        let ftess = fine.tessellation();
+        let pre = hex3::world::roughness_counters(ftess, &fine.surface_for(3).elevation.values);
+        let ero = hex3::world::roughness_counters(ftess, &fine.surface_for(4).elevation.values);
+        println!(
+            "\n-- Erosion roughness counters (reroute-interval {})  [pit% is the swiss-cheese meter; lower better] --",
+            world.erosion_params.reroute_interval
+        );
+        println!(
+            "             {:>10} {:>10} {:>10} {:>12} {:>9} {:>9}",
+            "pit%", "peak%", "checker%", "curv-rms", "aspectR", "entropy"
+        );
+        let row = |label: &str, c: &hex3::world::RoughnessCounters| {
+            println!(
+                "  {:<8}   {:>10.3} {:>10.3} {:>10.2} {:>12.3e} {:>9.3} {:>9.3}",
+                label,
+                c.pit_pct,
+                c.peak_pct,
+                c.checkerboard_pct,
+                c.curv_rms,
+                c.aspect_r,
+                c.aspect_entropy
+            );
+        };
+        row("pre", &pre);
+        row("eroded", &ero);
+        println!(
+            "  {:<8}   {:>+10.3} {:>+10.3} {:>+10.2} {:>12} {:>+9.3} {:>+9.3}",
+            "delta",
+            ero.pit_pct - pre.pit_pct,
+            ero.peak_pct - pre.peak_pct,
+            ero.checkerboard_pct - pre.checkerboard_pct,
+            "",
+            ero.aspect_r - pre.aspect_r,
+            ero.aspect_entropy - pre.aspect_entropy,
         );
     }
 

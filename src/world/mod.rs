@@ -46,7 +46,7 @@ pub use crust::{Crust, CrustType};
 pub const NUM_PLATES_DEFAULT: usize = 14;
 pub use dynamics::{Dynamics, EulerPole};
 pub use elevation::{Elevation, NoiseLayerData};
-pub use erosion::ErosionParams;
+pub use erosion::{roughness_counters, ErosionParams, RoughnessCounters};
 pub use features::FeatureFields;
 pub use fine::{FineBase, FineDensityParams, FineFields, FineSurface, FineWorld};
 pub use fine_cache::FineCacheMode;
