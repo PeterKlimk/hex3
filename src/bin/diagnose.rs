@@ -1136,11 +1136,13 @@ fn main() {
         let mtn: Vec<usize> = (0..n).filter(|&i| elevation[i] >= RANGE_ELEV).collect();
         let stride = (mtn.len() / 20_000).max(1);
         let sample: Vec<usize> = mtn.iter().copied().step_by(stride).collect();
+        // ~10 km vertical per elev-unit (canonical scale) -> meters for Earth refs.
+        const M_PER_UNIT: f32 = 10_000.0;
         println!(
-            "\n-- Fine-scale local relief (fixed-radius max-min elev, {} mountain samples) --",
+            "\n-- Fine-scale local relief (fixed-radius max-min, meters, {} mountain samples)  [Earth mountains: ~1-2 km within 25 km; hills ~0.3-1 km] --",
             sample.len()
         );
-        println!("   (scale-controlled: across a mountain-density sweep, rising p90 => still under-resolved, flat => converged)");
+        println!("   ('sharp' = high relief at short scale; scale-controlled: rising p90 across a density sweep => under-resolved, flat => converged)");
         for &rk in &[10.0f32, 25.0f32] {
             let rad = rk / EARTH_RADIUS_KM; // small-angle: chord ≈ arc
             let rsq = rad * rad;
@@ -1159,9 +1161,9 @@ fn main() {
                 .collect();
             relief_r.sort_by(f32::total_cmp);
             let m = relief_r.len().max(1);
-            let q = |p: f32| relief_r[(((m - 1) as f32) * p) as usize];
+            let q = |p: f32| relief_r[(((m - 1) as f32) * p) as usize] * M_PER_UNIT;
             println!(
-                "  R={:>2.0} km: local relief p50 {:.4} | p90 {:.4} | p99 {:.4}",
+                "  R={:>2.0} km: local relief p50 {:>5.0} m | p90 {:>5.0} m | p99 {:>5.0} m",
                 rk,
                 q(0.50),
                 q(0.90),
