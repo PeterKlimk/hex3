@@ -130,6 +130,7 @@ manufacture texture that is *not* terrain:
 The fix direction, if these counters confirm the artifact, is MFD drainage-area
 accumulation (+ a convergent flat-resolution) rather than steepest-descent SFD —
 the eSCAPE/Anand line above is the precedent for doing it on a mesh like ours.
+The staged plan for that climb is [`erosion-routing-ladder.md`](erosion-routing-ladder.md).
 
 The counters:
 

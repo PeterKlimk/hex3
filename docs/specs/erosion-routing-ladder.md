@@ -1,0 +1,182 @@
+# Erosion Routing Ladder — SFD → MFD (standing roadmap)
+
+**Provenance.** A trio discussion on 2026-06-16 (user + Claude + an independent
+`codex exec` voice) on the back of the "fractal spiral ridge / swiss-cheese"
+artifact investigation and a recent-paper search. Two independent analyses
+(Claude's and Codex's) converged on the same ladder and the same further-beyond
+priorities; that convergence is the main reason to trust this path. This is a
+**standing roadmap we intend to climb**, not a one-shot plan — start on
+well-trodden ground, escalate rung by rung, measure at each.
+
+See also: [`erosion.md`](erosion.md) (current loop + the "Roughness counters"
+section), [`erosion-v2.md`](erosion-v2.md), and
+[`../physically-inspired-roadmap.md`](../physically-inspired-roadmap.md).
+
+**Philosophy constraint (unchanged).** Add the *mechanism* with named constants
+as knobs; do not tune constants to chase probe numbers. The roughness counters
+are references for judgement, not optimisation targets; the user judges maps by
+eye, we review magnitudes. hex3 is "unreasonably physically inspired," not
+Earth-accurate — favour mechanisms that widen the space of interesting worlds,
+and prefer a knob that spans fantasy→Earth over a hardcoded choice.
+
+---
+
+## Diagnosis: two artifacts, two places, two measurements
+
+The "spiral" and the "swiss-cheese" are **distinct problems in distinct places**;
+conflating them leads to over-correcting. Attack and measure them separately.
+
+| Artifact | Where | Root cause | Counter that sees it |
+|---|---|---|---|
+| **Spiral grooves** | on flats | priority-flood `flood_parent` wavefront drains flats with no convergence term → parallel/spiral flow, then incised | drainage-aspect (local); judge on the map |
+| **Perforation** ("swiss-cheese") | on slopes | single-flow-direction (SFD) incision cuts 1-cell channels, leaving 1-cell ridges that near-zero diffusion (`EROSION_DIFFUSIVITY = 2e-8`) never erases | `pit%`, `checkerboard%` |
+
+Literature backing (see References): Barnes 2014b documents the parallel/spiral
+flat-flow and its convergent fix; the Salles (eSCAPE) and Anand/Porporato lines
+show SFD drainage is partly a triangulation artifact that MFD removes, and that
+D8 misses the smooth→channelized transition MFD reproduces.
+
+---
+
+## The core insight that de-risks the climb
+
+**Braun–Willett does not need a *tree* — it needs a downstream *ordering*.** MFD
+breaks "one receiver," but if every flow edge points to lower hydraulic
+potential the graph is an acyclic **downhill DAG**; a topological sort still
+yields an order where every receiver is solved before the node, so the implicit
+`n = 1` incision stays an **O(edges) single pass** with weighted receivers:
+
+```text
+h_i_new = (h_i_old + F_i · Σ_j w_ij · h_j_new / d_ij)
+          / (1 + F_i · Σ_j w_ij / d_ij)
+```
+
+where `j` ranges over downstream neighbours, `w_ij` are the MFD flow fractions,
+and `F_i = dt · K · A_i^m`. No exotic solver machinery (no eSCAPE matrix, no
+Anand linear-layout) is required for `n = 1`; generalise the existing
+single-receiver routing to a weighted DAG. (Caveat: this incision form is a
+modelling *choice* — incise toward a flow-weighted blend of downstream
+neighbours — not a unique derivation. Acceptable under the philosophy.)
+
+**MFD as the playground knob.** The flow-partition exponent `p` in
+`w_ij ∝ S_ij^p` (Freeman/Quinn-style; Tarboton D∞ is the two-neighbour limit)
+*is* the SFD↔MFD dial: `p → ∞` recovers crisp SFD canyons, `p ≈ 1` gives diffuse
+Earth-like divergence. One named constant spanning fantasy-sharp → soft, falling
+out of the MFD machinery for free.
+
+---
+
+## The ladder (climb in order; measure each rung)
+
+| Rung | Change | Value | Effort | Status |
+|---|---|---|---|---|
+| 0 | Diffusivity sweep + `reroute=1` — **diagnostic only** | (info) | ~free | knobs wired |
+| 1 | Convergent flat resolution (Barnes 2014b) | very high | low–med | TODO |
+| 2 | MFD drainage-*area* only (SFD incision kept) | high | med | TODO |
+| 3 | Full MFD-DAG implicit incision | highest | high | TODO |
+| 4 | MFD sediment / deposition (same fractions) | high | med–high | TODO |
+| 5 | Channelization-instability initiation | very high (philosophy) | high | future |
+
+**Rung 0 — diagnostic, not a milestone.** Run the diffusivity sweep and
+`--erosion-reroute-interval 1` once to quantify how much perforation is
+*regenerated each step* (routing will fix) vs *residual baseline mesh texture*
+(may still want nonlinear diffusion, Rung 5+). **Do not adopt diffusion as the
+fix** — if routing keeps cutting 1-cell channels, diffusion is only a texture
+knob hiding the wound. Information for one run, then move to Rung 1 regardless.
+
+**Rung 1 — convergent flat resolution.** Replace the bare `flood_parent`
+direction on flats with Barnes' superimposed gradients (away-from-higher +
+toward-lower outlet). Use it for routing/ordering only. Surgical, low-risk,
+operates inside the existing priority-flood; kills the spiral at its source.
+**Trap: route water with the flat potential, never carve with it** — the
+artificial gradient is not erosive slope.
+
+**Rung 2 — MFD drainage-area only.** Keep the SFD single-receiver incision; compute
+`A` with MFD fractions on the hydraulic potential. Low-risk bridge that doesn't
+touch the implicit solve. Tests whether smoother discharge alone reduces
+perforation, and is the on-ramp to Rung 3. A natural "stop and evaluate" point:
+Barnes flats + MFD area may already be "good enough" before the bigger swing.
+
+**Rung 3 — full MFD-DAG incision.** Generalise `incise_step` from one receiver to
+weighted downstream neighbours over the downhill DAG (see the core insight
+above). The real fix for both artifacts: divergent flow, no 1-cell channels,
+mesh-insensitive dendritic networks. More invasive but tractable for `n = 1`.
+
+**Rung 4 — MFD deposition.** Split sediment by the same flow fractions. If
+incision goes MFD but deposition stays tree-routed, you get unphysical
+single-thread fans/deltas — incision and deposition must move together.
+
+**Rung 5 — channelization-instability initiation.** Replace/augment the fixed
+`EROSION_CHANNEL_SUPPORT_KM2` threshold with an emergent criterion from the
+fluvial-incision-vs-hillslope-smoothing competition (discharge, slope,
+diffusivity, lithology — a local Péclet-like balance). Turns drainage density
+into an *emergent result* of climate+uplift+lithology rather than a magic
+constant. Sits **on top of** a sane drainage substrate, so it comes after the
+MFD rungs.
+
+---
+
+## Further beyond (frontier — know it, climb later)
+
+Ranked by fit with the "emergent interactions" philosophy:
+
+1. **Channelization-instability initiation** (Rung 5 above) — the big
+   "unreasonably physical" knob; drainage density emerges.
+2. **Nonlinear / threshold hillslope diffusion (Roering).** Flux → ∞ near a
+   critical slope → planar hillslopes + crisp ridgelines instead of rounded
+   mush. Directly addresses "ridges look wrong" with real physics; pairs with
+   MFD. Linear `D` can't erase 1-cell ridges without smoothing everything if the
+   artifact is constantly regenerated — this is the principled alternative.
+3. **Transport-limited ⇄ detachment-limited blend.** We already have
+   transport-aware deposition; going further lets sediment supply armour valleys,
+   fill basins, and make fans/floodplains *compete* with incision. On-theme.
+4. **Time-coupled tectonics ⇄ erosion.** The most magical upgrade: water gaps,
+   drainage capture, antecedent rivers, range asymmetry, migrating divides — all
+   emergent. **But the biggest blast radius**: erosion is currently a one-shot
+   stage-4 pass (see [`staging.md`](staging.md)); this changes the staging model.
+   Do it last, after routing is sane.
+
+**Know-it-but-not-the-engine: Optimal Channel Networks** (minimum
+energy-dissipation; Rinaldo & Rodríguez-Iturbe). Conceptually gorgeous —
+self-organised fractal dendritic networks by construction — but both independent
+voices flagged it as an analysis/initialisation idea, not the main engine: it
+risks imposing a global drainage *aesthetic* instead of letting geology, climate,
+uplift, and lithology fight it out locally ("network as output," a sibling of the
+"noise as output" the philosophy resists).
+
+---
+
+## Open decisions (user is the deciding vote)
+
+1. **Appetite for the full MFD-DAG rewrite (Rung 3)** now that it's de-risked, or
+   stop at Rung 2 (Barnes flats + MFD area) and evaluate "good enough" first?
+2. **Is one-shot erosion a hard architectural constraint?** It gates the
+   time-coupled frontier (#4). Closed door, or just not-yet?
+3. **Run the Rung-0 diffusivity sweep first** (diagnostic instinct), or go
+   straight to Barnes flats (don't-hide-wounds instinct)?
+
+---
+
+## References
+
+- Barnes, Lehman & Mulla (2014). *An efficient assignment of drainage direction
+  over flat surfaces in raster DEMs.* Computers & Geosciences 62:128–135.
+  (Convergent flat resolution; the parallel/spiral-flow fix.)
+- Salles et al. (2019). *eSCAPE: Regional to Global Scale Landscape Evolution
+  Model.* Geosci. Model Dev. 12:4165. (Implicit MFD on unstructured global meshes
+  at millions of nodes — hex3's scale and geometry.)
+- Anand, Hooshyar & Porporato (2020). *Linear layout of multiple flow-direction
+  networks for landscape-evolution simulations.* Env. Modelling & Software 133;
+  and *Channelization cascade in landscape evolution*, PNAS 117. (MFD captures the
+  smooth→channelized transition D8 misses; channelization-instability theory.)
+- Liu et al. (2025). *A new Multiple Flow Direction (MFD) algorithm for modeling
+  ridge and valley evolution.* Geomorphology.
+- Tarboton (1997). *A new method for the determination of flow directions and
+  upslope areas in grid DEMs* (D∞). Water Resources Research 33:309.
+- Roering, Kirchner & Dietrich (1999). *Evidence for nonlinear, diffusive
+  sediment transport on hillslopes…* Water Resources Research 35:853.
+- Rinaldo, Rodríguez-Iturbe et al. — Optimal Channel Networks / minimum energy
+  dissipation (self-organised fractal river networks).
+- Braun & Willett (2013). *A very efficient O(n), implicit and parallel method to
+  solve the stream power equation…* Geomorphology 180–181:170. (The implicit
+  `n = 1` incision this generalises.)
