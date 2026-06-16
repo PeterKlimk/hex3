@@ -765,18 +765,24 @@ pub const EROSION_REROUTE_INTERVAL: usize = 6;
 /// docs/specs/erosion-routing-ladder.md (Rung 1).
 pub const EROSION_FLAT_RESOLUTION: bool = true;
 
-/// Multiple-flow-direction drainage-area exponent (Rung 2). Each cell spreads its
-/// flow to all downslope neighbours weighted by `slope^p`; `p` is the SFD↔MFD dial
-/// — `p → ∞` recovers single-flow (sharp, 1-cell channels), `p ≈ 1` is fully
-/// dispersive. `0` = pure SFD (the old single-receiver accumulation).
+/// Multiple-flow-direction exponent (Rung 2 area + Rung 3 incision). Each cell
+/// spreads its flow — and its stream-power incision — to all downslope neighbours
+/// weighted by `slope^p`; `p` is the SFD↔MFD dial: `p → ∞` recovers single-flow
+/// (sharp, 1-cell channels = the perforation), `p ≈ 1` is fully dispersive
+/// (smoother, valleys re-converge). `0` = pure SFD (single-receiver area +
+/// incision, the pre-Rung-2 behaviour).
 ///
-/// DEFAULT OFF. Sweeping it (seed 12345, 600k) showed MFD *area alone* is a
-/// near-no-op for the perforation (curv-rms −1.5..3.5%, elevation unchanged):
-/// incision still carves toward the single SFD receiver, so the 1-cell channel/
-/// ridge structure is unchanged regardless of how smooth `A` is. This accumulator
-/// is the SUBSTRATE for Rung 3 (MFD-DAG incision, which distributes the carving);
-/// turn it on there. Until then it only adds a per-reroute sort for ~no gain.
-/// A/B with `--erosion-mfd-exponent`. See docs/specs/erosion-routing-ladder.md.
+/// DEFAULT OFF. Rung 3 hypothesised MFD incision would break the 1-cell
+/// perforation. It does NOT: sweeping p at 600k AND at full ~2.5M (seed 12345)
+/// moved curv-rms only ~3% and left elevation unchanged — the cell-scale roughness
+/// erosion adds (curv-rms ~7-8x base→eroded) is INVARIANT to SFD↔MFD, to diffusion
+/// magnitude (Rung 0), and to reroute frequency. So the swiss-cheese is not
+/// routing-driven; the cause is elsewhere in the loop (deposition / diffusion
+/// solver / fold-back — under investigation). This MFD path is correct LEM practice
+/// (divergent flow, mesh-insensitive) and kept as a toggle, but it is not the fix,
+/// so it stays off (it adds a per-reroute sort + CSR for ~no gain on this artifact).
+/// `p → ∞` ≈ SFD, `p ≈ 1` fully dispersive. A/B with `--erosion-mfd-exponent`.
+/// See docs/specs/erosion-routing-ladder.md.
 pub const EROSION_MFD_EXPONENT: f32 = 0.0;
 
 /// Scales tectonic uplift added to crust thickness each step. Source is the

@@ -235,7 +235,9 @@ pub(crate) fn glacial_erode(
     let mut total_abraded = 0.0f64;
 
     for _ in 0..params.glacial_steps {
-        let Some(routing) = Routing::build(elev, &geom, lake_base, params.flat_resolution) else {
+        // Ice routes single-flow (SFD); MFD off for the glacial pass.
+        let Some(routing) = Routing::build(elev, &geom, lake_base, params.flat_resolution, 0.0)
+        else {
             break;
         };
 
@@ -502,6 +504,7 @@ impl ErosionState {
                 &self.geom,
                 &self.lake_base,
                 self.params.flat_resolution,
+                self.params.mfd_exponent,
             ) else {
                 // No sinks (e.g. an all-land world): nothing to erode toward.
                 self.halted = true;
@@ -512,16 +515,9 @@ impl ErosionState {
             // 2. Accumulate precipitation-weighted drainage area ("wet area"):
             //    single-flow (SFD) or multiple-flow (MFD, Rung 2) per the exponent.
             s = Instant::now();
-            self.area = if self.params.mfd_exponent > 0.0 {
-                accumulate_wet_area_mfd(
-                    &r,
-                    &self.geom,
-                    &self.precipitation,
-                    &self.areas,
-                    self.params.mfd_exponent,
-                )
-            } else {
-                accumulate_wet_area(&r, &self.precipitation, &self.areas)
+            self.area = match r.mfd.as_ref() {
+                Some(mfd) => accumulate_wet_area_mfd(&r, mfd, &self.precipitation, &self.areas),
+                None => accumulate_wet_area(&r, &self.precipitation, &self.areas),
             };
             self.t_accum += s.elapsed().as_secs_f64();
 
@@ -529,23 +525,38 @@ impl ErosionState {
         }
         let routing = self.routing.as_ref().unwrap();
 
-        // 3. Incise (implicit, downstream-first). Snapshot first so we can book
-        //    the removed rock as eroded volume and route it downstream.
+        // 3. Incise (implicit, receivers-first). Snapshot first so we can book
+        //    the removed rock as eroded volume and route it downstream. MFD-DAG
+        //    incision distributes the carving across downslope neighbours (Rung 3);
+        //    SFD carves toward the single receiver.
         s = Instant::now();
         let pre = elev.clone();
-        incise_step(
-            &mut elev,
-            &routing.receiver,
-            &routing.is_sink,
-            &routing.dist,
-            &self.area,
-            self.a_crit,
-            &self.erodibility,
-            &routing.order,
-            self.params.k,
-            self.params.m,
-            self.params.dt,
-        );
+        match routing.mfd.as_ref() {
+            Some(mfd) => incise_step_mfd(
+                &mut elev,
+                mfd,
+                &routing.is_sink,
+                &self.area,
+                self.a_crit,
+                &self.erodibility,
+                self.params.k,
+                self.params.m,
+                self.params.dt,
+            ),
+            None => incise_step(
+                &mut elev,
+                &routing.receiver,
+                &routing.is_sink,
+                &routing.dist,
+                &self.area,
+                self.a_crit,
+                &self.erodibility,
+                &routing.order,
+                self.params.k,
+                self.params.m,
+                self.params.dt,
+            ),
+        }
         // No fluvial erosion below the local base level (sea level, or a terminal
         // lake's surface for cells draining into it): land cells may incise down
         // to, but not past, that datum. `floor.min(pre)` stops incision without
@@ -989,15 +1000,108 @@ struct Routing {
     /// sink it drains into — 0 (sea level) for cells reaching the ocean, the lake
     /// surface for cells draining into a terminal lake. Propagated upstream.
     base_floor: Vec<f32>,
-    /// Pit-filled surface (the routing potential). Kept for MFD drainage-area
-    /// accumulation (Rung 2): a cell distributes flow to filled-downslope neighbours.
-    filled: Vec<f32>,
-    /// Per-cell flat flag + convergent flat-routing mask (Barnes resolution).
-    /// `is_flat[i]` = non-sink cell with no strictly-lower filled neighbour;
-    /// `flat_mask` (lower = nearer outlet) orders MFD accumulation across flats.
-    /// Always computed; `flat_resolution` only controls whether `receiver_of` uses it.
-    is_flat: Vec<bool>,
-    flat_mask: Vec<i64>,
+    /// Multiple-flow-direction flow DAG (Rung 2/3): downslope flow split + a
+    /// topological order, shared by MFD drainage-area accumulation and MFD-DAG
+    /// incision. `None` => single-flow (SFD) via `receiver`/`order` above.
+    mfd: Option<MfdFlow>,
+}
+
+/// Multiple-flow-direction flow DAG over the pit-filled surface. Each non-sink
+/// cell sends flow to all filled-downslope neighbours, split by `slope^p`
+/// (normalised to sum 1); flats with no downslope neighbour carry their single
+/// convergent SFD receiver. `order` is a topological order of the downhill DAG —
+/// sources-first (filled descending, flats by mask) — so accumulation runs forward
+/// (a cell finalised after its donors) and the implicit MFD incision runs in
+/// reverse (every receiver solved before the cell). CSR-packed (aligned `nbr`/`w`/
+/// `d`, sliced by `off`) to avoid per-cell allocation.
+struct MfdFlow {
+    order: Vec<usize>,
+    off: Vec<usize>,
+    nbr: Vec<usize>,
+    w: Vec<f32>,
+    d: Vec<f32>,
+}
+
+/// Build the [`MfdFlow`] DAG. `recv_dist[i]` is the SFD receiver distance (used for
+/// the single flat-cell edge). Weights are `slope^exponent` normalised per cell.
+fn build_mfd_flow(
+    filled: &[f32],
+    is_flat: &[bool],
+    flat_mask: &[i64],
+    receiver: &[usize],
+    recv_dist: &[f32],
+    is_sink: &[bool],
+    geom: &NeighborGeometry,
+    exponent: f32,
+) -> MfdFlow {
+    let n = filled.len();
+
+    // Sources-first topological order: filled descending, then flat-mask descending
+    // (a flat cell precedes those it drains into; non-flat "drain" cells sort last
+    // within their filled level via MIN). Index tiebreak keeps it deterministic.
+    let key_mask = |i: usize| -> i64 {
+        if is_flat[i] {
+            flat_mask[i]
+        } else {
+            i64::MIN
+        }
+    };
+    let mut order: Vec<usize> = (0..n).collect();
+    order.sort_unstable_by(|&a, &b| {
+        filled[b]
+            .total_cmp(&filled[a])
+            .then_with(|| key_mask(b).cmp(&key_mask(a)))
+            .then(a.cmp(&b))
+    });
+
+    let mut off = vec![0usize; n + 1];
+    let mut nbr: Vec<usize> = Vec::new();
+    let mut w: Vec<f32> = Vec::new();
+    let mut d: Vec<f32> = Vec::new();
+    for i in 0..n {
+        off[i] = nbr.len();
+        if is_sink[i] {
+            continue;
+        }
+        let fi = filled[i];
+        let nbs = geom.tess_neighbors(i);
+        let ds = geom.dists(i);
+        let start = nbr.len();
+        let mut total = 0.0f32;
+        for (k, &nb) in nbs.iter().enumerate() {
+            if filled[nb] < fi {
+                let slope = (fi - filled[nb]) / ds[k].max(1e-12);
+                let wk = slope.powf(exponent);
+                nbr.push(nb);
+                w.push(wk);
+                d.push(ds[k]);
+                total += wk;
+            }
+        }
+        if nbr.len() > start {
+            if total > 0.0 {
+                for x in &mut w[start..] {
+                    *x /= total;
+                }
+            }
+        } else {
+            // Flat: single convergent receiver carries flow off the flat.
+            let r = receiver[i];
+            if r != i {
+                nbr.push(r);
+                w.push(1.0);
+                d.push(recv_dist[i].max(1e-12));
+            }
+        }
+    }
+    off[n] = nbr.len();
+    MfdFlow {
+        order,
+        off,
+        nbr,
+        w,
+        d,
+    }
 }
 
 /// Barnes-style convergent flat resolution (Barnes, Lehman & Mulla 2014, *Computers
@@ -1137,6 +1241,7 @@ impl Routing {
         geom: &NeighborGeometry,
         lake_base: &[f32],
         flat_resolution: bool,
+        mfd_exponent: f32,
     ) -> Option<Routing> {
         let n = geom.num_cells();
         let is_sink: Vec<bool> = (0..n)
@@ -1286,15 +1391,30 @@ impl Routing {
             }
         }
 
+        // MFD flow DAG (Rung 2/3), when enabled. Built on the filled surface +
+        // the convergent flat structure; reused by accumulation and incision.
+        let mfd = if mfd_exponent > 0.0 {
+            Some(build_mfd_flow(
+                &filled,
+                &is_flat,
+                &flat_mask,
+                &receiver,
+                &dist,
+                &is_sink,
+                geom,
+                mfd_exponent,
+            ))
+        } else {
+            None
+        };
+
         Some(Routing {
             receiver,
             is_sink,
             dist,
             order,
             base_floor,
-            filled,
-            is_flat,
-            flat_mask,
+            mfd,
         })
     }
 }
@@ -1317,79 +1437,86 @@ fn accumulate_wet_area(routing: &Routing, precipitation: &[f32], areas: &[f32]) 
     acc
 }
 
-/// Multiple-flow-direction drainage area (Rung 2). Each cell distributes its
-/// accumulated flow to ALL filled-downslope neighbours, weighted by `slope^p`
-/// (Holmgren MFD), instead of dumping it on the single SFD receiver — so discharge
-/// disperses on hillslopes (less 1-cell striping) and reconverges in valleys.
-/// `exponent` is the SFD↔MFD dial: `p → ∞` recovers single-flow, `p ≈ 1` is fully
-/// dispersive. Flats (no downslope filled neighbour) keep the single convergent
-/// SFD receiver so flow still crosses them to the outlet. Only the AREA changes;
-/// incision still follows `routing.receiver`.
-///
-/// Processing order is `filled` descending, then flat-`mask` descending so every
-/// cell is finalised after all donors (non-flat cells sort last within a filled
-/// level — they are the drains). Serial + deterministic (ties broken by index) to
-/// keep float accumulation reproducible.
+/// Multiple-flow-direction drainage area (Rung 2): accumulate precip-weighted area
+/// down the [`MfdFlow`] DAG. Each cell, finalised after its donors (sources-first
+/// `order`), splits its flow to all downslope neighbours by the precomputed weights
+/// — so discharge disperses on hillslopes and reconverges in valleys instead of
+/// running in one SFD wire. Serial + deterministic (fixed order) for reproducible
+/// float accumulation.
 fn accumulate_wet_area_mfd(
     routing: &Routing,
-    geom: &NeighborGeometry,
+    mfd: &MfdFlow,
     precipitation: &[f32],
     areas: &[f32],
-    exponent: f32,
 ) -> Vec<f32> {
     let n = areas.len();
-    let filled = &routing.filled;
-
-    let key_mask = |i: usize| -> i64 {
-        if routing.is_flat[i] {
-            routing.flat_mask[i]
-        } else {
-            i64::MIN // drains: processed last within their filled level
-        }
-    };
-    let mut order: Vec<usize> = (0..n).collect();
-    order.sort_unstable_by(|&a, &b| {
-        filled[b]
-            .total_cmp(&filled[a])
-            .then_with(|| key_mask(b).cmp(&key_mask(a)))
-            .then(a.cmp(&b))
-    });
-
     let mut acc: Vec<f32> = (0..n)
         .map(|i| precipitation[i].max(0.0) * areas[i])
         .collect();
-    for &i in &order {
+    for &i in &mfd.order {
         if routing.is_sink[i] {
             continue;
         }
-        let fi = filled[i];
-        let nbs = geom.tess_neighbors(i);
-        let ds = geom.dists(i);
-        // Total downslope weight (slope^p over filled-lower neighbours).
-        let mut total_w = 0.0f32;
-        for (k, &nb) in nbs.iter().enumerate() {
-            if filled[nb] < fi {
-                let slope = (fi - filled[nb]) / ds[k].max(1e-12);
-                total_w += slope.powf(exponent);
-            }
-        }
-        if total_w > 0.0 {
-            let inv = acc[i] / total_w;
-            for (k, &nb) in nbs.iter().enumerate() {
-                if filled[nb] < fi {
-                    let slope = (fi - filled[nb]) / ds[k].max(1e-12);
-                    acc[nb] += slope.powf(exponent) * inv;
-                }
-            }
-        } else {
-            // Flat: single convergent receiver carries flow off the flat.
-            let r = routing.receiver[i];
-            if r != i {
-                acc[r] += acc[i];
-            }
+        let ai = acc[i];
+        for k in mfd.off[i]..mfd.off[i + 1] {
+            acc[mfd.nbr[k]] += ai * mfd.w[k];
         }
     }
     acc
+}
+
+/// MFD-DAG implicit incision (Rung 3). Generalises [`incise_step`] from one receiver
+/// to the weighted multi-receiver stream-power solve (n = 1) over the downhill DAG.
+/// Braun & Willett needs a downstream ORDERING, not a tree: processing `mfd.order`
+/// in REVERSE (receivers-first) means every downstream neighbour is already solved,
+/// so the per-cell update stays local and the whole sweep is O(edges):
+///
+/// ```text
+/// h_i = (h_i + Σ_j c_ij h_j) / (1 + Σ_j c_ij),  c_ij = dt K A_i^m w_ij / d_ij
+/// ```
+///
+/// over the cell's downslope neighbours `j`. Distributing the carving (not just the
+/// drainage area) is what breaks the 1-cell SFD channel/ridge striping. The
+/// per-receiver `elev[j] < elev[i]` guard keeps it erosive as the surface evolves
+/// between re-routes (a stale receiver that has gone non-downhill is skipped, never
+/// pulling the cell up). Pure: no sea-level clamp / thickness coupling (folded in by
+/// the caller, as for SFD).
+#[allow(clippy::too_many_arguments)]
+fn incise_step_mfd(
+    elev: &mut [f32],
+    mfd: &MfdFlow,
+    is_sink: &[bool],
+    area: &[f32],
+    area_crit: f32,
+    erodibility: &[f32],
+    k: f32,
+    m: f32,
+    dt: f32,
+) {
+    for &cell in mfd.order.iter().rev() {
+        if is_sink[cell] {
+            continue;
+        }
+        if area[cell] < area_crit {
+            continue; // below channel initiation -> hillslope (diffusion only)
+        }
+        let f_base = dt * k * erodibility[cell] * area[cell].powf(m);
+        let hi = elev[cell];
+        let mut num = hi;
+        let mut den = 1.0f32;
+        for kk in mfd.off[cell]..mfd.off[cell + 1] {
+            let j = mfd.nbr[kk];
+            let hj = elev[j];
+            if hj < hi {
+                let c = f_base * mfd.w[kk] / mfd.d[kk].max(1e-12);
+                num += c * hj;
+                den += c;
+            }
+        }
+        if den > 1.0 {
+            elev[cell] = num / den;
+        }
+    }
 }
 
 /// Linear hillslope diffusion on land cells, solved IMPLICITLY (backward Euler)
@@ -1728,9 +1855,7 @@ mod tests {
             dist: vec![0.0, 2.0e-3, 2.0e-3],
             order: vec![0, 1, 2],            // downstream-first
             base_floor: vec![0.0, 0.0, 0.0], // sea level
-            filled: vec![-0.02, -0.015, 0.02],
-            is_flat: vec![false; 3],
-            flat_mask: vec![0; 3],
+            mfd: None,
         };
         // slope*dist = 6.0 * 2e-3 = 0.012 repose offset above the receiver.
         // reach 1 (elev -0.015, receiver 0 at -0.02): target -0.008 > -0.015 -> aggrades.
@@ -1770,9 +1895,7 @@ mod tests {
             dist: vec![0.0, 1.0, 1.0],
             order: vec![0, 1, 2],
             base_floor: vec![0.0, 0.0, 0.0],
-            filled: vec![-0.05, 0.0, 0.1],
-            is_flat: vec![false; 3],
-            flat_mask: vec![0; 3],
+            mfd: None,
         };
         let elev = vec![-0.05, 0.0, 0.1];
         let areas = vec![1.0, 1.0, 1.0];

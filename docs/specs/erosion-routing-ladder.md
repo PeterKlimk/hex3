@@ -73,7 +73,7 @@ out of the MFD machinery for free.
 | 0 | Diffusivity sweep + `reroute=1` — **diagnostic only** | (info) | ~free | **done** (both knobs ruled out — perforation is structural) |
 | 1 | Convergent flat resolution (Barnes 2014b) | very high | low–med | **signed off** (more natural; slightly too clean in places — convergent routing concentrates flow; expect MFD to relax it) |
 | 2 | MFD drainage-*area* only (SFD incision kept) | high | med | **landed as infra** (knob `mfd_exponent`, default **off**) — MFD area *alone* is a near-no-op for perforation (curv-rms −1.5..3.5%, elevation unchanged); single-receiver incision still carves 1-cell. Substrate for Rung 3. |
-| 3 | Full MFD-DAG implicit incision | highest | high | **next** (the real perforation fix — distribute the carving, turn `mfd_exponent` on here) |
+| 3 | Full MFD-DAG implicit incision | highest | high | **landed but DEFAULT OFF — did NOT fix the perforation.** Sweeping p at 600k *and* full ~2.5M moved curv-rms only ~3%, elevation unchanged. The cell-scale roughness erosion adds (curv-rms ~7-8× base→eroded) is invariant to SFD↔MFD, diffusion, and reroute → **the swiss-cheese is not routing-driven.** Correct LEM practice, kept as a toggle; not this artifact's fix. **Pivot:** find what amplifies curv-rms 7-8× (deposition / diffusion solver / fold-back). |
 | 4 | MFD sediment / deposition (same fractions) | high | med–high | TODO |
 | 5 | Channelization-instability initiation | very high (philosophy) | high | future |
 
