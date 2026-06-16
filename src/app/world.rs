@@ -122,6 +122,7 @@ impl WorldBuffers {
 pub struct ErosionOverrides {
     pub mfd_exponent: Option<f32>,
     pub flat_resolution: Option<bool>,
+    pub confinement_slope: Option<f32>,
 }
 
 impl ErosionOverrides {
@@ -131,6 +132,9 @@ impl ErosionOverrides {
         }
         if let Some(f) = self.flat_resolution {
             world.erosion_params.flat_resolution = f;
+        }
+        if let Some(s) = self.confinement_slope {
+            world.erosion_params.confinement_slope = s;
         }
     }
 }

@@ -61,6 +61,11 @@ struct Cli {
     /// Sweep to A/B multi-flow vs single-flow discharge.
     #[arg(long, default_value_t = -1.0)]
     erosion_mfd_exponent: f32,
+    /// Plains alluvial regime gate: channel slope (elev/km) at/above which
+    /// incision is full; gentler channels fade to alluvial. <0 = use
+    /// EROSION_CONFINEMENT_SLOPE; 0 = off. See docs/specs/erosion-valleys-not-channels.md.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_confinement_slope: f32,
     /// Override lithologic erodibility contrast (exp-amplitude sigma). <0 = use
     /// the EROSION_LITHO_SIGMA default; 0 = uniform K (no lithology).
     #[arg(long, default_value_t = -1.0)]
@@ -163,6 +168,9 @@ fn main() {
     }
     if cli.erosion_mfd_exponent >= 0.0 {
         world.erosion_params.mfd_exponent = cli.erosion_mfd_exponent;
+    }
+    if cli.erosion_confinement_slope >= 0.0 {
+        world.erosion_params.confinement_slope = cli.erosion_confinement_slope;
     }
     if cli.erosion_litho_sigma >= 0.0 {
         world.erosion_params.litho_sigma = cli.erosion_litho_sigma;

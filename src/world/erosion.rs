@@ -74,6 +74,10 @@ pub struct ErosionParams {
     /// Multiple-flow-direction drainage-area exponent (`slope^p` flow split);
     /// 0 = single-flow. See `EROSION_MFD_EXPONENT`.
     pub mfd_exponent: f32,
+    /// Plains alluvial regime gate: channel slope (elev/km) at/above which
+    /// incision is full; gentler channels fade toward alluvial (deposition-graded
+    /// floodplains). 0 = off. See `EROSION_CONFINEMENT_SLOPE`.
+    pub confinement_slope: f32,
     /// Tectonic uplift source scale (thickness units).
     pub uplift_scale: f32,
     /// Fraction of a sink's depth-to-base-level that deposition may fill.
@@ -129,6 +133,7 @@ impl Default for ErosionParams {
             reroute_interval: EROSION_REROUTE_INTERVAL,
             flat_resolution: EROSION_FLAT_RESOLUTION,
             mfd_exponent: EROSION_MFD_EXPONENT,
+            confinement_slope: EROSION_CONFINEMENT_SLOPE,
             uplift_scale: EROSION_UPLIFT_SCALE,
             deposit_fill_fraction: EROSION_DEPOSIT_FILL_FRACTION,
             deposition_slope: EROSION_DEPOSITION_SLOPE,
@@ -542,6 +547,7 @@ impl ErosionState {
                 self.params.k,
                 self.params.m,
                 self.params.dt,
+                self.params.confinement_slope,
             ),
             None => incise_step(
                 &mut elev,
@@ -555,6 +561,7 @@ impl ErosionState {
                 self.params.k,
                 self.params.m,
                 self.params.dt,
+                self.params.confinement_slope,
             ),
         }
         // No fluvial erosion below the local base level (sea level, or a terminal
@@ -938,6 +945,21 @@ fn roughness_report(tess: &Tessellation, elev: &[f32], label: &str) {
     );
 }
 
+/// Plains alluvial regime gate (docs/specs/erosion-valleys-not-channels.md).
+/// Detachment-vs-transport confinement factor in [0,1] from the channel slope
+/// (elev-units per km): `C = smoothstep(0, confinement_slope, slope)`. 1 =
+/// bedrock/confined (full stream-power incision); 0 = alluvial plain (no incision
+/// — the deposition pass grades the lowland to a floodplain instead of erosion
+/// gouging a cell-wide ditch). `confinement_slope <= 0` disables the gate (C=1).
+#[inline]
+fn confinement(slope_km: f32, confinement_slope: f32) -> f32 {
+    if confinement_slope <= 0.0 {
+        return 1.0;
+    }
+    let t = (slope_km / confinement_slope).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
 /// One implicit Braun & Willett incision sweep (stream power, n = 1) in
 /// ELEVATION space. `order` is downstream-first (each cell's receiver appears
 /// before it), so the receiver already holds its updated height when a cell is
@@ -950,6 +972,8 @@ fn roughness_report(tess: &Tessellation, elev: &[f32], label: &str) {
 /// would pull such cells UP toward a higher receiver (anti-erosion), pimpling
 /// basin interiors with cell-scale bumps. Where the slope is non-positive there
 /// is no stream incision (a transport/lake regime handled elsewhere), so skip.
+/// Incision is scaled by the [`confinement`] regime gate (alluvial plains fade).
+#[allow(clippy::too_many_arguments)]
 fn incise_step(
     elev: &mut [f32],
     receiver: &[usize],
@@ -962,6 +986,7 @@ fn incise_step(
     k: f32,
     m: f32,
     dt: f32,
+    confinement_slope: f32,
 ) {
     for &cell in order {
         if is_sink[cell] {
@@ -976,9 +1001,15 @@ fn incise_step(
             continue; // no downhill gradient -> no detachment-limited incision
         }
         let d = dist[cell].max(1e-12);
-        // h_i = (h_i + dt K A^m h_rcv / d) / (1 + dt K A^m / d), K per-cell
-        // (lithologic erodibility).
-        let f = dt * k * erodibility[cell] * area[cell].powf(m) / d;
+        // Regime gate: fade incision toward 0 on gentle (alluvial) channels.
+        let slope_km = (elev[cell] - hr) / (d * PLANET_RADIUS_KM);
+        let c = confinement(slope_km, confinement_slope);
+        if c <= 0.0 {
+            continue; // fully alluvial -> deposition handles it
+        }
+        // h_i = (h_i + dt K C A^m h_rcv / d) / (1 + dt K C A^m / d), K per-cell
+        // (lithologic erodibility), C the confinement gate.
+        let f = dt * k * c * erodibility[cell] * area[cell].powf(m) / d;
         elev[cell] = (elev[cell] + f * hr) / (1.0 + f);
     }
 }
@@ -1507,6 +1538,7 @@ fn incise_step_mfd(
     k: f32,
     m: f32,
     dt: f32,
+    confinement_slope: f32,
 ) {
     for &cell in mfd.order.iter().rev() {
         if is_sink[cell] {
@@ -1515,8 +1547,23 @@ fn incise_step_mfd(
         if area[cell] < area_crit {
             continue; // below channel initiation -> hillslope (diffusion only)
         }
-        let f_base = dt * k * erodibility[cell] * area[cell].powf(m);
         let hi = elev[cell];
+        // Regime gate from the steepest downslope channel (alluvial plains fade).
+        let steepest_km = {
+            let mut s = 0.0f32;
+            for kk in mfd.off[cell]..mfd.off[cell + 1] {
+                let drop = hi - elev[mfd.nbr[kk]];
+                if drop > 0.0 {
+                    s = s.max(drop / (mfd.d[kk].max(1e-12) * PLANET_RADIUS_KM));
+                }
+            }
+            s
+        };
+        let cgate = confinement(steepest_km, confinement_slope);
+        if cgate <= 0.0 {
+            continue; // fully alluvial -> deposition handles it
+        }
+        let f_base = dt * k * cgate * erodibility[cell] * area[cell].powf(m);
         let mut num = hi;
         let mut den = 1.0f32;
         for kk in mfd.off[cell]..mfd.off[cell + 1] {
@@ -1810,7 +1857,7 @@ mod tests {
                 }
             }
             incise_step(
-                &mut elev, &receiver, &is_sink, &dist, &area, 0.0, &erod, &order, k, m, dt,
+                &mut elev, &receiver, &is_sink, &dist, &area, 0.0, &erod, &order, k, m, dt, 0.0,
             );
         }
 
@@ -1846,7 +1893,7 @@ mod tests {
                     }
                 }
                 incise_step(
-                    &mut elev, &receiver, &is_sink, &dist, &area, 0.0, &erod, &order, k, m, dt,
+                    &mut elev, &receiver, &is_sink, &dist, &area, 0.0, &erod, &order, k, m, dt, 0.0,
                 );
             }
             elev[n / 2] - elev[receiver[n / 2]]

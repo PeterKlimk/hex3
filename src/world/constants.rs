@@ -785,6 +785,18 @@ pub const EROSION_FLAT_RESOLUTION: bool = true;
 /// See docs/specs/erosion-routing-ladder.md.
 pub const EROSION_MFD_EXPONENT: f32 = 0.0;
 
+/// Plains alluvial regime gate (docs/specs/erosion-valleys-not-channels.md,
+/// Phase 1). Stream-power incision is faded by a confinement factor
+/// `C = smoothstep(0, this, channel_slope)` in [0,1]: full incision (C=1) on
+/// bedrock/mountain channels at/above this slope, fading to none (C=0) on gentle
+/// alluvial plains — where the transport-aware deposition then grades the lowland
+/// to a floodplain instead of erosion gouging a cell-wide ditch ("huge one-cell
+/// river"). Channel slope is Δelev/Δkm (elev-units per km); the land distribution
+/// runs p50 ~4e-4, p90 ~2e-3, so 5e-4 (~0.5% gradient) sits at the plains/upland
+/// divide. `0` disables the gate (C=1 everywhere = the pre-Phase-1 behaviour).
+/// A starting default — calibrate by eye + the land-volume ledger, not to a target.
+pub const EROSION_CONFINEMENT_SLOPE: f32 = 5.0e-4;
+
 /// Scales tectonic uplift added to crust thickness each step. Source is the
 /// transferred feature forcing: (arc + collision) are elevation magnitudes
 /// (converted to thickness by dividing the Airy slope) and rift_delta is

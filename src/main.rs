@@ -83,6 +83,13 @@ struct Cli {
     #[arg(long, default_value_t = -1)]
     erosion_flat_resolution: i8,
 
+    /// Plains alluvial regime gate: channel slope (elev/km) at/above which
+    /// incision is full; gentler channels fade to alluvial (floodplains, not
+    /// ditches). <0 = EROSION_CONFINEMENT_SLOPE default; 0 = off. A/B with values
+    /// near the land median ~4e-4. See docs/specs/erosion-valleys-not-channels.md.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_confinement_slope: f32,
+
     /// Legacy flag: equivalent to --stage 2
     #[arg(long, hide = true)]
     stage2: bool,
@@ -108,6 +115,8 @@ fn main() {
         mfd_exponent: (cli.erosion_mfd_exponent >= 0.0).then_some(cli.erosion_mfd_exponent),
         flat_resolution: (cli.erosion_flat_resolution >= 0)
             .then_some(cli.erosion_flat_resolution != 0),
+        confinement_slope: (cli.erosion_confinement_slope >= 0.0)
+            .then_some(cli.erosion_confinement_slope),
     };
     let fine_cache = if cli.no_fine_cache {
         FineCacheMode::Disabled
