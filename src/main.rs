@@ -85,10 +85,26 @@ struct Cli {
 
     /// Plains alluvial regime gate: channel slope (elev/km) at/above which
     /// incision is full; gentler channels fade to alluvial (floodplains, not
-    /// ditches). <0 = EROSION_CONFINEMENT_SLOPE default; 0 = off. A/B with values
-    /// near the land median ~4e-4. See docs/specs/erosion-valleys-not-channels.md.
+    /// ditches). <0 = EROSION_CONFINEMENT_SLOPE default (off). See
+    /// docs/specs/erosion-valleys-not-channels.md.
     #[arg(long, default_value_t = -1.0)]
     erosion_confinement_slope: f32,
+
+    /// Erosion erodibility K (incision strength; default 4e-2). <0 = default.
+    /// LOWER = gentler dissection (less sharp). Visual dissection-texture lever.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_k: f32,
+
+    /// Hillslope diffusivity (smoothing; default 2e-8). <0 = default. HIGHER =
+    /// smoother (rounds the sharp dissection). Visual dissection-texture lever.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_diffusivity: f32,
+
+    /// Channel-initiation support area (km² at mean land wetness; default 30).
+    /// <0 = default. HIGHER = channels start later = LOWER drainage density
+    /// (fewer/broader valleys, less "busy"). The primary density lever.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_channel_support: f32,
 
     /// Legacy flag: equivalent to --stage 2
     #[arg(long, hide = true)]
@@ -117,6 +133,10 @@ fn main() {
             .then_some(cli.erosion_flat_resolution != 0),
         confinement_slope: (cli.erosion_confinement_slope >= 0.0)
             .then_some(cli.erosion_confinement_slope),
+        k: (cli.erosion_k >= 0.0).then_some(cli.erosion_k),
+        diffusivity: (cli.erosion_diffusivity >= 0.0).then_some(cli.erosion_diffusivity),
+        channel_support_km2: (cli.erosion_channel_support >= 0.0)
+            .then_some(cli.erosion_channel_support),
     };
     let fine_cache = if cli.no_fine_cache {
         FineCacheMode::Disabled

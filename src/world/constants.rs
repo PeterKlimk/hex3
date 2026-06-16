@@ -794,8 +794,15 @@ pub const EROSION_MFD_EXPONENT: f32 = 0.0;
 /// river"). Channel slope is Δelev/Δkm (elev-units per km); the land distribution
 /// runs p50 ~4e-4, p90 ~2e-3, so 5e-4 (~0.5% gradient) sits at the plains/upland
 /// divide. `0` disables the gate (C=1 everywhere = the pre-Phase-1 behaviour).
-/// A starting default — calibrate by eye + the land-volume ledger, not to a target.
-pub const EROSION_CONFINEMENT_SLOPE: f32 = 5.0e-4;
+/// DEFAULT OFF. The gate is physically correct for the plains-floodplain goal, but
+/// the A/B (2026-06-16) showed it is NOT the swiss-cheese fix: at honest channel
+/// slopes (≤3e-3) it only fades gentle PLAINS channels and does ~nothing visible,
+/// because the "too busy/sharp" dissection lives in steeper UPLAND incision. Only
+/// an absurd value (~3e-1, a 300% gradient — i.e. incision off everywhere) removes
+/// it, and that flattens mountains too. So this stays off and dormant (kept for
+/// docs/specs/erosion-valleys-not-channels.md Phase 1 / plains floodplains); the
+/// actual dissection-texture levers are K, diffusivity, and channel support.
+pub const EROSION_CONFINEMENT_SLOPE: f32 = 0.0;
 
 /// Scales tectonic uplift added to crust thickness each step. Source is the
 /// transferred feature forcing: (arc + collision) are elevation magnitudes
