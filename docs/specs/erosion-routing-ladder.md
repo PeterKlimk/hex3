@@ -71,7 +71,7 @@ out of the MFD machinery for free.
 | Rung | Change | Value | Effort | Status |
 |---|---|---|---|---|
 | 0 | Diffusivity sweep + `reroute=1` — **diagnostic only** | (info) | ~free | **done** (both knobs ruled out — perforation is structural) |
-| 1 | Convergent flat resolution (Barnes 2014b) | very high | low–med | **landed** (knob `flat_resolution`, default on; pending visual sign-off) |
+| 1 | Convergent flat resolution (Barnes 2014b) | very high | low–med | **landed** (knob `flat_resolution`, default on; engages 5.3% of mesh, 0 stranded; global counters blind → **visual call**) |
 | 2 | MFD drainage-*area* only (SFD incision kept) | high | med | TODO |
 | 3 | Full MFD-DAG implicit incision | highest | high | TODO |
 | 4 | MFD sediment / deposition (same fractions) | high | med–high | TODO |

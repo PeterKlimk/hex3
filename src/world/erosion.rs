@@ -1064,6 +1064,23 @@ fn resolve_flats(
             2 * l - h
         })
         .collect();
+
+    // Engagement / coverage signal (the global roughness counters are blind to the
+    // spiral — it is a local pattern in filled basins). `flats` is how much of the
+    // map the flat artifact even covers; `stranded` is flat cells the BFS reached
+    // from neither an outlet nor a wall (they fall back to flood_parent).
+    if log::log_enabled!(log::Level::Debug) {
+        let flats = is_flat.iter().filter(|&&f| f).count();
+        let stranded = (0..n)
+            .filter(|&i| is_flat[i] && to_low[i] == u32::MAX && from_high[i] == u32::MAX)
+            .count();
+        log::debug!(
+            "flat resolution: {} flat cells ({:.2}% of mesh), {} stranded (flood_parent fallback)",
+            flats,
+            100.0 * flats as f32 / n as f32,
+            stranded,
+        );
+    }
     (is_flat, mask)
 }
 
