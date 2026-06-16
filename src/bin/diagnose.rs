@@ -356,6 +356,66 @@ fn main() {
             ero.aspect_r - pre.aspect_r,
             ero.aspect_entropy - pre.aspect_entropy,
         );
+
+        // ---- Carved dissection density (the "too busy" calibration target) ----
+        // Incision = pre-erosion base minus eroded (meters). A "carved" cell is
+        // incised past a depth threshold (a real valley, not surface noise); the
+        // density of carved cells (channel km / km² land) and spacing ~1/Dd index
+        // how busy the dissection is — and UNLIKE the hydrology network this
+        // responds to channel-support / K. Resolution + threshold dependent, so
+        // read vs Earth as a ballpark + a knob-response signal, not a hard number.
+        const M_PER_UNIT: f32 = 10_000.0; // ~10 km vertical per elev-unit
+        let base = &fine.surface_for(3).elevation.values;
+        let eroded = &fine.surface_for(4).elevation.values;
+        let fareas = ftess.cell_areas();
+        let mut land_area_km2 = 0.0f64;
+        let mut depths: Vec<f32> = Vec::new(); // land incision depth (m, clamped >=0)
+        let mut carved: Vec<(f32, f32)> = Vec::new(); // (depth_m, width_km) for incised
+        for i in 0..ftess.num_cells() {
+            if eroded[i] < 0.0 {
+                continue; // ocean
+            }
+            land_area_km2 += (fareas[i] * EARTH_RADIUS_KM * EARTH_RADIUS_KM) as f64;
+            let inc = (base[i] - eroded[i]) * M_PER_UNIT;
+            depths.push(inc.max(0.0));
+            if inc > 0.0 {
+                carved.push((inc, fareas[i].sqrt() * EARTH_RADIUS_KM));
+            }
+        }
+        depths.sort_by(f32::total_cmp);
+        let nland = depths.len().max(1);
+        let dq = |p: f32| depths[(((nland - 1) as f32) * p) as usize];
+        println!(
+            "\n-- Carved dissection (incision = base - eroded)  [Earth land Dd ~0.5-5 km/km², spacing ~0.2-2 km] --"
+        );
+        println!(
+            "  incision depth (land): p50 {:>4.0} m | p90 {:>4.0} m | p99 {:>5.0} m | max {:>5.0} m",
+            dq(0.50),
+            dq(0.90),
+            dq(0.99),
+            dq(1.0),
+        );
+        for thr in [30.0f32, 100.0, 300.0] {
+            let len_km: f64 = carved
+                .iter()
+                .filter(|&&(d, _)| d >= thr)
+                .map(|&(_, w)| w as f64)
+                .sum();
+            let cnt = carved.iter().filter(|&&(d, _)| d >= thr).count();
+            let dd = if land_area_km2 > 0.0 {
+                len_km / land_area_km2
+            } else {
+                0.0
+            };
+            let spacing = if dd > 0.0 { 1.0 / dd } else { f64::INFINITY };
+            println!(
+                "  carved >{:>3.0} m: {:>5.1}% of land | Dd ~{:.3} km/km² | spacing ~{:.2} km",
+                thr,
+                100.0 * cnt as f32 / nland as f32,
+                dd,
+                spacing,
+            );
+        }
     }
 
     // ---- Global elevation structure ----
