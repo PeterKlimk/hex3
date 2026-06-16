@@ -10,7 +10,7 @@
 use super::Tessellation;
 
 /// Earth radius used to express angular sizes in physical units.
-pub const EARTH_RADIUS_KM: f32 = 6371.0;
+pub use super::constants::PLANET_RADIUS_KM as EARTH_RADIUS_KM;
 
 /// Measured geometry of one connected component of a cell mask.
 #[derive(Debug, Clone)]

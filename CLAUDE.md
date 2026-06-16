@@ -198,7 +198,7 @@ The knn-clipping backend uses the external `s2-voronoi` crate (https://github.co
 
 ## Common Edit Points
 
-- World resolution: `src/app/world.rs` (`NUM_CELLS`, `LLOYD_ITERATIONS`, `NUM_PLATES`)
+- World resolution: `src/app/world.rs` (`NUM_CELLS`, `NUM_PLATES`; Lloyd relaxation count is fixed inside `Tessellation`)
 - Continent layout: `src/world/constants.rs` (`NUM_CRATONS`, `CONTINENTAL_FRACTION`, `CRATON_*` — one big craton at high coverage = Pangaea world, many small at low coverage = archipelago)
 - Tectonic feature tuning: `src/world/constants.rs`
 - Elevation & noise tuning: `src/world/constants.rs` (noise layers, feature sensitivities)

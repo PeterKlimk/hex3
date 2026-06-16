@@ -152,31 +152,6 @@ pub const ACTIVE_OCEANIC_TRANSITION_WIDTH: f32 = 0.03;
 /// Angular velocity range for random Euler poles.
 pub const MAX_ANGULAR_VELOCITY: f32 = 1.0;
 
-// Sqrt-based elevation response parameters (continental crust)
-
-/// Scale factor for compression → mountain height (continental).
-pub const CONT_COMPRESSION_SENS: f32 = 0.4;
-
-/// Scale factor for tension → rift depth (continental).
-pub const CONT_TENSION_SENS: f32 = 0.3;
-
-/// Maximum mountain height from compression (continental).
-pub const CONT_MAX_MOUNTAIN: f32 = 0.8;
-
-/// Maximum rift depth from tension (continental).
-pub const CONT_MAX_RIFT: f32 = 0.2;
-
-// Oceanic crust parameters
-
-/// Scale factor for stress → oceanic uplift.
-pub const OCEAN_SENSITIVITY: f32 = 0.12;
-
-/// Maximum oceanic uplift from compression (volcanic edifice - can create islands).
-pub const OCEAN_COMPRESSION_MAX: f32 = 0.25;
-
-/// Maximum oceanic uplift from tension (isostatic limit - stays underwater).
-pub const OCEAN_TENSION_MAX: f32 = 0.12;
-
 // Plate interaction multipliers (convergent)
 //
 // These scale *uplift forcing* used for uplift-style convergent features
@@ -215,9 +190,6 @@ pub const DIV_OCEAN_OCEAN: f32 = 0.5;
 
 /// Cont side of Cont+Ocean: modest rifting at passive margin.
 pub const DIV_CONT_OCEAN: f32 = 0.1;
-
-/// Ocean side of Cont+Ocean: thermal uplift near margin.
-pub const DIV_OCEAN_CONT: f32 = 0.3;
 
 // Plate generation tuning
 
@@ -331,12 +303,14 @@ pub const ARC_CONT_MAX_UPLIFT: f32 = 0.48;
 pub const ARC_OCEAN_MAX_UPLIFT: f32 = 0.40;
 
 /// Peak offset of arc uplift inland from the boundary (radians).
-/// 0.045 rad ≈ 287 km on Earth (large-end: 200-350+ km inland).
+/// Continental: 0.05 rad ≈ 319 km on Earth (large-end: 200-350+ km inland).
+/// Oceanic: 0.04 rad ≈ 255 km on Earth.
 pub const ARC_CONT_PEAK_DIST: f32 = 0.05;
 pub const ARC_OCEAN_PEAK_DIST: f32 = 0.04;
 
 /// Arc band width (radians).
-/// 0.060 rad ≈ 382 km on Earth. Wider band = more cells in the arc belt.
+/// Continental: 0.05 rad ≈ 319 km on Earth; oceanic: 0.04 rad ≈ 255 km.
+/// Wider band = more cells in the arc belt.
 /// Note: Real volcanic arcs are narrower (50-150 km), but wider values help visibility.
 pub const ARC_CONT_WIDTH: f32 = 0.05;
 pub const ARC_OCEAN_WIDTH: f32 = 0.04;

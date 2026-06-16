@@ -18,7 +18,9 @@ use super::visualization::{
 };
 
 pub const NUM_CELLS: usize = 100000;
-pub const LLOYD_ITERATIONS: usize = 5;
+/// Parity-only: the authoritative Lloyd relaxation count currently lives inside
+/// `Tessellation`; this value keeps app logging/call sites honest.
+pub const LLOYD_ITERATIONS: usize = 2;
 pub const NUM_PLATES: usize = hex3::world::NUM_PLATES_DEFAULT;
 
 /// Minimum flow for "all rivers" mode, as fraction of total cells.
