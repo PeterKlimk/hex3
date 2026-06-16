@@ -1045,9 +1045,15 @@ fn main() {
         // reveals whether finer cells keep uncovering dissection (rising ->
         // under-resolved) or it has converged (flat -> dense enough). Sampled over
         // mountain-class cells (the relief-bearing terrain).
-        use kiddo::{ImmutableKdTree, SquaredEuclidean};
+        // Mutable KdTree (not ImmutableKdTree): the immutable optimal-layout
+        // build panics with "mid > len" on the near-coincident points that
+        // appear at multi-million-cell fine meshes (see fine.rs:1167).
+        use kiddo::{KdTree, SquaredEuclidean};
         let entries: Vec<[f32; 3]> = (0..n).map(|i| tess.cell_center(i).to_array()).collect();
-        let tree: ImmutableKdTree<f32, 3> = ImmutableKdTree::new_from_slice(&entries);
+        let mut tree = KdTree::<f32, 3>::with_capacity(entries.len());
+        for (i, e) in entries.iter().enumerate() {
+            tree.add(e, i as u64);
+        }
         let mtn: Vec<usize> = (0..n).filter(|&i| elevation[i] >= RANGE_ELEV).collect();
         let stride = (mtn.len() / 20_000).max(1);
         let sample: Vec<usize> = mtn.iter().copied().step_by(stride).collect();

@@ -59,6 +59,28 @@ solver. Extreme-value (p99) feature stats drift because extremes always sharpen
 with resolution — read feature **means/area-weighted** quantities for the
 invariant signal.
 
+### Fix applied — adaptive projection solver
+
+The wind-projection Poisson solve (`project_wind_field`) ran a **fixed 50**
+Gauss-Seidel/SOR sweeps. It is an *unscreened* Poisson solve (unlike the
+*screened* diffusion solver, which is already resolution-adaptive), so its
+low-frequency error decays ~O(1/h²) per sweep — a fixed count under-develops the
+large-scale `phi` (and the convergence-derived uplift) as cells shrink. Fix:
+scale the sweep count by `(PROJECTION_REFERENCE_SPACING / mean_h)²`, clamped to
+`[50, 800]`, and **precompute the edge conductances once** (lifts an `acos` out
+of the hot loop so the extra sweeps are cheap). Result:
+
+| metric | before (ratio / resΔ) | after (ratio / resΔ) |
+|---|---|---|
+| `uplift_p99` | 13.8 DEPENDENT / 0.242 | **2.2 watch / 0.053** |
+| `precip_arid_frac_land` | 7.2 DEPENDENT / 0.120 | 3.7 / 0.064 |
+
+`uplift_p99` is now flat at ~1.41 across 50k–400k (was 1.41→1.17); drift cut
+~4.6× to the seed-noise floor. Cost: ~103 sweeps at the 100k default
+(sub-second); 411 sweeps / ~14 s at 400k (coarse-mesh-only, one-time). **Note:**
+the 100k baseline `uplift_p99` shifts ~1.32→1.41 (more converged) — eyeball the
+climate map on Windows to confirm the look is still good.
+
 ## Fine-axis results (seed 12345, `--fine-scale` 2.0→0.65, stage 4 erosion)
 
 Instrument: `diagnose`'s built-in **fixed-radius local relief** probe (max−min
@@ -72,7 +94,10 @@ eroded elevation within R km — resolution-*controlled*, so a rising value mean
 | 1.2 | 992k | .063 / .149 / .282 | .099 / .235 / .415 | +0.54 | 0.84 GB |
 | 1.0 | 1.43M | .070 / .148 / .273 | .101 / .231 / .414 | +0.54 | 1.18 GB |
 | 0.8 | 2.23M | .074 / .146 / .266 | .101 / .221 / .406 | +0.54 | 1.66 GB |
-| 0.65 | 3.37M | (probe panicked) | | +0.54 | 2.38 GB |
+| 0.65 | 3.37M | .075 / .143 / .263 | .099 / .216 / .396 | +0.54 | 2.38 GB |
+
+(The F=0.65 row required fixing a `diagnose` KD-tree probe panic — see below. Its
+flat p90/p99 confirm the relief tail is converged through 3.37M cells.)
 
 **Converged.** The relief-bearing **tail (p90/p99) is flat across the 6× cell
 range**, and the top orogen peak is +0.54 at every scale — major relief does not
@@ -86,11 +111,13 @@ One metric still trends: **drainage-density wet/arid ratio rises 1.96→4.57** w
 resolution — finer meshes resolve more low-order channels in wet uplands. Worth a
 look if drainage texture matters.
 
-### Known issue surfaced
+### Known issue surfaced — FIXED
 
-`diagnose`'s final "Fine-scale local relief" probe **panics (exit 101) at ~3.37M
-cells** (F=0.65) — a KD-tree/indexing bug in the *diagnostic* itself (not
-world-gen; peak RSS 2.38 GB, not OOM). All other probes for that run are valid.
+`diagnose`'s final "Fine-scale local relief" probe panicked (exit 101) at ~3.37M
+cells (F=0.65): kiddo's `ImmutableKdTree::new_from_slice` hits `mid > len` on the
+near-coincident points that appear at multi-million-cell fine meshes. Fixed by
+switching that probe to the mutable `KdTree` (the pattern `fine.rs` already uses
+at the same scale). Verified clean at 3.37M cells.
 
 ## Reproduce
 

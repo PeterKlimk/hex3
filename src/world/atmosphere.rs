@@ -578,6 +578,28 @@ fn tangent_toward(from: Vec3, to: Vec3) -> Vec3 {
     }
 }
 
+/// Mean center-to-center arc length (radians) between adjacent cells — the mesh
+/// spacing `h` used to scale the projection sweep count by resolution.
+fn mean_neighbor_distance(tessellation: &Tessellation) -> f32 {
+    let mut total = 0.0f32;
+    let mut count = 0usize;
+    for i in 0..tessellation.num_cells() {
+        let pos_i = tessellation.cell_center(i);
+        for &j in tessellation.neighbors(i) {
+            if j > i {
+                let pos_j = tessellation.cell_center(j);
+                total += pos_i.dot(pos_j).clamp(-1.0, 1.0).acos();
+                count += 1;
+            }
+        }
+    }
+    if count > 0 {
+        total / count as f32
+    } else {
+        0.03
+    }
+}
+
 fn reverse_neighbor_indices(tessellation: &Tessellation) -> Vec<Vec<usize>> {
     let num_cells = tessellation.num_cells();
     let mut reverse = Vec::with_capacity(num_cells);
@@ -696,41 +718,63 @@ fn project_wind_field(
     // We apply a variable-coefficient Laplacian with conductance:
     // w_ij = (k_ij * L_ij) / d_ij
     // and solve: Σ w_ij (phi_j - phi_i) = divergence_i
+    //
+    // The conductances are constant across sweeps, so precompute them once. This
+    // lifts an acos (the d_ij arc length) out of the hot loop, making a higher
+    // sweep count cheap — which the resolution-adaptive count below relies on.
+    let mut weights: Vec<Vec<f32>> = Vec::with_capacity(num_cells);
+    let mut total_weight = vec![0.0f32; num_cells];
+    for i in 0..num_cells {
+        let pos = tessellation.cell_center(i);
+        let neighbors = tessellation.neighbors(i);
+        let mut wi = vec![0.0f32; neighbors.len()];
+        let mut tw = 0.0f32;
+        for (n_idx, &neighbor_id) in neighbors.iter().enumerate() {
+            let neighbor_pos = tessellation.cell_center(neighbor_id);
+            let dist = pos.dot(neighbor_pos).clamp(-1.0, 1.0).acos().max(EPSILON);
+            let rev_idx = reverse[i][n_idx];
+            let edge_len = 0.5 * (edge_lengths[i][n_idx] + edge_lengths[neighbor_id][rev_idx]);
+            let perm = 0.5 * (permeability[i][n_idx] + permeability[neighbor_id][rev_idx]);
+            let w = (edge_len * perm) / dist; // conductance (k_ij * edge_len) / dist
+            wi[n_idx] = w;
+            tw += w;
+        }
+        weights.push(wi);
+        total_weight[i] = tw;
+    }
+
+    // Resolution-adaptive sweep count. This is an UNSCREENED Poisson solve; with
+    // pure/under-relaxed Gauss-Seidel its low-frequency error decays ~O(1/h²) per
+    // sweep, so a FIXED count leaves the large-scale phi (and the convergence-
+    // derived uplift) under-developed on finer meshes — a measured uplift drift.
+    // Scale sweeps by (ref/h)² so the convergence LEVEL — hence phi and uplift —
+    // is mesh-independent.
+    let mean_h = mean_neighbor_distance(tessellation).max(1e-6);
+    let scale = (PROJECTION_REFERENCE_SPACING / mean_h).powi(2).max(1.0);
+    let iterations = ((PROJECTION_ITERATIONS as f32 * scale).round() as usize)
+        .clamp(PROJECTION_ITERATIONS, PROJECTION_MAX_ITERATIONS);
+    log::debug!(
+        "wind projection: mean_h={:.5}, sweeps={} (base {})",
+        mean_h,
+        iterations,
+        PROJECTION_ITERATIONS
+    );
+
     let mut phi = vec![0.0; num_cells];
-
-    for _ in 0..PROJECTION_ITERATIONS {
+    for _ in 0..iterations {
         for i in 0..num_cells {
-            let pos = tessellation.cell_center(i);
+            if total_weight[i] < EPSILON {
+                continue;
+            }
             let neighbors = tessellation.neighbors(i);
-            if neighbors.is_empty() {
-                continue;
-            }
-
+            let wi = &weights[i];
             let mut weighted_neighbor_sum = 0.0;
-            let mut total_weight = 0.0;
-
             for (n_idx, &neighbor_id) in neighbors.iter().enumerate() {
-                let neighbor_pos = tessellation.cell_center(neighbor_id);
-                let dist = pos.dot(neighbor_pos).clamp(-1.0, 1.0).acos().max(EPSILON);
-
-                let rev_idx = reverse[i][n_idx];
-                let edge_len = 0.5 * (edge_lengths[i][n_idx] + edge_lengths[neighbor_id][rev_idx]);
-                let perm = 0.5 * (permeability[i][n_idx] + permeability[neighbor_id][rev_idx]);
-
-                // Conductance weight: (k_ij * edge_len) / dist
-                let weight = (edge_len * perm) / dist;
-
-                weighted_neighbor_sum += weight * phi[neighbor_id];
-                total_weight += weight;
+                weighted_neighbor_sum += wi[n_idx] * phi[neighbor_id];
             }
 
-            if total_weight < EPSILON {
-                continue;
-            }
-
-            // From Σw(phi_j - phi_i) = div:
-            // phi_i = (Σw*phi_j - div) / Σw
-            let gs_value = (weighted_neighbor_sum - divergence[i]) / total_weight;
+            // From Σw(phi_j - phi_i) = div:  phi_i = (Σw*phi_j - div) / Σw
+            let gs_value = (weighted_neighbor_sum - divergence[i]) / total_weight[i];
 
             // SOR relaxation (omega=1.0 is pure Gauss-Seidel)
             phi[i] = (1.0 - SOR_OMEGA) * phi[i] + SOR_OMEGA * gs_value;

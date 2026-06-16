@@ -507,8 +507,23 @@ pub const PERMEABILITY_POWER: f32 = 2.0;
 /// out-rain interior mountain ranges.
 pub const OROGRAPHIC_FULL_HEIGHT: f32 = 0.15;
 
-/// Number of SOR iterations for projection solver.
+/// Base number of SOR sweeps for the wind-projection Poisson solve, applied at
+/// [`PROJECTION_REFERENCE_SPACING`]. The actual count scales up on finer meshes
+/// (see below).
 pub const PROJECTION_ITERATIONS: usize = 50;
+
+/// Mean-neighbour spacing (radians) at which [`PROJECTION_ITERATIONS`] sweeps
+/// converge the projection well. ~the 50k-cell spacing, where 50 sweeps already
+/// converge the uplift field. Finer meshes scale sweeps by (this / spacing)² —
+/// the projection is an UNSCREENED Poisson solve whose low-frequency Gauss-Seidel
+/// error decays ~O(1/h²) per sweep, so a fixed count under-develops large-scale
+/// `phi` (hence uplift) as resolution rises. Quadratic scaling holds the
+/// convergence level — and thus the field — mesh-independent.
+pub const PROJECTION_REFERENCE_SPACING: f32 = 0.018;
+
+/// Hard cap on the adaptive projection sweep count (bounds cost at very fine
+/// coarse meshes; the solve is on the coarse mesh only).
+pub const PROJECTION_MAX_ITERATIONS: usize = 800;
 
 /// SOR relaxation factor (1.0-1.9, higher = faster but less stable).
 pub const SOR_OMEGA: f32 = 1.0;
