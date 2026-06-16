@@ -162,6 +162,18 @@ irregularity and sub-grid detail the mechanism can't resolve. Noise as the
 thing the project exists to avoid. An "out" is acceptable to the degree it
 *decorates* the physical skeleton rather than *substituting* for it.
 
+**Micro/colour vs structural/macro — the higher bar.** Outs span a spectrum.
+*Micro* outs (surface roughness, talus texture, shading/colour detail) are
+low-stakes — they decorate and little rides on them. *Structural/macro* outs
+(landform-scale ridge grain, basins, whole drainage features placed procedurally)
+are higher-stakes but still acceptable **when they stand in for a real physical
+process or gap we can't or won't simulate** — not when they paper over our own
+discretization artifact. The test: does the macro out represent physics that
+genuinely exists and we've chosen not to model (e.g. fold-belt lithologic grain →
+ridge-and-valley texture), or is it masking a routing/mesh bug we'd rather fix?
+The former is a legitimate gap-filler; the latter is makeup on a wound — and the
+counters tell which.
+
 Acceptable outs (skeleton stays physical; noise is keyed to physical fields):
 
 - **Ridged multifractal noise (Musgrave) keyed to flow/slope/relief.** Adds
