@@ -43,7 +43,10 @@ fn main() {
         let t0 = Instant::now();
         let tess = Tessellation::generate_knn_clipping(n, 0, &mut rng);
         let t_tess = t0.elapsed();
-        println!("tessellation total (points + lloyd + voronoi + adjacency): {:.2?}", t_tess);
+        println!(
+            "tessellation total (points + lloyd + voronoi + adjacency): {:.2?}",
+            t_tess
+        );
 
         // How fast is s2-voronoi's own adjacency, vs hex3's build_adjacency?
         {
@@ -76,7 +79,11 @@ fn main() {
 
         let t0 = Instant::now();
         let areas = tess.cell_areas();
-        println!("cell areas: {:.2?} (sum {:.4})", t0.elapsed(), areas.iter().sum::<f32>());
+        println!(
+            "cell areas: {:.2?} (sum {:.4})",
+            t0.elapsed(),
+            areas.iter().sum::<f32>()
+        );
 
         // Synthetic elevation: smooth function of position + small hash noise,
         // enough structure for non-trivial drainage.

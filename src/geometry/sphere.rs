@@ -160,7 +160,10 @@ pub fn lloyd_relax_kmeans<R: Rng>(
         // serial adds are cheap next to the parallel NN queries.
         let site_of: Vec<u32> = samples
             .par_iter()
-            .map(|s| tree.approx_nearest_one::<SquaredEuclidean>(&[s.x, s.y, s.z]).item as u32)
+            .map(|s| {
+                tree.approx_nearest_one::<SquaredEuclidean>(&[s.x, s.y, s.z])
+                    .item as u32
+            })
             .collect();
 
         let mut sums = vec![Vec3::ZERO; n];

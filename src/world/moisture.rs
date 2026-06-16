@@ -187,9 +187,9 @@ pub fn simulate_moisture(
                 RAINOUT_CONVECTIVE * humidity * humidity * temp01[i]
             };
             let over_capacity = (m - capacity[i]).max(0.0);
-            let rain =
-                (react_dt * (m * (rain_rate[i] + convective) + over_capacity * OVERFLOW_RAINOUT))
-                    .min(m);
+            let rain = (react_dt
+                * (m * (rain_rate[i] + convective) + over_capacity * OVERFLOW_RAINOUT))
+                .min(m);
             m -= rain;
             // Evapotranspiration recycling returns part of land rain to the air.
             if !is_water[i] {

@@ -102,6 +102,47 @@ trivially parallel; the budget for the whole loop is ~10-15s at defaults.
 - `cargo test` green; unit-test the implicit incision step against a
   1-D analytic steady state (h' = (U/(K A^m))^(1/n) slope at equilibrium).
 
+### Roughness counters (artifact vs. genuine dissection)
+
+`roughness_report` (logged for `base ` then `eroded`, so read the delta) carries
+three counters that separate real fluvial dissection from discretization
+artifacts. Background: this loop uses single-flow-direction (SFD) stream-power
+incision plus a bare priority-flood receiver on flats. Both are known to
+manufacture texture that is *not* terrain:
+
+- **SFD** carves 1-cell-wide channels with no flow divergence, leaving 1-cell
+  ridges between them that hillslope diffusion may not erase. MFD is "believed
+  to be indispensable for development of tree-shaped river channel networks"
+  (Liu et al. 2025, *Geomorphology*); D8 "does not capture the transition from
+  smooth to dissected landscape" (Anand et al. 2020, *PNAS*).
+- **Flat drainage** via the priority-flood `flood_parent` wavefront (no
+  convergence term) produces *parallel / spiralling* flow — exactly the case
+  Barnes, Lehman & Mulla (2014, *Computers & Geosciences* 62:128–135) fix by
+  superimposing gradient-away-from-high + gradient-toward-low. Incising along
+  that wavefront carves spiral grooves into ground that should be flat.
+
+The counters:
+
+- **pit% / peak%** — interior strict local minima / maxima among land cells.
+  Pit% is the unambiguous artifact meter: a fully drained surface is ~0%, so a
+  rising pit% is the "swiss-cheese perforation" signal and the one Goodhart-safe
+  target (lower is unambiguously better). Peak% is split out because real
+  horns/spires are peaks too.
+- **checkerboard%** (+ curv-rms, elev-units) — share of land-land edges whose
+  endpoints have opposite discrete-curvature sign (a bump beside a dip): the
+  cell-scale high-low banding of SFD grooves. curv-rms is its amplitude.
+- **drainage aspect R / entropy** — over land cells with a downhill land
+  neighbour, mean-resultant length R (0 = isotropic) and normalized azimuth
+  entropy (1 = uniform) of steepest descent. Mesh-direction locking or a global
+  spiral bias pushes R up / entropy down. A *pure* spiral covers all azimuths,
+  so this catches global anisotropy, not local curl — judge spirals on the map
+  too.
+
+Decisive cheap experiments (both are runtime knobs via `diagnose`): rerun with
+`reroute_interval = 1` (if perforation/spiral drops, stale routing is implicated)
+and sweep `EROSION_DIFFUSIVITY` up 10–100× (if the checkerboard fills but macro
+dissection survives, the swiss-cheese was unsupported cell-scale ridges).
+
 ## Non-goals
 
 Glacial/coastal/aeolian processes, full sediment transport, stratigraphy,
