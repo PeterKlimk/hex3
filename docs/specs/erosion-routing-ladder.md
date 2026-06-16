@@ -146,6 +146,60 @@ uplift, and lithology fight it out locally ("network as output," a sibling of th
 
 ---
 
+## Exit ramps: non-physical "outs" (the off-ramp at any rung)
+
+The ladder is physics; it does not have to be climbed to the top. At any rung we
+can decide the *remaining* artifact is cosmetic and reach for an established
+graphical technique instead of more physics — "enough is enough." This is a
+legitimate **terminal** choice, not a failure: past some rung the marginal realism
+stops paying for the effort, and the residual sits below the scale anyone reads as
+"wrong physics."
+
+**The philosophy gate is input-vs-output** (the standing rule): procedural detail
+as an *input/modulator on top of the physical skeleton* is fine — it supplies the
+irregularity and sub-grid detail the mechanism can't resolve. Noise as the
+*output terrain* (replacing the erosion result with a procedural field) is the
+thing the project exists to avoid. An "out" is acceptable to the degree it
+*decorates* the physical skeleton rather than *substituting* for it.
+
+Acceptable outs (skeleton stays physical; noise is keyed to physical fields):
+
+- **Ridged multifractal noise (Musgrave) keyed to flow/slope/relief.** Adds
+  ridge-and-valley texture where the mesh is too coarse to dissect, *modulated by
+  the physical fields* (drainage, slope, lithologic grain) so it only appears
+  where plausible — a field-keyed layer, not a global one.
+- **Domain warping (Quílez).** Warp the sampling field with low-frequency noise to
+  break mesh-aligned / spiral regularity. A cheap disguise aimed precisely at
+  *discretization* artifacts (which is what the spiral/grooves are).
+- **Slope-/curvature-keyed detail noise.** High-frequency roughness gated by
+  steepness (talus on steep faces, smooth valley floors) — sub-mesh detail the
+  fine mesh has a hard floor on. The resolution floor is real; noise is the right
+  tool below it.
+- **Spectral sub-grid synthesis.** Synthesize detail below the mesh scale to a
+  target power spectrum (the fluvial ~β≈2 slope): "fill in below what the
+  mechanism determines."
+- **Game-dev hydraulic erosion as a cosmetic finishing pass** (droplet/grid, Mei
+  et al.). "Erosion-like" texturing, not the LEM — a heavier out; use only if it
+  reads better than the physical result at the same cost.
+
+The trap and the not-this:
+
+- **Ad-hoc blur / bilateral smoothing of the field** is the technique the
+  philosophy explicitly resists (a neighbour-blur was once called out as ad-hoc) —
+  it destroys emergent structure to hide a wound. Prefer a field-keyed modulator
+  over a destructive filter.
+- **Don't let a cosmetic out hide a structural bug we'd rather fix.** Measure with
+  the roughness counters before and after, so we know what we're masking: residual
+  sub-mesh texture is fine to decorate; a 5% pit field is a routing bug wearing
+  makeup.
+
+An out can also be **complementary, not terminal**: even after the MFD rungs,
+slope-keyed detail noise is the right tool for sub-mesh roughness the mesh
+fundamentally can't carry. "Physics down to the mesh floor, keyed noise below it"
+is a perfectly on-philosophy resting place.
+
+---
+
 ## Open decisions (user is the deciding vote)
 
 1. **Appetite for the full MFD-DAG rewrite (Rung 3)** now that it's de-risked, or
