@@ -113,6 +113,13 @@ struct Cli {
     #[arg(long, default_value_t = -1.0)]
     erosion_uplift_smooth: f32,
 
+    /// Roering nonlinear-hillslope critical slope S_c (escalation #2; Δelev/radian,
+    /// ~grade·637). Diffusivity blows up toward S_c -> planar slopes + crisp
+    /// ridges (vs linear-creep mush). <0 = default; 0 = off. Visual de-prickle
+    /// lever; sweep ~150-300. See docs/specs/erosion-escalations.md.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_hillslope_crit: f32,
+
     /// Legacy flag: equivalent to --stage 2
     #[arg(long, hide = true)]
     stage2: bool,
@@ -146,6 +153,8 @@ fn main() {
             .then_some(cli.erosion_channel_support),
         uplift_smooth_km: (cli.erosion_uplift_smooth >= 0.0)
             .then_some(cli.erosion_uplift_smooth),
+        hillslope_critical_slope: (cli.erosion_hillslope_crit >= 0.0)
+            .then_some(cli.erosion_hillslope_crit),
     };
     let fine_cache = if cli.no_fine_cache {
         FineCacheMode::Disabled

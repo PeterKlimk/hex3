@@ -82,6 +82,12 @@ struct Cli {
     /// docs/specs/erosion-uplift-smoothing.md.
     #[arg(long, default_value_t = -1.0)]
     erosion_uplift_smooth: f32,
+    /// Override Roering nonlinear-hillslope critical slope S_c (escalation #2;
+    /// Δelev/radian, ~grade·637). Diffusivity blows up toward S_c -> planar
+    /// slopes + crisp ridges. <0 = use EROSION_HILLSLOPE_CRITICAL_SLOPE default;
+    /// 0 = off (linear creep). Read curv-rms/peak% as you sweep ~150-300.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_hillslope_crit: f32,
     /// Override orographic precip modulation strength (climate↔erosion: windward
     /// wetter, lee drier). <0 = use OROGRAPHIC_PRECIP_STRENGTH; 0 = coarse precip.
     #[arg(long, default_value_t = -1.0)]
@@ -187,6 +193,9 @@ fn main() {
     }
     if cli.erosion_uplift_smooth >= 0.0 {
         world.erosion_params.uplift_smooth_km = cli.erosion_uplift_smooth;
+    }
+    if cli.erosion_hillslope_crit >= 0.0 {
+        world.erosion_params.hillslope_critical_slope = cli.erosion_hillslope_crit;
     }
     if cli.erosion_orographic_strength >= 0.0 {
         world.erosion_params.orographic_precip_strength = cli.erosion_orographic_strength;

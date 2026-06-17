@@ -64,6 +64,10 @@ pub struct ErosionParams {
     pub k: f32,
     /// Linear hillslope diffusivity.
     pub diffusivity: f32,
+    /// Roering nonlinear-hillslope critical slope S_c (Δelev/radian). Diffusivity
+    /// blows up as the cell slope nears S_c → planar slopes + crisp ridges. 0 =
+    /// off (linear creep). See `EROSION_HILLSLOPE_CRITICAL_SLOPE`.
+    pub hillslope_critical_slope: f32,
     /// Jacobi sweeps per implicit diffusion solve.
     pub diffusion_iters: usize,
     /// Re-route (and re-accumulate drainage area) every this many steps.
@@ -133,6 +137,7 @@ impl Default for ErosionParams {
             m: EROSION_M,
             k: EROSION_K,
             diffusivity: EROSION_DIFFUSIVITY,
+            hillslope_critical_slope: EROSION_HILLSLOPE_CRITICAL_SLOPE,
             diffusion_iters: EROSION_DIFFUSION_ITERS,
             reroute_interval: EROSION_REROUTE_INTERVAL,
             flat_resolution: EROSION_FLAT_RESOLUTION,
@@ -609,11 +614,13 @@ impl ErosionState {
         }
         self.t_incise += s.elapsed().as_secs_f64();
 
-        // 4. Diffuse (linear hillslope creep) on land, implicit Jacobi. Snapshot
-        //    first so the net volume it moves is auditable: interior diffusion is
-        //    conservative (symmetric edge fluxes), so this residual measures only
-        //    the no-flux clamp + finite-Jacobi non-convergence and should stay
-        //    small next to `eroded`.
+        // 4. Diffuse hillslope creep on land, implicit Jacobi. Linear by default;
+        //    with a critical slope set, the edge conductivity follows the Roering
+        //    nonlinear law (planar slopes + crisp ridges). Snapshot first so the
+        //    net volume it moves is auditable: interior diffusion is conservative
+        //    (symmetric edge fluxes — the κ multiplier is symmetric too), so this
+        //    residual measures only the no-flux clamp + finite-Jacobi
+        //    non-convergence and should stay small next to `eroded`.
         s = Instant::now();
         let pre_diff = elev.clone();
         diffuse_land(
@@ -624,6 +631,7 @@ impl ErosionState {
             self.params.dt,
             self.params.diffusivity,
             self.params.diffusion_iters,
+            self.params.hillslope_critical_slope,
         );
         self.total_diffused += (0..n)
             .map(|i| ((elev[i] - pre_diff[i]) * self.inv_slope * self.areas[i]) as f64)
@@ -1606,15 +1614,34 @@ fn incise_step_mfd(
     }
 }
 
-/// Linear hillslope diffusion on land cells, solved IMPLICITLY (backward Euler)
-/// with Jacobi sweeps. Edges to sinks are no-flux boundaries (no erosion into
-/// the ocean). Implicit is unconditionally stable, so the finest sliver cells
-/// can't force a substep blow-up the way an explicit CFL scheme would.
+/// Maximum slope ratio `S/S_c` the Roering conductivity is evaluated at. Clamping
+/// the ratio below 1 regularizes the `1/(1-(S/S_c)²)` singularity so the flux is
+/// bounded (here κ ≤ `1/(1-0.95²)` ≈ 10.3) — the explicit "denominator → 0
+/// cliff" the escalation trap warns about cannot fire. Slopes can still exceed
+/// S_c (they just transport ~10× faster), so the world never hard-facets.
+const ROERING_RATIO_MAX: f32 = 0.95;
+
+/// Hillslope diffusion on land cells, solved IMPLICITLY (backward Euler) with
+/// Jacobi sweeps. Edges to sinks are no-flux boundaries (no erosion into the
+/// ocean). Implicit is unconditionally stable, so the finest sliver cells can't
+/// force a substep blow-up the way an explicit CFL scheme would.
 ///
 /// Per cell the backward-Euler update is
-///   (1 + c_i) h_i^{new} = h_i^{old} + dt D / area_i * sum_j w_ij h_j^{new}
-/// with c_i = dt D / area_i * sum_j w_ij over land neighbours j. We approximate
+///   (1 + c_i) h_i^{new} = h_i^{old} + dt D / area_i * sum_j W_ij h_j^{new}
+/// with c_i = dt D / area_i * sum_j W_ij over land neighbours j. We approximate
 /// the coupled solve with a few Jacobi iterations (RHS h_old fixed).
+///
+/// `critical_slope` (S_c, Δelev/radian) selects the flux law via the edge
+/// conductivity `W_ij = κ_ij · w_ij`:
+/// - `0` → κ ≡ 1: linear creep `q = -D∇h` (the original behaviour).
+/// - `>0` → Roering nonlinear `κ_ij = 1/(1-(S_ij/S_c)²)`, with `S_ij` the edge
+///   slope from the lagged (pre-diffusion) surface `h_old`, regularized by
+///   `ROERING_RATIO_MAX`. Diffusivity blows up toward S_c → planar slopes, crisp
+///   ridges. κ is symmetric (`S_ij`, `w_ij` both symmetric) so the scheme stays
+///   conservative; frozen at `h_old` it is a semi-implicit (lagged-conductivity)
+///   linearization, and the diagonal stays strictly dominant so Jacobi converges
+///   at any κ magnitude.
+#[allow(clippy::too_many_arguments)]
 fn diffuse_land(
     elev: &mut [f32],
     routing: &Routing,
@@ -1623,12 +1650,32 @@ fn diffuse_land(
     dt: f32,
     diffusivity: f32,
     diffusion_iters: usize,
+    critical_slope: f32,
 ) {
     if diffusivity <= 0.0 {
         return;
     }
     let n = elev.len();
     let dd = diffusivity * dt;
+
+    // Lagged surface: the Roering edge conductivity is frozen at the slopes the
+    // diffusion step starts from (semi-implicit). Also the fixed Jacobi RHS.
+    let h_old = elev.to_vec();
+
+    // Effective edge conductivity W_ij = κ_ij · w_ij for the edge from cell i to
+    // its k-th neighbour nb. κ = 1 (linear) when critical_slope <= 0; otherwise
+    // the regularized Roering multiplier from the lagged edge slope.
+    let nonlinear = critical_slope > 0.0;
+    let weff = |i: usize, k: usize, nb: usize| -> f32 {
+        let w = geom.weight(i, k);
+        if !nonlinear {
+            return w;
+        }
+        let d = geom.dists(i)[k].max(1e-12);
+        let s = (h_old[i] - h_old[nb]).abs() / d;
+        let r = (s / critical_slope).min(ROERING_RATIO_MAX);
+        w / (1.0 - r * r)
+    };
 
     // Per-cell f_i = dt D / area_i and diagonal denominator (1 + c_i), counting
     // only land neighbours (sink edges are no-flux). Constant across sweeps.
@@ -1642,7 +1689,7 @@ fn diffuse_land(
         let mut wsum = 0.0f32;
         for (k, &nb) in geom.tess_neighbors(i).iter().enumerate() {
             if !routing.is_sink[nb] {
-                wsum += geom.weight(i, k);
+                wsum += weff(i, k, nb);
             }
         }
         (fi, 1.0 + fi * wsum)
@@ -1653,7 +1700,6 @@ fn diffuse_land(
         denom[i] = di;
     }
 
-    let h_old = elev.to_vec(); // fixed RHS
     let mut cur = h_old.clone();
     for _ in 0..diffusion_iters {
         let sweep = |i: usize| -> f32 {
@@ -1663,7 +1709,7 @@ fn diffuse_land(
             let mut acc = 0.0f32;
             for (k, &nb) in geom.tess_neighbors(i).iter().enumerate() {
                 if !routing.is_sink[nb] {
-                    acc += geom.weight(i, k) * cur[nb];
+                    acc += weff(i, k, nb) * cur[nb];
                 }
             }
             // Clamp to the cell's LOCAL base level (sea level, or a terminal-lake
@@ -1983,6 +2029,81 @@ mod tests {
             neighbors,
             dist,
             weight,
+        }
+    }
+
+    /// A minimal all-land chain routing (no sinks, base level far below) for
+    /// exercising `diffuse_land` in isolation.
+    fn open_chain_routing(n: usize) -> Routing {
+        Routing {
+            receiver: (0..n).collect(),
+            is_sink: vec![false; n],
+            dist: vec![0.0; n],
+            order: (0..n).collect(),
+            base_floor: vec![-1.0e9; n],
+            mfd: None,
+        }
+    }
+
+    /// Roering nonlinear diffusion (escalation #2) transports steep slopes faster
+    /// than linear creep — so a sharp step closes more in the same step — while
+    /// staying mass-conserving (no sinks, no base-level clamp).
+    #[test]
+    fn roering_flattens_steep_step_faster_than_linear() {
+        let n = 6usize;
+        let geom = chain_geom(n);
+        let areas = vec![1.0f32; n];
+        let routing = open_chain_routing(n);
+        // Flat-step-flat: only the middle edge (2->3) carries a slope of 1.0
+        // (dist = 1 radian), so linear and Roering differ only there.
+        let init = || vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0];
+        let (dt, d, iters) = (1.0f32, 0.1f32, 30usize);
+
+        let mut lin = init();
+        diffuse_land(&mut lin, &routing, &geom, &areas, dt, d, iters, 0.0);
+        let mut roe = init();
+        // S_c just above the step slope -> the middle edge sits near critical
+        // (kappa ~10x), the flat edges stay ~linear.
+        diffuse_land(&mut roe, &routing, &geom, &areas, dt, d, iters, 1.05);
+
+        let step_lin = lin[3] - lin[2];
+        let step_roe = roe[3] - roe[2];
+        assert!(
+            step_roe < step_lin,
+            "Roering should close the steep step faster: linear {step_lin}, roering {step_roe}"
+        );
+
+        let s0: f32 = init().iter().sum();
+        let sl: f32 = lin.iter().sum();
+        let sr: f32 = roe.iter().sum();
+        assert!(
+            (sl - s0).abs() < 1e-3 && (sr - s0).abs() < 1e-3,
+            "diffusion must conserve mass: init {s0}, linear {sl}, roering {sr}"
+        );
+    }
+
+    /// With the critical slope off (0), `diffuse_land` is bit-identical to the
+    /// original linear scheme — escalation #2 is a no-op when disabled.
+    #[test]
+    fn roering_off_matches_linear() {
+        let n = 6usize;
+        let geom = chain_geom(n);
+        let areas = vec![1.0f32; n];
+        let routing = open_chain_routing(n);
+        let init = vec![0.0, 0.2, 0.9, 0.3, 0.7, 0.1];
+
+        let mut a = init.clone();
+        diffuse_land(&mut a, &routing, &geom, &areas, 1.0, 0.1, 10, 0.0);
+        // A huge S_c keeps every kappa ~1, so it must match linear closely.
+        let mut b = init.clone();
+        diffuse_land(&mut b, &routing, &geom, &areas, 1.0, 0.1, 10, 1.0e9);
+        for i in 0..n {
+            assert!(
+                (a[i] - b[i]).abs() < 1e-6,
+                "huge S_c should equal linear at cell {i}: {} vs {}",
+                a[i],
+                b[i]
+            );
         }
     }
 

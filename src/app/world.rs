@@ -127,6 +127,7 @@ pub struct ErosionOverrides {
     pub diffusivity: Option<f32>,
     pub channel_support_km2: Option<f32>,
     pub uplift_smooth_km: Option<f32>,
+    pub hillslope_critical_slope: Option<f32>,
 }
 
 impl ErosionOverrides {
@@ -151,6 +152,9 @@ impl ErosionOverrides {
         }
         if let Some(s) = self.uplift_smooth_km {
             world.erosion_params.uplift_smooth_km = s;
+        }
+        if let Some(sc) = self.hillslope_critical_slope {
+            world.erosion_params.hillslope_critical_slope = sc;
         }
     }
 }

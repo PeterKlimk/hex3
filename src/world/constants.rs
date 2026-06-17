@@ -740,6 +740,39 @@ pub const EROSION_K: f32 = 4.0e-2;
 /// incision produces. Up = rounder/smoother; toward 0 = sharper but speckle-prone.
 pub const EROSION_DIFFUSIVITY: f32 = 2.0e-8;
 
+/// Roering nonlinear-hillslope critical slope S_c (escalation #2,
+/// docs/specs/erosion-escalations.md). Linear creep (EROSION_DIFFUSIVITY) rounds
+/// every ridge into mush and can't hold a crest against constantly-regenerated
+/// relief without over-smoothing everything. The Roering, Kirchner & Dietrich
+/// (1999) flux law `q = -D ∇h / (1 - (|∇h|/S_c)²)` instead lets the creep
+/// diffusivity blow up as the slope approaches a critical angle S_c: gentle
+/// slopes creep ~linearly (`q ≈ -D∇h`), but slopes near S_c transport so fast
+/// they can't get steeper — so hillslopes become PLANAR and ridgelines CRISP
+/// (the angle-of-repose facet) instead of rounded. This gives channel initiation
+/// a credible, physically-limited hillslope to compete against (must precede the
+/// channelization escalation #4).
+///
+/// Implemented as a slope-dependent conductivity multiplier `κ = 1/(1-(S/S_c)²)`
+/// on the existing implicit edge weights, with the ratio `S/S_c` regularized
+/// (clamped below 1) so the flux is bounded near S_c — the explicit singularity
+/// the trap warns about can't fire. `κ ≡ 1` when this is 0, recovering the exact
+/// linear diffusion above, so 0 = OFF (current behaviour).
+///
+/// UNITS: code slope = Δelevation / Δradian (the diffusion's native units, same
+/// as EROSION_DEPOSITION_SLOPE), NOT a dimensionless grade. Convert a physical
+/// hillslope grade (rise/run) via `S_code ≈ grade · R / (m per elev-unit)` =
+/// `grade · 6.371e6 / 1e4 ≈ grade · 637` (canonical ~10 km/elev-unit). So a
+/// ~30-45° angle-of-repose grade (0.6-1.0) is S_code ≈ 380-640. CAVEAT: this acts
+/// on CELL-TO-CELL slopes (~1.5 km mountain cells), which are gentler than true
+/// sub-cell hillslope angles — the eroded mesh's steepest cell slopes sit near
+/// S_code ~290 (grade ~0.45) — so to bite on the steepest cells the starting band
+/// is lower, S_code ~150-300 (grade ~0.24-0.47). Default off; calibrate via
+/// `--erosion-hillslope-crit` against the curv-rms / peak% roughness counters
+/// (crisper, more planar ridges should LOWER cell-scale curvature, unlike the #1
+/// source smoothing which was a no-op). Watch the trap: too low → a
+/// "critical-slope-everywhere" tiled-facet world.
+pub const EROSION_HILLSLOPE_CRITICAL_SLOPE: f32 = 0.0;
+
 /// Jacobi sweeps used to approximate the implicit diffusion solve each step.
 /// More = closer to the exact backward-Euler smoothing. Verified ample at 6
 /// (seed 12345, --fine-max 300000, --erosion-diffusion-iters sweep): 6 -> 24
