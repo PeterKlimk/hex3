@@ -75,6 +75,13 @@ struct Cli {
     /// default; 0 = relaxation only (no uplift).
     #[arg(long, default_value_t = -1.0)]
     erosion_uplift_scale: f32,
+    /// Override uplift-FORCING smoothing length (km). Escalation #1: smooths the
+    /// per-step uplift source over a sub-grid orogenic width to kill mountain-top
+    /// cell-scale chatter without flattening orogens. <0 = use
+    /// EROSION_UPLIFT_SMOOTH_KM default; 0 = off. See
+    /// docs/specs/erosion-uplift-smoothing.md.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_uplift_smooth: f32,
     /// Override orographic precip modulation strength (climate↔erosion: windward
     /// wetter, lee drier). <0 = use OROGRAPHIC_PRECIP_STRENGTH; 0 = coarse precip.
     #[arg(long, default_value_t = -1.0)]
@@ -177,6 +184,9 @@ fn main() {
     }
     if cli.erosion_uplift_scale >= 0.0 {
         world.erosion_params.uplift_scale = cli.erosion_uplift_scale;
+    }
+    if cli.erosion_uplift_smooth >= 0.0 {
+        world.erosion_params.uplift_smooth_km = cli.erosion_uplift_smooth;
     }
     if cli.erosion_orographic_strength >= 0.0 {
         world.erosion_params.orographic_precip_strength = cli.erosion_orographic_strength;

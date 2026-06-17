@@ -126,6 +126,7 @@ pub struct ErosionOverrides {
     pub k: Option<f32>,
     pub diffusivity: Option<f32>,
     pub channel_support_km2: Option<f32>,
+    pub uplift_smooth_km: Option<f32>,
 }
 
 impl ErosionOverrides {
@@ -147,6 +148,9 @@ impl ErosionOverrides {
         }
         if let Some(c) = self.channel_support_km2 {
             world.erosion_params.channel_support_km2 = c;
+        }
+        if let Some(s) = self.uplift_smooth_km {
+            world.erosion_params.uplift_smooth_km = s;
         }
     }
 }

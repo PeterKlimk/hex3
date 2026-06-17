@@ -830,6 +830,36 @@ pub const EROSION_CONFINEMENT_SLOPE: f32 = 0.0;
 /// taller, more actively-rising orogens.
 pub const EROSION_UPLIFT_SCALE: f32 = 0.003;
 
+/// Forcing-smoothing length (km) for the tectonic uplift SOURCE, applied once in
+/// `ErosionState::new` before the step loop. Escalation #1
+/// (docs/specs/erosion-uplift-smoothing.md): the per-step uplift source
+/// `u_thick = SCALE·((arc+collision)/slope + rift_delta)` is built from coarse
+/// feature fields interpolated onto the fine mesh; if that handoff carries
+/// wavelengths below the landform scale, erosion re-injects high-frequency
+/// tectonic "work" every step and the orogens equilibrate with cell-scale chatter
+/// ("swiss cheese"). Component-isolation pinned uplift as the dominant mountain-top
+/// bump source. So we smooth the FORCING — never the final elevation — over a
+/// physically-named length: the sub-grid orogenic forcing width (real tectonic
+/// uplift is smooth at cell scale; sub-cell variation is unmodelled detail).
+///
+/// Mechanism: a conservative, area-weighted graph diffusion of `u_thick` within
+/// the LAND mask (no-flux at the coastline, so uplift never bleeds onto submerged
+/// cells and the integrated area-weighted uplift is preserved exactly). Because
+/// the diffusion is linear, smoothing the combined source is identical to
+/// smoothing arc/collision/rift_delta separately and recombining — the signed
+/// rift thinning superposes correctly with the positive orogen uplift (no
+/// magnitude blur, so the trap of rift thinning bleeding into orogen uplift does
+/// not arise). The length is the kernel's Gaussian std-dev (variance 2·D·τ per
+/// axis), so e.g. 30 km smooths sub-30 km source chatter while leaving the macro
+/// orogen front intact.
+///
+/// 0 = off (current behaviour — the source enters erosion unsmoothed). Calibrate
+/// to the cell/landform scale (a few × the fine mountain-cell size): enough to
+/// kill sub-landform speckle (`morans_i(u_thick)` rises toward smooth), not so
+/// much that it rounds the genuine orogen front or flattens peaks. Exposed via
+/// `ErosionParams` + diagnose/app (`--erosion-uplift-smooth`) for A/B.
+pub const EROSION_UPLIFT_SMOOTH_KM: f32 = 0.0;
+
 /// Fraction of a terminal sink's depth-to-base-level (sea level, or a lake
 /// surface) that routed sediment may fill (delta / lake-infill building at the
 /// mouth). Sediment beyond this cap is "lost to the ocean" for the mass-balance

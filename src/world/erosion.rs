@@ -80,6 +80,10 @@ pub struct ErosionParams {
     pub confinement_slope: f32,
     /// Tectonic uplift source scale (thickness units).
     pub uplift_scale: f32,
+    /// Forcing-smoothing length (km) for the uplift SOURCE, applied once before the
+    /// step loop (conservative land-masked diffusion of `u_thick`). 0 = off. See
+    /// `EROSION_UPLIFT_SMOOTH_KM` / docs/specs/erosion-uplift-smoothing.md.
+    pub uplift_smooth_km: f32,
     /// Fraction of a sink's depth-to-base-level that deposition may fill.
     pub deposit_fill_fraction: f32,
     /// Depositional repose slope (elevation per radian). En route to the sea/lakes,
@@ -135,6 +139,7 @@ impl Default for ErosionParams {
             mfd_exponent: EROSION_MFD_EXPONENT,
             confinement_slope: EROSION_CONFINEMENT_SLOPE,
             uplift_scale: EROSION_UPLIFT_SCALE,
+            uplift_smooth_km: EROSION_UPLIFT_SMOOTH_KM,
             deposit_fill_fraction: EROSION_DEPOSIT_FILL_FRACTION,
             deposition_slope: EROSION_DEPOSITION_SLOPE,
             channel_support_km2: EROSION_CHANNEL_SUPPORT_KM2,
@@ -381,7 +386,7 @@ impl ErosionState {
         // land, breaking the fixed sea-level datum. (Terminal-lake sinks are left
         // uplifting: those are either sub-sea-level — already excluded — or genuinely
         // tectonically active basins where uplift/inversion is physical.)
-        let u_thick: Vec<f32> = (0..n)
+        let mut u_thick: Vec<f32> = (0..n)
             .map(|i| {
                 if base[i] < 0.0 {
                     return 0.0;
@@ -392,6 +397,27 @@ impl ErosionState {
             .collect();
 
         let areas = tess.cell_areas();
+        let geom = NeighborGeometry::build(tess);
+
+        // Escalation #1: smooth the uplift FORCING (never the final elevation) over
+        // a physically-named length — the sub-grid orogenic forcing width. The
+        // coarse->fine handoff can speckle the source below the landform scale;
+        // erosion then re-injects that high-frequency tectonic work every step and
+        // the orogens carry cell-scale chatter. A conservative, land-masked
+        // diffusion of `u_thick` removes the sub-landform speckle while preserving
+        // the integrated (area-weighted) uplift exactly. See
+        // docs/specs/erosion-uplift-smoothing.md.
+        if params.uplift_smooth_km > 0.0 {
+            let before = tess.morans_i(&u_thick);
+            smooth_uplift_source(&mut u_thick, &geom, &areas, base, params.uplift_smooth_km);
+            let after = tess.morans_i(&u_thick);
+            log::info!(
+                "erosion: uplift source smoothed over {:.1} km — Moran's I {:.4} -> {:.4}",
+                params.uplift_smooth_km,
+                before,
+                after
+            );
+        }
 
         // Channel-initiation threshold. The knob is a geometric support area
         // (km²) at MEAN land wetness; convert it to a discharge (precip x
@@ -437,7 +463,6 @@ impl ErosionState {
                 .collect::<Vec<f32>>()
         };
 
-        let geom = NeighborGeometry::build(tess);
         let thick = thick_init.clone();
 
         Self {
@@ -1659,6 +1684,112 @@ fn diffuse_land(
     elev.copy_from_slice(&cur);
 }
 
+/// Smooth the tectonic uplift SOURCE in place over a physical length scale
+/// (`smooth_km`), once, before the erosion step loop (escalation #1). Mechanism:
+/// a conservative finite-volume graph diffusion of `u_thick` restricted to the
+/// LAND mask (`base >= 0`), with no-flux at the coastline — so uplift never
+/// spreads onto submerged cells (which would manufacture spurious land) and the
+/// area-weighted integral `Σ area_i · u_thick_i` over land is preserved exactly
+/// (the edge fluxes `w_ij·(u_j − u_i)` are antisymmetric; `w_ij = w_ji`).
+///
+/// The diffusion is linear, so smoothing the combined source is identical to
+/// smoothing arc/collision/rift_delta separately and recombining — the signed
+/// rift thinning superposes correctly with the positive orogen uplift (no
+/// magnitude blur). `smooth_km` is the Gaussian std-dev of the kernel: for 2-D
+/// isotropic diffusion the per-axis variance after "time" τ is `2·D·τ`, so we
+/// target a diffusion product `D·τ = L²/2` with `L = smooth_km / R` in the
+/// chord/radian units the geometry uses. The product is integrated with enough
+/// explicit sub-steps to stay below the FV stability limit.
+fn smooth_uplift_source(
+    u_thick: &mut [f32],
+    geom: &NeighborGeometry,
+    areas: &[f32],
+    base: &[f32],
+    smooth_km: f32,
+) {
+    let n = u_thick.len();
+    let land = |i: usize| base[i] >= 0.0;
+
+    // Target diffusion product D·τ = L²/2 with L the smoothing length in the
+    // geometry's units (chord ≈ radian on the unit sphere). Reject non-finite /
+    // non-positive lengths (a NaN/inf knob would otherwise blow up the sub-step
+    // count below).
+    if !smooth_km.is_finite() || smooth_km <= 0.0 {
+        return;
+    }
+    let l = smooth_km / PLANET_RADIUS_KM;
+    let g_total = 0.5 * l * l;
+    if g_total <= 0.0 {
+        return;
+    }
+
+    // Lumped per-cell coefficient c_i = (1/area_i) Σ_{j land} w_ij (units 1/len²),
+    // counting only land neighbours (no-flux at the coast). Explicit FV stability
+    // wants g_sub · c_i ≤ ~0.5; pick the sub-step count from the worst cell.
+    let mut c = vec![0.0f32; n];
+    let mut c_max = 0.0f32;
+    for i in 0..n {
+        if !land(i) {
+            continue;
+        }
+        let mut wsum = 0.0f32;
+        for (k, &nb) in geom.tess_neighbors(i).iter().enumerate() {
+            if land(nb) {
+                wsum += geom.weight(i, k);
+            }
+        }
+        let ci = wsum / areas[i].max(1e-12);
+        c[i] = ci;
+        c_max = c_max.max(ci);
+    }
+    if c_max <= 0.0 {
+        return;
+    }
+    // Sub-step count from the worst cell's stability bound (g_sub·c_max ≤ 0.4).
+    // Capped so an absurdly large length (typo, or calibration overshoot) can't
+    // silently spin millions of full-mesh sweeps: above the cap we keep the
+    // stable per-step amount and under-smooth (logged), rather than hang. At the
+    // cap the achieved length is ~sqrt(2·N_SUB_MAX·0.4/c_max).
+    const N_SUB_MAX: usize = 20_000;
+    let g_sub_stable = 0.4 / c_max;
+    let n_sub_ideal = (g_total / g_sub_stable).ceil() as usize;
+    let n_sub = n_sub_ideal.clamp(1, N_SUB_MAX);
+    // Never exceed the stable step: if capped, g_sub == g_sub_stable (under-smooth).
+    let g_sub = (g_total / n_sub as f32).min(g_sub_stable);
+    if n_sub_ideal > N_SUB_MAX {
+        let achieved_l = (2.0 * n_sub as f32 * g_sub).sqrt() * PLANET_RADIUS_KM;
+        log::warn!(
+            "erosion: uplift smoothing {:.0} km exceeds the {} sub-step cap; \
+             clamped to ~{:.0} km (raise N_SUB_MAX or lower the length)",
+            smooth_km,
+            N_SUB_MAX,
+            achieved_l
+        );
+    }
+
+    let mut cur = u_thick.to_vec();
+    for _ in 0..n_sub {
+        let sweep = |i: usize| -> f32 {
+            if !land(i) {
+                return cur[i];
+            }
+            let mut acc = 0.0f32;
+            for (k, &nb) in geom.tess_neighbors(i).iter().enumerate() {
+                if land(nb) {
+                    acc += geom.weight(i, k) * (cur[nb] - cur[i]);
+                }
+            }
+            cur[i] + g_sub / areas[i].max(1e-12) * acc
+        };
+        #[cfg(not(feature = "single-threaded"))]
+        let next: Vec<f32> = (0..n).into_par_iter().map(sweep).collect();
+        #[cfg(feature = "single-threaded")]
+        let next: Vec<f32> = (0..n).map(sweep).collect();
+        cur = next;
+    }
+    u_thick.copy_from_slice(&cur);
+}
+
 /// Transport-aware deposition. Routes eroded sediment downstream; along the way,
 /// where the bed lies below the surface that grades to the receiver at the
 /// depositional repose slope (low-gradient reaches: valley floors, alluvial fans
@@ -1826,6 +1957,90 @@ impl NeighborGeometry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A 1-D chain neighbour geometry (cell i adjacent to i±1) with unit edge
+    /// lengths and distances, for testing the conservative source smoothing.
+    fn chain_geom(n: usize) -> NeighborGeometry {
+        let mut offsets = vec![0usize];
+        let mut neighbors = Vec::new();
+        let mut dist = Vec::new();
+        let mut weight = Vec::new();
+        for i in 0..n {
+            if i > 0 {
+                neighbors.push(i - 1);
+                dist.push(1.0);
+                weight.push(1.0);
+            }
+            if i + 1 < n {
+                neighbors.push(i + 1);
+                dist.push(1.0);
+                weight.push(1.0);
+            }
+            offsets.push(neighbors.len());
+        }
+        NeighborGeometry {
+            offsets,
+            neighbors,
+            dist,
+            weight,
+        }
+    }
+
+    /// Uplift-source smoothing (escalation #1) conserves the area-weighted integral
+    /// of the source exactly and actually spreads an impulse (variance falls).
+    #[test]
+    fn uplift_smoothing_conserves_and_spreads() {
+        let n = 9usize;
+        let geom = chain_geom(n);
+        let areas = vec![1.0f32; n];
+        let base = vec![0.0f32; n]; // all land
+        let mut u = vec![0.0f32; n];
+        u[n / 2] = 1.0; // impulse at center
+
+        let sum_before: f32 = u.iter().sum();
+        let peak_before = u[n / 2];
+        // Length is in km; the geometry's units are abstract here, so pick a km
+        // that makes L = km/R = 1 (g_total = 0.5) — a moderate spread.
+        smooth_uplift_source(&mut u, &geom, &areas, &base, PLANET_RADIUS_KM);
+        let sum_after: f32 = u.iter().sum();
+
+        assert!(
+            (sum_after - sum_before).abs() < 1e-5,
+            "integrated uplift not conserved: {sum_before} -> {sum_after}"
+        );
+        assert!(
+            u[n / 2] < peak_before,
+            "impulse peak did not spread: {peak_before} -> {}",
+            u[n / 2]
+        );
+        assert!(u[n / 2 - 1] > 0.0 && u[n / 2 + 1] > 0.0, "neighbours not lifted");
+    }
+
+    /// The land mask is no-flux: uplift never bleeds onto submerged cells, so the
+    /// land integral is conserved without leaking into the ocean.
+    #[test]
+    fn uplift_smoothing_respects_land_mask() {
+        let n = 6usize;
+        let geom = chain_geom(n);
+        let areas = vec![1.0f32; n];
+        // Cells 0..3 land, 3..6 ocean (base < 0).
+        let base = vec![0.0, 0.0, 0.0, -1.0, -1.0, -1.0];
+        let mut u = vec![0.0, 0.0, 1.0, 0.0, 0.0, 0.0];
+
+        let land_sum_before: f32 = (0..3).map(|i| u[i]).sum();
+        smooth_uplift_source(&mut u, &geom, &areas, &base, PLANET_RADIUS_KM);
+        let land_sum_after: f32 = (0..3).map(|i| u[i]).sum();
+
+        assert!(
+            (land_sum_after - land_sum_before).abs() < 1e-5,
+            "land uplift leaked across the coast: {land_sum_before} -> {land_sum_after}"
+        );
+        assert!(
+            u[3] == 0.0 && u[4] == 0.0 && u[5] == 0.0,
+            "uplift bled onto submerged cells: {:?}",
+            &u[3..]
+        );
+    }
 
     /// A 1-D chain (cell i drains to i+1, last cell is fixed base level) relaxes
     /// to the stream-power steady state: adjacent drop = U d / (K A^m) with n=1.

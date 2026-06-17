@@ -32,7 +32,7 @@ Headless metrics now exist for both axes: local relief in meters vs Earth
 
 | # | Escalation | Why here / depends on | Scope | Status |
 |---|---|---|---|---|
-| 1 | **Uplift-forcing smoothing** | Targets the *confirmed* bump source; regularizes the tectonic forcing scale. Precede everything — else every later mechanism reacts to a noisy source. | small | next |
+| 1 | **Uplift-forcing smoothing** | Targets the *confirmed* bump source; regularizes the tectonic forcing scale. Precede everything — else every later mechanism reacts to a noisy source. | small | **built; A/B = no-op on bumps** — source already smooth (Moran's I 0.992); uplift prickle is *magnitude*, not source speckle. Default-off infra; the de-prickle lever is #2. See erosion-uplift-smoothing.md §Result. |
 | 2 | **Nonlinear (Roering) hillslope diffusion** | Planar slopes + crisp, physically-limited ridges vs linear-diffusion mush. Gives channel-initiation a *credible* hillslope to compete against → must precede #4. | medium | — |
 | — | **▶ EVALUATION GATE** | Build 1+2, then stop and look. Mountains "still busy but no longer prickly" → proceed. Still prickly → the issue is forcing/incision scale, not river mechanics — rethink before building more. | — | — |
 | 3 | **Transport-limited ⇄ detachment-limited blend** | Makes alluvial behaviour a first-class regime (floodplains/fans/deltas/valley-fill), not a downstream afterthought. Subsumes the Phase-1 regime gate. Precede #4 and #5. | med–large | — |

@@ -106,6 +106,13 @@ struct Cli {
     #[arg(long, default_value_t = -1.0)]
     erosion_channel_support: f32,
 
+    /// Uplift-FORCING smoothing length (km; escalation #1). Smooths the per-step
+    /// tectonic uplift source over a sub-grid orogenic width to remove mountain-top
+    /// cell-scale "swiss cheese" without flattening orogens. <0 = default; 0 = off.
+    /// See docs/specs/erosion-uplift-smoothing.md.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_uplift_smooth: f32,
+
     /// Legacy flag: equivalent to --stage 2
     #[arg(long, hide = true)]
     stage2: bool,
@@ -137,6 +144,8 @@ fn main() {
         diffusivity: (cli.erosion_diffusivity >= 0.0).then_some(cli.erosion_diffusivity),
         channel_support_km2: (cli.erosion_channel_support >= 0.0)
             .then_some(cli.erosion_channel_support),
+        uplift_smooth_km: (cli.erosion_uplift_smooth >= 0.0)
+            .then_some(cli.erosion_uplift_smooth),
     };
     let fine_cache = if cli.no_fine_cache {
         FineCacheMode::Disabled
