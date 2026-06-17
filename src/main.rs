@@ -120,6 +120,30 @@ struct Cli {
     #[arg(long, default_value_t = -1.0)]
     erosion_hillslope_crit: f32,
 
+    /// Hillslope-diffusion Jacobi sweeps per step (default 6). 0 = default. LOWER =
+    /// cheaper diffuse phase; 6->3 measured metric-equivalent (incision percentiles
+    /// byte-identical) — a near-free speedup, visual-confirm it.
+    #[arg(long, default_value_t = 0)]
+    erosion_diffusion_iters: usize,
+
+    /// Steps between drainage re-routings (default 6). 0 = default; 1 = re-route
+    /// every step. HIGHER = cheaper route phase; 6->12 measured near-equivalent
+    /// (~3-5% incision drift). Visual-A/B the speedup.
+    #[arg(long, default_value_t = 0)]
+    erosion_reroute_interval: usize,
+
+    /// Fluvial step count per precip pass (default 60). 0 = default. FEWER = cheaper
+    /// AND less-mature / less-dissected terrain (erosion is still evolving at 60, not
+    /// converged) — a perf x "less busy" fidelity dial, not free.
+    #[arg(long, default_value_t = 0)]
+    erosion_steps: usize,
+
+    /// Coupled erode<->precip feedback passes (default 2). 0 = default; 1 = no
+    /// feedback (halves total erosion, but +16% incision / pricklier — the 2nd pass
+    /// does anti-prickle healing). Fidelity dial, not free.
+    #[arg(long, default_value_t = 0)]
+    erosion_precip_iters: usize,
+
     /// Legacy flag: equivalent to --stage 2
     #[arg(long, hide = true)]
     stage2: bool,
@@ -155,6 +179,11 @@ fn main() {
             .then_some(cli.erosion_uplift_smooth),
         hillslope_critical_slope: (cli.erosion_hillslope_crit >= 0.0)
             .then_some(cli.erosion_hillslope_crit),
+        diffusion_iters: (cli.erosion_diffusion_iters > 0).then_some(cli.erosion_diffusion_iters),
+        reroute_interval: (cli.erosion_reroute_interval > 0)
+            .then_some(cli.erosion_reroute_interval),
+        steps: (cli.erosion_steps > 0).then_some(cli.erosion_steps),
+        precip_outer_iters: (cli.erosion_precip_iters > 0).then_some(cli.erosion_precip_iters),
     };
     let fine_cache = if cli.no_fine_cache {
         FineCacheMode::Disabled

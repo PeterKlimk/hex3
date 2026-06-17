@@ -128,6 +128,10 @@ pub struct ErosionOverrides {
     pub channel_support_km2: Option<f32>,
     pub uplift_smooth_km: Option<f32>,
     pub hillslope_critical_slope: Option<f32>,
+    pub diffusion_iters: Option<usize>,
+    pub reroute_interval: Option<usize>,
+    pub steps: Option<usize>,
+    pub precip_outer_iters: Option<usize>,
 }
 
 impl ErosionOverrides {
@@ -155,6 +159,18 @@ impl ErosionOverrides {
         }
         if let Some(sc) = self.hillslope_critical_slope {
             world.erosion_params.hillslope_critical_slope = sc;
+        }
+        if let Some(i) = self.diffusion_iters {
+            world.erosion_params.diffusion_iters = i;
+        }
+        if let Some(r) = self.reroute_interval {
+            world.erosion_params.reroute_interval = r;
+        }
+        if let Some(n) = self.steps {
+            world.erosion_params.steps = n;
+        }
+        if let Some(p) = self.precip_outer_iters {
+            world.erosion_params.precip_outer_iters = p;
         }
     }
 }
