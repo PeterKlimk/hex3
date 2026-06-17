@@ -343,6 +343,13 @@ pub(crate) struct ErosionState {
     /// tolerates a receiver that has gone non-downhill as the surface evolves.
     routing: Option<Routing>,
     area: Vec<f32>,
+    /// Per-step scratch buffers (elevation working copy + two snapshots + the
+    /// eroded-volume accumulator), reused across steps via `mem::take` to avoid
+    /// reallocating ~4xN floats every step. Contents are overwritten each step.
+    scratch_elev: Vec<f32>,
+    scratch_pre: Vec<f32>,
+    scratch_eroded: Vec<f32>,
+    scratch_pre_diff: Vec<f32>,
     step: usize,
     /// Set once a route finds no sinks (all-land world): nothing to erode toward.
     halted: bool,
@@ -487,6 +494,10 @@ impl ErosionState {
             thick,
             routing: None,
             area: Vec::new(),
+            scratch_elev: vec![0.0f32; n],
+            scratch_pre: vec![0.0f32; n],
+            scratch_eroded: vec![0.0f32; n],
+            scratch_pre_diff: vec![0.0f32; n],
             step: 0,
             halted: false,
             total_eroded: 0.0,
@@ -509,9 +520,18 @@ impl ErosionState {
     }
 
     fn derive_elev(&self) -> Vec<f32> {
-        (0..self.n)
-            .map(|i| self.base[i] + self.slope * (self.thick[i] - self.thick_init[i]))
-            .collect()
+        let mut out = Vec::with_capacity(self.n);
+        self.derive_elev_into(&mut out);
+        out
+    }
+
+    /// Write the derived elevation into `out` (reusing its allocation), avoiding
+    /// the per-step Vec allocation of [`derive_elev`]. Byte-identical to it.
+    fn derive_elev_into(&self, out: &mut Vec<f32>) {
+        out.clear();
+        out.extend(
+            (0..self.n).map(|i| self.base[i] + self.slope * (self.thick[i] - self.thick_init[i])),
+        );
     }
 
     /// Advance `n_steps` steps, stopping early once a route finds no sinks.
@@ -526,8 +546,14 @@ impl ErosionState {
 
     fn advance_one(&mut self) {
         let n = self.n;
+        // Reusable per-step scratch (taken before `routing` is borrowed so the
+        // borrows stay disjoint); restored at the end / on the early return.
+        let mut elev = std::mem::take(&mut self.scratch_elev);
+        let mut pre = std::mem::take(&mut self.scratch_pre);
+        let mut eroded_vol = std::mem::take(&mut self.scratch_eroded);
+        let mut pre_diff = std::mem::take(&mut self.scratch_pre_diff);
         let mut s = Instant::now();
-        let mut elev = self.derive_elev();
+        self.derive_elev_into(&mut elev);
         self.t_misc += s.elapsed().as_secs_f64();
 
         // 1. Route: receivers across pits via priority-flood fill + steepest
@@ -543,6 +569,10 @@ impl ErosionState {
             ) else {
                 // No sinks (e.g. an all-land world): nothing to erode toward.
                 self.halted = true;
+                self.scratch_elev = elev;
+                self.scratch_pre = pre;
+                self.scratch_eroded = eroded_vol;
+                self.scratch_pre_diff = pre_diff;
                 return;
             };
             self.t_route += s.elapsed().as_secs_f64();
@@ -565,7 +595,8 @@ impl ErosionState {
         //    incision distributes the carving across downslope neighbours (Rung 3);
         //    SFD carves toward the single receiver.
         s = Instant::now();
-        let pre = elev.clone();
+        pre.clear();
+        pre.extend_from_slice(&elev);
         match routing.mfd.as_ref() {
             Some(mfd) => incise_step_mfd(
                 &mut elev,
@@ -598,7 +629,8 @@ impl ErosionState {
         // lake's surface for cells draining into it): land cells may incise down
         // to, but not past, that datum. `floor.min(pre)` stops incision without
         // ever raising terrain that already sits below the base level.
-        let mut eroded_vol = vec![0.0f32; n];
+        eroded_vol.clear();
+        eroded_vol.resize(n, 0.0);
         for i in 0..n {
             if routing.is_sink[i] {
                 continue;
@@ -622,7 +654,8 @@ impl ErosionState {
         //    residual measures only the no-flux clamp + finite-Jacobi
         //    non-convergence and should stay small next to `eroded`.
         s = Instant::now();
-        let pre_diff = elev.clone();
+        pre_diff.clear();
+        pre_diff.extend_from_slice(&elev);
         diffuse_land(
             &mut elev,
             routing,
@@ -669,6 +702,12 @@ impl ErosionState {
         self.t_deposit += s.elapsed().as_secs_f64();
 
         self.step += 1;
+
+        // Return the scratch buffers (with their capacity) for reuse next step.
+        self.scratch_elev = elev;
+        self.scratch_pre = pre;
+        self.scratch_eroded = eroded_vol;
+        self.scratch_pre_diff = pre_diff;
     }
 
     /// Log mass-balance and per-phase timing for the run so far.
@@ -1710,6 +1749,7 @@ fn diffuse_land(
     }
 
     let mut cur = h_old.clone();
+    let mut next = vec![0.0f32; n];
     for _ in 0..diffusion_iters {
         let sweep = |i: usize| -> f32 {
             if routing.is_sink[i] {
@@ -1727,14 +1767,22 @@ fn diffuse_land(
             // to a lake surface L>0 below L, undoing that grade.
             ((h_old[i] + f[i] * acc) / denom[i]).max(routing.base_floor[i])
         };
+        // Sweep into the reused `next` buffer then ping-pong — identical Jacobi
+        // math to collecting a fresh Vec each iter (every cell reads the previous
+        // `cur`, writes a disjoint index), without the per-iteration allocation.
         #[cfg(not(feature = "single-threaded"))]
         {
-            cur = (0..n).into_par_iter().map(sweep).collect();
+            next.par_iter_mut()
+                .enumerate()
+                .for_each(|(i, slot)| *slot = sweep(i));
         }
         #[cfg(feature = "single-threaded")]
         {
-            cur = (0..n).map(sweep).collect();
+            for (i, slot) in next.iter_mut().enumerate() {
+                *slot = sweep(i);
+            }
         }
+        std::mem::swap(&mut cur, &mut next);
     }
     elev.copy_from_slice(&cur);
 }
