@@ -879,6 +879,15 @@ pub fn roughness_counters(tess: &Tessellation, elev: &[f32]) -> RoughnessCounter
 /// Compare `base ` vs `eroded` to see what erosion did to terrain coherence
 /// rather than guessing from a render.
 fn roughness_report(tess: &Tessellation, elev: &[f32], label: &str) {
+    // Everything below is emitted through log::info!. When Info is disabled
+    // (the default env_logger level, and the headless/sweep condition) the
+    // whole body — a full-mesh slope/edge pass, roughness_counters, cell_areas,
+    // morans_i, and two land-sized sorts (~1.3 M cells) — would be computed and
+    // then discarded. Called 5x/erosion run, so skip it when nothing will print.
+    // The diagnose binary uses roughness_counters() directly and is unaffected.
+    if !log::log_enabled!(log::Level::Info) {
+        return;
+    }
     let n = tess.num_cells();
     let mut slopes: Vec<f32> = Vec::new();
     let mut land = 0usize;

@@ -16,6 +16,15 @@ pub struct Tessellation {
 
     /// Immutable cell adjacency graph.
     pub adjacency: CellAdjacency,
+
+    /// Memoized per-cell solid angles (steradians). `cell_areas()` is a serial
+    /// O(N) spherical-triangle sum called ~20x/run over the immutable fine mesh
+    /// (~2.5 M cells, ~0.5 s each); the geometry never changes after
+    /// construction, so the first call fills this and the rest are free.
+    /// `#[serde(skip)]`: not part of the on-disk FineBase format (no cache-format
+    /// change), recomputed lazily on first use after a cache load.
+    #[serde(skip)]
+    area_cache: std::sync::OnceLock<Vec<f32>>,
 }
 
 /// Compact immutable cell adjacency graph.
@@ -169,7 +178,11 @@ impl Tessellation {
             build_adjacency(&voronoi)
         };
 
-        Self { voronoi, adjacency }
+        Self {
+            voronoi,
+            adjacency,
+            area_cache: std::sync::OnceLock::new(),
+        }
     }
 
     /// Generate a tessellation using the kNN clipping Voronoi algorithm.
@@ -300,7 +313,11 @@ impl Tessellation {
             SphericalVoronoi::from_raw_parts(generators, vertices, cells, cell_indices)
         };
 
-        Self { voronoi, adjacency }
+        Self {
+            voronoi,
+            adjacency,
+            area_cache: std::sync::OnceLock::new(),
+        }
     }
 
     /// Number of cells in this tessellation.
@@ -318,10 +335,23 @@ impl Tessellation {
         self.adjacency.neighbors(cell_idx)
     }
 
-    /// Compute the solid angle (spherical area) of each Voronoi cell.
-    ///
-    /// Returns areas in steradians (total sphere = 4π).
+    /// The solid angle (spherical area) of each Voronoi cell, in steradians
+    /// (total sphere = 4π). Memoized: the first call computes it over the
+    /// immutable mesh, later calls clone the cached vector (a few ms vs ~0.5 s
+    /// to recompute on the fine mesh). Byte-identical to recomputing.
     pub fn cell_areas(&self) -> Vec<f32> {
+        self.area_cache
+            .get_or_init(|| self.compute_cell_areas())
+            .clone()
+    }
+
+    /// Borrow the memoized per-cell areas without cloning (preferred in hot
+    /// loops that only read them).
+    pub fn cell_areas_ref(&self) -> &[f32] {
+        self.area_cache.get_or_init(|| self.compute_cell_areas())
+    }
+
+    fn compute_cell_areas(&self) -> Vec<f32> {
         let mut areas = vec![0.0f32; self.num_cells()];
 
         for cell_idx in 0..self.num_cells() {
