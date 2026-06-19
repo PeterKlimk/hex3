@@ -136,14 +136,51 @@ sweep-harness render looks right, G4 is unnecessary at planet scale (per the lit
   long-profile (smooth sill vs spiky pits), cirque/valley spacing — distinguishes
   "real glacial landform" from "grid artifact" in a way curv-rms cannot.
 
+## Does this fit the rendering? (coherence check)
+
+Ice is **not a rendered entity** — there is no ice extent/thickness field. The
+white "snow/ice" caps are a *decoupled cosmetic*: `apply_snow_cap` (coloring.rs:122)
+whitens cells above a global `SNOW_LINE = 0.28` (+ latitude), plus a
+`MATERIAL_ICE_SNOW` glint in unified.wgsl:196. So glaciation reaches the screen
+**only as terrain shape**, and two things matter:
+
+- **It is still legitimate as terrain.** Glacial landforms (U-valleys, cirques,
+  tarns, fjords, arêtes) persist long after the ice — most of Earth's glaciated
+  terrain has no ice on it now. So a glacial *erosion* pass that leaves recognizable
+  morphology is justified with zero ice rendered. The morphology IS the payoff —
+  which is exactly the bar the current (noise-producing) model fails and this rework
+  must clear.
+- **There is a coherence gap.** The erosion "where is ice" snowline
+  (`GLACIAL_SNOWLINE_*`, latitude-varying ~0.02–0.30) ≠ the rendering snow-cap line
+  (`SNOW_LINE = 0.28`, global). So "where it looks icy" and "where it's glacially
+  carved" don't correspond. Cheap patch: relate the two snowlines (derive the
+  cosmetic cap from the glacial snowline, or share a constant) so the caps roughly
+  mark the carved zone.
+
+Crucially, this re-weights the rungs: **G1–G3 improve glacial terrain but produce
+NO renderable ice field** — the cap-vs-carving mismatch persists; they're justified
+purely on the relict-terrain argument. **G4 (ice-thickness) is the rung that makes
+glaciation a *coherent feature*** — one ice field drives both the erosion AND a real
+ice render, retiring the cosmetic hack. "Most physical" (G4) is therefore also "most
+coherent with rendering." Treat G4 as a deliberate *make-glaciation-a-feature*
+project, not a bolt-on.
+
 ## Open decisions (user is the deciding vote)
 
-1. **Appetite:** stop at G2 (stream-power + MFD, planet-scale-appropriate) vs climb
-   to G4 (ice-thickness/SIA-lite)? The lit says G2 is legitimate at this scale.
-2. **Over-deepening intent:** how much closed-basin (tarn/fjord) character is
+1. **What is glaciation FOR?** This sets the whole scope:
+   - *(a) Terrain character only* → do G1–G2, unify the snowlines as a cheap
+     coherence patch, accept ice-as-cosmetic. Lowest effort; fixes the prickle.
+   - *(b) A real feature* → climb to G4 (ice field drives erosion + a real ice
+     render). Bigger, coherent end-to-end.
+   - *(c) Not worth it* → default glacial **off** (it's been a noise source for a
+     non-surfaced feature), ship fluvial + cosmetic caps, revisit later.
+   Lean: (a) — do G1–G2, **gate hard on morphometry/visual**; if it doesn't read as
+   glacial, fall to (c); pursue (b) only as a separate feature project.
+2. **Default-on?** Glaciation is currently default-on (`GLACIAL_K>0`) and was
+   producing the prickle. Until the new law's morphology is signed off, default it
+   **off** (the safe state — option (c) is the fallback at every rung).
+3. **Over-deepening intent:** how much closed-basin (tarn/fjord) character is
    *wanted* aesthetically vs read as "noise"? Sets the `overdeepen_max` target.
-3. **Default-on?** Glaciation is currently default-on (`GLACIAL_K>0`). Keep on with
-   the new law, or default-off until the morphology is signed off?
 
 ## References
 
