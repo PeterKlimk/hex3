@@ -15,6 +15,12 @@ routing/MFD/escalation line were downstream of this and never touched it.
 process organizes*, not painted output: physical heterogeneity (structural relief,
 erodibility) that erosion then carves into landforms — NOT fake painted ridges.
 
+**Review status.** Codex round 2 (2026-06-20, against code): **SOUND-WITH-FIXES** —
+ordering / cache-version / zero-mean+area-weighted / soft-isotropic traps confirmed;
+three new must-fixes folded in (scarp-knob cache boundary → decision A; temperature-
+lapse baseline split; P1a needs a real interior height term, erodibility alone won't
+test the thesis). All five pre-P1a fixes live in the Traps + rung table below.
+
 ## The problem precisely
 
 - Fine base elevation = `interpolate_coarse_elevation(coarse)` (fine.rs:372). The
@@ -93,7 +99,7 @@ sensitive modulations — no clever fix needed, just that discipline.
 
 | Rung | Change | Effort | Measure |
 |---|---|---|---|
-| **P1a** | Add `fine_detail` = structural relief (faults/folds) + erodibility, gated by the **already-transferred** fine feature fields, onto the base **inside `FineBase` before `generate_pre`** (see ordering trap). NO FeatureFields refactor. Codex confirms feasible: transferred `ElevationFields` carry trench/ridge/convergent/divergent/arc/collision/rift_delta/continentality gates (existing hooks `lithology_erodibility` and `apply_fault_scarps` already use them). LIMIT: transferred fields lack `activity`/`transform`/raw arc&collision distances/boundary strike → P1a structure is **soft/isotropic** (no crisp boundary-normal/strike-aware fronts). | med | mountain-top probe: summit gains sub-coarse relief (slope), erosion ORGANIZES (summit pit% falls, dendritic spiral gone); area-weighted land-fraction drift ~0; summit-zoom render (user judges) |
+| **P1a** | Add `fine_detail` = structural relief (faults/folds) + erodibility, gated by the **already-transferred** fine feature fields, onto the base **inside `FineBase` before `generate_pre`** (see ordering trap). **Must include a zero-mean structural HEIGHT term across orogen interiors** (not just erodibility + front scarps — see "erodibility alone" trap). Scarp/detail params become hashed `FineBase` inputs (decision A); temperature lapse baseline split off (see traps). NO FeatureFields refactor. Codex confirms feasible: transferred `ElevationFields` carry trench/ridge/convergent/divergent/arc/collision/rift_delta/continentality gates (existing hooks `lithology_erodibility` and `apply_fault_scarps` already use them). LIMIT: transferred fields lack `activity`/`transform`/raw arc&collision distances/boundary strike → P1a structure is **soft/isotropic** (no crisp boundary-normal/strike-aware fronts). | med | mountain-top probe: summit gains sub-coarse relief (slope), erosion ORGANIZES (summit pit% falls, dendritic spiral gone); area-weighted land-fraction drift ~0; summit-zoom render (user judges) |
 | **P1b** | Crisp/strike-aware fronts: **real refactor** (not a small source/target split — codex). `FeatureFields::compute` (features.rs:97) couples to the target mesh throughout: distance fields need `plates.cell_plate` on the *target* mesh (features.rs:1003), screened diffusion needs same-mesh plate membership (:1185), eval reads `crust.crust_type(i)` (:628), boundary extraction uses coarse adjacency (`collect_plate_boundaries`, boundary.rs:310). So P1b needs **explicit fine-cell plate + crust classification** (assign each fine cell a plate/crust from coarse geometry), then re-evaluate the distance/diffusion/feature pipeline on fine — or a new evaluator over coarse boundary-source primitives. | high | crisper fronts; same probes |
 | **P1c** | Crust margin at fine — interpolate `Crust.signed_margin_distance` (continuous) for active/passive-margin structural contrast (passive = wide shelf, active = sharp front). | low–med | margin morphology |
 
@@ -120,8 +126,33 @@ it does NOT, the substrate wasn't the lever → reassess the erosion regime
   computed on the *unfaulted* base — an inconsistency. Move structural relief into
   base construction (or before pre-hydrology), not into the erosion stage.
 - **Fine-cache version bump (codex):** the base detail is *code-generated*, not an
-  input field, so the input-hash cache key (fine_cache.rs:90) won't change and
-  will serve stale bases. Bump the cache version when base generation changes.
+  input field, so the input-hash cache key (fine_cache.rs:63) won't change and
+  will serve stale bases. Bump `FINE_BASE_CACHE_VERSION` when base generation
+  changes, AND hash the new fine-detail params into the key (see scarp-knob trap).
+- **Scarp/detail params cross the cache boundary — DECIDED: (A) hash as fine-base
+  inputs (codex round 2).** `fault_scarp_height` is today an `ErosionParams` rerun
+  knob (erosion.rs:129), consumed at the *erosion* stage (fine.rs:427); `rerun_eroded`
+  (fine.rs:166) re-runs erosion WITHOUT regenerating the cached `FineBase`. Moving
+  structural relief into `FineBase` therefore makes that knob (and the sweep-harness
+  `fault_scarp` / diagnose `--fault-scarp` overrides, app/world.rs:142,204,
+  sweep.rs:105) **inert** unless the base regenerates. **Choice (A):** promote
+  `fault_scarp_height` + the new `fine_detail` knobs into explicit `FineBase`
+  generation inputs and **hash them into the cache key** — keeps them sweepable (the
+  sweep harness is *for* tuning exactly these), at the cost of a base regen per
+  sweep value. (Rejected (B) = freeze them as constants + retire the rerun knob:
+  cleaner cache, but kills visual sweep-tuning of the substrate.) Net: the scarp
+  knob migrates from `ErosionParams` to the fine-base input set.
+- **Temperature-lapse baseline breaks silently (codex round 2 — important).**
+  `FineSurface::from_eroded` corrects temperature by `eroded − base.base_elevation`
+  (fine.rs:505), a deliberate no-op for the pre-erosion surface (eroded ==
+  base_elevation). If `base_elevation` now carries `fine_detail`, the transferred
+  coarse `fields.temperature` is still baked against the *coarse* relief, and NO
+  lapse correction is applied for the new fine relief → pre-erosion summits get the
+  wrong temperature (hence wrong evaporation/precip). **Fix:** store the interpolated
+  coarse base separately as the lapse baseline (correct `eroded` against the *coarse*
+  datum, not `base_elevation`), OR adjust `fields.temperature` by the fine-detail
+  lapse when adding it. Pick the baseline-separation fix; it also keeps the eroded-
+  surface correction honest.
 - **Do NOT re-solve sea level at fine** (elevation.rs:163). Inherit the coarse
   shift via the interpolated term; keep `fine_detail` coarse-cell-local zero-mean.
 - **`fine_detail` must be coarse-consistent** (zero-mean over a coarse cell) or it
@@ -136,6 +167,14 @@ it does NOT, the substrate wasn't the lever → reassess the erosion regime
 - **Erosion must be able to organize on it:** the point of structural relief is to
   give drainage a gradient. Confirm summit pit% / dendritic spiral DROP after
   erosion (not just that relief was added).
+- **Erodibility alone does NOT test the thesis (codex round 2 — important).**
+  Differential erodibility (`litho_sigma`/`litho_grain`) changes incision *rate* but
+  gives a flat summit no initial gradient; `apply_fault_scarps` only sharpens *range
+  fronts*, not orogen *interiors* — the exact place the cottage cheese lives. So P1a
+  MUST include an **actual zero-mean structural HEIGHT term across high orogen
+  interiors** (fault blocks / fold grain as real relief), not just stronger lithology
+  + front scarps. Without it a null result is uninterpretable (can't tell "substrate
+  didn't help" from "we never added interior relief").
 
 ## Validation
 
@@ -156,7 +195,9 @@ it does NOT, the substrate wasn't the lever → reassess the erosion regime
    fields) and gate on the summit visual — vs commit to P1b's FeatureFields
    refactor up front? Lean: P1a first (cheap, tests the thesis).
 2. **How much structural relief** is wanted (subtle vs dramatic fault/fold grain)?
-   Sets the `FAULT_SCARP_HEIGHT` / `litho_grain` targets — a user aesthetic call.
+   Sets the `FAULT_SCARP_HEIGHT` / `litho_grain` / interior-height targets — a user
+   aesthetic call. RESOLVED how (not how-much): these knobs stay sweepable as hashed
+   `FineBase` inputs (decision A), so the sweep harness tunes them visually.
 3. **Couple to Phase 3 later?** This synthesis is the substrate the eventual
    coupled erosion↔uplift loop (erosion-v2 Phase 3) needs; keep that path open.
 
@@ -165,7 +206,13 @@ it does NOT, the substrate wasn't the lever → reassess the erosion regime
 - erosion-v2 Phase 1 + root cause #1 + noise philosophy:
   [`erosion-v2.md`](erosion-v2.md)
 - [[hex3-summit-cottage-cheese]] (the localized diagnosis this fixes)
-- Code: fine.rs:372 (interpolate, the term to augment), :1285/:96 (transferred
-  fine fields), features.rs:97 (compute, source/target decouple for P1b),
+- Code: fine.rs:372 (interpolate, the term to augment), :1325/:96 (transferred
+  fine fields incl. trench/ridge/convergent/divergent/arc/collision/rift_delta/
+  continentality), :133 (generate_pre — add detail before this), :418/:423/:427
+  (terminal-lake-before-scarp ordering), :505 (from_eroded temperature lapse
+  baseline), :166 (rerun_eroded — re-runs erosion without base regen),
+  features.rs:97/:1003/:1185 (compute, mesh-native distance + plate-screened
+  diffusion — the P1b refactor surface), fine_cache.rs:63 (`FINE_BASE_CACHE_VERSION`
+  + input hash), erosion.rs:129 (`fault_scarp_height` — migrates to fine-base input),
   elevation.rs:163,378 (sea-level datum — inherit, don't re-solve), crust
   `signed_margin_distance` (margin transfer).
