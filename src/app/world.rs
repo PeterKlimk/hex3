@@ -367,6 +367,23 @@ enum RiverSet {
     Major,
 }
 
+struct RiverRenderData {
+    include_all: Vec<bool>,
+    include_major: Vec<bool>,
+    max_flow: f32,
+    log_max_flow_count: f32,
+    lake_outflow_paths: Vec<(usize, Vec<usize>)>,
+}
+
+impl RiverRenderData {
+    fn include(&self, set: RiverSet) -> &[bool] {
+        match set {
+            RiverSet::All => &self.include_all,
+            RiverSet::Major => &self.include_major,
+        }
+    }
+}
+
 /// Per-cell mask of which cells emit a river segment for the given set.
 fn river_cell_mask(
     hydrology: &hex3::world::Hydrology,
@@ -378,11 +395,12 @@ fn river_cell_mask(
             // `river_cells` converts the count-based threshold to the physical
             // discharge scale (mean_cell_discharge) internally.
             let (min_flow, _, _) = river_thresholds(num_cells);
-            let mut mask = vec![false; num_cells];
-            for c in hydrology.river_cells(min_flow) {
-                mask[c] = true;
-            }
-            mask
+            let flow_threshold = min_flow * hydrology.mean_cell_discharge;
+            (0..num_cells)
+                .map(|i| {
+                    hydrology.flow_accumulation[i] >= flow_threshold && !hydrology.is_submerged(i)
+                })
+                .collect()
         }
         RiverSet::Major => {
             let (_, outlet_threshold, branch_threshold) = river_thresholds(num_cells);
@@ -396,6 +414,30 @@ fn river_thresholds(num_cells: usize) -> (f32, f32, f32) {
     let outlet_threshold = (num_cells as f32 * RIVER_OUTLET_FRACTION).max(1.0);
     let branch_threshold = (num_cells as f32 * RIVER_BRANCH_FRACTION).max(1.0);
     (min_flow, outlet_threshold, branch_threshold)
+}
+
+fn prepare_river_render_data(world: &World) -> Option<RiverRenderData> {
+    let hydrology = world.active_hydrology()?;
+    let num_cells = world.active_tessellation().num_cells();
+    let include_all = river_cell_mask(hydrology, num_cells, RiverSet::All);
+    let include_major = river_cell_mask(hydrology, num_cells, RiverSet::Major);
+    let max_flow = hydrology
+        .flow_accumulation
+        .iter()
+        .copied()
+        .fold(0.0f32, f32::max);
+    let max_flow_count = (0..num_cells)
+        .map(|i| hydrology.flow_count_equiv(i))
+        .fold(0.0f32, f32::max);
+    let lake_outflow_paths = hydrology.lake_outflow_paths();
+
+    Some(RiverRenderData {
+        include_all,
+        include_major,
+        max_flow,
+        log_max_flow_count: max_flow_count.ln(),
+        lake_outflow_paths,
+    })
 }
 
 fn mode_uses_fine_mesh(world: &World, mode: RenderMode) -> bool {
@@ -594,10 +636,13 @@ pub fn generate_world_buffers(device: &wgpu::Device, world: &World) -> WorldBuff
     );
 
     // Rivers
-    let river_all_vertices = generate_river_vertices(world, RiverSet::All);
-    let river_major_vertices = generate_river_vertices(world, RiverSet::Major);
-    let river_mesh_all = generate_river_mesh(world, RiverSet::All);
-    let river_mesh_major = generate_river_mesh(world, RiverSet::Major);
+    let river_render_data = prepare_river_render_data(world);
+    let river_all_vertices =
+        generate_river_vertices(world, river_render_data.as_ref(), RiverSet::All);
+    let river_major_vertices =
+        generate_river_vertices(world, river_render_data.as_ref(), RiverSet::Major);
+    let river_mesh_all = generate_river_mesh(world, river_render_data.as_ref(), RiverSet::All);
+    let river_mesh_major = generate_river_mesh(world, river_render_data.as_ref(), RiverSet::Major);
 
     if !river_all_vertices.is_empty() {
         log::debug!(
@@ -899,24 +944,24 @@ pub fn generate_elevation_mesh_buffers(
 
 /// Generate line-based river vertices (used outside Relief mode).
 /// Alpha encodes flow magnitude on a log scale.
-fn generate_river_vertices(world: &World, set: RiverSet) -> Vec<SurfaceVertex> {
+fn generate_river_vertices(
+    world: &World,
+    render_data: Option<&RiverRenderData>,
+    set: RiverSet,
+) -> Vec<SurfaceVertex> {
     let Some(hydrology) = world.active_hydrology() else {
+        return Vec::new();
+    };
+    let Some(render_data) = render_data else {
         return Vec::new();
     };
     let elevation = world.active_elevation().unwrap();
     let tessellation = world.active_tessellation();
 
-    let include = river_cell_mask(hydrology, tessellation.num_cells(), set);
+    let include = render_data.include(set);
+    let log_max = render_data.log_max_flow_count;
 
-    // Find max flow for normalization. Count-equivalent (mesh-independent) so the
-    // log alpha ramp below means the same on the coarse and adaptive meshes; the
-    // log ratio is not scale-invariant, unlike the sqrt width ramp.
-    let max_flow = (0..tessellation.num_cells())
-        .map(|i| hydrology.flow_count_equiv(i))
-        .fold(0.0f32, f32::max);
-    let log_max = max_flow.ln();
-
-    let mut vertices = Vec::new();
+    let mut vertices = Vec::with_capacity(include.iter().filter(|&&included| included).count() * 2);
 
     for (cell_idx, &included) in include.iter().enumerate() {
         if !included {
@@ -944,7 +989,12 @@ fn generate_river_vertices(world: &World, set: RiverSet) -> Vec<SurfaceVertex> {
     }
 
     // Add lake outflow rivers (from overflowing lakes)
-    generate_lake_outflow_vertices(world, &mut vertices, RIVER_COLOR);
+    generate_lake_outflow_vertices(
+        world,
+        &render_data.lake_outflow_paths,
+        &mut vertices,
+        RIVER_COLOR,
+    );
 
     vertices
 }
@@ -987,6 +1037,7 @@ fn river_segment_geometry(
 /// These are added to the existing vertices vector.
 fn generate_lake_outflow_vertices(
     world: &World,
+    lake_outflow_paths: &[(usize, Vec<usize>)],
     vertices: &mut Vec<SurfaceVertex>,
     river_color: Vec3,
 ) {
@@ -999,7 +1050,7 @@ fn generate_lake_outflow_vertices(
     // Lake outflows are significant rivers - use high alpha
     let outflow_alpha = 0.7;
 
-    for (_basin_idx, path) in hydrology.lake_outflow_paths() {
+    for (_basin_idx, path) in lake_outflow_paths {
         // Generate segments along the outflow path
         for window in path.windows(2) {
             let cell_idx = window[0];
@@ -1075,8 +1126,18 @@ fn flow_to_width(flow: f32, max_flow: f32) -> f32 {
 
 /// Generate a triangle-strip river mesh (used in Relief mode).
 /// Each segment is a quad (2 triangles) with width based on flow.
-fn generate_river_mesh(world: &World, set: RiverSet) -> RiverMesh {
+fn generate_river_mesh(
+    world: &World,
+    render_data: Option<&RiverRenderData>,
+    set: RiverSet,
+) -> RiverMesh {
     let Some(hydrology) = world.active_hydrology() else {
+        return RiverMesh {
+            vertices: Vec::new(),
+            indices: Vec::new(),
+        };
+    };
+    let Some(render_data) = render_data else {
         return RiverMesh {
             vertices: Vec::new(),
             indices: Vec::new(),
@@ -1085,17 +1146,12 @@ fn generate_river_mesh(world: &World, set: RiverSet) -> RiverMesh {
     let elevation = world.active_elevation().unwrap();
     let tessellation = world.active_tessellation();
 
-    let include = river_cell_mask(hydrology, tessellation.num_cells(), set);
+    let include = render_data.include(set);
+    let max_flow = render_data.max_flow;
 
-    // Find max flow for width normalization
-    let max_flow = hydrology
-        .flow_accumulation
-        .iter()
-        .copied()
-        .fold(0.0f32, f32::max);
-
-    let mut vertices = Vec::new();
-    let mut indices = Vec::new();
+    let included_count = include.iter().filter(|&&included| included).count();
+    let mut vertices = Vec::with_capacity(included_count * 6);
+    let mut indices = Vec::with_capacity(included_count * 12);
 
     for (cell_idx, &included) in include.iter().enumerate() {
         if !included {
@@ -1122,7 +1178,14 @@ fn generate_river_mesh(world: &World, set: RiverSet) -> RiverMesh {
     }
 
     // Add lake outflow rivers
-    generate_lake_outflow_quads(world, max_flow, RIVER_COLOR, &mut vertices, &mut indices);
+    generate_lake_outflow_quads(
+        world,
+        &render_data.lake_outflow_paths,
+        max_flow,
+        RIVER_COLOR,
+        &mut vertices,
+        &mut indices,
+    );
 
     RiverMesh { vertices, indices }
 }
@@ -1251,6 +1314,7 @@ fn generate_river_segment_quad(
 /// Generate quads for lake outflow rivers.
 fn generate_lake_outflow_quads(
     world: &World,
+    lake_outflow_paths: &[(usize, Vec<usize>)],
     max_flow: f32,
     color: Vec3,
     vertices: &mut Vec<UnifiedVertex>,
@@ -1265,7 +1329,7 @@ fn generate_lake_outflow_quads(
     // Lake outflows use a high flow value for width
     let outflow_flow = max_flow * 0.5;
 
-    for (_basin_idx, path) in hydrology.lake_outflow_paths() {
+    for (_basin_idx, path) in lake_outflow_paths {
         for window in path.windows(2) {
             let cell_idx = window[0];
             let downstream_idx = window[1];
