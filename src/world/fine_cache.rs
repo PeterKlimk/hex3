@@ -39,7 +39,10 @@ use super::{Atmosphere, Crust, Elevation, FeatureFields, Tessellation};
 /// v5: the interior relief is now strike-aware near convergent fronts (P1b) — the
 /// banded grain is a generation-logic change; `front_strike_weight` + the convergent-
 /// front primitives are hashed below, but the logic itself needs the bump.
-const FINE_BASE_CACHE_VERSION: u32 = 5;
+/// v6: active/passive margin contrast (P1c) modulates the relief amplitude near the
+/// coast — a generation-logic change; `margin_contrast` + its shape constants are
+/// hashed below, but the logic itself needs the bump.
+const FINE_BASE_CACHE_VERSION: u32 = 6;
 
 /// How the fine-mesh base should use the on-disk cache.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -95,6 +98,10 @@ pub fn fine_base_key(
     // decision A — these are fine-base inputs, so a sweep regenerates the base).
     mix_f32(&mut h, structure.fault_scarp_height);
     mix_f32(&mut h, structure.interior_relief);
+    // Active/passive margin contrast (P1c): the knob (the margin SOURCE,
+    // crust.signed_margin_distance, is already hashed above). Shape constants below.
+    mix_f32(&mut h, structure.margin_contrast);
+
     // Strike-aware fronts (P1b): the knob + the convergent-front primitives the
     // banded grain consumes (arc endpoints, per-front overriding side, coarse plate
     // map). The arc endpoints are the consumed geometry; `points` is derived from them.
@@ -127,6 +134,9 @@ pub fn fine_base_key(
         FINE_FRONT_WARP,
         FINE_FRONT_WARP_FREQUENCY as f32,
         FINE_FRONT_GATHER_MARGIN,
+        FINE_MARGIN_WIDTH,
+        FINE_MARGIN_ACTIVE_FACTOR,
+        FINE_MARGIN_PASSIVE_FACTOR,
     ] {
         mix_f32(&mut h, f);
     }

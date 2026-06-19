@@ -75,6 +75,9 @@ pub struct FineStructureParams {
     /// vs P1a isotropic grain, faded by distance to the front (P1b). 0 = pure
     /// isotropic. The master P1b knob.
     pub front_strike_weight: f32,
+    /// Strength of the active/passive margin contrast: relief is sharpened toward an
+    /// active (convergent) coast and damped toward a passive one (P1c). 0 = off (P1b).
+    pub margin_contrast: f32,
 }
 
 impl Default for FineStructureParams {
@@ -83,6 +86,7 @@ impl Default for FineStructureParams {
             fault_scarp_height: FAULT_SCARP_HEIGHT,
             interior_relief: FINE_INTERIOR_RELIEF,
             front_strike_weight: FINE_FRONT_STRIKE_WEIGHT,
+            margin_contrast: FINE_MARGIN_CONTRAST,
         }
     }
 }
@@ -537,15 +541,26 @@ impl FineBase {
         // real substrate. `coarse_base_elevation` is kept as the lapse baseline.
         let t0 = Instant::now();
         let mut base_elevation = coarse_base_elevation.clone();
+        // Interpolate the raw signed margin distance (radians from the coast; +
+        // continental) onto the fine cells for the active/passive margin contrast
+        // (P1c). Reuses the generic coarse-scalar interpolator.
+        let margin_distance = interpolate_coarse_elevation(
+            coarse_tessellation,
+            &tessellation,
+            &coarse_cell,
+            &crust.signed_margin_distance,
+        );
         add_interior_structural_relief(
             &tessellation,
             &coarse_cell,
             &fields.elevation_fields,
             fronts,
+            &margin_distance,
             &mut base_elevation,
             seed,
             structure_params.interior_relief,
             structure_params.front_strike_weight,
+            structure_params.margin_contrast,
         );
         // Range-front scarps: sharpen active orogen margins (footwall up / basin
         // down). Deliberately ASYMMETRIC (real fronts express footwall uplift far
@@ -857,6 +872,11 @@ fn point_to_arc_distance(p: Vec3, a: Vec3, b: Vec3) -> f32 {
 ///   subduction front, either side for collision (so grain doesn't bleed onto the
 ///   subducting plate). The fronts drive ORIENTATION only; amplitude stays gated.
 ///
+/// P1c layers an active/passive MARGIN contrast on top: a coastal-band amplitude
+/// scale (from the interpolated `margin_distance` × convergent forcing) that sharpens
+/// an active (convergent) coast and damps a passive one — amplitude only, so the land
+/// mask is untouched. `margin_contrast == 0` reduces to P1b.
+///
 /// `amplitude == 0` is a no-op (pure interpolant — the old flat-top behaviour).
 #[allow(clippy::too_many_arguments)]
 fn add_interior_structural_relief(
@@ -864,10 +884,12 @@ fn add_interior_structural_relief(
     coarse_cell: &[usize],
     fields: &ElevationFields,
     fronts: &OrogenFronts,
+    margin_distance: &[f32],
     base_elev: &mut [f32],
     seed: u64,
     amplitude: f32,
     front_strike_weight: f32,
+    margin_contrast: f32,
 ) {
     if amplitude <= 0.0 {
         return;
@@ -883,6 +905,15 @@ fn add_interior_structural_relief(
     let fmax = (0..n)
         .filter(|&i| base_elev[i] >= 0.0)
         .map(|i| forcing[i])
+        .fold(0.0f32, f32::max)
+        .max(1e-6);
+
+    // Convergent forcing land-max, for the active-margin (subduction) activity in the
+    // P1c margin contrast (active = convergent front at the coast).
+    let margin_contrast = margin_contrast.max(0.0);
+    let conv_max = (0..n)
+        .filter(|&i| base_elev[i] >= 0.0)
+        .map(|i| fields.convergent[i].max(0.0))
         .fold(0.0f32, f32::max)
         .max(1e-6);
 
@@ -974,7 +1005,21 @@ fn add_interior_structural_relief(
             }
             _ => isotropic,
         };
-        (gate * amplitude * value, true)
+
+        // P1c active/passive margin contrast: a coastal-band amplitude scale, full at
+        // the coast and fading to neutral (1.0) inland, that sharpens an ACTIVE
+        // (convergent) margin and damps a PASSIVE one. Modulates amplitude only (stays
+        // within the elevation gate), so it never moves the land/ocean mask.
+        let margin_scale = if margin_contrast > 0.0 {
+            let coastal = 1.0 - sstep(0.0, FINE_MARGIN_WIDTH, margin_distance[i].max(0.0));
+            let activity = (fields.convergent[i].max(0.0) / conv_max).clamp(0.0, 1.0);
+            let target = FINE_MARGIN_PASSIVE_FACTOR
+                + activity * (FINE_MARGIN_ACTIVE_FACTOR - FINE_MARGIN_PASSIVE_FACTOR);
+            1.0 + margin_contrast * coastal * (target - 1.0)
+        } else {
+            1.0
+        };
+        (gate * amplitude * margin_scale * value, true)
     };
     #[cfg(not(feature = "single-threaded"))]
     let raw: Vec<(f32, bool)> = (0..n).into_par_iter().map(sample).collect();

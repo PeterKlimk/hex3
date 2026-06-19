@@ -145,6 +145,7 @@ pub struct ErosionOverrides {
     pub fault_scarp_height: Option<f32>,
     pub interior_relief: Option<f32>,
     pub front_strike_weight: Option<f32>,
+    pub margin_contrast: Option<f32>,
 }
 
 impl ErosionOverrides {
@@ -214,6 +215,9 @@ impl ErosionOverrides {
         }
         if let Some(w) = self.front_strike_weight {
             world.fine_structure_params.front_strike_weight = w;
+        }
+        if let Some(m) = self.margin_contrast {
+            world.fine_structure_params.margin_contrast = m;
         }
     }
 }

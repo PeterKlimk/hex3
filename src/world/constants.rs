@@ -1203,3 +1203,27 @@ pub const FINE_FRONT_WARP_FREQUENCY: f64 = 40.0;
 /// candidate front arcs: an arc whose midpoint anchor sits just past the influence
 /// radius but whose body enters it is still considered. ≈ one coarse half-edge.
 pub const FINE_FRONT_GATHER_MARGIN: f32 = 0.012;
+
+// --- Fine active/passive margin contrast (erosion-v2 Phase 1 / P1c) ---
+// The coarse model already widens the SHELF by margin activity (continentality →
+// crust thickness → bathymetry). P1c adds the sub-coarse STRUCTURAL contrast at the
+// continental margin: where high terrain meets the coast near a convergent front
+// (ACTIVE margin, Andes-type), sharpen the structural relief so ranges rise steeply
+// from the shore; on a PASSIVE coast (no convergence) damp it so the coastal upland
+// stays quiet. Keyed on the interpolated raw `Crust.signed_margin_distance` (radians
+// from the coast; + continental, − oceanic) × the transferred convergent forcing.
+// Modulates AMPLITUDE within the existing elevation gate (land-safe), so it never
+// touches the land/ocean mask. 0 contrast reduces to P1b exactly.
+
+/// Master P1c knob: strength of the margin contrast (0 = off → P1b; 1 = full).
+pub const FINE_MARGIN_CONTRAST: f32 = 1.0;
+
+/// Coastal band width (radians of margin distance): the modulation is full at the
+/// coast (margin ≈ 0) and fades to neutral by this distance inland. 0.05 ≈ 318 km.
+pub const FINE_MARGIN_WIDTH: f32 = 0.05;
+
+/// Relief amplitude scale at the coast for a fully ACTIVE margin (convergent front at
+/// the shore): >1 sharpens the coastal front.
+pub const FINE_MARGIN_ACTIVE_FACTOR: f32 = 1.3;
+/// Relief amplitude scale at the coast for a fully PASSIVE margin: <1 quiets it.
+pub const FINE_MARGIN_PASSIVE_FACTOR: f32 = 0.5;

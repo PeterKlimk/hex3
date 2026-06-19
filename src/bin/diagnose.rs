@@ -134,6 +134,11 @@ struct Cli {
     /// default; 0 = isotropic (P1a). Regenerates the fine base.
     #[arg(long, default_value_t = -1.0)]
     front_strike_weight: f32,
+    /// Override fine margin contrast (P1c: sharpen relief on active/convergent coasts,
+    /// damp on passive ones). <0 = use FINE_MARGIN_CONTRAST default; 0 = off (P1b).
+    /// Regenerates the fine base.
+    #[arg(long, default_value_t = -1.0)]
+    margin_contrast: f32,
     /// Fine-mesh density knobs (cell-size targets in km / blend). <0 = use the
     /// FINE_* default. Setting any forces fine-base regeneration (no cache). Use
     /// to sweep the ocean/plains/mountain budget: e.g. --fine-plains-km 20.
@@ -242,6 +247,9 @@ fn main() {
     }
     if cli.front_strike_weight >= 0.0 {
         world.fine_structure_params.front_strike_weight = cli.front_strike_weight;
+    }
+    if cli.margin_contrast >= 0.0 {
+        world.fine_structure_params.margin_contrast = cli.margin_contrast;
     }
     // Fine-mesh density overrides (force regeneration so the cache can't serve a
     // base built with the default knobs).
