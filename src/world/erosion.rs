@@ -1791,9 +1791,9 @@ fn diffuse_land(
     };
 
     // Per-cell f_i = dt D / area_i and diagonal denominator (1 + c_i), counting
-    // only land neighbours (sink edges are no-flux). Constant across sweeps.
-    let mut f = vec![0.0f32; n];
-    let mut denom = vec![1.0f32; n];
+    // only land neighbours (sink edges are no-flux). Constant across sweeps. Each
+    // cell is independent (read-only over shared state) -> parallel; the unzip
+    // preserves index order, so f/denom are bit-identical to the serial build.
     let prep = |i: usize| -> (f32, f32) {
         if routing.is_sink[i] {
             return (0.0, 1.0);
@@ -1807,11 +1807,10 @@ fn diffuse_land(
         }
         (fi, 1.0 + fi * wsum)
     };
-    for i in 0..n {
-        let (fi, di) = prep(i);
-        f[i] = fi;
-        denom[i] = di;
-    }
+    #[cfg(not(feature = "single-threaded"))]
+    let (f, denom): (Vec<f32>, Vec<f32>) = (0..n).into_par_iter().map(prep).unzip();
+    #[cfg(feature = "single-threaded")]
+    let (f, denom): (Vec<f32>, Vec<f32>) = (0..n).map(prep).unzip();
 
     let mut cur = h_old.clone();
     let mut next = vec![0.0f32; n];
