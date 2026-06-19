@@ -433,7 +433,14 @@ impl World {
             return None; // atmosphere is a stage-2 layer
         }
         if self.shows_fine() {
-            return Some(self.fine.as_ref().unwrap().fields().temperature.as_slice());
+            return Some(
+                self.fine
+                    .as_ref()
+                    .unwrap()
+                    .surface_for(self.view_stage)
+                    .temperature
+                    .as_slice(),
+            );
         }
         self.atmosphere.as_ref().map(|a| a.temperature.as_slice())
     }

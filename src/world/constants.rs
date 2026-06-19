@@ -1158,3 +1158,10 @@ pub const FINE_INTERIOR_ELEV_BAND: f32 = 0.08;
 /// in convergence belts and cratons stay quiet (per the noise philosophy).
 pub const FINE_INTERIOR_FORCING_THRESHOLD: f32 = 0.15;
 pub const FINE_INTERIOR_FORCING_BAND: f32 = 0.35;
+
+/// Tolerance for the area-weighted land-fraction drift the structural relief may
+/// introduce (interior grain + scarps) before it's flagged as invalidating the
+/// coarse atmosphere's land/ocean mask. The relief is zero-mean + gated above sea
+/// level, so well-behaved knobs sit far below this; it catches high-amplitude
+/// sweeps flipping near-coast cells.
+pub const FINE_STRUCTURE_LAND_DRIFT_TOL: f32 = 1e-3;

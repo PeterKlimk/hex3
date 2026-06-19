@@ -127,6 +127,12 @@ pub struct FineSurface {
     /// is the orographic precip recomputed on the eroded relief (rain shadows);
     /// for the pre-erosion surface it is the transferred coarse precip.
     pub precipitation: Vec<f32>,
+    /// Temperature this surface's hydrology used: the transferred coarse field
+    /// lapse-corrected for the relief above the coarse datum (the synthesized
+    /// structural relief on the pre surface, the carved relief on the eroded one).
+    /// Stored so rendering/export/diagnose see the same field hydrology did, not the
+    /// uncorrected coarse-baked one.
+    pub temperature: Vec<f32>,
 }
 
 /// Smooth fields transferred to the fine mesh.
@@ -438,13 +444,26 @@ impl FineBase {
             structure_params.interior_relief,
         );
         // Range-front scarps: sharpen active orogen margins (footwall up / basin
-        // down). Was applied in the erosion stage; now part of the base.
+        // down). Deliberately ASYMMETRIC (real fronts express footwall uplift far
+        // more than basin drop; basins fill), so — unlike the interior grain — they
+        // are NOT coarse-cell zero-mean; the sea-level clamp adds a small positive
+        // bias. The datum/land-fraction safety for the COMBINED structural edit is
+        // verified by the area-weighted drift check below, not by zero-mean alone.
         apply_fault_scarps(
             &mut base_elevation,
             &fields.elevation_fields,
             structure_params.fault_scarp_height,
         );
         log::info!("fine mesh: structural relief {:.2?}", t0.elapsed());
+
+        // Area-weighted land-fraction drift from the combined structural relief
+        // (interior grain + scarps). The interior term is zero-mean per coarse cell
+        // and gated well above sea level, so it should not move the land/ocean mask;
+        // a non-trivial drift means a knob (likely a high `interior_relief` sweep, or
+        // scarps) is flipping near-sea-level cells and silently invalidating the
+        // coarse atmosphere assumptions (erosion-fine-synthesis.md, fix #2). Count-
+        // based fractions are wrong on the adaptive mesh, so weight by cell area.
+        report_land_fraction_drift(&tessellation, &coarse_base_elevation, &base_elevation);
 
         Self {
             tessellation,
@@ -609,6 +628,7 @@ impl FineSurface {
             elevation,
             hydrology,
             precipitation: precip,
+            temperature,
         }
     }
 }
@@ -786,6 +806,48 @@ fn add_interior_structural_relief(
             };
             base_elev[i] += raw[i].0 - mean;
         }
+    }
+}
+
+/// Area-weighted land-fraction drift from the structural relief: `land = elev >= 0`,
+/// weighted by cell area (the fine mesh is adaptive, so a cell COUNT over-weights the
+/// dense mountain cells). Logs the before/after land fraction and the drift; warns if
+/// it exceeds a small tolerance — the structural relief is meant to add sub-coarse
+/// detail WITHOUT moving the land/ocean mask the coarse atmosphere was solved on
+/// (erosion-fine-synthesis.md). `~0` at the default knobs; a warning flags a knob
+/// (high `interior_relief`, or scarps) flipping near-sea-level cells.
+fn report_land_fraction_drift(tess: &Tessellation, before: &[f32], after: &[f32]) {
+    let areas = tess.cell_areas();
+    let mut total = 0.0f64;
+    let mut land_before = 0.0f64;
+    let mut land_after = 0.0f64;
+    for i in 0..tess.num_cells() {
+        let a = areas[i] as f64;
+        total += a;
+        if before[i] >= 0.0 {
+            land_before += a;
+        }
+        if after[i] >= 0.0 {
+            land_after += a;
+        }
+    }
+    if total <= 0.0 {
+        return;
+    }
+    let (fb, fa) = (land_before / total, land_after / total);
+    let drift = fa - fb;
+    log::info!(
+        "fine mesh: land fraction (area-weighted) {:.4} -> {:.4} (drift {:+.2e})",
+        fb,
+        fa,
+        drift
+    );
+    if drift.abs() > FINE_STRUCTURE_LAND_DRIFT_TOL as f64 {
+        log::warn!(
+            "fine mesh: structural relief shifted land fraction by {:+.2e} (> tol {:.0e}); a knob is flipping near-sea-level cells — the coarse atmosphere mask is no longer consistent",
+            drift,
+            FINE_STRUCTURE_LAND_DRIFT_TOL
+        );
     }
 }
 
