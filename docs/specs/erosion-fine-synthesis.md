@@ -32,7 +32,21 @@ the corrected field; land-drift check in code; scarp-asymmetry documented). Prob
 (seed 12345): summit pre-slope p50 1.7e-4→7.9e-4 (flat plateau broken, now above
 global land); erosion REVERSES from adding summit pit% (3.0→3.4) to organizing it
 (8.1→5.4); land fraction + elevation percentiles unchanged. **Visual summit-zoom
-sign-off (user) still pending** — needs the Windows GPU sweep. Next: P1b.
+sign-off (user) still pending** — needs the Windows GPU sweep.
+
+**P1b status: LANDED** (2026-06-20). Realized as the spec's "evaluator over coarse
+boundary-source primitives" path (NOT a full FeatureFields recompute). `OrogenFronts`
+(convergent plate boundaries → real Voronoi-edge midpoints + per-front overriding side)
+built on the coarse mesh; the fine grain is a banded `cos` of the signed great-circle
+distance to the nearest *compatible* front, whose iso-contours run parallel to the
+orogen (front-parallel ridge-and-valley) — a globally-consistent distance field, no
+per-cell strike vector (sidesteps the orientation-tensor seam problem the design
+weighed). Blended with P1a isotropic by `front_strike_weight` (cache v5; primitives
+hashed). Codex design review SOUND-WITH-FIXES (real edge midpoints, side awareness,
+magnitude-stays-gated, cache — all folded in). Probe: `front_strike_weight=0`
+reproduces P1a exactly (7.92e-4); default 0.7 → 2.80e-3 summit pre-slope, erosion still
+organizes (pit% 11.0→8.6), land drift +0.00e0. **Strike-alignment is a visual property
+— user's call via the GPU sweep.** Next: P1c.
 
 ## The problem precisely
 

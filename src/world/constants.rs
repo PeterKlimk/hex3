@@ -1199,6 +1199,7 @@ pub const FINE_FRONT_WARP: f32 = 0.004;
 /// Spatial frequency of the along-strike warp fBm (low = long, smooth undulations).
 pub const FINE_FRONT_WARP_FREQUENCY: f64 = 40.0;
 
-/// How many nearest fronts to test for plate-side compatibility before falling back
-/// to isotropic (the nearest front may be on the cell's wrong/subducting side).
-pub const FINE_FRONT_K_NEAREST: usize = 8;
+/// Extra gather radius (radians) added to the influence radius when collecting
+/// candidate front arcs: an arc whose midpoint anchor sits just past the influence
+/// radius but whose body enters it is still considered. ≈ one coarse half-edge.
+pub const FINE_FRONT_GATHER_MARGIN: f32 = 0.012;

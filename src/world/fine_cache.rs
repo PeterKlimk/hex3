@@ -96,9 +96,11 @@ pub fn fine_base_key(
     mix_f32(&mut h, structure.fault_scarp_height);
     mix_f32(&mut h, structure.interior_relief);
     // Strike-aware fronts (P1b): the knob + the convergent-front primitives the
-    // banded grain consumes (anchors, per-front overriding side, coarse plate map).
+    // banded grain consumes (arc endpoints, per-front overriding side, coarse plate
+    // map). The arc endpoints are the consumed geometry; `points` is derived from them.
     mix_f32(&mut h, structure.front_strike_weight);
-    mix_vec3s(&mut h, &fronts.points);
+    mix_vec3s(&mut h, &fronts.seg_a);
+    mix_vec3s(&mut h, &fronts.seg_b);
     mix_u64(&mut h, fronts.accept_plate.len() as u64);
     for a in &fronts.accept_plate {
         // distinguish None (collision) from Some(plate); +1 avoids a 0/None clash.
@@ -107,6 +109,26 @@ pub fn fine_base_key(
     mix_u64(&mut h, fronts.coarse_cell_plate.len() as u64);
     for &p in &fronts.coarse_cell_plate {
         mix_u64(&mut h, p as u64);
+    }
+
+    // Structural-relief SHAPE constants (P1a interior + P1b fronts). These are
+    // generation constants the FineBase synthesis consumes but no hashed input
+    // observes, so a recompile that tweaks one would otherwise false-hit the cache
+    // (cf. FINE_RELAX_PASSES above). Hash them so a constant change is a clean miss.
+    for f in [
+        FINE_INTERIOR_FREQUENCY as f32,
+        FINE_INTERIOR_OCTAVES as f32,
+        FINE_INTERIOR_MIN_ELEV,
+        FINE_INTERIOR_ELEV_BAND,
+        FINE_INTERIOR_FORCING_THRESHOLD,
+        FINE_INTERIOR_FORCING_BAND,
+        FINE_FRONT_BAND_FREQUENCY as f32,
+        FINE_FRONT_INFLUENCE_RADIUS,
+        FINE_FRONT_WARP,
+        FINE_FRONT_WARP_FREQUENCY as f32,
+        FINE_FRONT_GATHER_MARGIN,
+    ] {
+        mix_f32(&mut h, f);
     }
 
     // Coarse-world fingerprint. The generators pin the coarse mesh identity

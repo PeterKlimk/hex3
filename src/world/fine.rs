@@ -15,7 +15,7 @@ use super::constants::*;
 use super::dynamics::Dynamics;
 use super::elevation::{coarse_elevation_fields, ElevationFields};
 use super::erosion::ErosionParams;
-use super::features::build_cell_pair_edge_midpoints;
+use super::features::build_cell_pair_edge_endpoints;
 use super::fine_cache::{self, FineCacheMode};
 use super::{
     Atmosphere, CellWaterState, Crust, Elevation, FeatureFields, Hydrology, Plates, Tessellation,
@@ -89,15 +89,21 @@ impl Default for FineStructureParams {
 
 /// Coarse convergent-boundary primitives for the strike-aware structural relief
 /// (P1b). Built once on the coarse mesh (where plates/dynamics live) and consumed
-/// by the fine-base synthesis as ORIENTATION primitives — the signed distance to the
-/// nearest *compatible* front orients the interior grain along the orogen (its iso-
-/// distance contours run parallel to the front). NOT a serialized part of `FineBase`
-/// — it's a generation input (like [`FineStructureParams`]), hashed into the cache key.
+/// by the fine-base synthesis as ORIENTATION primitives — the distance to the nearest
+/// *compatible* front orients the interior grain along the orogen (its iso-distance
+/// contours run parallel to the front). Each front is a great-circle ARC (the shared
+/// Voronoi edge), so the distance field is a true offset from the boundary polyline,
+/// NOT a bullseye around a point anchor. NOT a serialized part of `FineBase` — it's a
+/// generation input (like [`FineStructureParams`]), hashed into the cache key.
 #[derive(Debug, Clone, Default)]
 pub struct OrogenFronts {
-    /// Real shared-Voronoi-edge midpoints of the convergent boundary edges (unit
-    /// vectors). The orientation anchors.
+    /// Edge-midpoint anchors (unit vectors) — the KD-tree query points used only to
+    /// gather candidate arcs near a cell.
     pub points: Vec<Vec3>,
+    /// The two Voronoi-vertex endpoints of each front's shared edge: distance is the
+    /// great-circle distance to this ARC, not to `points[i]`.
+    pub seg_a: Vec<Vec3>,
+    pub seg_b: Vec<Vec3>,
     /// Per-front structural side: `Some(overriding_plate)` for a subduction front
     /// (fold grain belongs to the overriding plate), `None` for continent–continent
     /// collision (both sides build mountains).
@@ -110,8 +116,8 @@ pub struct OrogenFronts {
 impl OrogenFronts {
     /// Extract the convergent fronts from the coarse plate boundaries. Filters to
     /// `BoundaryKind::Convergent` (collision + subduction — the orogen-builders) and
-    /// anchors each at its real shared-edge midpoint (not the bisector
-    /// `boundary_point`, which is off the actual Voronoi edge).
+    /// stores each as its real shared-edge ARC (the two Voronoi-vertex endpoints), so
+    /// the consumer measures distance to the boundary curve, not a single anchor.
     pub fn build(
         coarse: &Tessellation,
         plates: &Plates,
@@ -119,8 +125,10 @@ impl OrogenFronts {
         dynamics: &Dynamics,
     ) -> Self {
         let boundaries = collect_plate_boundaries(coarse, plates, crust, dynamics);
-        let midpoints = build_cell_pair_edge_midpoints(coarse);
+        let endpoints = build_cell_pair_edge_endpoints(coarse);
         let mut points = Vec::new();
+        let mut seg_a = Vec::new();
+        let mut seg_b = Vec::new();
         let mut accept_plate = Vec::new();
         for e in &boundaries {
             if e.kind != BoundaryKind::Convergent {
@@ -131,8 +139,18 @@ impl OrogenFronts {
             } else {
                 (e.cell_b, e.cell_a)
             };
-            // Real Voronoi-edge midpoint; fall back to the stored bisector point.
-            let point = midpoints.get(&key).copied().unwrap_or(e.boundary_point);
+            // Real Voronoi-edge arc endpoints; fall back to a degenerate arc at the
+            // stored bisector point if the edge isn't found.
+            let (a, b) = endpoints
+                .get(&key)
+                .copied()
+                .unwrap_or((e.boundary_point, e.boundary_point));
+            let sum = a + b;
+            let mid = if sum.length_squared() > 1e-10 {
+                sum.normalize()
+            } else {
+                a
+            };
             // Subduction → fold grain belongs to the OVERRIDING (non-subducting)
             // plate; collision (no polarity) → both sides build mountains.
             let accept = match e.subduction {
@@ -140,11 +158,15 @@ impl OrogenFronts {
                 Some(SubductionPolarity::BSubducts) => Some(e.plate_a as u32),
                 None => None,
             };
-            points.push(point);
+            points.push(mid);
+            seg_a.push(a);
+            seg_b.push(b);
             accept_plate.push(accept);
         }
         Self {
             points,
+            seg_a,
+            seg_b,
             accept_plate,
             coarse_cell_plate: plates.cell_plate.clone(),
         }
@@ -788,6 +810,32 @@ fn lithology_erodibility(
     }
 }
 
+/// Great-circle distance (radians) from a unit point `p` to the minor great-circle
+/// ARC between unit endpoints `a` and `b`. If the foot of the perpendicular lies on
+/// the arc it's the cross-track distance; otherwise the nearer endpoint. Used so the
+/// P1b front distance field is a true offset from the boundary polyline (parallel
+/// iso-contours), not a bullseye around a point anchor.
+fn point_to_arc_distance(p: Vec3, a: Vec3, b: Vec3) -> f32 {
+    let ang = |x: Vec3, y: Vec3| x.dot(y).clamp(-1.0, 1.0).acos();
+    let n = a.cross(b);
+    let nlen = n.length();
+    if nlen < 1e-9 {
+        // Degenerate arc (coincident/antipodal endpoints): fall back to an endpoint.
+        return ang(p, a);
+    }
+    let n = n / nlen;
+    let foot = p - n * p.dot(n); // project p onto the arc's great-circle plane
+    if foot.length() > 1e-9 {
+        let foot = foot.normalize();
+        let ab = ang(a, b);
+        // Foot is on the minor arc iff it doesn't overshoot either endpoint.
+        if ang(a, foot) <= ab + 1e-4 && ang(b, foot) <= ab + 1e-4 {
+            return p.dot(n).abs().clamp(0.0, 1.0).asin(); // cross-track distance
+        }
+    }
+    ang(p, a).min(ang(p, b))
+}
+
 /// Synthesize the zero-mean interior structural relief (erosion-v2 Phase 1) and ADD
 /// it to the fine base, in place. The interpolated coarse elevation is smooth in
 /// orogen interiors (the distance-decay forcing saturates there → flat-topped highs),
@@ -838,33 +886,50 @@ fn add_interior_structural_relief(
         .fold(0.0f32, f32::max)
         .max(1e-6);
 
+    // Blend knob is a weight in [0,1]; clamp so the band/isotropic mix (and hence the
+    // ~[-1,1] boundedness the zero-mean + land-drift argument relies on) holds even if
+    // a sweep passes a larger value.
+    let strike_weight = front_strike_weight.clamp(0.0, 1.0);
+
     let fbm = Fbm::<Perlin>::new(seed.wrapping_add(61) as u32).set_octaves(FINE_INTERIOR_OCTAVES);
     let warp_fbm = Fbm::<Perlin>::new(seed.wrapping_add(62) as u32).set_octaves(2);
     let sstep = super::features::smoothstep;
 
-    // KD-tree over the convergent-front anchors for nearest-front queries (only when
-    // banding is actually requested and there are fronts to band toward).
-    let front_tree = (front_strike_weight > 0.0 && !fronts.points.is_empty()).then(|| {
+    // KD-tree over the convergent-front edge-midpoint anchors (only when banding is
+    // actually requested and there are fronts to band toward). The anchors gather
+    // CANDIDATE arcs near a cell; the distance is then measured to the arc itself.
+    let front_tree = (strike_weight > 0.0 && !fronts.points.is_empty()).then(|| {
         let entries: Vec<[f32; 3]> = fronts.points.iter().map(|p| [p.x, p.y, p.z]).collect();
         ImmutableKdTree::<f32, 3>::new_from_slice(&entries)
     });
+    // Candidate gather radius (squared chord): the influence radius plus a margin of
+    // one half-anchor-spacing, so an arc whose midpoint sits just past the influence
+    // radius but whose body enters it is still considered.
+    let gather_chord = 2.0 * ((FINE_FRONT_INFLUENCE_RADIUS + FINE_FRONT_GATHER_MARGIN) * 0.5).sin();
+    let gather_r2 = gather_chord * gather_chord;
 
-    // Signed great-circle distance (radians) to the nearest front that is on this
-    // cell's structural side, or None if none within the k-nearest are compatible.
+    // Great-circle distance (radians, unsigned) to the nearest front ARC on this
+    // cell's structural side, or None if no compatible front is within reach. Unsigned
+    // is fine: the band phase uses `cos` (even) and side-awareness already filters the
+    // wrong (subducting) side, so a signed front-normal coordinate isn't needed.
     let nearest_front_dist = |i: usize, c: Vec3| -> Option<f32> {
         let tree = front_tree.as_ref()?;
         let plate = fronts.coarse_cell_plate[coarse_cell[i]];
-        for nn in tree.nearest_n::<SquaredEuclidean>(&[c.x, c.y, c.z], FINE_FRONT_K_NEAREST) {
-            let compatible = match fronts.accept_plate[nn.item as usize] {
+        let mut best = f32::INFINITY;
+        for nn in tree.within_unsorted::<SquaredEuclidean>(&[c.x, c.y, c.z], gather_r2) {
+            let item = nn.item as usize;
+            let compatible = match fronts.accept_plate[item] {
                 None => true,          // collision: both sides build mountains
                 Some(p) => p == plate, // subduction: overriding side only
             };
             if compatible {
-                let chord = nn.distance.max(0.0).sqrt();
-                return Some(2.0 * (chord * 0.5).clamp(0.0, 1.0).asin());
+                let d = point_to_arc_distance(c, fronts.seg_a[item], fronts.seg_b[item]);
+                if d < best {
+                    best = d;
+                }
             }
         }
-        None
+        best.is_finite().then_some(best)
     };
 
     // Raw gated relief + gate mask per cell. Two gates keep it on high orogen
@@ -904,7 +969,7 @@ fn add_interior_structural_relief(
                 // cos of the (warped) front distance → ridges parallel to the front.
                 let band =
                     (std::f32::consts::TAU * FINE_FRONT_BAND_FREQUENCY as f32 * (d + warp)).cos();
-                let w = front_strike_weight * (1.0 - sstep(0.0, FINE_FRONT_INFLUENCE_RADIUS, d));
+                let w = strike_weight * (1.0 - sstep(0.0, FINE_FRONT_INFLUENCE_RADIUS, d));
                 w * band + (1.0 - w) * isotropic
             }
             _ => isotropic,

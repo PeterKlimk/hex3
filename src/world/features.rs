@@ -949,6 +949,45 @@ pub(crate) fn build_cell_pair_edge_midpoints(
     cell_pair_to_midpoint
 }
 
+/// Like [`build_cell_pair_edge_midpoints`] but returns the shared Voronoi edge's two
+/// VERTEX endpoints (unit vectors) per cell pair, so a consumer can measure distance
+/// to the boundary as a great-circle ARC rather than to a single anchor point (whose
+/// iso-distance contours scallop into bullseyes). Used by the P1b strike-aware relief.
+pub(crate) fn build_cell_pair_edge_endpoints(
+    tessellation: &Tessellation,
+) -> HashMap<(usize, usize), (Vec3, Vec3)> {
+    let voronoi = &tessellation.voronoi;
+    let mut edge_to_cells: HashMap<(u32, u32), Vec<usize>> = HashMap::new();
+
+    for cell_idx in 0..voronoi.num_cells() {
+        let cell = voronoi.cell(cell_idx);
+        let verts = cell.vertex_indices;
+        let n = verts.len();
+        for i in 0..n {
+            let a = verts[i];
+            let b = verts[(i + 1) % n];
+            let edge = if a < b { (a, b) } else { (b, a) };
+            edge_to_cells.entry(edge).or_default().push(cell_idx);
+        }
+    }
+
+    let mut cell_pair_to_endpoints: HashMap<(usize, usize), (Vec3, Vec3)> = HashMap::new();
+    for ((va, vb), cells) in edge_to_cells {
+        if cells.len() != 2 {
+            continue;
+        }
+        let key = if cells[0] < cells[1] {
+            (cells[0], cells[1])
+        } else {
+            (cells[1], cells[0])
+        };
+        let v0 = voronoi.vertices[va as usize];
+        let v1 = voronoi.vertices[vb as usize];
+        cell_pair_to_endpoints.insert(key, (v0, v1));
+    }
+    cell_pair_to_endpoints
+}
+
 fn cell_pair_edge_midpoint(
     tessellation: &Tessellation,
     midpoints: &HashMap<(usize, usize), Vec3>,
