@@ -38,6 +38,14 @@ pub const SWEEP_KNOBS: &[&str] = &[
     "steps",
     "precip_iters",
     "flat_resolution",
+    "uplift_scale",
+    "deposition_slope",
+    "litho_sigma",
+    "litho_grain",
+    "orographic",
+    "lake_evap",
+    "glacial_k",
+    "fault_scarp",
 ];
 
 /// Options for a sweep run, assembled from the CLI.
@@ -87,6 +95,14 @@ fn apply_knob(ov: &mut ErosionOverrides, name: &str, v: f64) -> Result<(), Strin
         "steps" => ov.steps = Some(v as usize),
         "precip_iters" => ov.precip_outer_iters = Some(v as usize),
         "flat_resolution" => ov.flat_resolution = Some(v != 0.0),
+        "uplift_scale" => ov.uplift_scale = Some(f),
+        "deposition_slope" => ov.deposition_slope = Some(f),
+        "litho_sigma" => ov.litho_sigma = Some(f),
+        "litho_grain" => ov.litho_grain_strength = Some(f),
+        "orographic" => ov.orographic_precip_strength = Some(f),
+        "lake_evap" => ov.lake_evap_strength = Some(f),
+        "glacial_k" => ov.glacial_k = Some(f),
+        "fault_scarp" => ov.fault_scarp_height = Some(f),
         other => {
             return Err(format!(
                 "unknown sweep knob '{other}'; valid knobs: {}",

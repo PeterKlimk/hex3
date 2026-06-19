@@ -132,6 +132,14 @@ pub struct ErosionOverrides {
     pub reroute_interval: Option<usize>,
     pub steps: Option<usize>,
     pub precip_outer_iters: Option<usize>,
+    pub uplift_scale: Option<f32>,
+    pub deposition_slope: Option<f32>,
+    pub litho_sigma: Option<f32>,
+    pub litho_grain_strength: Option<f32>,
+    pub orographic_precip_strength: Option<f32>,
+    pub lake_evap_strength: Option<f32>,
+    pub glacial_k: Option<f32>,
+    pub fault_scarp_height: Option<f32>,
 }
 
 impl ErosionOverrides {
@@ -171,6 +179,30 @@ impl ErosionOverrides {
         }
         if let Some(p) = self.precip_outer_iters {
             world.erosion_params.precip_outer_iters = p;
+        }
+        if let Some(u) = self.uplift_scale {
+            world.erosion_params.uplift_scale = u;
+        }
+        if let Some(d) = self.deposition_slope {
+            world.erosion_params.deposition_slope = d;
+        }
+        if let Some(s) = self.litho_sigma {
+            world.erosion_params.litho_sigma = s;
+        }
+        if let Some(g) = self.litho_grain_strength {
+            world.erosion_params.litho_grain_strength = g;
+        }
+        if let Some(o) = self.orographic_precip_strength {
+            world.erosion_params.orographic_precip_strength = o;
+        }
+        if let Some(l) = self.lake_evap_strength {
+            world.erosion_params.lake_evap_strength = l;
+        }
+        if let Some(g) = self.glacial_k {
+            world.erosion_params.glacial_k = g;
+        }
+        if let Some(f) = self.fault_scarp_height {
+            world.erosion_params.fault_scarp_height = f;
         }
     }
 }

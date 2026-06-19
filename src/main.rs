@@ -144,6 +144,43 @@ struct Cli {
     #[arg(long, default_value_t = 0)]
     erosion_precip_iters: usize,
 
+    /// Tectonic uplift scale ("Hold & carve"). <0 = EROSION_UPLIFT_SCALE default;
+    /// 0 = relaxation only.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_uplift_scale: f32,
+
+    /// Depositional repose slope (fans/floodplains/deltas). <0 = default; 0 =
+    /// sink-fill only.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_deposition_slope: f32,
+
+    /// Lithologic erodibility contrast sigma. <0 = default; 0 = uniform K.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_litho_sigma: f32,
+
+    /// Structural-grain erodibility strength (fold-belt ridge-and-valley). <0 =
+    /// default; 0 = off.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_litho_grain: f32,
+
+    /// Orographic precip modulation strength (windward wetter, lee drier). <0 =
+    /// default; 0 = coarse precip.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_orographic_strength: f32,
+
+    /// Lakes-as-evaporation precip boost. <0 = default; 0 = off.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_lake_evap: f32,
+
+    /// Glacial abrasion coefficient (ice-flux over-deepening). <0 = default; 0 =
+    /// no glacial pass.
+    #[arg(long, default_value_t = -1.0)]
+    glacial_k: f32,
+
+    /// Fault range-front scarp relief. <0 = default; 0 = off (smooth fronts).
+    #[arg(long, default_value_t = -1.0)]
+    fault_scarp: f32,
+
     /// Sweep mode: erosion knob to vary across columns (enables a headless
     /// render-to-PNG sweep). Knobs: k, diffusivity, channel_support,
     /// hillslope_crit, confinement_slope, uplift_smooth, mfd_exponent,
@@ -251,6 +288,16 @@ fn main() {
             .then_some(cli.erosion_reroute_interval),
         steps: (cli.erosion_steps > 0).then_some(cli.erosion_steps),
         precip_outer_iters: (cli.erosion_precip_iters > 0).then_some(cli.erosion_precip_iters),
+        uplift_scale: (cli.erosion_uplift_scale >= 0.0).then_some(cli.erosion_uplift_scale),
+        deposition_slope: (cli.erosion_deposition_slope >= 0.0)
+            .then_some(cli.erosion_deposition_slope),
+        litho_sigma: (cli.erosion_litho_sigma >= 0.0).then_some(cli.erosion_litho_sigma),
+        litho_grain_strength: (cli.erosion_litho_grain >= 0.0).then_some(cli.erosion_litho_grain),
+        orographic_precip_strength: (cli.erosion_orographic_strength >= 0.0)
+            .then_some(cli.erosion_orographic_strength),
+        lake_evap_strength: (cli.erosion_lake_evap >= 0.0).then_some(cli.erosion_lake_evap),
+        glacial_k: (cli.glacial_k >= 0.0).then_some(cli.glacial_k),
+        fault_scarp_height: (cli.fault_scarp >= 0.0).then_some(cli.fault_scarp),
     };
     let fine_cache = if cli.no_fine_cache {
         FineCacheMode::Disabled
