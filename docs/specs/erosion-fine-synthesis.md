@@ -36,17 +36,21 @@ sign-off (user) still pending** — needs the Windows GPU sweep.
 
 **P1b status: LANDED** (2026-06-20). Realized as the spec's "evaluator over coarse
 boundary-source primitives" path (NOT a full FeatureFields recompute). `OrogenFronts`
-(convergent plate boundaries → real Voronoi-edge midpoints + per-front overriding side)
-built on the coarse mesh; the fine grain is a banded `cos` of the signed great-circle
-distance to the nearest *compatible* front, whose iso-contours run parallel to the
-orogen (front-parallel ridge-and-valley) — a globally-consistent distance field, no
-per-cell strike vector (sidesteps the orientation-tensor seam problem the design
-weighed). Blended with P1a isotropic by `front_strike_weight` (cache v5; primitives
-hashed). Codex design review SOUND-WITH-FIXES (real edge midpoints, side awareness,
-magnitude-stays-gated, cache — all folded in). Probe: `front_strike_weight=0`
-reproduces P1a exactly (7.92e-4); default 0.7 → 2.80e-3 summit pre-slope, erosion still
-organizes (pit% 11.0→8.6), land drift +0.00e0. **Strike-alignment is a visual property
-— user's call via the GPU sweep.** Next: P1c.
+= the convergent plate boundaries as great-circle ARCs (each front's shared Voronoi
+edge: `seg_a`/`seg_b`) + per-front overriding side, built on the coarse mesh. The fine
+grain is a banded `cos` of the (unsigned) great-circle distance to the nearest
+*compatible* front ARC — `point_to_arc_distance`, gathered within the influence radius
+via a KD-tree of edge midpoints. Distance-to-arc (not to a point anchor) makes the
+iso-contours TRUE offsets from the boundary polyline → coherent front-parallel ridge-
+and-valley, no scalloped bullseyes, and no per-cell strike vector (sidesteps the
+orientation-tensor seam problem the design weighed). Blended with P1a isotropic by
+`front_strike_weight` (clamped [0,1]; cache v5 hashes the arc geometry + the P1a/P1b
+shape constants). TWO codex reviews folded in — design (real edge anchors, side
+awareness, magnitude-stays-gated, cache) and diff (the arc-vs-point-distance fix #1,
+within-radius gather, constant hashing, weight clamp). Probe: `front_strike_weight=0`
+reproduces P1a exactly (7.92e-4); default 0.7 → 2.81e-3 summit pre-slope, erosion still
+organizes (pit% 11.0→8.6), land drift +0.00e0, datum preserved. **Strike-alignment is
+a visual property — user's call via the GPU sweep.** Next: P1c.
 
 ## The problem precisely
 
