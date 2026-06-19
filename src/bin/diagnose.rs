@@ -385,6 +385,60 @@ fn main() {
             ero.aspect_entropy - pre.aspect_entropy,
         );
 
+        // ---- Mountain-top plateau probe (the localized "cottage cheese on flat
+        // summits" artifact). Global counters are blind to a summit-only pattern,
+        // so restrict to the highest land (top elevation decile) and compare
+        // pre-erosion vs eroded THERE. Also report summit max-downhill slope: low
+        // slope = genuinely flat-topped (plateau). If the texture is already in
+        // `pre`, it's the fine-base synthesis (interp + noise), not erosion/routing.
+        {
+            let pre_e = &fine.surface_for(3).elevation.values;
+            let ero_e = &fine.surface_for(4).elevation.values;
+            let mut land_el: Vec<f32> = ero_e.iter().copied().filter(|&e| e >= 0.0).collect();
+            land_el.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            let thr = land_el[((land_el.len() as f32 * 0.90) as usize).min(land_el.len() - 1)];
+            let mask = |src: &[f32]| -> Vec<f32> {
+                (0..ftess.num_cells())
+                    .map(|i| if ero_e[i] >= thr { src[i] } else { -1.0 })
+                    .collect()
+            };
+            let pre_top = hex3::world::roughness_counters(ftess, &mask(pre_e));
+            let ero_top = hex3::world::roughness_counters(ftess, &mask(ero_e));
+            // Summit max-downhill slope (elev/km), pre and eroded, for flatness.
+            let summit_slopes = |elev: &[f32]| -> Vec<f32> {
+                let mut s = Vec::new();
+                for i in 0..ftess.num_cells() {
+                    if ero_e[i] < thr {
+                        continue;
+                    }
+                    let ci = ftess.cell_center(i);
+                    let mut g = 0.0f32;
+                    for &nb in ftess.neighbors(i) {
+                        let d = (ci - ftess.cell_center(nb)).length().max(1e-9) * EARTH_RADIUS_KM;
+                        g = g.max((elev[i] - elev[nb]) / d);
+                    }
+                    s.push(g);
+                }
+                s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                s
+            };
+            let pct = |v: &[f32], p: f32| v[(((v.len() as f32) * p) as usize).min(v.len() - 1)];
+            let (sp, se) = (summit_slopes(pre_e), summit_slopes(ero_e));
+            println!(
+                "\n-- Mountain-top plateau probe (top elev decile, elev>={:.3}) --",
+                thr
+            );
+            row("top pre", &pre_top);
+            row("top eroded", &ero_top);
+            println!(
+                "  summit max-downhill slope (elev/km): pre p50 {:.3e} p90 {:.3e} | eroded p50 {:.3e} p90 {:.3e}  (global land slope p50 ~3.8e-4; << = flat plateau)",
+                pct(&sp, 0.5),
+                pct(&sp, 0.9),
+                pct(&se, 0.5),
+                pct(&se, 0.9),
+            );
+        }
+
         // ---- Carved dissection density (the "too busy" calibration target) ----
         // Incision = pre-erosion base minus eroded (meters). A "carved" cell is
         // incised past a depth threshold (a real valley, not surface noise); the
