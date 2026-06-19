@@ -18,7 +18,7 @@ use std::path::PathBuf;
 use glam::Vec3;
 
 use super::constants::*;
-use super::fine::{FineBase, FineDensityParams};
+use super::fine::{FineBase, FineDensityParams, FineStructureParams};
 use super::{Atmosphere, Crust, Elevation, FeatureFields, Tessellation};
 
 /// Bump when fine-mesh GENERATION CODE changes (sampling / relaxation / field
@@ -32,7 +32,11 @@ use super::{Atmosphere, Crust, Elevation, FeatureFields, Tessellation};
 /// false hit; (b) coarse drainage now uses distance-normalized steepest descent,
 /// which shifts the flow field feeding the fine-mesh density prior — a
 /// generation-logic change the content hash can't observe.
-const FINE_BASE_CACHE_VERSION: u32 = 3;
+/// v4: the fine base now synthesizes interior structural relief + range-front
+/// scarps into `base_elevation` (erosion-v2 P1a) — a code-generated change the
+/// pre-v4 hash can't observe; the structural knobs ARE hashed (below) but the
+/// generation logic itself needs the bump.
+const FINE_BASE_CACHE_VERSION: u32 = 4;
 
 /// How the fine-mesh base should use the on-disk cache.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -60,6 +64,7 @@ pub fn fine_base_key(
     atmosphere: &Atmosphere,
     max_cells: usize,
     density: &FineDensityParams,
+    structure: &FineStructureParams,
 ) -> u64 {
     let mut h = 0xcbf2_9ce4_8422_2325u64; // FNV-1a offset basis
     mix_u64(&mut h, FINE_BASE_CACHE_VERSION as u64);
@@ -81,6 +86,11 @@ pub fn fine_base_key(
         mix_f32(&mut h, f);
     }
     mix_u64(&mut h, FINE_RELAX_PASSES as u64);
+
+    // Structural-relief knobs that shape the pre-erosion base_elevation (P1a;
+    // decision A — these are fine-base inputs, so a sweep regenerates the base).
+    mix_f32(&mut h, structure.fault_scarp_height);
+    mix_f32(&mut h, structure.interior_relief);
 
     // Coarse-world fingerprint. The generators pin the coarse mesh identity
     // (seed + resolution + Lloyd). Coarse elevation + atmosphere capture every

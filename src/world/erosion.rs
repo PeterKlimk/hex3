@@ -125,8 +125,6 @@ pub struct ErosionParams {
     pub glacial_ablation: f32,
     /// Max reverse gradient glacial abrasion may carve (tarn / over-deepening depth).
     pub glacial_overdeepen_max: f32,
-    /// Fault range-front scarp relief imposed on the base before erosion. 0 = off.
-    pub fault_scarp_height: f32,
 }
 
 impl Default for ErosionParams {
@@ -159,7 +157,6 @@ impl Default for ErosionParams {
             glacial_snowline_pole: GLACIAL_SNOWLINE_POLE,
             glacial_ablation: GLACIAL_ABLATION,
             glacial_overdeepen_max: GLACIAL_OVERDEEPEN_MAX,
-            fault_scarp_height: FAULT_SCARP_HEIGHT,
         }
     }
 }
@@ -278,7 +275,10 @@ pub(crate) fn glacial_erode(
         // into one downstream cell); near the elevation base (~41%) = smooth
         // distributed flow. The physical-fix test for going MFD/diffusive on ice.
         if log::log_enabled!(log::Level::Info) && step + 1 == params.glacial_steps {
-            let masked: Vec<f32> = flux.iter().map(|&f| if f > 0.0 { f } else { -1.0 }).collect();
+            let masked: Vec<f32> = flux
+                .iter()
+                .map(|&f| if f > 0.0 { f } else { -1.0 })
+                .collect();
             let fr = roughness_counters(tess, &masked);
             log::info!(
                 "glacial ice-flux (SFD) spikiness: checker {:.2}% (elev base ~41.6%) | pit {:.2}% peak {:.2}% | glaciated-flux cells {}",

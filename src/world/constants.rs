@@ -1114,3 +1114,47 @@ pub const FAULT_FRONT_BAND: f32 = 0.2;
 /// sediment), and a symmetric scarp over-drops the lowlands and drowns coastal
 /// land, so the basin side is damped well below 1.0.
 pub const FAULT_BASIN_DROP_FRAC: f32 = 0.25;
+
+// --- Fine interior structural relief (erosion-v2 Phase 1 / P1a) ---
+// The fine base is the coarse elevation INTERPOLATED onto fine cells, so orogen
+// interiors are smooth flat-topped plateaus (the coarse forcing saturates there):
+// no drainage gradient, so erosion spirals into cottage-cheese instead of
+// dissecting real ranges (root cause #1, [[hex3-summit-cottage-cheese]]). This is
+// a mid-band structural HEIGHT term (fault-block / fold grain) added to the base
+// BEFORE pre-hydrology, gated to high orogen interiors, made coarse-cell-local
+// zero-mean so it adds sub-coarse structure WITHOUT shifting the coarse datum /
+// land fraction. It is the SUBSTRATE erosion carves, not painted final relief.
+// P1a is isotropic fBm (soft, no strike-aware fronts — that's P1b); the height
+// term is what fix #7 (codex) requires: erodibility alone gives a flat summit no
+// gradient. Sweep amplitude with `--sweep interior_relief` / diagnose.
+
+/// Amplitude (elevation units) of the interior structural relief. Zero-mean per
+/// coarse cell, so this is the ~peak fBm excursion (≈ this × 10 km). 0 = off
+/// (pure interpolant — the old flat-top behaviour). The master P1a knob.
+pub const FINE_INTERIOR_RELIEF: f32 = 0.04;
+
+/// Base spatial frequency of the interior fBm (cell_center is a unit vector, so
+/// the base-octave wavelength ≈ 1/this rad; 160 ≈ 40 km, squarely in the mid-band
+/// between the coarse Nyquist (~70 km) and the channel scale (~few km)).
+pub const FINE_INTERIOR_FREQUENCY: f64 = 160.0;
+
+/// Octaves of the interior fBm. 5 reaches ≈ 40/16 ≈ 2.5 km at the finest octave,
+/// down to the channel scale erosion organizes on.
+pub const FINE_INTERIOR_OCTAVES: usize = 5;
+
+/// Elevation gate (elevation units): structure fades in over
+/// [`MIN`, `MIN`+`BAND`]. Keeps the (signed) relief on high orogen terrain well
+/// above sea level so the zero-mean negative excursions never flip a near-coast
+/// land cell to ocean (land fraction preserved by construction, not by clamping —
+/// clamping would re-introduce a positive bias). MIN must exceed the worst-case
+/// downward excursion (~2× amplitude after the per-cell mean subtraction) for the
+/// default amplitude; a high-amplitude sweep may show small land drift (caught by
+/// the area-weighted drift check).
+pub const FINE_INTERIOR_MIN_ELEV: f32 = 0.10;
+pub const FINE_INTERIOR_ELEV_BAND: f32 = 0.08;
+
+/// Orogen-forcing gate: structure fades in over [`THRESHOLD`, `THRESHOLD`+`BAND`]
+/// of the land-normalized (collision+convergent+arc) forcing, so faults/folds live
+/// in convergence belts and cratons stay quiet (per the noise philosophy).
+pub const FINE_INTERIOR_FORCING_THRESHOLD: f32 = 0.15;
+pub const FINE_INTERIOR_FORCING_BAND: f32 = 0.35;

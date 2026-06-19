@@ -48,7 +48,9 @@ pub use dynamics::{Dynamics, EulerPole};
 pub use elevation::{Elevation, NoiseLayerData};
 pub use erosion::{roughness_counters, ErosionParams, RoughnessCounters};
 pub use features::FeatureFields;
-pub use fine::{FineBase, FineDensityParams, FineFields, FineSurface, FineWorld};
+pub use fine::{
+    FineBase, FineDensityParams, FineFields, FineStructureParams, FineSurface, FineWorld,
+};
 pub use fine_cache::FineCacheMode;
 pub use hydrology::{Basin, CellWaterState, Hydrology, WaterBody, DEFAULT_CLIMATE_RATIO};
 pub use plates::Plates;
@@ -123,6 +125,11 @@ pub struct World {
     /// Used when (re-)generating the fine-mesh base; part of its cache key.
     pub fine_density_params: FineDensityParams,
 
+    /// Runtime-tunable fine-mesh structural-relief knobs (P1a; `fault_scarp_height`
+    /// migrated here from `erosion_params`). Shapes the pre-erosion `base_elevation`,
+    /// so it is part of the fine-base cache key (a sweep regenerates the base).
+    pub fine_structure_params: FineStructureParams,
+
     /// Whether fine-mesh base generation reads/writes the on-disk cache.
     pub fine_cache: FineCacheMode,
 
@@ -179,6 +186,7 @@ impl World {
             fine: None,
             erosion_params: ErosionParams::default(),
             fine_density_params: FineDensityParams::default(),
+            fine_structure_params: FineStructureParams::default(),
             fine_cache: FineCacheMode::default(),
             view_stage: u32::MAX,
         }
@@ -321,6 +329,7 @@ impl World {
             fine_max_cells,
             self.fine_cache,
             self.fine_density_params,
+            self.fine_structure_params,
         );
         self.hydrology = None;
         self.fine = Some(fine);

@@ -124,6 +124,11 @@ struct Cli {
     /// <0 = use FAULT_SCARP_HEIGHT default; 0 = off (smooth fronts).
     #[arg(long, default_value_t = -1.0)]
     fault_scarp: f32,
+    /// Override fine interior structural relief amplitude (P1a: mid-band fault/fold
+    /// grain that breaks the flat orogen summit). <0 = use FINE_INTERIOR_RELIEF
+    /// default; 0 = off (pure interpolant). Regenerates the fine base.
+    #[arg(long, default_value_t = -1.0)]
+    interior_relief: f32,
     /// Fine-mesh density knobs (cell-size targets in km / blend). <0 = use the
     /// FINE_* default. Setting any forces fine-base regeneration (no cache). Use
     /// to sweep the ocean/plains/mountain budget: e.g. --fine-plains-km 20.
@@ -225,7 +230,10 @@ fn main() {
         world.erosion_params.litho_grain_strength = cli.litho_grain_strength;
     }
     if cli.fault_scarp >= 0.0 {
-        world.erosion_params.fault_scarp_height = cli.fault_scarp;
+        world.fine_structure_params.fault_scarp_height = cli.fault_scarp;
+    }
+    if cli.interior_relief >= 0.0 {
+        world.fine_structure_params.interior_relief = cli.interior_relief;
     }
     // Fine-mesh density overrides (force regeneration so the cache can't serve a
     // base built with the default knobs).

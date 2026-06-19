@@ -4,9 +4,13 @@
 //! frame. Runs on the GPU but needs no window (offscreen render-to-texture +
 //! readback), so a single `cargo run` produces the whole image grid.
 //!
-//! The fine-mesh base (stage 3a) is a function of seed + mesh density only, so it
-//! is disk-cached and reused across every tile; only the erosion stage re-runs
-//! per knob value, which is what makes a sweep affordable after the perf work.
+//! The fine-mesh base (stage 3a) is a function of seed + mesh density + the
+//! structural-relief knobs (P1a), so it is disk-cached and reused across every
+//! tile; for a pure EROSION-knob sweep only the erosion stage re-runs per value,
+//! which is what makes a sweep affordable after the perf work. Sweeping a
+//! structural knob (`fault_scarp`, `interior_relief`) regenerates the base per
+//! value by design (decision A) — distinct key per value, so still cache-correct,
+//! just not free.
 
 use std::io::BufWriter;
 use std::path::PathBuf;
@@ -46,6 +50,7 @@ pub const SWEEP_KNOBS: &[&str] = &[
     "lake_evap",
     "glacial_k",
     "fault_scarp",
+    "interior_relief",
 ];
 
 /// Options for a sweep run, assembled from the CLI.
@@ -103,6 +108,7 @@ fn apply_knob(ov: &mut ErosionOverrides, name: &str, v: f64) -> Result<(), Strin
         "lake_evap" => ov.lake_evap_strength = Some(f),
         "glacial_k" => ov.glacial_k = Some(f),
         "fault_scarp" => ov.fault_scarp_height = Some(f),
+        "interior_relief" => ov.interior_relief = Some(f),
         other => {
             return Err(format!(
                 "unknown sweep knob '{other}'; valid knobs: {}",

@@ -139,7 +139,11 @@ pub struct ErosionOverrides {
     pub orographic_precip_strength: Option<f32>,
     pub lake_evap_strength: Option<f32>,
     pub glacial_k: Option<f32>,
+    // Fine-base structural-relief knobs (P1a): these target `fine_structure_params`,
+    // NOT `erosion_params` — they shape the pre-erosion base, so `apply` must run
+    // before stage-3 fine generation (it does in every path here). Decision A.
     pub fault_scarp_height: Option<f32>,
+    pub interior_relief: Option<f32>,
 }
 
 impl ErosionOverrides {
@@ -202,7 +206,10 @@ impl ErosionOverrides {
             world.erosion_params.glacial_k = g;
         }
         if let Some(f) = self.fault_scarp_height {
-            world.erosion_params.fault_scarp_height = f;
+            world.fine_structure_params.fault_scarp_height = f;
+        }
+        if let Some(r) = self.interior_relief {
+            world.fine_structure_params.interior_relief = r;
         }
     }
 }

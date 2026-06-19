@@ -181,6 +181,11 @@ struct Cli {
     #[arg(long, default_value_t = -1.0)]
     fault_scarp: f32,
 
+    /// Fine interior structural relief amplitude (P1a: mid-band fault/fold grain
+    /// that breaks the flat orogen summit). <0 = default; 0 = off (pure interpolant).
+    #[arg(long, default_value_t = -1.0)]
+    interior_relief: f32,
+
     /// Sweep mode: erosion knob to vary across columns (enables a headless
     /// render-to-PNG sweep). Knobs: k, diffusivity, channel_support,
     /// hillslope_crit, confinement_slope, uplift_smooth, mfd_exponent,
@@ -298,6 +303,7 @@ fn main() {
         lake_evap_strength: (cli.erosion_lake_evap >= 0.0).then_some(cli.erosion_lake_evap),
         glacial_k: (cli.glacial_k >= 0.0).then_some(cli.glacial_k),
         fault_scarp_height: (cli.fault_scarp >= 0.0).then_some(cli.fault_scarp),
+        interior_relief: (cli.interior_relief >= 0.0).then_some(cli.interior_relief),
     };
     let fine_cache = if cli.no_fine_cache {
         FineCacheMode::Disabled

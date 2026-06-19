@@ -47,6 +47,36 @@ impl Default for FineDensityParams {
     }
 }
 
+/// Runtime-tunable knobs for the pre-erosion fine STRUCTURAL relief (erosion-v2
+/// Phase 1 / P1a). Mirrors [`FineDensityParams`]: these shape `FineBase`'s
+/// `base_elevation` (the substrate erosion carves), so they are part of the fine-
+/// base cache key, NOT erosion-stage knobs.
+///
+/// `fault_scarp_height` migrated here from [`ErosionParams`] (decision A in
+/// docs/specs/erosion-fine-synthesis.md): structural relief is part of the
+/// pre-erosion base — applying it in the erosion stage left terminal-lake base
+/// levels computed on an unfaulted base, and made the scarp a temporal knob over a
+/// structural input. Moving it here also lets the disk cache key see it (a sweep
+/// of `fault_scarp` / `interior_relief` now regenerates the base per value).
+#[derive(Debug, Clone, Copy)]
+pub struct FineStructureParams {
+    /// Fault range-front scarp relief imposed on the base. 0 = off.
+    pub fault_scarp_height: f32,
+    /// Amplitude of the zero-mean interior structural relief (fault-block / fold
+    /// grain) that breaks the flat interpolated orogen summit so erosion has a
+    /// gradient to organize. 0 = off (pure interpolant). The master P1a knob.
+    pub interior_relief: f32,
+}
+
+impl Default for FineStructureParams {
+    fn default() -> Self {
+        Self {
+            fault_scarp_height: FAULT_SCARP_HEIGHT,
+            interior_relief: FINE_INTERIOR_RELIEF,
+        }
+    }
+}
+
 /// Fine Stage-3/4 world state. The expensive [`FineBase`] (mesh + transferred
 /// fields + pre-erosion base elevation) is built once and shared by two cheap
 /// [`FineSurface`] snapshots:
@@ -72,9 +102,17 @@ pub struct FineBase {
     pub tessellation: Tessellation,
     pub coarse_cell: Vec<usize>,
     pub fields: FineFields,
-    /// Coarse elevation interpolated onto the fine cells (the fixed sea-level
-    /// datum erosion carves into). Distinct from the eroded `surface.elevation`.
+    /// Pre-erosion base the fluvial loop carves into: the interpolated coarse
+    /// elevation PLUS the synthesized fine structural relief (interior fault/fold
+    /// grain + range-front scarps; P1a). On the fixed coarse sea-level datum.
+    /// Distinct from the eroded `surface.elevation`.
     pub base_elevation: Vec<f32>,
+    /// The pure interpolated coarse elevation (no structural relief) — the datum
+    /// the transferred coarse `temperature` field was lapse-baked against. The
+    /// lapse correction in [`FineSurface::from_eroded`] measures relief against
+    /// THIS, not `base_elevation`, so the added fine structure (and later the
+    /// eroded relief) lapse temperature correctly. See erosion-fine-synthesis.md.
+    pub coarse_base_elevation: Vec<f32>,
     pub density: Vec<f32>,
     pub achieved_density_ratio: f32,
 }
@@ -117,6 +155,7 @@ impl FineWorld {
         max_cells: usize,
         cache: FineCacheMode,
         density_params: FineDensityParams,
+        structure_params: FineStructureParams,
     ) -> Self {
         let total = Instant::now();
         let base = FineBase::load_or_generate(
@@ -129,6 +168,7 @@ impl FineWorld {
             atmosphere,
             max_cells,
             density_params,
+            structure_params,
         );
         // Pre-erosion surface: hydrology rides the un-eroded interpolated base.
         let pre =
@@ -233,6 +273,7 @@ impl FineBase {
         atmosphere: &Atmosphere,
         max_cells: usize,
         density_params: FineDensityParams,
+        structure_params: FineStructureParams,
     ) -> Self {
         let key = fine_cache::fine_base_key(
             seed,
@@ -243,6 +284,7 @@ impl FineBase {
             atmosphere,
             max_cells,
             &density_params,
+            &structure_params,
         );
         if cache == FineCacheMode::Enabled {
             if let Some(base) = fine_cache::load(key) {
@@ -258,6 +300,7 @@ impl FineBase {
             atmosphere,
             max_cells,
             density_params,
+            structure_params,
         );
         if matches!(cache, FineCacheMode::Enabled | FineCacheMode::Rebuild) {
             fine_cache::save(key, &base);
@@ -277,6 +320,7 @@ impl FineBase {
         atmosphere: &Atmosphere,
         max_cells: usize,
         density_params: FineDensityParams,
+        structure_params: FineStructureParams,
     ) -> Self {
         let t0 = Instant::now();
         let preview_hydrology = Hydrology::generate(
@@ -369,7 +413,7 @@ impl FineBase {
         // never re-solves sea level — and the relief matches coarse instead of
         // collapsing toward zero.
         let t0 = Instant::now();
-        let base_elevation = interpolate_coarse_elevation(
+        let coarse_base_elevation = interpolate_coarse_elevation(
             coarse_tessellation,
             &tessellation,
             &coarse_cell,
@@ -377,11 +421,37 @@ impl FineBase {
         );
         log::info!("fine mesh: elevation refine {:.2?}", t0.elapsed());
 
+        // Synthesize the mid-band structural relief erosion will carve (P1a). The
+        // interpolated base is smooth in orogen interiors (the coarse forcing
+        // saturates there → flat-topped highs with no drainage gradient); this adds
+        // fault-block / fold grain + range-front scarps onto it, BEFORE pre-
+        // hydrology so terminal-lake base levels and the temperature lapse see the
+        // real substrate. `coarse_base_elevation` is kept as the lapse baseline.
+        let t0 = Instant::now();
+        let mut base_elevation = coarse_base_elevation.clone();
+        add_interior_structural_relief(
+            &tessellation,
+            &coarse_cell,
+            &fields.elevation_fields,
+            &mut base_elevation,
+            seed,
+            structure_params.interior_relief,
+        );
+        // Range-front scarps: sharpen active orogen margins (footwall up / basin
+        // down). Was applied in the erosion stage; now part of the base.
+        apply_fault_scarps(
+            &mut base_elevation,
+            &fields.elevation_fields,
+            structure_params.fault_scarp_height,
+        );
+        log::info!("fine mesh: structural relief {:.2?}", t0.elapsed());
+
         Self {
             tessellation,
             coarse_cell,
             fields,
             base_elevation,
+            coarse_base_elevation,
             density: fine_density,
             achieved_density_ratio,
         }
@@ -417,15 +487,10 @@ impl FineSurface {
         // closed basins drain internally instead of being carved over their spill.
         let lake_base = terminal_lake_base_levels(&base.tessellation, pre_hydrology);
 
-        // Fault range-front scarps: sharpen active orogen margins so ranges rise
-        // along near-linear fronts; erosion then cuts canyons through them and the
-        // triangular facets emerge. Applied to the base erosion carves into.
-        let mut faulted_base = base.base_elevation.clone();
-        apply_fault_scarps(
-            &mut faulted_base,
-            &base.fields.elevation_fields,
-            params.fault_scarp_height,
-        );
+        // The base already carries the synthesized structural relief (interior
+        // fault/fold grain + range-front scarps; built in `FineBase`), so erosion
+        // carves directly into it — no separate scarp pass here.
+        let structured_base = &base.base_elevation;
 
         // Coupled erode↔precip loop: each pass re-carves the base relief with the
         // rain-shadow precip from the previous pass (windward flanks, wetter,
@@ -435,7 +500,7 @@ impl FineSurface {
         // carved ranges. Converges in a couple of passes.
         let iters = params.precip_outer_iters.max(1);
         let mut precip = base.fields.precipitation.clone();
-        let mut eroded = faulted_base.clone();
+        let mut eroded = structured_base.clone();
         // The neighbour geometry (chord distances + finite-volume edge weights) is
         // a function of the immutable tessellation, so build it once and reuse it
         // across every erode↔precip pass and the glacial pass instead of
@@ -446,7 +511,7 @@ impl FineSurface {
             eroded = super::erosion::erode(
                 &base.tessellation,
                 &base.fields.elevation_fields,
-                &faulted_base,
+                structured_base,
                 &precip,
                 &erodibility,
                 &lake_base,
@@ -493,16 +558,18 @@ impl FineSurface {
         let elevation = Elevation::refine_from_base(&base.tessellation, eroded);
         log_resolution_probe(&base.tessellation, &elevation);
 
-        // Correct temperature for the relief erosion carved. `fields.temperature`
-        // is the coarse field interpolated onto the fine mesh, so its lapse is
-        // baked against the pre-erosion datum (`base_elevation`). Re-apply the
-        // lapse delta against the eroded relief (held/sharpened peaks, carved
-        // valleys) so basin evaporation sees the terrain it actually drains. Only
-        // positive elevation lapses (matches `generate_surface_temperature`); this
-        // is a no-op for the pre-erosion surface (eroded == base_elevation).
+        // Correct temperature for the relief above the coarse datum.
+        // `fields.temperature` is the coarse field interpolated onto the fine mesh,
+        // so its lapse is baked against the COARSE elevation (`coarse_base_elevation`
+        // — the pure interpolant, NOT `base_elevation`, which now also carries the
+        // synthesized fine structural relief). Re-apply the lapse delta against the
+        // current relief — the structured base for the pre-erosion surface, or the
+        // eroded relief for stage 4 — so the added structure and the carved valleys
+        // both lapse temperature and basin evaporation sees the terrain it drains.
+        // Only positive elevation lapses (matches `generate_surface_temperature`).
         let temperature: Vec<f32> = (0..base.tessellation.num_cells())
             .map(|i| {
-                let delta = eroded[i].max(0.0) - base.base_elevation[i].max(0.0);
+                let delta = eroded[i].max(0.0) - base.coarse_base_elevation[i].max(0.0);
                 base.fields.temperature[i] - super::atmosphere::LAPSE_RATE * delta
             })
             .collect();
@@ -616,6 +683,109 @@ fn lithology_erodibility(
     #[cfg(feature = "single-threaded")]
     {
         (0..n).map(sample).collect()
+    }
+}
+
+/// Synthesize the zero-mean interior structural relief (erosion-v2 Phase 1 / P1a)
+/// and ADD it to the fine base, in place. The interpolated coarse elevation is
+/// smooth in orogen interiors (the distance-decay forcing saturates there →
+/// flat-topped highs), so erosion has no drainage gradient to organize and
+/// degenerates into cottage-cheese. This imposes a mid-band fault-block / fold-grain
+/// HEIGHT field — the SUBSTRATE erosion dissects into real ranges — gated to high
+/// orogen terrain and made coarse-cell-local zero-mean so it adds sub-coarse
+/// structure WITHOUT shifting the coarse sea-level datum or land fraction (root
+/// cause #1 / fix #7, docs/specs/erosion-fine-synthesis.md).
+///
+/// Isotropic fBm: P1a is deliberately soft (the transferred fields carry no
+/// boundary strike; crisp strike-aware fronts are P1b). `amplitude == 0` is a
+/// no-op (pure interpolant — the old flat-top behaviour).
+fn add_interior_structural_relief(
+    tess: &Tessellation,
+    coarse_cell: &[usize],
+    fields: &ElevationFields,
+    base_elev: &mut [f32],
+    seed: u64,
+    amplitude: f32,
+) {
+    if amplitude <= 0.0 {
+        return;
+    }
+    let n = tess.num_cells();
+
+    // Land-normalized orogen forcing (collision + convergent + arc): high in
+    // convergence belts, ~0 in cratons. The same signals the elevation/scarp
+    // machinery keys on, so the grain follows the world's orogens, not free fBm.
+    let forcing: Vec<f32> = (0..n)
+        .map(|i| (fields.collision[i] + fields.convergent[i] + fields.arc[i]).max(0.0))
+        .collect();
+    let fmax = (0..n)
+        .filter(|&i| base_elev[i] >= 0.0)
+        .map(|i| forcing[i])
+        .fold(0.0f32, f32::max)
+        .max(1e-6);
+
+    let fbm = Fbm::<Perlin>::new(seed.wrapping_add(61) as u32).set_octaves(FINE_INTERIOR_OCTAVES);
+    let sstep = super::features::smoothstep;
+
+    // Raw gated relief + gate mask per cell. Two gates keep it on high orogen
+    // interiors: an elevation ramp (so the zero-mean negative excursions stay well
+    // above sea level → land fraction preserved by construction) and a forcing ramp
+    // (so cratons stay quiet). `in_gate` records membership in the zero-mean set
+    // independently of whether the fBm sample happens to be exactly 0.
+    let sample = |i: usize| -> (f32, bool) {
+        let elev_gate = sstep(
+            FINE_INTERIOR_MIN_ELEV,
+            FINE_INTERIOR_MIN_ELEV + FINE_INTERIOR_ELEV_BAND,
+            base_elev[i],
+        );
+        if elev_gate <= 0.0 {
+            return (0.0, false);
+        }
+        let force_gate = sstep(
+            FINE_INTERIOR_FORCING_THRESHOLD,
+            FINE_INTERIOR_FORCING_THRESHOLD + FINE_INTERIOR_FORCING_BAND,
+            forcing[i] / fmax,
+        );
+        let gate = elev_gate * force_gate;
+        if gate <= 0.0 {
+            return (0.0, false);
+        }
+        let p = tess.cell_center(i) * FINE_INTERIOR_FREQUENCY as f32;
+        let noise = fbm.get([p.x as f64, p.y as f64, p.z as f64]) as f32;
+        (gate * amplitude * noise, true)
+    };
+    #[cfg(not(feature = "single-threaded"))]
+    let raw: Vec<(f32, bool)> = (0..n).into_par_iter().map(sample).collect();
+    #[cfg(feature = "single-threaded")]
+    let raw: Vec<(f32, bool)> = (0..n).map(sample).collect();
+
+    // Coarse-cell-local zero-mean (area-weighted) over the GATED cells only:
+    // subtract each coarse cell's gated mean from its gated fine cells, leaving
+    // ungated cells at exactly 0. The area-weighted perturbation over every coarse
+    // cell is then ~0, so the coarse datum and per-cell mean elevation are preserved
+    // (no fine sea-level re-solve), and untouched lowland/ocean cells cannot drift
+    // across the land threshold.
+    let areas = tess.cell_areas();
+    let ncoarse = coarse_cell.iter().copied().max().map_or(0, |m| m + 1);
+    let mut sum_wd = vec![0.0f64; ncoarse];
+    let mut sum_w = vec![0.0f64; ncoarse];
+    for i in 0..n {
+        if raw[i].1 {
+            let c = coarse_cell[i];
+            sum_wd[c] += (areas[i] * raw[i].0) as f64;
+            sum_w[c] += areas[i] as f64;
+        }
+    }
+    for i in 0..n {
+        if raw[i].1 {
+            let c = coarse_cell[i];
+            let mean = if sum_w[c] > 0.0 {
+                (sum_wd[c] / sum_w[c]) as f32
+            } else {
+                0.0
+            };
+            base_elev[i] += raw[i].0 - mean;
+        }
     }
 }
 
