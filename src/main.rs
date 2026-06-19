@@ -144,9 +144,68 @@ struct Cli {
     #[arg(long, default_value_t = 0)]
     erosion_precip_iters: usize,
 
+    /// Sweep mode: erosion knob to vary across columns (enables a headless
+    /// render-to-PNG sweep). Knobs: k, diffusivity, channel_support,
+    /// hillslope_crit, confinement_slope, uplift_smooth, mfd_exponent,
+    /// diffusion_iters, reroute_interval, steps, precip_iters, flat_resolution.
+    #[arg(long)]
+    sweep: Option<String>,
+
+    /// Comma-separated values for --sweep (e.g. "10,30,60,120").
+    #[arg(long, default_value = "")]
+    sweep_values: String,
+
+    /// Optional second knob varied across rows (2-D grid).
+    #[arg(long)]
+    sweep2: Option<String>,
+
+    /// Comma-separated values for --sweep2.
+    #[arg(long, default_value = "")]
+    sweep2_values: String,
+
+    /// Output directory for sweep PNG tiles + montage.png.
+    #[arg(long, default_value = "sweep_out")]
+    out_dir: PathBuf,
+
+    /// Sweep tile width in pixels.
+    #[arg(long, default_value_t = 1024)]
+    sweep_width: u32,
+
+    /// Sweep tile height in pixels.
+    #[arg(long, default_value_t = 1024)]
+    sweep_height: u32,
+
+    /// Sweep camera yaw in degrees (globe orbit).
+    #[arg(long, default_value_t = 30.0)]
+    sweep_yaw: f32,
+
+    /// Sweep camera pitch in degrees (globe orbit).
+    #[arg(long, default_value_t = 25.0)]
+    sweep_pitch: f32,
+
+    /// Sweep camera distance from globe center.
+    #[arg(long, default_value_t = 2.2)]
+    sweep_distance: f32,
+
+    /// Rivers in sweep tiles: off, major, or all.
+    #[arg(long, default_value = "major")]
+    sweep_rivers: String,
+
     /// Legacy flag: equivalent to --stage 2
     #[arg(long, hide = true)]
     stage2: bool,
+}
+
+/// Parse a comma-separated list of f64 values, ignoring empty entries.
+fn parse_values(s: &str) -> Vec<f64> {
+    s.split(',')
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .map(|t| {
+            t.parse::<f64>()
+                .unwrap_or_else(|_| panic!("invalid sweep value: '{t}'"))
+        })
+        .collect()
 }
 
 fn main() {
@@ -175,8 +234,7 @@ fn main() {
         diffusivity: (cli.erosion_diffusivity >= 0.0).then_some(cli.erosion_diffusivity),
         channel_support_km2: (cli.erosion_channel_support >= 0.0)
             .then_some(cli.erosion_channel_support),
-        uplift_smooth_km: (cli.erosion_uplift_smooth >= 0.0)
-            .then_some(cli.erosion_uplift_smooth),
+        uplift_smooth_km: (cli.erosion_uplift_smooth >= 0.0).then_some(cli.erosion_uplift_smooth),
         hillslope_critical_slope: (cli.erosion_hillslope_crit >= 0.0)
             .then_some(cli.erosion_hillslope_crit),
         diffusion_iters: (cli.erosion_diffusion_iters > 0).then_some(cli.erosion_diffusion_iters),
@@ -193,7 +251,40 @@ fn main() {
         FineCacheMode::Enabled
     };
 
-    if cli.headless {
+    if let Some(knob1) = cli.sweep.clone() {
+        let river_mode = match cli.sweep_rivers.as_str() {
+            "off" => app::RiverMode::Off,
+            "major" => app::RiverMode::Major,
+            "all" => app::RiverMode::All,
+            other => panic!("invalid --sweep-rivers '{other}'; use off, major, or all"),
+        };
+        let values1 = parse_values(&cli.sweep_values);
+        if values1.is_empty() {
+            panic!("--sweep requires --sweep-values (e.g. --sweep-values 10,30,60)");
+        }
+        let opts = app::sweep::SweepOptions {
+            seed: cli.seed.unwrap_or_else(rand::random),
+            cells: cli.cells,
+            fine_scale: cli.fine_scale,
+            // Sweeps are about erosion, so default to the erosion stage.
+            target_stage: cli.stage.unwrap_or(4),
+            voronoi_backend: backend,
+            fine_cache,
+            base_erosion: erosion,
+            knob1,
+            values1,
+            knob2: cli.sweep2.clone(),
+            values2: parse_values(&cli.sweep2_values),
+            out_dir: cli.out_dir,
+            width: cli.sweep_width,
+            height: cli.sweep_height,
+            yaw_deg: cli.sweep_yaw,
+            pitch_deg: cli.sweep_pitch,
+            distance: cli.sweep_distance,
+            river_mode,
+        };
+        app::sweep::run_sweep(opts);
+    } else if cli.headless {
         run_headless(
             cli.seed,
             cli.cells,

@@ -317,10 +317,11 @@ impl Renderer {
     }
 
     pub fn render(&mut self, gpu: &mut GpuContext, uniforms: &Uniforms, scene: RenderScene<'_>) {
-        gpu.queue
-            .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(uniforms));
-
-        let output = match gpu.surface.get_current_texture() {
+        let surface = gpu
+            .surface
+            .as_ref()
+            .expect("render() requires a windowed surface; use render_to_view for headless");
+        let output = match surface.get_current_texture() {
             Ok(t) => t,
             // Outdated (alt-tab / occluded / stale swapchain) and Lost both
             // recover by reconfiguring the surface — otherwise Outdated repeats
@@ -342,17 +343,32 @@ impl Renderer {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        let mut encoder = gpu
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("render_encoder"),
-            });
+        self.render_to_view(&gpu.device, &gpu.queue, &view, uniforms, scene);
+        output.present();
+    }
+
+    /// Render a scene into an arbitrary color target (the swapchain view in the
+    /// windowed path, or an offscreen texture for headless/sweep renders). Owns no
+    /// surface logic, so it works without a window.
+    pub fn render_to_view(
+        &mut self,
+        device: &Device,
+        queue: &wgpu::Queue,
+        view: &wgpu::TextureView,
+        uniforms: &Uniforms,
+        scene: RenderScene<'_>,
+    ) {
+        queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(uniforms));
+
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("render_encoder"),
+        });
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("render_pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
+                    view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
@@ -487,7 +503,6 @@ impl Renderer {
             }
         }
 
-        gpu.queue.submit(std::iter::once(encoder.finish()));
-        output.present();
+        queue.submit(std::iter::once(encoder.finish()));
     }
 }

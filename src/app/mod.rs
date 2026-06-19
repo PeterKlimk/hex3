@@ -1,6 +1,7 @@
 mod coloring;
 pub mod export;
 mod state;
+pub mod sweep;
 mod view;
 mod visualization;
 pub mod world;
@@ -18,7 +19,7 @@ use winit::{
 };
 
 pub use state::AppState;
-pub use view::{ClimateLayer, RenderMode, ViewMode};
+pub use view::{ClimateLayer, RenderMode, RiverMode, ViewMode};
 
 /// Configuration for the app from CLI arguments.
 pub struct AppConfig {
