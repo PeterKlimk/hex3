@@ -332,7 +332,9 @@ fn target_camera(center_unit: Vec3, aspect: f32, alt: f32) -> (Mat4, Vec3) {
     let up_ref = if n.y.abs() < 0.95 { Vec3::Y } else { Vec3::Z };
     let east = n.cross(up_ref).normalize();
     let north = east.cross(n).normalize();
-    let eye = target + n * alt + north * (alt * 0.9);
+    // Raised along the normal, offset less along the tangent => steeper look-down
+    // so the limb/sky stays mostly out of frame and terrain fills it.
+    let eye = target + n * alt + north * (alt * 0.55);
     let view = Mat4::look_at_rh(eye, target, n);
     let proj = Mat4::perspective_rh(std::f32::consts::FRAC_PI_4, aspect, 0.01, 10.0);
     (proj * view, eye)

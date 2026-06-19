@@ -193,7 +193,7 @@ struct Cli {
     sweep_zoom_views: usize,
 
     /// Close-up camera altitude above target (smaller = tighter zoom).
-    #[arg(long, default_value_t = 0.45)]
+    #[arg(long, default_value_t = 0.3)]
     sweep_zoom_alt: f32,
 
     /// Rivers in sweep tiles: off, major, or all.
