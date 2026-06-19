@@ -51,6 +51,7 @@ pub const SWEEP_KNOBS: &[&str] = &[
     "glacial_k",
     "fault_scarp",
     "interior_relief",
+    "front_strike_weight",
 ];
 
 /// Options for a sweep run, assembled from the CLI.
@@ -109,6 +110,7 @@ fn apply_knob(ov: &mut ErosionOverrides, name: &str, v: f64) -> Result<(), Strin
         "glacial_k" => ov.glacial_k = Some(f),
         "fault_scarp" => ov.fault_scarp_height = Some(f),
         "interior_relief" => ov.interior_relief = Some(f),
+        "front_strike_weight" => ov.front_strike_weight = Some(f),
         other => {
             return Err(format!(
                 "unknown sweep knob '{other}'; valid knobs: {}",

@@ -50,6 +50,7 @@ pub use erosion::{roughness_counters, ErosionParams, RoughnessCounters};
 pub use features::FeatureFields;
 pub use fine::{
     FineBase, FineDensityParams, FineFields, FineStructureParams, FineSurface, FineWorld,
+    OrogenFronts,
 };
 pub use fine_cache::FineCacheMode;
 pub use hydrology::{Basin, CellWaterState, Hydrology, WaterBody, DEFAULT_CLIMATE_RATIO};
@@ -319,6 +320,17 @@ impl World {
             .atmosphere
             .as_ref()
             .expect("Atmosphere must be generated first");
+        let plates = self
+            .plates
+            .as_ref()
+            .expect("Plates must be generated first");
+        let dynamics = self
+            .dynamics
+            .as_ref()
+            .expect("Dynamics must be generated first");
+        // Convergent-front primitives for the strike-aware structural relief (P1b);
+        // built on the coarse mesh where plates/dynamics live.
+        let fronts = OrogenFronts::build(&self.tessellation, plates, crust, dynamics);
         let fine = FineWorld::generate_pre(
             self.seed,
             &self.tessellation,
@@ -330,6 +342,7 @@ impl World {
             self.fine_cache,
             self.fine_density_params,
             self.fine_structure_params,
+            &fronts,
         );
         self.hydrology = None;
         self.fine = Some(fine);

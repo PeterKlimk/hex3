@@ -129,6 +129,11 @@ struct Cli {
     /// default; 0 = off (pure interpolant). Regenerates the fine base.
     #[arg(long, default_value_t = -1.0)]
     interior_relief: f32,
+    /// Override fine strike-band weight (P1b: how much of the interior grain aligns
+    /// to the nearest orogen front vs isotropic). <0 = use FINE_FRONT_STRIKE_WEIGHT
+    /// default; 0 = isotropic (P1a). Regenerates the fine base.
+    #[arg(long, default_value_t = -1.0)]
+    front_strike_weight: f32,
     /// Fine-mesh density knobs (cell-size targets in km / blend). <0 = use the
     /// FINE_* default. Setting any forces fine-base regeneration (no cache). Use
     /// to sweep the ocean/plains/mountain budget: e.g. --fine-plains-km 20.
@@ -234,6 +239,9 @@ fn main() {
     }
     if cli.interior_relief >= 0.0 {
         world.fine_structure_params.interior_relief = cli.interior_relief;
+    }
+    if cli.front_strike_weight >= 0.0 {
+        world.fine_structure_params.front_strike_weight = cli.front_strike_weight;
     }
     // Fine-mesh density overrides (force regeneration so the cache can't serve a
     // base built with the default knobs).

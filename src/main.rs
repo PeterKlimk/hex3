@@ -186,6 +186,11 @@ struct Cli {
     #[arg(long, default_value_t = -1.0)]
     interior_relief: f32,
 
+    /// Fine strike-band weight (P1b: interior grain aligned to the nearest orogen
+    /// front vs isotropic). <0 = default; 0 = isotropic (P1a).
+    #[arg(long, default_value_t = -1.0)]
+    front_strike_weight: f32,
+
     /// Sweep mode: erosion knob to vary across columns (enables a headless
     /// render-to-PNG sweep). Knobs: k, diffusivity, channel_support,
     /// hillslope_crit, confinement_slope, uplift_smooth, mfd_exponent,
@@ -304,6 +309,7 @@ fn main() {
         glacial_k: (cli.glacial_k >= 0.0).then_some(cli.glacial_k),
         fault_scarp_height: (cli.fault_scarp >= 0.0).then_some(cli.fault_scarp),
         interior_relief: (cli.interior_relief >= 0.0).then_some(cli.interior_relief),
+        front_strike_weight: (cli.front_strike_weight >= 0.0).then_some(cli.front_strike_weight),
     };
     let fine_cache = if cli.no_fine_cache {
         FineCacheMode::Disabled

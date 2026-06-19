@@ -10,11 +10,16 @@ use rand_chacha::ChaCha8Rng;
 #[cfg(not(feature = "single-threaded"))]
 use rayon::prelude::*;
 
+use super::boundary::{collect_plate_boundaries, BoundaryKind, SubductionPolarity};
 use super::constants::*;
+use super::dynamics::Dynamics;
 use super::elevation::{coarse_elevation_fields, ElevationFields};
 use super::erosion::ErosionParams;
+use super::features::build_cell_pair_edge_midpoints;
 use super::fine_cache::{self, FineCacheMode};
-use super::{Atmosphere, CellWaterState, Crust, Elevation, FeatureFields, Hydrology, Tessellation};
+use super::{
+    Atmosphere, CellWaterState, Crust, Elevation, FeatureFields, Hydrology, Plates, Tessellation,
+};
 
 type CoarseTree = ImmutableKdTree<f32, 3>;
 
@@ -66,6 +71,10 @@ pub struct FineStructureParams {
     /// grain) that breaks the flat interpolated orogen summit so erosion has a
     /// gradient to organize. 0 = off (pure interpolant). The master P1a knob.
     pub interior_relief: f32,
+    /// Blend (0..1) of strike-banded grain (aligned to the nearest orogen front)
+    /// vs P1a isotropic grain, faded by distance to the front (P1b). 0 = pure
+    /// isotropic. The master P1b knob.
+    pub front_strike_weight: f32,
 }
 
 impl Default for FineStructureParams {
@@ -73,6 +82,71 @@ impl Default for FineStructureParams {
         Self {
             fault_scarp_height: FAULT_SCARP_HEIGHT,
             interior_relief: FINE_INTERIOR_RELIEF,
+            front_strike_weight: FINE_FRONT_STRIKE_WEIGHT,
+        }
+    }
+}
+
+/// Coarse convergent-boundary primitives for the strike-aware structural relief
+/// (P1b). Built once on the coarse mesh (where plates/dynamics live) and consumed
+/// by the fine-base synthesis as ORIENTATION primitives — the signed distance to the
+/// nearest *compatible* front orients the interior grain along the orogen (its iso-
+/// distance contours run parallel to the front). NOT a serialized part of `FineBase`
+/// — it's a generation input (like [`FineStructureParams`]), hashed into the cache key.
+#[derive(Debug, Clone, Default)]
+pub struct OrogenFronts {
+    /// Real shared-Voronoi-edge midpoints of the convergent boundary edges (unit
+    /// vectors). The orientation anchors.
+    pub points: Vec<Vec3>,
+    /// Per-front structural side: `Some(overriding_plate)` for a subduction front
+    /// (fold grain belongs to the overriding plate), `None` for continent–continent
+    /// collision (both sides build mountains).
+    pub accept_plate: Vec<Option<u32>>,
+    /// Coarse `plates.cell_plate`, so a fine cell's plate = `coarse_cell_plate[
+    /// coarse_cell[i]]` resolves which fronts are on its side.
+    pub coarse_cell_plate: Vec<u32>,
+}
+
+impl OrogenFronts {
+    /// Extract the convergent fronts from the coarse plate boundaries. Filters to
+    /// `BoundaryKind::Convergent` (collision + subduction — the orogen-builders) and
+    /// anchors each at its real shared-edge midpoint (not the bisector
+    /// `boundary_point`, which is off the actual Voronoi edge).
+    pub fn build(
+        coarse: &Tessellation,
+        plates: &Plates,
+        crust: &Crust,
+        dynamics: &Dynamics,
+    ) -> Self {
+        let boundaries = collect_plate_boundaries(coarse, plates, crust, dynamics);
+        let midpoints = build_cell_pair_edge_midpoints(coarse);
+        let mut points = Vec::new();
+        let mut accept_plate = Vec::new();
+        for e in &boundaries {
+            if e.kind != BoundaryKind::Convergent {
+                continue;
+            }
+            let key = if e.cell_a < e.cell_b {
+                (e.cell_a, e.cell_b)
+            } else {
+                (e.cell_b, e.cell_a)
+            };
+            // Real Voronoi-edge midpoint; fall back to the stored bisector point.
+            let point = midpoints.get(&key).copied().unwrap_or(e.boundary_point);
+            // Subduction → fold grain belongs to the OVERRIDING (non-subducting)
+            // plate; collision (no polarity) → both sides build mountains.
+            let accept = match e.subduction {
+                Some(SubductionPolarity::ASubducts) => Some(e.plate_b as u32),
+                Some(SubductionPolarity::BSubducts) => Some(e.plate_a as u32),
+                None => None,
+            };
+            points.push(point);
+            accept_plate.push(accept);
+        }
+        Self {
+            points,
+            accept_plate,
+            coarse_cell_plate: plates.cell_plate.clone(),
         }
     }
 }
@@ -162,6 +236,7 @@ impl FineWorld {
         cache: FineCacheMode,
         density_params: FineDensityParams,
         structure_params: FineStructureParams,
+        fronts: &OrogenFronts,
     ) -> Self {
         let total = Instant::now();
         let base = FineBase::load_or_generate(
@@ -175,6 +250,7 @@ impl FineWorld {
             max_cells,
             density_params,
             structure_params,
+            fronts,
         );
         // Pre-erosion surface: hydrology rides the un-eroded interpolated base.
         let pre =
@@ -280,6 +356,7 @@ impl FineBase {
         max_cells: usize,
         density_params: FineDensityParams,
         structure_params: FineStructureParams,
+        fronts: &OrogenFronts,
     ) -> Self {
         let key = fine_cache::fine_base_key(
             seed,
@@ -291,6 +368,7 @@ impl FineBase {
             max_cells,
             &density_params,
             &structure_params,
+            fronts,
         );
         if cache == FineCacheMode::Enabled {
             if let Some(base) = fine_cache::load(key) {
@@ -307,6 +385,7 @@ impl FineBase {
             max_cells,
             density_params,
             structure_params,
+            fronts,
         );
         if matches!(cache, FineCacheMode::Enabled | FineCacheMode::Rebuild) {
             fine_cache::save(key, &base);
@@ -327,6 +406,7 @@ impl FineBase {
         max_cells: usize,
         density_params: FineDensityParams,
         structure_params: FineStructureParams,
+        fronts: &OrogenFronts,
     ) -> Self {
         let t0 = Instant::now();
         let preview_hydrology = Hydrology::generate(
@@ -439,9 +519,11 @@ impl FineBase {
             &tessellation,
             &coarse_cell,
             &fields.elevation_fields,
+            fronts,
             &mut base_elevation,
             seed,
             structure_params.interior_relief,
+            structure_params.front_strike_weight,
         );
         // Range-front scarps: sharpen active orogen margins (footwall up / basin
         // down). Deliberately ASYMMETRIC (real fronts express footwall uplift far
@@ -706,26 +788,38 @@ fn lithology_erodibility(
     }
 }
 
-/// Synthesize the zero-mean interior structural relief (erosion-v2 Phase 1 / P1a)
-/// and ADD it to the fine base, in place. The interpolated coarse elevation is
-/// smooth in orogen interiors (the distance-decay forcing saturates there →
-/// flat-topped highs), so erosion has no drainage gradient to organize and
-/// degenerates into cottage-cheese. This imposes a mid-band fault-block / fold-grain
-/// HEIGHT field — the SUBSTRATE erosion dissects into real ranges — gated to high
-/// orogen terrain and made coarse-cell-local zero-mean so it adds sub-coarse
-/// structure WITHOUT shifting the coarse sea-level datum or land fraction (root
-/// cause #1 / fix #7, docs/specs/erosion-fine-synthesis.md).
+/// Synthesize the zero-mean interior structural relief (erosion-v2 Phase 1) and ADD
+/// it to the fine base, in place. The interpolated coarse elevation is smooth in
+/// orogen interiors (the distance-decay forcing saturates there → flat-topped highs),
+/// so erosion has no drainage gradient to organize and degenerates into cottage-
+/// cheese. This imposes a mid-band fault-block / fold-grain HEIGHT field — the
+/// SUBSTRATE erosion dissects into real ranges — gated to high orogen terrain and
+/// made coarse-cell-local zero-mean so it adds sub-coarse structure WITHOUT shifting
+/// the coarse sea-level datum or land fraction (root cause #1 / fix #7,
+/// docs/specs/erosion-fine-synthesis.md).
 ///
-/// Isotropic fBm: P1a is deliberately soft (the transferred fields carry no
-/// boundary strike; crisp strike-aware fronts are P1b). `amplitude == 0` is a
-/// no-op (pure interpolant — the old flat-top behaviour).
+/// Two grains, blended by `front_strike_weight` and proximity to a front:
+/// - **Isotropic fBm (P1a):** soft, orientation-free. The fallback everywhere, and
+///   the only grain where no convergent front is near.
+/// - **Strike-banded (P1b):** a banded function of the signed great-circle distance
+///   to the nearest *compatible* convergent front (`fronts`). The distance field's
+///   iso-contours run parallel to the front, so the bands are ridge-and-valley grain
+///   STRIKING ALONG the orogen (fold-and-thrust fabric) — no per-cell strike vector
+///   (which would seam at kinks). "Compatible" = the front's overriding side for a
+///   subduction front, either side for collision (so grain doesn't bleed onto the
+///   subducting plate). The fronts drive ORIENTATION only; amplitude stays gated.
+///
+/// `amplitude == 0` is a no-op (pure interpolant — the old flat-top behaviour).
+#[allow(clippy::too_many_arguments)]
 fn add_interior_structural_relief(
     tess: &Tessellation,
     coarse_cell: &[usize],
     fields: &ElevationFields,
+    fronts: &OrogenFronts,
     base_elev: &mut [f32],
     seed: u64,
     amplitude: f32,
+    front_strike_weight: f32,
 ) {
     if amplitude <= 0.0 {
         return;
@@ -745,13 +839,39 @@ fn add_interior_structural_relief(
         .max(1e-6);
 
     let fbm = Fbm::<Perlin>::new(seed.wrapping_add(61) as u32).set_octaves(FINE_INTERIOR_OCTAVES);
+    let warp_fbm = Fbm::<Perlin>::new(seed.wrapping_add(62) as u32).set_octaves(2);
     let sstep = super::features::smoothstep;
+
+    // KD-tree over the convergent-front anchors for nearest-front queries (only when
+    // banding is actually requested and there are fronts to band toward).
+    let front_tree = (front_strike_weight > 0.0 && !fronts.points.is_empty()).then(|| {
+        let entries: Vec<[f32; 3]> = fronts.points.iter().map(|p| [p.x, p.y, p.z]).collect();
+        ImmutableKdTree::<f32, 3>::new_from_slice(&entries)
+    });
+
+    // Signed great-circle distance (radians) to the nearest front that is on this
+    // cell's structural side, or None if none within the k-nearest are compatible.
+    let nearest_front_dist = |i: usize, c: Vec3| -> Option<f32> {
+        let tree = front_tree.as_ref()?;
+        let plate = fronts.coarse_cell_plate[coarse_cell[i]];
+        for nn in tree.nearest_n::<SquaredEuclidean>(&[c.x, c.y, c.z], FINE_FRONT_K_NEAREST) {
+            let compatible = match fronts.accept_plate[nn.item as usize] {
+                None => true,          // collision: both sides build mountains
+                Some(p) => p == plate, // subduction: overriding side only
+            };
+            if compatible {
+                let chord = nn.distance.max(0.0).sqrt();
+                return Some(2.0 * (chord * 0.5).clamp(0.0, 1.0).asin());
+            }
+        }
+        None
+    };
 
     // Raw gated relief + gate mask per cell. Two gates keep it on high orogen
     // interiors: an elevation ramp (so the zero-mean negative excursions stay well
     // above sea level → land fraction preserved by construction) and a forcing ramp
     // (so cratons stay quiet). `in_gate` records membership in the zero-mean set
-    // independently of whether the fBm sample happens to be exactly 0.
+    // independently of whether the noise sample happens to be exactly 0.
     let sample = |i: usize| -> (f32, bool) {
         let elev_gate = sstep(
             FINE_INTERIOR_MIN_ELEV,
@@ -770,9 +890,26 @@ fn add_interior_structural_relief(
         if gate <= 0.0 {
             return (0.0, false);
         }
-        let p = tess.cell_center(i) * FINE_INTERIOR_FREQUENCY as f32;
-        let noise = fbm.get([p.x as f64, p.y as f64, p.z as f64]) as f32;
-        (gate * amplitude * noise, true)
+        let c = tess.cell_center(i);
+        let p = c * FINE_INTERIOR_FREQUENCY as f32;
+        let isotropic = fbm.get([p.x as f64, p.y as f64, p.z as f64]) as f32;
+
+        // Blend toward the strike-banded grain near a compatible front, fading back
+        // to isotropic at the influence radius.
+        let value = match nearest_front_dist(i, c) {
+            Some(d) if d < FINE_FRONT_INFLUENCE_RADIUS => {
+                let pw = c * FINE_FRONT_WARP_FREQUENCY as f32;
+                let warp =
+                    FINE_FRONT_WARP * warp_fbm.get([pw.x as f64, pw.y as f64, pw.z as f64]) as f32;
+                // cos of the (warped) front distance → ridges parallel to the front.
+                let band =
+                    (std::f32::consts::TAU * FINE_FRONT_BAND_FREQUENCY as f32 * (d + warp)).cos();
+                let w = front_strike_weight * (1.0 - sstep(0.0, FINE_FRONT_INFLUENCE_RADIUS, d));
+                w * band + (1.0 - w) * isotropic
+            }
+            _ => isotropic,
+        };
+        (gate * amplitude * value, true)
     };
     #[cfg(not(feature = "single-threaded"))]
     let raw: Vec<(f32, bool)> = (0..n).into_par_iter().map(sample).collect();

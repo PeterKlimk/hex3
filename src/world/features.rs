@@ -904,7 +904,9 @@ fn angular_distance(a: Vec3, b: Vec3) -> f32 {
     a.dot(b).clamp(-1.0, 1.0).acos()
 }
 
-fn build_cell_pair_edge_midpoints(tessellation: &Tessellation) -> HashMap<(usize, usize), Vec3> {
+pub(crate) fn build_cell_pair_edge_midpoints(
+    tessellation: &Tessellation,
+) -> HashMap<(usize, usize), Vec3> {
     // Map Voronoi edges (vertex pairs) -> cells containing that edge, then produce a
     // cell-pair map keyed by (min_cell, max_cell) to the edge midpoint.
     let voronoi = &tessellation.voronoi;

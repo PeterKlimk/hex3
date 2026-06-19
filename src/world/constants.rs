@@ -1165,3 +1165,40 @@ pub const FINE_INTERIOR_FORCING_BAND: f32 = 0.35;
 /// level, so well-behaved knobs sit far below this; it catches high-amplitude
 /// sweeps flipping near-coast cells.
 pub const FINE_STRUCTURE_LAND_DRIFT_TOL: f32 = 1e-3;
+
+// --- Fine strike-aware structural relief (erosion-v2 Phase 1 / P1b) ---
+// P1a's interior grain is isotropic fBm (the transferred fields carry no boundary
+// strike). P1b orients it ALONG the orogen front using the coarse convergent plate
+// boundaries as primitives: the signed great-circle distance to the nearest
+// compatible front is a globally-consistent field whose iso-distance contours run
+// PARALLEL to the front, so a banded function of that distance gives ridge-and-
+// valley grain striking along the range (fold-and-thrust fabric) — without any
+// per-cell strike vector (which would seam at kinks). Near a front the relief blends
+// toward the bands; far from any front it falls back to P1a isotropic grain. Magnitude
+// stays gated by the P1a elevation+forcing gates (primitives drive ORIENTATION, not a
+// new uplift model). See docs/specs/erosion-fine-synthesis.md rung P1b.
+
+/// Blend weight (0..1) of the strike-banded grain vs P1a isotropic grain at a front
+/// (faded by distance to the front). 0 = pure isotropic (P1a); 1 = pure bands. The
+/// master P1b knob.
+pub const FINE_FRONT_STRIKE_WEIGHT: f32 = 0.7;
+
+/// Across-front band frequency (cycles per radian of front distance): the ridge-and-
+/// valley wavelength of the fold grain. 200 ≈ 32 km bands (mid-band, dissectable).
+pub const FINE_FRONT_BAND_FREQUENCY: f64 = 200.0;
+
+/// Front influence radius (radians): beyond this great-circle distance from any
+/// compatible front a cell gets no banding and falls back to P1a isotropic grain.
+/// 0.09 rad ≈ 573 km spans a typical orogen interior from its front.
+pub const FINE_FRONT_INFLUENCE_RADIUS: f32 = 0.09;
+
+/// Along-strike warp of the bands (radians, added to the front distance before
+/// banding) so ridges undulate instead of being perfectly parallel contour lines.
+/// ≈ 25 km, about one band wavelength.
+pub const FINE_FRONT_WARP: f32 = 0.004;
+/// Spatial frequency of the along-strike warp fBm (low = long, smooth undulations).
+pub const FINE_FRONT_WARP_FREQUENCY: f64 = 40.0;
+
+/// How many nearest fronts to test for plate-side compatibility before falling back
+/// to isotropic (the nearest front may be on the cell's wrong/subducting side).
+pub const FINE_FRONT_K_NEAREST: usize = 8;

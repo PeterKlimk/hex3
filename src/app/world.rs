@@ -144,6 +144,7 @@ pub struct ErosionOverrides {
     // before stage-3 fine generation (it does in every path here). Decision A.
     pub fault_scarp_height: Option<f32>,
     pub interior_relief: Option<f32>,
+    pub front_strike_weight: Option<f32>,
 }
 
 impl ErosionOverrides {
@@ -210,6 +211,9 @@ impl ErosionOverrides {
         }
         if let Some(r) = self.interior_relief {
             world.fine_structure_params.interior_relief = r;
+        }
+        if let Some(w) = self.front_strike_weight {
+            world.fine_structure_params.front_strike_weight = w;
         }
     }
 }

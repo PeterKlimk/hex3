@@ -18,7 +18,7 @@ use std::path::PathBuf;
 use glam::Vec3;
 
 use super::constants::*;
-use super::fine::{FineBase, FineDensityParams, FineStructureParams};
+use super::fine::{FineBase, FineDensityParams, FineStructureParams, OrogenFronts};
 use super::{Atmosphere, Crust, Elevation, FeatureFields, Tessellation};
 
 /// Bump when fine-mesh GENERATION CODE changes (sampling / relaxation / field
@@ -36,7 +36,10 @@ use super::{Atmosphere, Crust, Elevation, FeatureFields, Tessellation};
 /// scarps into `base_elevation` (erosion-v2 P1a) — a code-generated change the
 /// pre-v4 hash can't observe; the structural knobs ARE hashed (below) but the
 /// generation logic itself needs the bump.
-const FINE_BASE_CACHE_VERSION: u32 = 4;
+/// v5: the interior relief is now strike-aware near convergent fronts (P1b) — the
+/// banded grain is a generation-logic change; `front_strike_weight` + the convergent-
+/// front primitives are hashed below, but the logic itself needs the bump.
+const FINE_BASE_CACHE_VERSION: u32 = 5;
 
 /// How the fine-mesh base should use the on-disk cache.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -65,6 +68,7 @@ pub fn fine_base_key(
     max_cells: usize,
     density: &FineDensityParams,
     structure: &FineStructureParams,
+    fronts: &OrogenFronts,
 ) -> u64 {
     let mut h = 0xcbf2_9ce4_8422_2325u64; // FNV-1a offset basis
     mix_u64(&mut h, FINE_BASE_CACHE_VERSION as u64);
@@ -91,6 +95,19 @@ pub fn fine_base_key(
     // decision A — these are fine-base inputs, so a sweep regenerates the base).
     mix_f32(&mut h, structure.fault_scarp_height);
     mix_f32(&mut h, structure.interior_relief);
+    // Strike-aware fronts (P1b): the knob + the convergent-front primitives the
+    // banded grain consumes (anchors, per-front overriding side, coarse plate map).
+    mix_f32(&mut h, structure.front_strike_weight);
+    mix_vec3s(&mut h, &fronts.points);
+    mix_u64(&mut h, fronts.accept_plate.len() as u64);
+    for a in &fronts.accept_plate {
+        // distinguish None (collision) from Some(plate); +1 avoids a 0/None clash.
+        mix_u64(&mut h, a.map_or(0, |p| p as u64 + 1));
+    }
+    mix_u64(&mut h, fronts.coarse_cell_plate.len() as u64);
+    for &p in &fronts.coarse_cell_plate {
+        mix_u64(&mut h, p as u64);
+    }
 
     // Coarse-world fingerprint. The generators pin the coarse mesh identity
     // (seed + resolution + Lloyd). Coarse elevation + atmosphere capture every
