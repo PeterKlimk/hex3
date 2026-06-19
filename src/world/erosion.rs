@@ -343,6 +343,12 @@ pub(crate) struct ErosionState {
     /// tolerates a receiver that has gone non-downhill as the surface evolves.
     routing: Option<Routing>,
     area: Vec<f32>,
+    /// `area[i].powf(m)` — the drainage-area term of the stream-power incision
+    /// law. `area` only changes on a reroute, so this is memoized alongside it and
+    /// reused across the steps in between rather than recomputing a `powf` per
+    /// channel cell every step. Only filled for channel cells (`area >= a_crit`);
+    /// other entries are 0 and never read (incision gates on the same threshold).
+    area_pow: Vec<f32>,
     /// Per-step scratch buffers (elevation working copy + two snapshots + the
     /// eroded-volume accumulator), reused across steps via `mem::take` to avoid
     /// reallocating ~4xN floats every step. Contents are overwritten each step.
@@ -494,6 +500,7 @@ impl ErosionState {
             thick,
             routing: None,
             area: Vec::new(),
+            area_pow: Vec::new(),
             scratch_elev: vec![0.0f32; n],
             scratch_pre: vec![0.0f32; n],
             scratch_eroded: vec![0.0f32; n],
@@ -584,6 +591,17 @@ impl ErosionState {
                 Some(mfd) => accumulate_wet_area_mfd(&r, mfd, &self.precipitation, &self.areas),
                 None => accumulate_wet_area(&r, &self.precipitation, &self.areas),
             };
+            // Memoize the A^m stream-power term while `area` is fresh: it is reused
+            // unchanged by `incise_step` for every step until the next reroute.
+            let m = self.params.m;
+            let a_crit = self.a_crit;
+            self.area_pow.clear();
+            self.area_pow.resize(n, 0.0);
+            for i in 0..n {
+                if self.area[i] >= a_crit {
+                    self.area_pow[i] = self.area[i].powf(m);
+                }
+            }
             self.t_accum += s.elapsed().as_secs_f64();
 
             self.routing = Some(r);
@@ -603,10 +621,10 @@ impl ErosionState {
                 mfd,
                 &routing.is_sink,
                 &self.area,
+                &self.area_pow,
                 self.a_crit,
                 &self.erodibility,
                 self.params.k,
-                self.params.m,
                 self.params.dt,
                 self.params.confinement_slope,
             ),
@@ -616,11 +634,11 @@ impl ErosionState {
                 &routing.is_sink,
                 &routing.dist,
                 &self.area,
+                &self.area_pow,
                 self.a_crit,
                 &self.erodibility,
                 &routing.order,
                 self.params.k,
-                self.params.m,
                 self.params.dt,
                 self.params.confinement_slope,
             ),
@@ -1061,11 +1079,11 @@ fn incise_step(
     is_sink: &[bool],
     dist: &[f32],
     area: &[f32],
+    area_pow: &[f32],
     area_crit: f32,
     erodibility: &[f32],
     order: &[usize],
     k: f32,
-    m: f32,
     dt: f32,
     confinement_slope: f32,
 ) {
@@ -1090,7 +1108,7 @@ fn incise_step(
         }
         // h_i = (h_i + dt K C A^m h_rcv / d) / (1 + dt K C A^m / d), K per-cell
         // (lithologic erodibility), C the confinement gate.
-        let f = dt * k * c * erodibility[cell] * area[cell].powf(m) / d;
+        let f = dt * k * c * erodibility[cell] * area_pow[cell] / d;
         elev[cell] = (elev[cell] + f * hr) / (1.0 + f);
     }
 }
@@ -1661,10 +1679,10 @@ fn incise_step_mfd(
     mfd: &MfdFlow,
     is_sink: &[bool],
     area: &[f32],
+    area_pow: &[f32],
     area_crit: f32,
     erodibility: &[f32],
     k: f32,
-    m: f32,
     dt: f32,
     confinement_slope: f32,
 ) {
@@ -1691,7 +1709,7 @@ fn incise_step_mfd(
         if cgate <= 0.0 {
             continue; // fully alluvial -> deposition handles it
         }
-        let f_base = dt * k * cgate * erodibility[cell] * area[cell].powf(m);
+        let f_base = dt * k * cgate * erodibility[cell] * area_pow[cell];
         let mut num = hi;
         let mut den = 1.0f32;
         for kk in mfd.off[cell]..mfd.off[cell + 1] {
@@ -2287,6 +2305,7 @@ mod tests {
         // Downstream-first: outlet first, then upstream.
         let order: Vec<usize> = (0..n).rev().collect();
 
+        let area_pow: Vec<f32> = area.iter().map(|&a| a.powf(m)).collect();
         let erod = vec![1.0f32; n];
         let mut elev = vec![0.0f32; n];
         for _ in 0..5000 {
@@ -2297,7 +2316,8 @@ mod tests {
                 }
             }
             incise_step(
-                &mut elev, &receiver, &is_sink, &dist, &area, 0.0, &erod, &order, k, m, dt, 0.0,
+                &mut elev, &receiver, &is_sink, &dist, &area, &area_pow, 0.0, &erod, &order, k, dt,
+                0.0,
             );
         }
 
@@ -2323,6 +2343,7 @@ mod tests {
             is_sink[n - 1] = true;
             let dist = vec![d; n];
             let area = vec![a; n];
+            let area_pow: Vec<f32> = area.iter().map(|&a| a.powf(m)).collect();
             let order: Vec<usize> = (0..n).rev().collect();
             let erod = vec![1.0f32; n];
             let mut elev = vec![0.0f32; n];
@@ -2333,7 +2354,8 @@ mod tests {
                     }
                 }
                 incise_step(
-                    &mut elev, &receiver, &is_sink, &dist, &area, 0.0, &erod, &order, k, m, dt, 0.0,
+                    &mut elev, &receiver, &is_sink, &dist, &area, &area_pow, 0.0, &erod, &order, k,
+                    dt, 0.0,
                 );
             }
             elev[n / 2] - elev[receiver[n / 2]]
