@@ -110,6 +110,12 @@ struct Cli {
     /// and abraded volume as you sweep it.
     #[arg(long, default_value_t = -1.0)]
     glacial_k: f32,
+    /// Override glacial over-deepening max (reverse-gradient/tarn depth a cell may
+    /// carve below its receiver). <0 = use GLACIAL_OVERDEEPEN_MAX default; 0 =
+    /// no over-deepening (no closed rock basins). Isolates over-deepening from
+    /// SFD ice abrasion as the curv-rms/pit source.
+    #[arg(long, default_value_t = -1.0)]
+    glacial_overdeepen_max: f32,
     /// Override structural-grain erodibility strength (fold-belt ridge-and-valley).
     /// <0 = use EROSION_LITHO_GRAIN_STRENGTH default; 0 = no grain. Experimental.
     #[arg(long, default_value_t = -1.0)]
@@ -208,6 +214,9 @@ fn main() {
     }
     if cli.erosion_deposition_slope >= 0.0 {
         world.erosion_params.deposition_slope = cli.erosion_deposition_slope;
+    }
+    if cli.glacial_overdeepen_max >= 0.0 {
+        world.erosion_params.glacial_overdeepen_max = cli.glacial_overdeepen_max;
     }
     if cli.glacial_k >= 0.0 {
         world.erosion_params.glacial_k = cli.glacial_k;
