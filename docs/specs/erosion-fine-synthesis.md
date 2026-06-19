@@ -21,6 +21,19 @@ three new must-fixes folded in (scarp-knob cache boundary → decision A; temper
 lapse baseline split; P1a needs a real interior height term, erodibility alone won't
 test the thesis). All five pre-P1a fixes live in the Traps + rung table below.
 
+**P1a status: LANDED** (2026-06-20, commits on `sweep-harness`). `fine.rs`
+`add_interior_structural_relief` (zero-mean per-coarse-cell isotropic fBm height
+field, gated to high orogen interiors) + scarps now built in `FineBase` before
+pre-hydrology; `fault_scarp_height`+`interior_relief` migrated to
+`FineStructureParams` (hashed, cache v4); temperature lapse split onto
+`coarse_base_elevation`; area-weighted land-drift guard added. Codex round-3 review
+(against the diff): SOUND-WITH-FIXES, all 3 folded in (temperature accessor exposed
+the corrected field; land-drift check in code; scarp-asymmetry documented). Probe
+(seed 12345): summit pre-slope p50 1.7e-4→7.9e-4 (flat plateau broken, now above
+global land); erosion REVERSES from adding summit pit% (3.0→3.4) to organizing it
+(8.1→5.4); land fraction + elevation percentiles unchanged. **Visual summit-zoom
+sign-off (user) still pending** — needs the Windows GPU sweep. Next: P1b.
+
 ## The problem precisely
 
 - Fine base elevation = `interpolate_coarse_elevation(coarse)` (fine.rs:372). The
