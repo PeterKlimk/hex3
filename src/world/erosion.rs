@@ -351,6 +351,13 @@ pub(crate) struct ErosionState {
     /// channel cell every step. Only filled for channel cells (`area >= a_crit`);
     /// other entries are 0 and never read (incision gates on the same threshold).
     area_pow: Vec<f32>,
+    /// Per-edge hillslope-diffusion weights with sink-neighbour edges zeroed,
+    /// aligned with the geometry CSR. Rebuilt each reroute (sink set is fixed
+    /// between reroutes) and reused by every diffusion sweep in the interval to
+    /// drop the per-edge `is_sink` lookup. Only the linear creep law uses it; the
+    /// Roering law's conductivity is per-step (lagged slope) so it can't be cached
+    /// and this stays empty.
+    diff_w_land: Vec<f32>,
     /// Per-step scratch buffers (elevation working copy + two snapshots + the
     /// eroded-volume accumulator), reused across steps via `mem::take` to avoid
     /// reallocating ~4xN floats every step. Contents are overwritten each step.
@@ -508,6 +515,7 @@ impl ErosionState {
             routing: None,
             area: Vec::new(),
             area_pow: Vec::new(),
+            diff_w_land: Vec::new(),
             scratch_elev: vec![0.0f32; n],
             scratch_pre: vec![0.0f32; n],
             scratch_eroded: vec![0.0f32; n],
@@ -609,6 +617,11 @@ impl ErosionState {
                     self.area_pow[i] = self.area[i].powf(m);
                 }
             }
+            // Cache the sink-zeroed diffusion edge weights for the linear creep
+            // law (the only law whose conductivity is constant between reroutes).
+            if self.params.hillslope_critical_slope <= 0.0 {
+                self.diff_w_land = self.geom.land_weights(&r.is_sink);
+            }
             self.t_accum += s.elapsed().as_secs_f64();
 
             self.routing = Some(r);
@@ -681,11 +694,16 @@ impl ErosionState {
         s = Instant::now();
         pre_diff.clear();
         pre_diff.extend_from_slice(&elev);
+        // Linear creep reuses the per-reroute sink-zeroed edge weights; the
+        // Roering law recomputes conductivity per step from the lagged slope.
+        let w_land = (self.params.hillslope_critical_slope <= 0.0)
+            .then_some(self.diff_w_land.as_slice());
         diffuse_land(
             &mut elev,
             routing,
             &self.geom,
             &self.areas,
+            w_land,
             self.params.dt,
             self.params.diffusivity,
             self.params.diffusion_iters,
@@ -1771,6 +1789,7 @@ fn diffuse_land(
     routing: &Routing,
     geom: &NeighborGeometry,
     areas: &[f32],
+    w_land: Option<&[f32]>,
     dt: f32,
     diffusivity: f32,
     diffusion_iters: usize,
@@ -1811,9 +1830,18 @@ fn diffuse_land(
         }
         let fi = dd / areas[i].max(1e-12);
         let mut wsum = 0.0f32;
-        for (k, &nb) in geom.tess_neighbors(i).iter().enumerate() {
-            if !routing.is_sink[nb] {
-                wsum += weff(i, k, nb);
+        if let Some(wl) = w_land {
+            // Linear: precomputed weights with sink edges already zeroed, so the
+            // `+ 0.0` from a sink edge leaves the sum bit-identical to skipping it.
+            let off = geom.edge_offset(i);
+            for k in 0..geom.tess_neighbors(i).len() {
+                wsum += wl[off + k];
+            }
+        } else {
+            for (k, &nb) in geom.tess_neighbors(i).iter().enumerate() {
+                if !routing.is_sink[nb] {
+                    wsum += weff(i, k, nb);
+                }
             }
         }
         (fi, 1.0 + fi * wsum)
@@ -1831,9 +1859,18 @@ fn diffuse_land(
                 return cur[i];
             }
             let mut acc = 0.0f32;
-            for (k, &nb) in geom.tess_neighbors(i).iter().enumerate() {
-                if !routing.is_sink[nb] {
-                    acc += weff(i, k, nb) * cur[nb];
+            if let Some(wl) = w_land {
+                // Linear: sink edges carry weight 0, so the per-edge `is_sink`
+                // lookup is gone and the `0.0 * cur[nb]` terms are inert.
+                let off = geom.edge_offset(i);
+                for (k, &nb) in geom.tess_neighbors(i).iter().enumerate() {
+                    acc += wl[off + k] * cur[nb];
+                }
+            } else {
+                for (k, &nb) in geom.tess_neighbors(i).iter().enumerate() {
+                    if !routing.is_sink[nb] {
+                        acc += weff(i, k, nb) * cur[nb];
+                    }
                 }
             }
             // Clamp to the cell's LOCAL base level (sea level, or a terminal-lake
@@ -2106,6 +2143,34 @@ impl NeighborGeometry {
         self.offsets.len() - 1
     }
 
+    /// Start of cell `i`'s edge slice in the flat CSR arrays — lets callers index
+    /// an externally-built per-edge array (e.g. land weights) aligned with
+    /// `tess_neighbors(i)`.
+    fn edge_offset(&self, i: usize) -> usize {
+        self.offsets[i]
+    }
+
+    /// Per-edge diffusion weights with sink-neighbour edges zeroed, aligned with
+    /// the flat CSR (so `w[edge_offset(i)+k]` matches `tess_neighbors(i)[k]`).
+    /// Lets the linear hillslope sweep drop the per-edge `is_sink[nb]` lookup: a
+    /// zeroed sink edge contributes `0.0 * cur[nb]`, which leaves the running sum
+    /// (and its term order) bit-identical to skipping the edge.
+    fn land_weights(&self, is_sink: &[bool]) -> Vec<f32> {
+        let zero = |(&nb, &w): (&usize, &f32)| if is_sink[nb] { 0.0 } else { w };
+        #[cfg(not(feature = "single-threaded"))]
+        {
+            self.neighbors
+                .par_iter()
+                .zip(self.weight.par_iter())
+                .map(zero)
+                .collect()
+        }
+        #[cfg(feature = "single-threaded")]
+        {
+            self.neighbors.iter().zip(self.weight.iter()).map(zero).collect()
+        }
+    }
+
     fn tess_neighbors(&self, i: usize) -> &[usize] {
         &self.neighbors[self.offsets[i]..self.offsets[i + 1]]
     }
@@ -2193,11 +2258,14 @@ mod tests {
         let (dt, d, iters) = (1.0f32, 0.1f32, 30usize);
 
         let mut lin = init();
-        diffuse_land(&mut lin, &routing, &geom, &areas, dt, d, iters, 0.0);
+        // Exercise the cached-weights linear path (sink set is empty here).
+        let w_land = geom.land_weights(&routing.is_sink);
+        diffuse_land(&mut lin, &routing, &geom, &areas, Some(&w_land), dt, d, iters, 0.0);
         let mut roe = init();
         // S_c just above the step slope -> the middle edge sits near critical
-        // (kappa ~10x), the flat edges stay ~linear.
-        diffuse_land(&mut roe, &routing, &geom, &areas, dt, d, iters, 1.05);
+        // (kappa ~10x), the flat edges stay ~linear. Roering recomputes per-step
+        // conductivity, so it uses the weff path (None).
+        diffuse_land(&mut roe, &routing, &geom, &areas, None, dt, d, iters, 1.05);
 
         let step_lin = lin[3] - lin[2];
         let step_roe = roe[3] - roe[2];
@@ -2226,10 +2294,10 @@ mod tests {
         let init = vec![0.0, 0.2, 0.9, 0.3, 0.7, 0.1];
 
         let mut a = init.clone();
-        diffuse_land(&mut a, &routing, &geom, &areas, 1.0, 0.1, 10, 0.0);
+        diffuse_land(&mut a, &routing, &geom, &areas, None, 1.0, 0.1, 10, 0.0);
         // A huge S_c keeps every kappa ~1, so it must match linear closely.
         let mut b = init.clone();
-        diffuse_land(&mut b, &routing, &geom, &areas, 1.0, 0.1, 10, 1.0e9);
+        diffuse_land(&mut b, &routing, &geom, &areas, None, 1.0, 0.1, 10, 1.0e9);
         for i in 0..n {
             assert!(
                 (a[i] - b[i]).abs() < 1e-6,
