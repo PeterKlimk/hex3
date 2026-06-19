@@ -1046,7 +1046,15 @@ pub const LAKE_EVAP_DIFFUSE_STEPS: usize = 5;
 /// glacial" knob. 0 disables the whole pass (no glaciers). Up = deeper troughs /
 /// more over-deepening. Sweep with diagnose --glacial-k and read the glaciated
 /// coverage + relief change it logs (a reference, not a target).
-pub const GLACIAL_K: f32 = 6.0e-3;
+///
+/// DEFAULT-OFF (2026-06-20). The v1 single-flow pass injects cell-scale roughness
+/// ("prickle": curv-rms ~8x, glacial-flux checker ~49%) instead of clean glacial
+/// landforms — it point-routes ice like water (no glacier width / ice-surface
+/// slope). Disabled until the OpenLEM-style glacial stream-power rework lands; see
+/// docs/specs/erosion-glacial-streampower.md. Cosmetic snow caps (coloring.rs
+/// `apply_snow_cap`) are independent of this and still render. Set >0 to A/B the v1
+/// pass; production stays fluvial-only for now.
+pub const GLACIAL_K: f32 = 0.0;
 
 /// Glacial sub-steps (re-route + accumulate + abrade each), letting troughs and
 /// over-deepened basins develop. A handful suffices; the routing dominates cost.
