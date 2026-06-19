@@ -37,19 +37,30 @@ fine_base = interpolate_coarse_elevation(coarse)   // KEEP: datum + coarse-scale
           + fine_detail                            // NEW: sub-coarse structure, ~zero-mean at coarse scale
 ```
 
-- **Datum preserved:** the interpolated term carries the coarse sea-level shift
-  exactly; `fine_detail` is ~zero-mean at coarse scale, so land fraction / sea
-  level barely move (verify, see Validation). No fine sea-level re-solve.
+- **Datum preserved (with care — codex):** the interpolated term carries the
+  coarse sea-level shift exactly, and `fine_detail` must be **coarse-cell-local
+  zero-mean** (mean removed per coarse cell, not globally). NOTE this only kills
+  *vertical* bias — land **fraction** can still drift because land/ocean is
+  thresholded at elev 0.0, so zero-mean bumps flip near-sea-level cells
+  asymmetrically *by area* (coastal lowlands, shelves; sea-level clamps like
+  `apply_fault_scarps`' basin-drop floor add positive bias). So gate
+  `fine_detail` to **well above sea level** (orogen interiors, where the artifact
+  is) and validate with an **area-weighted** land-fraction drift check (see
+  Validation), not a mean check. No fine sea-level re-solve.
 - **Coarse-field validity preserved (the concern):** because the synthesized
   surface AGREES with the coarse elevation at every scale the coarse fields can
   see, and only adds detail BELOW the coarse Nyquist where the coarse atmosphere/
   etc. had no information anyway, the coarse-derived fields stay valid at the
   scales they operate. You are filling in *under* them, not invalidating them.
-- **Relief-sensitive couplings are already re-derived at fine:** orographic precip
-  (rain-shadow) and the temperature-lapse re-application. The genuine residual
-  (planetary wind deflected by the new fine ranges) needs fine *atmosphere
-  simulation* — deliberately punted; second-order (circulation doesn't resolve
-  individual ranges; the orographic proxy carries the first-order effect).
+- **Relief-sensitive couplings already re-derived at fine (codex-confirmed):**
+  temperature-lapse delta (fine.rs:496), hydrology (:510), orographic precip
+  (fine.rs:688). **NOT re-derived** (computed on coarse elevation,
+  atmosphere.rs:65): wind, pressure/circulation, wind-projection uplift, full
+  moisture transport. Deliberately punted (needs fine atmosphere sim); second-
+  order *provided the land/ocean mask stays ~stable* — which is the area-weighted
+  drift check above. If fine detail moved the mask materially, coarse precip/
+  evaporation assumptions would degrade, so keeping detail above sea level matters
+  for climate validity too, not just the datum.
 
 This is the "trick" for the unavoidable coupling: keep the added structure
 coarse-consistent (zero-mean at coarse scale) and re-derive only the relief-
@@ -82,8 +93,8 @@ sensitive modulations — no clever fix needed, just that discipline.
 
 | Rung | Change | Effort | Measure |
 |---|---|---|---|
-| **P1a** | Add `fine_detail` = structural relief (faults/folds) + erodibility, gated by the **already-transferred** fine feature fields, onto the interpolated base. NO FeatureFields refactor. | med | mountain-top probe: summit gains sub-coarse relief (slope), erosion ORGANIZES (summit pit% falls, dendritic spiral gone); summit-zoom render (user judges) |
-| **P1b** | If P1a placement is too blurry: refactor `FeatureFields::compute` (features.rs:97) to **decouple source (coarse boundary midpoints) from target (fine cells)** and re-evaluate distance fields at fine → crisp range-fronts. | high | crisper fronts; same probes |
+| **P1a** | Add `fine_detail` = structural relief (faults/folds) + erodibility, gated by the **already-transferred** fine feature fields, onto the base **inside `FineBase` before `generate_pre`** (see ordering trap). NO FeatureFields refactor. Codex confirms feasible: transferred `ElevationFields` carry trench/ridge/convergent/divergent/arc/collision/rift_delta/continentality gates (existing hooks `lithology_erodibility` and `apply_fault_scarps` already use them). LIMIT: transferred fields lack `activity`/`transform`/raw arc&collision distances/boundary strike → P1a structure is **soft/isotropic** (no crisp boundary-normal/strike-aware fronts). | med | mountain-top probe: summit gains sub-coarse relief (slope), erosion ORGANIZES (summit pit% falls, dendritic spiral gone); area-weighted land-fraction drift ~0; summit-zoom render (user judges) |
+| **P1b** | Crisp/strike-aware fronts: **real refactor** (not a small source/target split — codex). `FeatureFields::compute` (features.rs:97) couples to the target mesh throughout: distance fields need `plates.cell_plate` on the *target* mesh (features.rs:1003), screened diffusion needs same-mesh plate membership (:1185), eval reads `crust.crust_type(i)` (:628), boundary extraction uses coarse adjacency (`collect_plate_boundaries`, boundary.rs:310). So P1b needs **explicit fine-cell plate + crust classification** (assign each fine cell a plate/crust from coarse geometry), then re-evaluate the distance/diffusion/feature pipeline on fine — or a new evaluator over coarse boundary-source primitives. | high | crisper fronts; same probes |
 | **P1c** | Crust margin at fine — interpolate `Crust.signed_margin_distance` (continuous) for active/passive-margin structural contrast (passive = wide shelf, active = sharp front). | low–med | margin morphology |
 
 **Stop-and-evaluate after P1a:** if strengthened structural relief breaks the
@@ -101,8 +112,18 @@ it does NOT, the substrate wasn't the lever → reassess the erosion regime
 
 ## Traps
 
+- **ORDERING (codex — important):** the structural detail is part of the
+  *pre-erosion* base, so add it to `FineBase.base_elevation` **before**
+  `FineWorld::generate_pre` builds pre-hydrology (fine.rs:133). Today
+  `apply_fault_scarps` runs *later*, inside `FineSurface::generate` (fine.rs:423),
+  so terminal-lake base levels (`terminal_lake_base_levels`, fine.rs:671) are
+  computed on the *unfaulted* base — an inconsistency. Move structural relief into
+  base construction (or before pre-hydrology), not into the erosion stage.
+- **Fine-cache version bump (codex):** the base detail is *code-generated*, not an
+  input field, so the input-hash cache key (fine_cache.rs:90) won't change and
+  will serve stale bases. Bump the cache version when base generation changes.
 - **Do NOT re-solve sea level at fine** (elevation.rs:163). Inherit the coarse
-  shift via the interpolated term; keep `fine_detail` zero-mean at coarse scale.
+  shift via the interpolated term; keep `fine_detail` coarse-cell-local zero-mean.
 - **`fine_detail` must be coarse-consistent** (zero-mean over a coarse cell) or it
   shifts land fraction and silently invalidates the coarse atmosphere — the very
   thing we're protecting. Verify land-fraction drift is ~0.
@@ -120,8 +141,9 @@ it does NOT, the substrate wasn't the lever → reassess the erosion regime
 
 - **Objective:** the mountain-top plateau probe (diagnose) — summit pre vs eroded
   roughness + slope; expect summits to gain coherent sub-coarse relief and erosion
-  to REDUCE pit%/spiral (organized drainage) rather than add it. Land-fraction /
-  sea-level drift ~0 (datum check). Global curv-rms a sanity bound.
+  to REDUCE pit%/spiral (organized drainage) rather than add it. **Area-weighted**
+  land-fraction drift ~0 and sea-level shift unchanged (datum check — a plain mean
+  check is insufficient, codex). Global curv-rms a sanity bound.
 - **Visual (USER judges, [[hex3-sweep-image-reading]]):** summit-zoom sweep grids,
   before/after P1a, glacial off. The "real ranges vs cottage cheese" call is the
   user's.
