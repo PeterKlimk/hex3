@@ -11,7 +11,7 @@
 use std::io::BufWriter;
 use std::path::PathBuf;
 
-use glam::Vec3;
+use glam::{Mat4, Vec3};
 
 use hex3::render::{
     FillPipelineKind, GpuContext, IndexedDraw, OrbitCamera, RenderScene, Renderer, Uniforms,
@@ -59,9 +59,15 @@ pub struct SweepOptions {
     pub out_dir: PathBuf,
     pub width: u32,
     pub height: u32,
+    /// Overview (globe) camera: orbit angle + distance from center.
     pub yaw_deg: f32,
     pub pitch_deg: f32,
     pub distance: f32,
+    /// Number of zoomed close-up views per tile, auto-aimed at the highest land
+    /// (in addition to the globe overview). 0 = overview only.
+    pub zoom_views: usize,
+    /// Close-up camera altitude above the target (smaller = tighter zoom).
+    pub zoom_alt: f32,
     pub river_mode: RiverMode,
 }
 
@@ -117,19 +123,19 @@ fn generate_tile_world(opts: &SweepOptions, overrides: &ErosionOverrides) -> Wor
     world
 }
 
-/// Render a world's relief view into `color_view` (the offscreen target).
+/// Render a world's relief view (from a prebuilt view-projection + eye) into
+/// `color_view`. `buffers` is built once per tile and shared across its views.
 fn render_relief(
     gpu: &GpuContext,
     renderer: &mut Renderer,
     color_view: &wgpu::TextureView,
-    world: &World,
-    cam: &OrbitCamera,
+    buffers: &super::world::WorldBuffers,
+    view_proj: Mat4,
+    cam_pos: Vec3,
     river_mode: RiverMode,
 ) {
-    let buffers = generate_world_buffers(&gpu.device, world);
-
     let light = Vec3::new(0.5, 1.0, 0.3).normalize();
-    let uniforms = Uniforms::new(cam.view_projection(), cam.eye_position(), light)
+    let uniforms = Uniforms::new(view_proj, cam_pos, light)
         .with_relief(true)
         .with_hemisphere_lighting(true)
         .with_map_mode(false);
@@ -265,6 +271,98 @@ fn blit_tile(
     }
 }
 
+/// Pick up to `k` close-up camera targets (unit-sphere positions): the highest
+/// land cells, greedily spread apart so the views cover distinct regions rather
+/// than clustering on one massif.
+fn pick_targets(world: &World, k: usize) -> Vec<Vec3> {
+    if k == 0 {
+        return Vec::new();
+    }
+    let tess = world.active_tessellation();
+    let Some(elev) = world.active_elevation() else {
+        return Vec::new();
+    };
+    let elev = &elev.values;
+    let n = tess.num_cells();
+    let mut land: Vec<(usize, f32)> = (0..n)
+        .filter(|&i| elev[i] > 0.0)
+        .map(|i| (i, elev[i]))
+        .collect();
+    if land.is_empty() {
+        return Vec::new();
+    }
+    land.sort_unstable_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+    // High-elevation pool to spread within (the dissected orogens live here).
+    let pool: Vec<usize> = land.iter().take(4000).map(|&(i, _)| i).collect();
+    let pos = |i: usize| tess.cell_center(i);
+
+    let mut picked = vec![pool[0]];
+    while picked.len() < k {
+        let mut best = None;
+        let mut best_d = -1.0f32;
+        for &c in &pool {
+            if picked.contains(&c) {
+                continue;
+            }
+            let pc = pos(c);
+            let dmin = picked
+                .iter()
+                .map(|&p| (pos(p) - pc).length())
+                .fold(f32::INFINITY, f32::min);
+            if dmin > best_d {
+                best_d = dmin;
+                best = Some(c);
+            }
+        }
+        match best {
+            Some(c) => picked.push(c),
+            None => break,
+        }
+    }
+    picked.into_iter().map(pos).collect()
+}
+
+/// Oblique aerial camera looking down at a surface point (unit-sphere direction),
+/// raised `alt` along the surface normal and offset along a tangent so relief
+/// reads in profile. Smaller `alt` = tighter zoom.
+fn target_camera(center_unit: Vec3, aspect: f32, alt: f32) -> (Mat4, Vec3) {
+    let n = center_unit.normalize();
+    // Aim a touch above the mean surface (relief peaks sit above radius 1).
+    let target = n * 1.08;
+    let up_ref = if n.y.abs() < 0.95 { Vec3::Y } else { Vec3::Z };
+    let east = n.cross(up_ref).normalize();
+    let north = east.cross(n).normalize();
+    let eye = target + n * alt + north * (alt * 0.9);
+    let view = Mat4::look_at_rh(eye, target, n);
+    let proj = Mat4::perspective_rh(std::f32::consts::FRAC_PI_4, aspect, 0.01, 10.0);
+    (proj * view, eye)
+}
+
+/// Build the per-tile view set: a globe overview plus `zoom_views` close-ups
+/// aimed at the highest land in `world`. The same set is reused for every tile so
+/// each montage column shows the same region/angle across knob values.
+fn build_views(world: &World, opts: &SweepOptions) -> Vec<(Mat4, Vec3, String)> {
+    let aspect = opts.width as f32 / opts.height as f32;
+    let mut views = Vec::new();
+
+    let mut cam = OrbitCamera::new();
+    cam.yaw = opts.yaw_deg.to_radians();
+    cam.pitch = opts.pitch_deg.to_radians();
+    cam.distance = opts.distance;
+    cam.aspect = aspect;
+    views.push((
+        cam.view_projection(),
+        cam.eye_position(),
+        "globe".to_string(),
+    ));
+
+    for (i, t) in pick_targets(world, opts.zoom_views).iter().enumerate() {
+        let (vp, eye) = target_camera(*t, aspect, opts.zoom_alt);
+        views.push((vp, eye, format!("zoom{}", i + 1)));
+    }
+    views
+}
+
 /// Run the sweep: generate + render every knob combination to PNG tiles and a
 /// stitched montage in `opts.out_dir`.
 pub fn run_sweep(opts: SweepOptions) {
@@ -280,24 +378,39 @@ pub fn run_sweep(opts: SweepOptions) {
     std::fs::create_dir_all(&opts.out_dir)
         .unwrap_or_else(|e| panic!("create {}: {e}", opts.out_dir.display()));
 
-    // Rows: the second knob's values, or a single row for a 1-D sweep.
+    // Flatten the knob grid into a tile list (row-major: knob2 outer, knob1 inner).
     let rows: Vec<Option<f64>> = if opts.knob2.is_some() && !opts.values2.is_empty() {
         opts.values2.iter().map(|&v| Some(v)).collect()
     } else {
         vec![None]
     };
-    let cols = opts.values1.len();
-    let n_tiles = cols * rows.len();
+    let mut tiles: Vec<(ErosionOverrides, String, String)> = Vec::new();
+    for row_val in &rows {
+        for &v1 in &opts.values1 {
+            let mut overrides = opts.base_erosion;
+            apply_knob(&mut overrides, &opts.knob1, v1).unwrap();
+            let mut label = format!("{}={}", opts.knob1, fmt_value(v1));
+            let mut fname = format!("{}_{}", opts.knob1, fmt_value(v1));
+            if let (Some(k2), Some(v2)) = (&opts.knob2, row_val) {
+                apply_knob(&mut overrides, k2, *v2).unwrap();
+                label = format!("{label}, {}={}", k2, fmt_value(*v2));
+                fname = format!("{fname}__{}_{}", k2, fmt_value(*v2));
+            }
+            tiles.push((overrides, label, fname));
+        }
+    }
+    let n_tiles = tiles.len();
 
     println!(
-        "Sweep: {} ({} values){} -> {} tiles at {}x{}, stage {}, seed {}",
+        "Sweep: {} ({} values){} -> {} tiles x {} views at {}x{}, stage {}, seed {}",
         opts.knob1,
-        cols,
+        opts.values1.len(),
         opts.knob2
             .as_ref()
             .map(|k| format!(" x {} ({} values)", k, rows.len()))
             .unwrap_or_default(),
         n_tiles,
+        1 + opts.zoom_views,
         opts.width,
         opts.height,
         opts.target_stage,
@@ -306,7 +419,7 @@ pub fn run_sweep(opts: SweepOptions) {
 
     // Headless GPU + renderer + offscreen color target (depth lives in Renderer).
     let gpu = pollster::block_on(GpuContext::new_headless(opts.width, opts.height));
-    let init_uniforms = Uniforms::new(glam::Mat4::IDENTITY, Vec3::ZERO, Vec3::Y);
+    let init_uniforms = Uniforms::new(Mat4::IDENTITY, Vec3::ZERO, Vec3::Y);
     let mut renderer = Renderer::new(&gpu, &init_uniforms);
 
     let color_tex = gpu.device.create_texture(&wgpu::TextureDescriptor {
@@ -325,47 +438,42 @@ pub fn run_sweep(opts: SweepOptions) {
     });
     let color_view = color_tex.create_view(&Default::default());
 
-    let mut cam = OrbitCamera::new();
-    cam.yaw = opts.yaw_deg.to_radians();
-    cam.pitch = opts.pitch_deg.to_radians();
-    cam.distance = opts.distance;
-    cam.aspect = opts.width as f32 / opts.height as f32;
+    // Views are picked once from the first tile's terrain and reused for every
+    // tile, so each montage column is the same region/angle across knob values
+    // (the macro-geography is fixed by the seed; erosion knobs don't relocate it).
+    // Montage rows = tiles, columns = views.
+    let mut views: Vec<(Mat4, Vec3, String)> = Vec::new();
+    let mut montage: Vec<u8> = Vec::new();
+    let mut montage_w = 0u32;
 
-    let montage_w = opts.width * cols as u32;
-    let montage_h = opts.height * rows.len() as u32;
-    let mut montage = vec![0u8; (montage_w * montage_h * 4) as usize];
+    for (ti, (overrides, label, fname)) in tiles.iter().enumerate() {
+        print!("[{}/{}] {label} ... ", ti + 1, n_tiles);
+        use std::io::Write;
+        let _ = std::io::stdout().flush();
+        let t0 = std::time::Instant::now();
 
-    let mut done = 0usize;
-    for (ri, row_val) in rows.iter().enumerate() {
-        for (ci, &v1) in opts.values1.iter().enumerate() {
-            let mut overrides = opts.base_erosion;
-            apply_knob(&mut overrides, &opts.knob1, v1).unwrap();
-            let mut label = format!("{}={}", opts.knob1, fmt_value(v1));
-            let mut fname = format!("{}_{}", opts.knob1, fmt_value(v1));
-            if let (Some(k2), Some(v2)) = (&opts.knob2, row_val) {
-                apply_knob(&mut overrides, k2, *v2).unwrap();
-                label = format!("{label}, {}={}", k2, fmt_value(*v2));
-                fname = format!("{fname}__{}_{}", k2, fmt_value(*v2));
-            }
+        let world = generate_tile_world(&opts, overrides);
 
-            done += 1;
-            print!("[{done}/{n_tiles}] {label} ... ");
-            use std::io::Write;
-            let _ = std::io::stdout().flush();
-            let t0 = std::time::Instant::now();
+        if views.is_empty() {
+            views = build_views(&world, &opts);
+            montage_w = opts.width * views.len() as u32;
+            let montage_h = opts.height * n_tiles as u32;
+            montage = vec![0u8; (montage_w * montage_h * 4) as usize];
+        }
 
-            let world = generate_tile_world(&opts, &overrides);
+        let buffers = generate_world_buffers(&gpu.device, &world);
+        for (vi, (view_proj, eye, vlabel)) in views.iter().enumerate() {
             render_relief(
                 &gpu,
                 &mut renderer,
                 &color_view,
-                &world,
-                &cam,
+                &buffers,
+                *view_proj,
+                *eye,
                 opts.river_mode,
             );
             let rgba = read_back_rgba(&gpu, &color_tex, opts.width, opts.height);
-
-            let tile_path = opts.out_dir.join(format!("{fname}.png"));
+            let tile_path = opts.out_dir.join(format!("{fname}_{vlabel}.png"));
             write_png(&tile_path, &rgba, opts.width, opts.height);
             blit_tile(
                 &mut montage,
@@ -373,23 +481,21 @@ pub fn run_sweep(opts: SweepOptions) {
                 &rgba,
                 opts.width,
                 opts.height,
-                ci as u32,
-                ri as u32,
-            );
-
-            println!(
-                "{:.1}s -> {}",
-                t0.elapsed().as_secs_f64(),
-                tile_path.display()
+                vi as u32,
+                ti as u32,
             );
         }
+
+        println!("{:.1}s", t0.elapsed().as_secs_f64());
     }
 
+    let montage_h = opts.height * n_tiles as u32;
     let montage_path = opts.out_dir.join("montage.png");
     write_png(&montage_path, &montage, montage_w, montage_h);
     println!(
-        "Done: {} tiles + montage -> {}",
+        "Done: {} tiles x {} views + montage -> {}",
         n_tiles,
+        views.len(),
         montage_path.display()
     );
 }

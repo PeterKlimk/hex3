@@ -183,9 +183,18 @@ struct Cli {
     #[arg(long, default_value_t = 25.0)]
     sweep_pitch: f32,
 
-    /// Sweep camera distance from globe center.
+    /// Sweep camera distance from globe center (overview).
     #[arg(long, default_value_t = 2.2)]
     sweep_distance: f32,
+
+    /// Zoomed close-up views per tile (auto-aimed at the highest land), in
+    /// addition to the globe overview. 0 = overview only.
+    #[arg(long, default_value_t = 3)]
+    sweep_zoom_views: usize,
+
+    /// Close-up camera altitude above target (smaller = tighter zoom).
+    #[arg(long, default_value_t = 0.45)]
+    sweep_zoom_alt: f32,
 
     /// Rivers in sweep tiles: off, major, or all.
     #[arg(long, default_value = "major")]
@@ -281,6 +290,8 @@ fn main() {
             yaw_deg: cli.sweep_yaw,
             pitch_deg: cli.sweep_pitch,
             distance: cli.sweep_distance,
+            zoom_views: cli.sweep_zoom_views,
+            zoom_alt: cli.sweep_zoom_alt,
             river_mode,
         };
         app::sweep::run_sweep(opts);
