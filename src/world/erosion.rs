@@ -1379,32 +1379,79 @@ impl Routing {
             return None;
         }
 
-        // Priority-flood fill (Barnes 2014): every land cell ends up able to
-        // drain to a sink, and `flood_parent` carries a valid descent direction
-        // across filled flats/pits.
+        // Priority-flood fill (Barnes 2014, two-queue variant): every land cell
+        // ends up able to drain to a sink. A cell whose neighbour fills it to the
+        // current water level cannot introduce a lower level later, so it goes to
+        // a plain FIFO (`pit`) instead of the heap (`open`); only cells that sit
+        // strictly above the current level need the heap's ordering. This keeps
+        // most of the wavefront off the O(log n) heap. The `filled` surface is the
+        // per-cell minimal spill elevation — a path-max-min that is independent of
+        // processing order, so it is byte-identical to the single-heap variant.
         let mut filled = elev.to_vec();
         let mut processed = vec![false; n];
-        let mut flood_parent: Vec<usize> = (0..n).collect();
-        let mut heap: std::collections::BinaryHeap<Reverse<(OrderedFloat<f32>, usize)>> =
+        let mut open: std::collections::BinaryHeap<Reverse<(OrderedFloat<f32>, usize)>> =
             std::collections::BinaryHeap::new();
+        let mut pit: VecDeque<usize> = VecDeque::new();
         for i in 0..n {
             if is_sink[i] {
                 processed[i] = true;
-                heap.push(Reverse((OrderedFloat(elev[i]), i)));
+                open.push(Reverse((OrderedFloat(elev[i]), i)));
             }
         }
-        while let Some(Reverse((level, cell))) = heap.pop() {
-            let level = level.0;
+        while !open.is_empty() || !pit.is_empty() {
+            // Drain the plain queue while its front is no higher than the heap top
+            // (the pit holds cells at-or-below the current level, FIFO-ordered so
+            // their levels are non-decreasing); otherwise take the lowest heap cell.
+            let cell = match pit.front() {
+                Some(&front)
+                    if open
+                        .peek()
+                        .is_none_or(|Reverse((top, _))| filled[front] <= top.0) =>
+                {
+                    pit.pop_front().unwrap()
+                }
+                _ => open.pop().unwrap().0 .1,
+            };
+            let level = filled[cell];
             for &nb in geom.tess_neighbors(cell) {
                 if processed[nb] {
                     continue;
                 }
                 processed[nb] = true;
-                filled[nb] = elev[nb].max(level);
-                flood_parent[nb] = cell;
-                heap.push(Reverse((OrderedFloat(filled[nb]), nb)));
+                if elev[nb] <= level {
+                    filled[nb] = level;
+                    pit.push_back(nb);
+                } else {
+                    filled[nb] = elev[nb];
+                    open.push(Reverse((OrderedFloat(elev[nb]), nb)));
+                }
             }
         }
+
+        // Descent direction across filled flats/pits. The single-heap flood set
+        // `flood_parent[i]` to the first neighbour to reach `i`; on an ascending
+        // priority flood that is exactly the neighbour with the smallest
+        // (filled, index), so recompute it directly (order-independent, parallel)
+        // rather than threading parent pointers through the two-queue wavefront.
+        let fp_of = |i: usize| -> usize {
+            if is_sink[i] {
+                return i;
+            }
+            let mut best = i;
+            let mut best_key = (OrderedFloat(f32::INFINITY), usize::MAX);
+            for &nb in geom.tess_neighbors(i) {
+                let key = (OrderedFloat(filled[nb]), nb);
+                if key < best_key {
+                    best_key = key;
+                    best = nb;
+                }
+            }
+            best
+        };
+        #[cfg(not(feature = "single-threaded"))]
+        let flood_parent: Vec<usize> = (0..n).into_par_iter().map(fp_of).collect();
+        #[cfg(feature = "single-threaded")]
+        let flood_parent: Vec<usize> = (0..n).map(fp_of).collect();
 
         // Barnes convergent flat resolution (Rung 1): a synthetic descent over
         // filled flats that routes toward outlets and away from higher walls,
