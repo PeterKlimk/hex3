@@ -1273,17 +1273,19 @@ fn resolve_flats(
     let n = geom.num_cells();
 
     // Flat = non-sink with no strictly-lower filled neighbour (would otherwise use
-    // flood_parent). Such cells touch lower terrain only through a same-level outlet.
-    let mut is_flat = vec![false; n];
-    for i in 0..n {
-        if is_sink[i] {
-            continue;
-        }
-        is_flat[i] = !geom
-            .tess_neighbors(i)
-            .iter()
-            .any(|&nb| filled[nb] < filled[i]);
-    }
+    // flood_parent). Such cells touch lower terrain only through a same-level
+    // outlet. Per-cell, read-only over shared state -> parallel.
+    let flat_of = |i: usize| -> bool {
+        !is_sink[i]
+            && !geom
+                .tess_neighbors(i)
+                .iter()
+                .any(|&nb| filled[nb] < filled[i])
+    };
+    #[cfg(not(feature = "single-threaded"))]
+    let is_flat: Vec<bool> = (0..n).into_par_iter().map(flat_of).collect();
+    #[cfg(feature = "single-threaded")]
+    let is_flat: Vec<bool> = (0..n).map(flat_of).collect();
 
     // Multi-source BFS over the flat subgraph (edges between equal-`filled` flat
     // cells). `to_low` seeds: flat cells adjacent to a same-level outlet (a
@@ -1319,25 +1321,27 @@ fn resolve_flats(
     }
     bfs_flat(&mut from_high, &mut queue, &is_flat, filled, geom);
 
-    let mask: Vec<i64> = (0..n)
-        .map(|i| {
-            if !is_flat[i] {
-                return 0;
-            }
-            // Unreached (no outlet/wall in this flat) -> 0, a benign neutral level.
-            let l = if to_low[i] == u32::MAX {
-                0
-            } else {
-                to_low[i] as i64
-            };
-            let h = if from_high[i] == u32::MAX {
-                0
-            } else {
-                from_high[i] as i64
-            };
-            2 * l - h
-        })
-        .collect();
+    let mask_of = |i: usize| -> i64 {
+        if !is_flat[i] {
+            return 0;
+        }
+        // Unreached (no outlet/wall in this flat) -> 0, a benign neutral level.
+        let l = if to_low[i] == u32::MAX {
+            0
+        } else {
+            to_low[i] as i64
+        };
+        let h = if from_high[i] == u32::MAX {
+            0
+        } else {
+            from_high[i] as i64
+        };
+        2 * l - h
+    };
+    #[cfg(not(feature = "single-threaded"))]
+    let mask: Vec<i64> = (0..n).into_par_iter().map(mask_of).collect();
+    #[cfg(feature = "single-threaded")]
+    let mask: Vec<i64> = (0..n).map(mask_of).collect();
 
     // Engagement / coverage signal (the global roughness counters are blind to the
     // spiral — it is a local pattern in filled basins). `flats` is how much of the
