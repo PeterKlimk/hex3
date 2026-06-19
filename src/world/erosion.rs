@@ -179,6 +179,7 @@ pub(crate) fn erode(
     precipitation: &[f32],
     erodibility: &[f32],
     lake_base: &[f32],
+    geom: &NeighborGeometry,
     params: ErosionParams,
 ) -> Vec<f32> {
     roughness_report(tess, base, "base ");
@@ -189,6 +190,7 @@ pub(crate) fn erode(
         precipitation,
         erodibility,
         lake_base,
+        geom,
         params,
     );
     state.step(params.steps);
@@ -210,13 +212,13 @@ pub(crate) fn glacial_erode(
     tess: &Tessellation,
     elev: &mut [f32],
     lake_base: &[f32],
+    geom: &NeighborGeometry,
     params: ErosionParams,
 ) {
     if params.glacial_k <= 0.0 || params.glacial_steps == 0 {
         return;
     }
     let n = tess.num_cells();
-    let geom = NeighborGeometry::build(tess);
     let areas = tess.cell_areas();
 
     // Latitude-dependent snowline elevation: EQUATOR at the equator, POLE at the
@@ -251,7 +253,7 @@ pub(crate) fn glacial_erode(
 
     for _ in 0..params.glacial_steps {
         // Ice routes single-flow (SFD); MFD off for the glacial pass.
-        let Some(routing) = Routing::build(elev, &geom, lake_base, params.flat_resolution, 0.0)
+        let Some(routing) = Routing::build(elev, geom, lake_base, params.flat_resolution, 0.0)
         else {
             break;
         };
@@ -385,6 +387,7 @@ impl ErosionState {
         precipitation: &[f32],
         erodibility_in: &[f32],
         lake_base: &[f32],
+        geom: &NeighborGeometry,
         params: ErosionParams,
     ) -> Self {
         let n = tess.num_cells();
@@ -415,7 +418,11 @@ impl ErosionState {
             .collect();
 
         let areas = tess.cell_areas();
-        let geom = NeighborGeometry::build(tess);
+        // Built once by the caller and reused across the coupled erode↔precip
+        // passes (and the glacial pass) — the geometry is a function of the
+        // immutable tessellation alone. Cloning is a cheap CSR memcpy that avoids
+        // re-scanning every cell's Voronoi vertices for shared-edge lengths.
+        let geom = geom.clone();
 
         // Escalation #1: smooth the uplift FORCING (never the final elevation) over
         // a physically-named length — the sub-grid orogenic forcing width. The
@@ -2034,7 +2041,8 @@ fn deposit(
 /// Per-cell neighbor geometry precomputed once: arc distance to each neighbor
 /// and the finite-volume diffusion weight (shared edge length / center
 /// distance). Aligned index-for-index with `tess.neighbors(i)`.
-struct NeighborGeometry {
+#[derive(Clone)]
+pub(crate) struct NeighborGeometry {
     offsets: Vec<usize>,
     neighbors: Vec<usize>,
     dist: Vec<f32>,
@@ -2042,7 +2050,7 @@ struct NeighborGeometry {
 }
 
 impl NeighborGeometry {
-    fn build(tess: &Tessellation) -> Self {
+    pub(crate) fn build(tess: &Tessellation) -> Self {
         let n = tess.num_cells();
         let mut offsets = Vec::with_capacity(n + 1);
         offsets.push(0);

@@ -436,6 +436,11 @@ impl FineSurface {
         let iters = params.precip_outer_iters.max(1);
         let mut precip = base.fields.precipitation.clone();
         let mut eroded = faulted_base.clone();
+        // The neighbour geometry (chord distances + finite-volume edge weights) is
+        // a function of the immutable tessellation, so build it once and reuse it
+        // across every erode↔precip pass and the glacial pass instead of
+        // rescanning each cell's Voronoi vertices for shared-edge lengths per call.
+        let geom = super::erosion::NeighborGeometry::build(&base.tessellation);
         for outer in 0..iters {
             let t0 = Instant::now();
             eroded = super::erosion::erode(
@@ -445,6 +450,7 @@ impl FineSurface {
                 &precip,
                 &erodibility,
                 &lake_base,
+                &geom,
                 params,
             );
             let t_erode = t0.elapsed();
@@ -468,7 +474,7 @@ impl FineSurface {
         // Glacial sculpting on the carved relief: snowline-driven ice over-
         // deepening (U-troughs, tarns) that sharpens the peaks between glaciers.
         let t0 = Instant::now();
-        super::erosion::glacial_erode(&base.tessellation, &mut eroded, &lake_base, params);
+        super::erosion::glacial_erode(&base.tessellation, &mut eroded, &lake_base, &geom, params);
         log::info!("fine mesh: glacial pass {:.2?}", t0.elapsed());
 
         Self::from_eroded(base, &eroded, &precip, params.lake_evap_strength)
