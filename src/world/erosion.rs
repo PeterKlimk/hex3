@@ -251,7 +251,7 @@ pub(crate) fn glacial_erode(
     // fluvial pass graded to.
     let mut total_abraded = 0.0f64;
 
-    for _ in 0..params.glacial_steps {
+    for step in 0..params.glacial_steps {
         // Ice routes single-flow (SFD); MFD off for the glacial pass.
         let Some(routing) = Routing::build(elev, geom, lake_base, params.flat_resolution, 0.0)
         else {
@@ -269,6 +269,24 @@ pub(crate) fn glacial_erode(
             let below = (snowline[cell] - elev[cell]).max(0.0);
             flux[cell] = (flux[cell] - params.glacial_ablation * below).max(0.0);
             flux[routing.receiver[cell]] += flux[cell];
+        }
+
+        // PROBE: spikiness of the SFD ice-discharge field that drives abrasion.
+        // Reuse roughness_counters over the glaciated subgraph (mask non-ice cells
+        // to <0 so they're skipped). checker% near ~50% = white-noise cell-scale
+        // concentration (the single-flow point-routing artifact: all flux dumps
+        // into one downstream cell); near the elevation base (~41%) = smooth
+        // distributed flow. The physical-fix test for going MFD/diffusive on ice.
+        if log::log_enabled!(log::Level::Info) && step + 1 == params.glacial_steps {
+            let masked: Vec<f32> = flux.iter().map(|&f| if f > 0.0 { f } else { -1.0 }).collect();
+            let fr = roughness_counters(tess, &masked);
+            log::info!(
+                "glacial ice-flux (SFD) spikiness: checker {:.2}% (elev base ~41.6%) | pit {:.2}% peak {:.2}% | glaciated-flux cells {}",
+                fr.checkerboard_pct,
+                fr.pit_pct,
+                fr.peak_pct,
+                fr.land,
+            );
         }
 
         // Abrasion: lower the bed by k·flux, allowing limited over-deepening below
@@ -696,8 +714,8 @@ impl ErosionState {
         pre_diff.extend_from_slice(&elev);
         // Linear creep reuses the per-reroute sink-zeroed edge weights; the
         // Roering law recomputes conductivity per step from the lagged slope.
-        let w_land = (self.params.hillslope_critical_slope <= 0.0)
-            .then_some(self.diff_w_land.as_slice());
+        let w_land =
+            (self.params.hillslope_critical_slope <= 0.0).then_some(self.diff_w_land.as_slice());
         diffuse_land(
             &mut elev,
             routing,
@@ -2167,7 +2185,11 @@ impl NeighborGeometry {
         }
         #[cfg(feature = "single-threaded")]
         {
-            self.neighbors.iter().zip(self.weight.iter()).map(zero).collect()
+            self.neighbors
+                .iter()
+                .zip(self.weight.iter())
+                .map(zero)
+                .collect()
         }
     }
 
@@ -2260,7 +2282,17 @@ mod tests {
         let mut lin = init();
         // Exercise the cached-weights linear path (sink set is empty here).
         let w_land = geom.land_weights(&routing.is_sink);
-        diffuse_land(&mut lin, &routing, &geom, &areas, Some(&w_land), dt, d, iters, 0.0);
+        diffuse_land(
+            &mut lin,
+            &routing,
+            &geom,
+            &areas,
+            Some(&w_land),
+            dt,
+            d,
+            iters,
+            0.0,
+        );
         let mut roe = init();
         // S_c just above the step slope -> the middle edge sits near critical
         // (kappa ~10x), the flat edges stay ~linear. Roering recomputes per-step
@@ -2335,7 +2367,10 @@ mod tests {
             "impulse peak did not spread: {peak_before} -> {}",
             u[n / 2]
         );
-        assert!(u[n / 2 - 1] > 0.0 && u[n / 2 + 1] > 0.0, "neighbours not lifted");
+        assert!(
+            u[n / 2 - 1] > 0.0 && u[n / 2 + 1] > 0.0,
+            "neighbours not lifted"
+        );
     }
 
     /// The land mask is no-flux: uplift never bleeds onto submerged cells, so the
