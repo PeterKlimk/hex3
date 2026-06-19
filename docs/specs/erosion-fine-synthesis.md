@@ -50,7 +50,26 @@ awareness, magnitude-stays-gated, cache) and diff (the arc-vs-point-distance fix
 within-radius gather, constant hashing, weight clamp). Probe: `front_strike_weight=0`
 reproduces P1a exactly (7.92e-4); default 0.7 → 2.81e-3 summit pre-slope, erosion still
 organizes (pit% 11.0→8.6), land drift +0.00e0, datum preserved. **Strike-alignment is
-a visual property — user's call via the GPU sweep.** Next: P1c.
+a visual property — user's call via the GPU sweep.**
+
+**P1c status: LANDED** (2026-06-20). Active/passive margin contrast for the structural
+relief. The coarse model already does the active/passive SHELF (continentality →
+bathymetry); P1c adds the sub-coarse STRUCTURAL contrast at the margin: the raw
+`Crust.signed_margin_distance` is interpolated to fine (reusing
+`interpolate_coarse_elevation` — no struct change) and drives a coastal-band amplitude
+scale `1 + margin_contrast·coastal·(lerp(passive 0.5, active 1.3, activity) − 1)`,
+where `activity` = convergent forcing and `coastal` fades over `FINE_MARGIN_WIDTH`.
+Sharpens an active (convergent) coast, damps a passive one, neutral inland.
+Amplitude-only within the elevation gate → land mask untouched (drift +0.00e0). Knob
+`margin_contrast` (cache v6; knob + shape constants hashed). Probe: `margin_contrast=0`
+reproduces P1b exactly (2.810e-3); default 2.852e-3 (active-coast boost on the coastal
+subset), datum preserved. Margin morphology is the user's visual call.
+
+**All three rungs (P1a/P1b/P1c) landed.** Each was implemented, codex-reviewed
+(SOUND/SOUND-WITH-FIXES, fixes folded in), and validated against the mountain-top
+probe with invariants (land fraction, datum) preserved throughout. Remaining: the
+VISUAL sign-off (summit-zoom + margin sweeps) — the user's call, needs the Windows GPU
+(`--sweep interior_relief|front_strike_weight|margin_contrast`).
 
 ## The problem precisely
 

@@ -875,7 +875,11 @@ fn point_to_arc_distance(p: Vec3, a: Vec3, b: Vec3) -> f32 {
 /// P1c layers an active/passive MARGIN contrast on top: a coastal-band amplitude
 /// scale (from the interpolated `margin_distance` × convergent forcing) that sharpens
 /// an active (convergent) coast and damps a passive one — amplitude only, so the land
-/// mask is untouched. `margin_contrast == 0` reduces to P1b.
+/// mask is untouched. `margin_contrast == 0` reduces to P1b. (A high forced cell on
+/// OCEANIC crust — a volcanic island arc — has a negative margin distance and so reads
+/// as "coastal"; since it's convergent it gets the ACTIVE sharpening, which is the
+/// right call for a steep arc. A rare non-convergent oceanic highland gets mild
+/// passive damping, which is harmless.)
 ///
 /// `amplitude == 0` is a no-op (pure interpolant — the old flat-top behaviour).
 #[allow(clippy::too_many_arguments)]
@@ -909,8 +913,10 @@ fn add_interior_structural_relief(
         .max(1e-6);
 
     // Convergent forcing land-max, for the active-margin (subduction) activity in the
-    // P1c margin contrast (active = convergent front at the coast).
-    let margin_contrast = margin_contrast.max(0.0);
+    // P1c margin contrast (active = convergent front at the coast). The contrast is a
+    // strength dial in [0,1] (the active/passive FACTORS set the magnitude); clamp so a
+    // sweep can't push passive `margin_scale` negative and INVERT relief (codex).
+    let margin_contrast = margin_contrast.clamp(0.0, 1.0);
     let conv_max = (0..n)
         .filter(|&i| base_elev[i] >= 0.0)
         .map(|i| fields.convergent[i].max(0.0))
