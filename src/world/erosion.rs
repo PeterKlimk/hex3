@@ -476,8 +476,19 @@ impl ErosionState {
         // the integrated (area-weighted) uplift exactly. See
         // docs/specs/erosion-uplift-smoothing.md.
         if params.uplift_smooth_km > 0.0 {
+            // Emergent: smooth over the coarse-TARGET land mask, so the conservative
+            // no-flux boundary sits at the intended coastline, not the demoted
+            // envelope's (which would distort the broad builder uplift in the
+            // demoted-below-sea land-flip region — codex).
+            let smooth_mask = coarse_target.unwrap_or(base);
             let before = tess.morans_i(&u_thick);
-            smooth_uplift_source(&mut u_thick, &geom, &areas, base, params.uplift_smooth_km);
+            smooth_uplift_source(
+                &mut u_thick,
+                &geom,
+                &areas,
+                smooth_mask,
+                params.uplift_smooth_km,
+            );
             let after = tess.morans_i(&u_thick);
             log::info!(
                 "erosion: uplift source smoothed over {:.1} km — Moran's I {:.4} -> {:.4}",

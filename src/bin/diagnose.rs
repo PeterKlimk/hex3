@@ -141,7 +141,9 @@ struct Cli {
     margin_contrast: f32,
     /// Emergent-orogens demotion fraction (erosion-v3): demote λ·(arc+collision) from
     /// the base and rebuild it by active uplift. <0 = default (0=off); 0.25-0.5 = test.
-    /// Pair with a raised --erosion-uplift-scale (~λ/(steps·dt)). Regenerates the base.
+    /// Pair with a raised --erosion-uplift-scale (~λ/(steps·dt)). NOTE: the painted P1
+    /// relief still runs unless you also zero it (--interior-relief 0.005 --fault-scarp 0
+    /// etc.) — the `--sweep-stack v3` preset does this for a clean A/B. Regenerates base.
     #[arg(long, default_value_t = -1.0)]
     emergent_lambda: f32,
     /// Fine-mesh density knobs (cell-size targets in km / blend). <0 = use the

@@ -418,9 +418,12 @@ fn build_stack_tiles(
     let emergent = |lambda: f32, uplift: f32, steps: usize, label: &str, fname: &str| {
         let mut o = *base;
         o.emergent_lambda = Some(lambda);
-        o.interior_relief = Some(0.005); // faint seed
+        // Seed-only base: faint interior seed, NO painted strike/margin/scarps (the
+        // point is erosion BUILDS the relief, not painting it — codex).
+        o.interior_relief = Some(0.005);
         o.front_strike_weight = Some(0.0);
         o.margin_contrast = Some(0.0);
+        o.fault_scarp_height = Some(0.0);
         o.uplift_scale = Some(uplift);
         o.steps = Some(steps);
         o.mfd_exponent = Some(1.0);
