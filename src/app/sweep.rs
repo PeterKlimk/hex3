@@ -170,7 +170,11 @@ fn render_relief(
     let light = Vec3::new(0.5, 1.0, 0.3).normalize();
     let uniforms = Uniforms::new(view_proj, cam_pos, light)
         .with_relief(true)
-        .with_hemisphere_lighting(true)
+        // Hillshade from the displaced face normal + simple directional light, so
+        // terrain SLOPES are legible (the relief-judging view): hemisphere lighting +
+        // sphere-normal shading washed peaks out to flat white. See unified.wgsl.
+        .with_slope_shading(true)
+        .with_hemisphere_lighting(false)
         .with_map_mode(false);
 
     let river_mesh = match river_mode {

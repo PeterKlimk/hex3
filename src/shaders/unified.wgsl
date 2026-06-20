@@ -34,7 +34,8 @@ struct Uniforms {
     relief_scale: f32, // 0.0 = flat, >0 = 3D terrain displacement
     hemisphere_lighting: f32, // 1.0 = hemisphere, 0.0 = simple diffuse
     map_mode: f32, // 0.0 = globe view, 1.0 = equirectangular map view
-    _padding2: vec2<f32>,
+    slope_shading: f32, // 1.0 = shade from displaced face normal (hillshade)
+    _padding2: f32,
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -152,7 +153,16 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let N = normalize(in.world_normal);
+    // Shade from the actual displaced surface (slope hillshade) when requested: the
+    // vertex normal is the smooth SPHERE normal (relief is displaced in the vertex
+    // shader but the normal isn't recomputed), so without this, slopes catch no light
+    // and tall/snow-capped peaks read as flat white. The screen-space derivatives of
+    // world_pos give the displaced facet normal; orient it outward via the sphere normal.
+    var N = normalize(in.world_normal);
+    if (uniforms.slope_shading > 0.5) {
+        let face_n = normalize(cross(dpdx(in.world_pos), dpdy(in.world_pos)));
+        N = face_n * sign(dot(face_n, N));
+    }
     let L = uniforms.light_dir;
     let V = normalize(uniforms.camera_pos - in.world_pos);
 

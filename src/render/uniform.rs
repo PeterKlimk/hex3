@@ -48,8 +48,11 @@ pub struct Uniforms {
     pub hemisphere_lighting: f32,
     /// Map mode (0.0 = globe view, 1.0 = equirectangular map view).
     pub map_mode: f32,
+    /// Slope shading (1.0 = shade from the displaced face normal — real hillshade;
+    /// 0.0 = shade from the smooth sphere normal). Only meaningful with relief on.
+    pub slope_shading: f32,
     /// Padding to align to 16 bytes.
-    pub _padding2: [f32; 6],
+    pub _padding2: [f32; 5],
 }
 
 impl Uniforms {
@@ -62,7 +65,8 @@ impl Uniforms {
             relief_scale: 0.0,
             hemisphere_lighting: 1.0,
             map_mode: 0.0,
-            _padding2: [0.0; 6],
+            slope_shading: 0.0,
+            _padding2: [0.0; 5],
         }
     }
 
@@ -81,6 +85,13 @@ impl Uniforms {
     /// Set whether map mode is enabled.
     pub fn with_map_mode(mut self, enabled: bool) -> Self {
         self.map_mode = if enabled { 1.0 } else { 0.0 };
+        self
+    }
+
+    /// Set whether to shade from the displaced face normal (real hillshade) rather
+    /// than the smooth sphere normal. Makes terrain slopes legible under relief.
+    pub fn with_slope_shading(mut self, enabled: bool) -> Self {
+        self.slope_shading = if enabled { 1.0 } else { 0.0 };
         self
     }
 }
