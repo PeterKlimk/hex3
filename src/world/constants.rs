@@ -953,7 +953,11 @@ pub const EROSION_DEPOSITION_SLOPE: f32 = 6.0;
 /// this gates the few-cell hillslope band between channel heads. The primary
 /// drainage-density knob — up = sparser/blockier networks, down = finer
 /// dissection (0 disables). 0 = off.
-pub const EROSION_CHANNEL_SUPPORT_KM2: f32 = 30.0;
+/// Lowered 30→4 (2026-06-20): on the structured-emergent orogens the high massif was
+/// UNDER-dissected (channels didn't reach the divides → active uplift made hillslope
+/// spikes); ~3-5 km² lets channels initiate higher and carve coherent ridge-and-valley
+/// into the high terrain instead of spikes (visual-settled).
+pub const EROSION_CHANNEL_SUPPORT_KM2: f32 = 4.0;
 
 // --- Lithologic erodibility K(x) (role-1 fine-mesh seed) -------------------
 //
