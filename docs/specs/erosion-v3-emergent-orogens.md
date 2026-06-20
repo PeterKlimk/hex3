@@ -1,0 +1,168 @@
+# Erosion-v3: emergent orogens (uplift-rate forcing, not painted relief)
+
+**Provenance.** 2026-06-20, after the P1a/b/c fine-synthesis work (erosion-v2 Phase 1)
+hit a ceiling: P1a+erosion gives "dissected noise", P1b gave "tectonic corduroy"
+(sand-dune ridges), and the user's read + two codex physical reviews converged on a
+deeper diagnosis. This spec is the rearchitecture those reviews pointed to. It
+SUPERSEDES the P1 painted-substrate approach for orogen morphology (P1a survives only
+as a faint seed; P1b/P1c are retired from the default path — see §7).
+
+## Root cause (verified in code)
+
+The fine erosion stage is calibrated as a **postprocessor**, not a mountain generator:
+
+- The fine base is the **finished, saturated coarse elevation** interpolated onto fine
+  cells (`fine.rs` `interpolate_coarse_elevation`). The coarse forcing fields are
+  distance-decay functions that SATURATE in orogen interiors → the base is a flat-
+  topped plateau, at full orogen height, before erosion runs.
+- Erosion HAS active uplift during the fluvial loop (`erosion.rs`: `u_thick` built from
+  `uplift_scale*((arc+collision)/slope + rift)`, added each step), but it is
+  deliberately TINY. `constants.rs` (EROSION_UPLIFT_SCALE doc): *"uplift … roughly
+  BALANCES erosion … It must not re-inject the full orogen — the coarse elevation
+  already encodes the static height — so SCALE … must stay small."*
+
+So height is baked into the inherited base, and uplift is forbidden (by calibration)
+from rebuilding it, to avoid double-counting. Erosion can only DISSECT the flat plateau
+it's handed. The flat top is structurally guaranteed; erosion is calibrated not to fix
+it; painting (P1) was the workaround, and its character (noise / corduroy) is the
+ceiling because erosion only sands the painted substrate.
+
+## The fix: hand erosion an uplift-RATE field + a low envelope, not finished elevation
+
+Real ridge-and-valley relief is **emergent** from erosion acting on an actively
+uplifting surface (the fluvial-incision vs hillslope-diffusion competition self-
+organizes a valley-spacing wavelength; Perron/Dietrich/Kirchner). So let erosion BUILD
+the ranges:
+
+```
+coarse model  →  (a) broad ENVELOPE elevation (no saturated orogen peak)
+                 (b) uplift-RATE field U(x)  (where rock is actively added)
+fine base     =  interpolate(envelope) + faint seed
+fine erosion  =  active LEM: U(x) builds relief up while incision carves valleys
+                 → emergent dendritic ranges; final height ≈ coarse target (preserved)
+```
+
+### The decomposition is exact and double-count-free (key enabler)
+
+The coarse elevation already separates the orogen peak as a distinct additive term.
+From `elevation.rs`: `thickness = base_thickness(continentality) + thickening + rift`,
+`thickening = (arc+collision)/slope`, and `structural_elevation =
+isostatic_elevation(thickness) + thermal + ridge − trench`. Because
+`isostatic_elevation` is ~`slope·thickness`, the **elevation contribution of the orogen
+thickening is exactly `arc + collision`** (elevation units). The SAME `arc+collision`
+already drives `u_thick`. So:
+
+- **Envelope** = coarse elevation − `λ·(arc + collision)`   (λ∈[0,1]: fraction of the
+  orogen peak removed from the static base; λ=1 = build entirely from uplift, λ=0 =
+  current behaviour). Continentality dome, rifts, oceans, trenches, ridges, thermal —
+  all UNCHANGED (only the orogen peak is demoted).
+- **Uplift rate** `U(x)` ∝ `arc + collision`, scaled so that the uplift integrated over
+  the erosion epoch (minus what erosion removes) rebuilds ≈ `λ·(arc+collision)` of
+  relief — i.e. the emergent orogen returns to ~the coarse target height, but as
+  dissected ranges instead of a flat plateau.
+
+This removes the static orogen height from the base and re-supplies it as uplift, so
+there is no double-count, and the **macro height is preserved by construction** (the
+coarse model still decides how high the Andes are; erosion only decides their FORM).
+
+## Why height preservation matters (atmosphere validity)
+
+The coarse atmosphere (temperature, circulation, orographic precip, rain shadows) was
+solved on the FINISHED coarse elevation. If emergent orogens drifted materially in
+height, the coarse atmosphere would be inconsistent (the same concern P1a guarded with
+zero-mean + land-drift, but bigger). Constraint: **the emergent steady-state orogen
+height must track the coarse target** (λ·(arc+collision) rebuilt), so the macro height
+is a reshaping, not a change. Fine orographic precip already re-derives on fine relief;
+the broad height staying ~fixed keeps coarse circulation valid. Sea-level datum and the
+land/ocean mask are inherited from the envelope (oceans/continents untouched).
+
+## New fine pipeline (what changes)
+
+1. `FineBase`: build `envelope = interpolate(coarse_elevation) − λ·interpolate(arc+collision)`
+   as the erosion base, AND keep `coarse_base_elevation` (full interpolant) as the
+   height TARGET / atmosphere-lapse baseline. Store the interpolated `arc+collision`
+   uplift field at fine.
+2. Seed: a faint, broadband, zero-mean symmetry-breaking perturbation on the orogen
+   envelope (P1a demoted: amplitude ~0.005, just enough to break drainage symmetry —
+   NOT a structural substrate). Keep the gating + zero-mean + land-drift guard.
+3. Erosion (`FineSurface::generate`): run as an ACTIVE LEM —
+   - `uplift_scale` raised to BUILD (uplift integral ≈ λ·orogen height over the epoch),
+     no longer "hold & carve". `EROSION_UPLIFT_SMOOTH_KM` ON (broad tectonic uplift,
+     not cell-speckled).
+   - nonlinear hillslope diffusion (Roering, `hillslope_critical_slope`) ON — needed for
+     a real wavelength-setting hillslope law (linear D=2e-8 only polishes).
+   - MFD ON (`mfd_exponent`) — SFD inherits mesh/seed quirks; MFD gives coherent dispersal.
+   - `steps` likely raised (building from a low envelope takes longer than dissecting a
+     high base) — perf cost to measure.
+4. Calibrate to land near the coarse target height (probe: orogen mean elevation vs the
+   `coarse_base_elevation` target; aim drift small).
+
+## Calibration strategy (the real work — "active LEM", not "preserve + carve")
+
+This re-tunes the erosion stage as a landscape-evolution problem. Levers, in order:
+- `λ` (orogen-demotion fraction): start ~0.5 (leave a gentle swell, build the rest), push
+  toward 1.0 if emergent ranges look good and heights can be matched.
+- `uplift_scale` × `steps`: the uplift integral sets how much relief is built; tune so the
+  emergent orogen mean ≈ coarse target. Watch perf (steps).
+- `K` (incision) and `D`/`hillslope_crit` (hillslope): set the valley SPACING and the
+  relief/dissection texture (the incision-vs-diffusion competition wavelength).
+- All are existing CLI/sweep knobs (`--erosion-uplift-scale`, `--erosion-steps`,
+  `--erosion-k`, `--erosion-hillslope-crit`, `--erosion-uplift-smooth`, `--erosion-mfd-exponent`),
+  so the calibration can be SWEPT visually (the sweep harness is the tuning instrument).
+
+## What happens to P1a/P1b/P1c
+
+- **P1a** → demoted to the faint seed (§3.2). The synthesis/gating/zero-mean code is
+  reused at low amplitude; it is no longer the mountain generator.
+- **P1b** (strike bands) → RETIRED from the default (`front_strike_weight = 0`). Structural
+  along-strike grain, if wanted later, belongs in the **erodibility field K(x)** (already
+  exists, `lithology_erodibility`) as a SECOND-ORDER overprint on emergent dendritic
+  drainage — not as painted height. (codex: "move structure into K(x), not height".)
+- **P1c** (margin contrast) → RETIRED from the default; active/passive margin morphology
+  is already handled at coarse scale (continentality shelf width) and can re-enter via
+  K(x) / uplift shape if needed.
+- The knobs stay in the code (cache-hashed) so the old painted path is A/B-able against
+  the emergent path, but default to off.
+
+## Risks & open questions (for codex review)
+
+1. **Steady-state height matching.** Stream-power steady-state relief ~`(U/K)^(1/n)`
+   integrated up-channel — the emergent height is a function of U, K, climate, time, NOT
+   directly the coarse target. Can we reliably land near the coarse height by tuning, or
+   does height-matching fight texture quality? Is λ<1 (keep part of the orogen static)
+   the pragmatic hedge?
+2. **Convergence in a fixed step budget.** Building from a low envelope may need many more
+   steps than dissecting. Does the existing `steps`/`dt` reach a mature landform, or is
+   this a perf blowup? Is there a non-dimensional time (U·t/K·…) target?
+3. **Isostatic feedback.** Erosion evolves `thick`; the base envelope was de-thickened.
+   Does removing `λ·(arc+collision)` from the base but re-supplying via `u_thick` interact
+   correctly with the per-step `thick`/`elev` re-derivation (`erosion.rs` derive_elev)?
+   Must verify the isostatic bookkeeping doesn't drift.
+4. **Cratons / non-orogen relief.** Only orogens get demoted+rebuilt; cratonic dome,
+   passive margins, ocean stay in the envelope. Correct, or do interiors also need an
+   active component?
+5. **Atmosphere coupling.** Is "preserve macro height" sufficient, or does the changed
+   orogen FORM (ridges vs plateau) shift orographic precip enough to matter (and is the
+   fine re-derivation enough)?
+6. **Does the solver actually self-organize at these settings?** The capability is
+   present (stream-power + diffusion + active uplift) but unproven at "builder" scale.
+   This spec assumes it does; the first prototype must demonstrate emergent dendritic
+   ranges before the full calibration.
+
+## Validation
+
+- **Objective:** orogen mean-elevation drift vs `coarse_base_elevation` target (height
+  preserved); ridge-and-valley spacing in the emergent ranges (a real length scale, not
+  flat and not noise); the mountain-top probe (summit slope distribution should look like
+  dissected ranges, not plateau and not fBm); land-fraction/datum invariants.
+- **Visual (user):** the sweep harness — `--erosion-uplift-scale`/`steps`/`k`/`hillslope-crit`
+  grids — judged for "real ranges" vs "noise"/"dunes"/"mush". This is the gate.
+- **A/B:** emergent path vs the P1a-painted path at matched height, same seed/camera.
+
+## References
+- Root-cause finding + this rearchitecture: this session's codex reviews (physical +
+  architecture), verified against `erosion.rs` (u_thick:435/740, derive_elev:570),
+  `constants.rs` (uplift "hold & carve":846), `elevation.rs` (decomposition:311/426).
+- Supersedes the orogen-morphology role of [`erosion-fine-synthesis.md`](erosion-fine-synthesis.md)
+  (P1a/b/c); P1a's seed + invariants carry forward.
+- Erosion model: [`erosion.md`](erosion.md). LEM physics: Perron/Dietrich/Kirchner valley spacing.
