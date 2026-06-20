@@ -27,6 +27,15 @@ it's handed. The flat top is structurally guaranteed; erosion is calibrated not 
 it; painting (P1) was the workaround, and its character (noise / corduroy) is the
 ceiling because erosion only sands the painted substrate.
 
+**Review status.** Codex design review (2026-06-20, against code): **SOUND-WITH-FIXES**
+— direction right, but the spec over-claimed three things now corrected below: the
+decomposition is exact only PRE-sea-level (not "preserves the mask by construction");
+height is NOT preserved by construction (no target attractor in an n=1 LEM); and self-
+organization is plausible but unproven in this solver. All load-bearing numbers verified
+(`isostatic_elevation` strictly linear `slope·thk+offset`; `uplift_scale·steps·dt =
+0.003·60 = 0.18` → today rebuilds only ~18% of the orogen). Fixes folded into the
+sections below + the First Prototype section.
+
 ## The fix: hand erosion an uplift-RATE field + a low envelope, not finished elevation
 
 Real ridge-and-valley relief is **emergent** from erosion acting on an actively
@@ -62,18 +71,45 @@ already drives `u_thick`. So:
   dissected ranges instead of a flat plateau.
 
 This removes the static orogen height from the base and re-supplies it as uplift, so
-there is no double-count, and the **macro height is preserved by construction** (the
-coarse model still decides how high the Andes are; erosion only decides their FORM).
+there is no double-count. The intent is that the macro height is **approximately
+preserved** — but NOT "by construction" (see the corrections below): an n=1 stream-power
+LEM has no target-height attractor, so the emergent height must be *calibrated* toward
+the coarse target, not assumed.
+
+### Corrections from review (the claims to NOT make)
+
+- **Decomposition is exact only on the PRE-datum structural field.** `arc+collision`
+  cancels cleanly *before* the coarse sea-level solve, but the finished coarse elevation
+  has already had a uniform sea-level shift applied (`assemble_heightmap` area-weighted
+  solve). Subtracting `λ·(arc+collision)` does NOT commute with that solve. So: **inherit
+  the coarse sea-level datum (do not re-solve at fine), and AUDIT/clamp land-mask drift**
+  — don't claim the envelope preserves the land/ocean mask by construction.
+- **Uplift gate bug to fix.** `erosion.rs` gates uplift `if base[i] < 0.0 { return 0.0 }`.
+  If demotion pushes an intended-land orogen cell below 0, it will never uplift back
+  (dead orogen). Fix: **gate the builder uplift on the FULL coarse-target land mask**
+  (`coarse_target[i] >= 0`), or keep the envelope land-positive, not on the demoted base.
+- **Exclude `rift_delta` from the builder uplift.** Current `u_thick =
+  uplift_scale·((arc+collision)·inv_slope + rift_delta)`. The builder should re-supply
+  ONLY the demoted orogen term `(arc+collision)`; rifts are not what we demoted.
+- **Bookkeeping.** `derive_elev = base + slope·(thick − thick_init)`, step 0 = base. With
+  `base = coarse − λF` and uplift `= uplift_scale·(F/slope)`, the no-erosion rebuild after
+  N steps is `coarse − λF + uplift_scale·N·dt·F`, so **rebuild ⇔ `uplift_scale·N·dt ≈ λ`**
+  (with erosion, higher). Today 0.18; λ=0.5 ⇒ `uplift_scale ≈ 0.008`, λ=1.0 ⇒ ≈ 0.017.
+  Keep `thick_init` as a pure delta-reference (numerically fine) or de-thicken it by
+  `λF/slope` for cleaner diagnostics.
 
 ## Why height preservation matters (atmosphere validity)
 
 The coarse atmosphere (temperature, circulation, orographic precip, rain shadows) was
 solved on the FINISHED coarse elevation. If emergent orogens drifted materially in
 height, the coarse atmosphere would be inconsistent (the same concern P1a guarded with
-zero-mean + land-drift, but bigger). Constraint: **the emergent steady-state orogen
-height must track the coarse target** (λ·(arc+collision) rebuilt), so the macro height
-is a reshaping, not a change. Fine orographic precip already re-derives on fine relief;
-the broad height staying ~fixed keeps coarse circulation valid. Sea-level datum and the
+zero-mean + land-drift, but bigger). Constraint (softened per review): **calibrate the emergent orogen toward the coarse
+target so low-order hypsometry / orogen-scale mean stay within tolerance** — exact
+height-matching fights the LEM and isn't the goal; "reshaping, roughly same mean" is.
+Fine orographic precip re-derives *local* modulation on fine relief but keeps the coarse
+wind/moisture field — so this is a first-order approximation: good while broad mean height
+and barrier footprint stay close, NOT a guarantee of atmospheric consistency if the form
+change is drastic. Sea-level datum and the
 land/ocean mask are inherited from the envelope (oceans/continents untouched).
 
 ## New fine pipeline (what changes)
@@ -148,6 +184,36 @@ This re-tunes the erosion stage as a landscape-evolution problem. Levers, in ord
    present (stream-power + diffusion + active uplift) but unproven at "builder" scale.
    This spec assumes it does; the first prototype must demonstrate emergent dendritic
    ranges before the full calibration.
+
+## First prototype (do THIS before the full retune — codex)
+
+The smallest diagnostic path that answers "does the active-LEM premise work at all,"
+before any texture tuning. Gated behind a knob (`--emergent-lambda`, default 0 = current
+behaviour) so the default path is untouched.
+
+1. **Envelope:** `envelope = interpolate(coarse_elev) − λ·interpolate(arc+collision)` as
+   the erosion base; keep `coarse_base_elevation` (full interpolant) as the height TARGET
+   and the lapse baseline. λ via the knob.
+2. **Builder uplift:** `u_thick = uplift_scale·(arc+collision)/slope` (rift EXCLUDED),
+   gated on the coarse-target land mask (not `base<0`). `uplift_scale` set to the rebuild
+   target (≈0.008–0.02 for λ=0.5, swept).
+3. **Terminal lakes OFF for the test** — pre-hydrology on the LOW envelope would freeze
+   low lakes as base levels that pin the emergent range (`terminal_lake_base_levels`).
+   Compare on/off; if material, defer lake base levels to a post-warm-up recompute.
+4. **Seed:** faint P1a (`interior_relief ≈ 0.005`), P1b/P1c off.
+5. **Measure (diagnose, numerical first — no GPU):**
+   - area-weighted orogen mean + p90 elevation DRIFT vs the coarse target (height landed?),
+   - **land-mask flips:** count cells where `coarse_target ≥ 0` but `envelope < 0` (the
+     uplift-gate breaker — risk item #2),
+   - ridge-and-valley morphology / summit-slope distribution (the mountain-top probe):
+     real dissected ranges vs plateau vs noise.
+6. **Then** a Windows visual sweep over `λ × uplift_scale` (and `K`, `steps`,
+   `hillslope_crit`) — the texture-quality gate (user).
+
+Decision gate: if the active build produces coherent dissected ranges at a tunable height
+with tolerable land drift → commit to the full retune. If it produces uplifted mush or
+can't hold height → the solver can't be the generator here, fall back to naturalistic
+painted substrate.
 
 ## Validation
 
