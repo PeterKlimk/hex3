@@ -149,6 +149,9 @@ pub struct ErosionOverrides {
     pub margin_contrast: Option<f32>,
     pub emergent_lambda: Option<f32>,
     pub emergent_structured: Option<f32>,
+    /// Coarse-asymmetry blend. NOTE: consumed at world CREATION (before stage-1 features),
+    /// not in `apply` — the sweep/CLI pass it into `create_world_with_options`.
+    pub coarse_asymmetry: Option<f32>,
 }
 
 impl ErosionOverrides {
@@ -239,6 +242,7 @@ pub fn create_world_with_options(
     num_cells: usize,
     backend: VoronoiBackend,
     fine_cache: FineCacheMode,
+    coarse_asymmetry: f32,
 ) -> World {
     let _total = Timed::info("Stage 1 (Lithosphere)");
     log::info!(
@@ -255,6 +259,8 @@ pub fn create_world_with_options(
         World::new_with_options(seed, num_cells, LLOYD_ITERATIONS, backend)
     };
     world.fine_cache = fine_cache;
+    // Set before generate_features (below) — it shapes the coarse arc/collision envelope.
+    world.coarse_asymmetry = coarse_asymmetry;
 
     {
         let _t = Timed::info("Plates");

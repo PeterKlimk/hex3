@@ -371,6 +371,24 @@ pub const COLLISION_WIDTH: f32 = 0.02;
 /// 0.015 rad ≈ 96 km on Earth. Places peak near boundary, not far inland.
 pub const COLLISION_PEAK_DIST: f32 = 0.015;
 
+// --- Coarse orogen ASYMMETRY (orogen-structure: the coarse envelope) ---
+// The arc/collision cross-section is a SYMMETRIC Gaussian of distance-to-boundary →
+// dome/plateau, not a real range. This makes it ASYMMETRIC using a per-cell SIGNED
+// distance (overriding plate +, foreland −, from subduction polarity): the crest sits
+// near the boundary with a STEEP narrow FORELAND flank and a GENTLE wide HINTERLAND. The
+// modulation rides on the existing arc/collision magnitude, so it propagates to the macro
+// elevation (atmosphere/rain-shadows see the real mountains) and the fine emergent target.
+// Blend 0 = symmetric (current); 1 = full asymmetry. Default off until A/B-validated.
+
+/// Master coarse-asymmetry blend (0..1). 0 = symmetric Gaussian (unchanged).
+pub const COARSE_OROGEN_ASYMMETRY: f32 = 0.0;
+/// Foreland-side band width MULTIPLIER (×the symmetric width): <1 = steeper, narrower
+/// foreland flank (the thrust front).
+pub const COARSE_ASYM_FORELAND_MULT: f32 = 0.6;
+/// Hinterland-side band width MULTIPLIER: >1 = gentler, wider hinterland taper (the
+/// back-arc / plateau side).
+pub const COARSE_ASYM_HINTERLAND_MULT: f32 = 2.0;
+
 /// Decay length for tectonic activity field (radians).
 /// Controls how far "tectonically active" influence spreads from boundaries.
 pub const ACTIVITY_INFLUENCE_LENGTH: f32 = 0.05;

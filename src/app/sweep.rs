@@ -56,6 +56,7 @@ pub const SWEEP_KNOBS: &[&str] = &[
     "margin_contrast",
     "emergent_lambda",
     "emergent_structured",
+    "coarse_asymmetry",
 ];
 
 /// Options for a sweep run, assembled from the CLI.
@@ -124,6 +125,7 @@ fn apply_knob(ov: &mut ErosionOverrides, name: &str, v: f64) -> Result<(), Strin
         "margin_contrast" => ov.margin_contrast = Some(f),
         "emergent_lambda" => ov.emergent_lambda = Some(f),
         "emergent_structured" => ov.emergent_structured = Some(f),
+        "coarse_asymmetry" => ov.coarse_asymmetry = Some(f),
         other => {
             return Err(format!(
                 "unknown sweep knob '{other}'; valid knobs: {}",
@@ -136,8 +138,18 @@ fn apply_knob(ov: &mut ErosionOverrides, name: &str, v: f64) -> Result<(), Strin
 
 /// Generate a fully-staged world for one tile's knob values.
 fn generate_tile_world(opts: &SweepOptions, overrides: &ErosionOverrides) -> World {
-    let mut world =
-        create_world_with_options(opts.seed, opts.cells, opts.voronoi_backend, opts.fine_cache);
+    // coarse_asymmetry is consumed at creation (stage-1 features), so pass it in here
+    // rather than via `apply`.
+    let asymmetry = overrides
+        .coarse_asymmetry
+        .unwrap_or(hex3::world::COARSE_OROGEN_ASYMMETRY);
+    let mut world = create_world_with_options(
+        opts.seed,
+        opts.cells,
+        opts.voronoi_backend,
+        opts.fine_cache,
+        asymmetry,
+    );
     overrides.apply(&mut world);
 
     if (opts.fine_scale - 1.0).abs() > f32::EPSILON {

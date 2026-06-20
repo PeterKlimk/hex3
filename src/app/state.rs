@@ -85,8 +85,15 @@ impl AppState {
         let gpu = GpuContext::new(window.clone()).await;
         println!("{:.1}ms", start.elapsed().as_secs_f64() * 1000.0);
 
-        let mut world_data =
-            create_world_with_options(seed, NUM_CELLS, voronoi_backend, fine_cache);
+        let mut world_data = create_world_with_options(
+            seed,
+            NUM_CELLS,
+            voronoi_backend,
+            fine_cache,
+            erosion_overrides
+                .coarse_asymmetry
+                .unwrap_or(hex3::world::COARSE_OROGEN_ASYMMETRY),
+        );
         erosion_overrides.apply(&mut world_data);
         let initial_viewed_stage = world_data.current_stage();
         let world_buffers = generate_world_buffers(&gpu.device, &world_data);
@@ -163,8 +170,15 @@ impl AppState {
     }
 
     pub fn regenerate_world(&mut self, seed: u64) {
-        self.world_data =
-            create_world_with_options(seed, NUM_CELLS, self.voronoi_backend, self.fine_cache);
+        self.world_data = create_world_with_options(
+            seed,
+            NUM_CELLS,
+            self.voronoi_backend,
+            self.fine_cache,
+            self.erosion_overrides
+                .coarse_asymmetry
+                .unwrap_or(hex3::world::COARSE_OROGEN_ASYMMETRY),
+        );
         self.erosion_overrides.apply(&mut self.world_data);
         self.viewed_stage = self.world_data.current_stage();
         self.inactive_buffers.clear(); // stale across a new world

@@ -143,6 +143,10 @@ struct Cli {
     /// Regenerates the fine base.
     #[arg(long, default_value_t = -1.0)]
     margin_contrast: f32,
+    /// Coarse orogen asymmetry blend (steep foreland / gentle hinterland macro envelope).
+    /// <0 = default (0=symmetric); 1 = full. Changes the macro elevation + atmosphere.
+    #[arg(long, default_value_t = -1.0)]
+    coarse_asymmetry: f32,
     /// Emergent-orogens demotion fraction (erosion-v3): demote λ·(arc+collision) from
     /// the base and rebuild it by active uplift. <0 = default (0=off); 0.25-0.5 = test.
     /// Pair with a raised --erosion-uplift-scale (~λ/(steps·dt)). NOTE: the painted P1
@@ -189,6 +193,9 @@ fn main() {
         cli.seed, cli.cells
     );
     let mut world = World::new(cli.seed, cli.cells, 1);
+    if cli.coarse_asymmetry >= 0.0 {
+        world.coarse_asymmetry = cli.coarse_asymmetry; // before generate_features (below)
+    }
     world.generate_plates(hex3::world::NUM_PLATES_DEFAULT);
     world.generate_crust();
     world.generate_dynamics();

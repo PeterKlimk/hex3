@@ -131,6 +131,12 @@ pub struct World {
     /// so it is part of the fine-base cache key (a sweep regenerates the base).
     pub fine_structure_params: FineStructureParams,
 
+    /// Coarse orogen asymmetry blend (0..1; orogen-structure). 0 = symmetric Gaussian
+    /// cross-section (current); >0 makes the macro arc/collision envelope asymmetric
+    /// (steep foreland / gentle hinterland), so the atmosphere + fine target see real
+    /// mountains. Applied in `generate_features`.
+    pub coarse_asymmetry: f32,
+
     /// Whether fine-mesh base generation reads/writes the on-disk cache.
     pub fine_cache: FineCacheMode,
 
@@ -188,6 +194,7 @@ impl World {
             erosion_params: ErosionParams::default(),
             fine_density_params: FineDensityParams::default(),
             fine_structure_params: FineStructureParams::default(),
+            coarse_asymmetry: COARSE_OROGEN_ASYMMETRY,
             fine_cache: FineCacheMode::default(),
             view_stage: u32::MAX,
         }
@@ -255,6 +262,7 @@ impl World {
             plates,
             crust,
             dynamics,
+            self.coarse_asymmetry,
         ));
     }
 
