@@ -412,6 +412,21 @@ fn build_stack_tiles(
         o.margin_contrast = Some(mc);
         (o, label.to_string(), fname.to_string())
     };
+    // erosion-v3: an emergent-build tile — demote λ, rebuild via active uplift
+    // (uplift_scale calibrated ≈ λ/(steps·dt)), with the channelization machinery on
+    // (MFD + nonlinear hillslope), faint seed, P1b/c off.
+    let emergent = |lambda: f32, uplift: f32, steps: usize, label: &str, fname: &str| {
+        let mut o = *base;
+        o.emergent_lambda = Some(lambda);
+        o.interior_relief = Some(0.005); // faint seed
+        o.front_strike_weight = Some(0.0);
+        o.margin_contrast = Some(0.0);
+        o.uplift_scale = Some(uplift);
+        o.steps = Some(steps);
+        o.mfd_exponent = Some(1.0);
+        o.hillslope_critical_slope = Some(200.0);
+        (o, label.to_string(), fname.to_string())
+    };
     match name {
         // erosion-v2 Phase 1: flat interpolant → +interior grain → +strike → +margin.
         "p1" => vec![
@@ -420,7 +435,15 @@ fn build_stack_tiles(
             tile(0.04, 0.7, 0.0, "P1a+P1b strike", "2_p1ab"),
             tile(0.04, 0.7, 1.0, "P1a+P1b+P1c margin", "3_p1abc"),
         ],
-        other => panic!("unknown --sweep-stack '{other}'; known: p1"),
+        // erosion-v3: painted P1a (current best) vs emergent build at λ=0.25/0.5/0.75,
+        // uplift_scale = λ/(steps·dt) with steps=120 so each rebuilds to ~target height.
+        "v3" => vec![
+            tile(0.04, 0.7, 1.0, "P1 painted (current)", "0_painted"),
+            emergent(0.25, 0.25 / 120.0, 120, "emergent λ=0.25", "1_emergent_025"),
+            emergent(0.5, 0.5 / 120.0, 120, "emergent λ=0.5", "2_emergent_050"),
+            emergent(0.75, 0.75 / 120.0, 120, "emergent λ=0.75", "3_emergent_075"),
+        ],
+        other => panic!("unknown --sweep-stack '{other}'; known: p1, v3"),
     }
 }
 
