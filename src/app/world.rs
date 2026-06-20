@@ -148,6 +148,7 @@ pub struct ErosionOverrides {
     pub front_strike_weight: Option<f32>,
     pub margin_contrast: Option<f32>,
     pub emergent_lambda: Option<f32>,
+    pub emergent_structured: Option<f32>,
 }
 
 impl ErosionOverrides {
@@ -226,6 +227,9 @@ impl ErosionOverrides {
         }
         if let Some(l) = self.emergent_lambda {
             world.fine_structure_params.emergent_lambda = l;
+        }
+        if let Some(s) = self.emergent_structured {
+            world.fine_structure_params.emergent_structured = s;
         }
     }
 }

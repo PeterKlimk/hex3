@@ -184,6 +184,7 @@ pub(crate) fn erode(
     geom: &NeighborGeometry,
     params: ErosionParams,
     coarse_target: Option<&[f32]>,
+    uplift_shape: Option<&[f32]>,
 ) -> Vec<f32> {
     roughness_report(tess, base, "base ");
     let mut state = ErosionState::new(
@@ -196,6 +197,7 @@ pub(crate) fn erode(
         geom,
         params,
         coarse_target,
+        uplift_shape,
     );
     state.step(params.steps);
     state.log_summary();
@@ -427,6 +429,11 @@ impl ErosionState {
         // orogen cell still uplifts back, and it EXCLUDES rift_delta (only the demoted
         // arc+collision orogen term is re-supplied). None = current painted behaviour.
         coarse_target: Option<&[f32]>,
+        // O0 structured uplift shape (orogen-structure.md). When Some (+ emergent), the
+        // builder volume-normalizes this to the demoted volume and uses it as the uplift
+        // source — an asymmetric, segmented tectonic distribution — instead of the uniform
+        // per-cell `target−base` rebuild.
+        uplift_shape: Option<&[f32]>,
     ) -> Self {
         let n = tess.num_cells();
         let slope = isostasy_slope();
@@ -445,24 +452,53 @@ impl ErosionState {
         // land, breaking the fixed sea-level datum. (Terminal-lake sinks are left
         // uplifting: those are either sub-sea-level — already excluded — or genuinely
         // tectonically active basins where uplift/inversion is physical.)
+        let epoch = (params.steps as f32 * params.dt).max(1.0);
+        // O0 (orogen-structure): volume-normalization constant for the STRUCTURED builder.
+        // The shape redistributes uplift tectonically (asymmetric/segmented); normalize it
+        // so the total uplifted elevation·area equals the gained demoted volume — height
+        // stays sane while the distribution becomes tectonic. `shape_c = gain·Σ(demoted·a)/
+        // Σ(shape·a)`; then uplifted-elev[i] = shape_c·shape[i].
+        let shape_c: Option<f32> = match (coarse_target, uplift_shape) {
+            (Some(target), Some(shape)) => {
+                let a = tess.cell_areas();
+                let mut dvol = 0.0f64;
+                let mut svol = 0.0f64;
+                for i in 0..n {
+                    if target[i] >= 0.0 {
+                        let ai = a[i] as f64;
+                        dvol += (target[i] - base[i]).max(0.0) as f64 * ai;
+                        svol += shape[i].max(0.0) as f64 * ai;
+                    }
+                }
+                Some(if svol > 0.0 {
+                    (EMERGENT_REBUILD_GAIN as f64 * dvol / svol) as f32
+                } else {
+                    0.0
+                })
+            }
+            _ => None,
+        };
         let mut u_thick: Vec<f32> = (0..n)
             .map(|i| {
                 if let Some(target) = coarse_target {
                     // EMERGENT (erosion-v3): SELF-CALIBRATING builder. Rebuild the demoted
                     // envelope (target − base = the removed orogen, ≈ λ·(arc+collision))
                     // over the erosion epoch, ×gain to offset what erosion removes WHILE
-                    // building, so the eroded orogen lands near the coarse target. Per-cell
-                    // exact (height tracks target regardless of the forcing distribution);
-                    // gated on the TARGET land mask so demoted-below-sea orogen cells still
-                    // rebuild. `params.uplift_scale` is unused here (rate is auto-derived),
-                    // so `steps` is a pure build-vs-carve dial: more steps = same total
-                    // uplift, more carving time.
+                    // building, so the eroded orogen lands near the coarse target. Gated on
+                    // the TARGET land mask so demoted-below-sea orogen cells still rebuild.
+                    // `params.uplift_scale` is unused here (rate is auto-derived), so `steps`
+                    // is a pure build-vs-carve dial.
                     if target[i] < 0.0 {
                         return 0.0;
                     }
-                    let demoted = (target[i] - base[i]).max(0.0);
-                    let epoch = (params.steps as f32 * params.dt).max(1.0);
-                    EMERGENT_REBUILD_GAIN * demoted * inv_slope / epoch
+                    if let (Some(c), Some(shape)) = (shape_c, uplift_shape) {
+                        // O0 structured: the volume-normalized tectonic uplift shape.
+                        c * shape[i].max(0.0) * inv_slope / epoch
+                    } else {
+                        // Uniform v3 rebuild: per-cell exact (height tracks target).
+                        let demoted = (target[i] - base[i]).max(0.0);
+                        EMERGENT_REBUILD_GAIN * demoted * inv_slope / epoch
+                    }
                 } else {
                     // Painted path (hold & carve): ongoing tectonic uplift from the
                     // arc/collision forcing + rift, gated to land (base ≥ sea level).

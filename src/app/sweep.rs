@@ -55,6 +55,7 @@ pub const SWEEP_KNOBS: &[&str] = &[
     "front_strike_weight",
     "margin_contrast",
     "emergent_lambda",
+    "emergent_structured",
 ];
 
 /// Options for a sweep run, assembled from the CLI.
@@ -122,6 +123,7 @@ fn apply_knob(ov: &mut ErosionOverrides, name: &str, v: f64) -> Result<(), Strin
         "front_strike_weight" => ov.front_strike_weight = Some(f),
         "margin_contrast" => ov.margin_contrast = Some(f),
         "emergent_lambda" => ov.emergent_lambda = Some(f),
+        "emergent_structured" => ov.emergent_structured = Some(f),
         other => {
             return Err(format!(
                 "unknown sweep knob '{other}'; valid knobs: {}",
@@ -437,6 +439,22 @@ fn build_stack_tiles(
         o.hillslope_critical_slope = Some(200.0);
         (o, label.to_string(), fname.to_string())
     };
+    // O0 (orogen-structure): emergent build at n=2 with optional STRUCTURED uplift
+    // (asymmetric + segmented) — the decisive A/B for whether tectonic uplift beats the
+    // smooth-emergent dome. Seed-only, P1b/c off, more carving steps.
+    let emergent_o0 = |structured: f32, label: &str, fname: &str| {
+        let mut o = *base;
+        o.emergent_lambda = Some(0.5);
+        o.emergent_structured = Some(structured);
+        o.interior_relief = Some(0.005);
+        o.front_strike_weight = Some(0.0);
+        o.margin_contrast = Some(0.0);
+        o.fault_scarp_height = Some(0.0);
+        o.steps = Some(200);
+        o.n = Some(2.0);
+        o.hillslope_critical_slope = Some(200.0);
+        (o, label.to_string(), fname.to_string())
+    };
     match name {
         // erosion-v2 Phase 1: flat interpolant → +interior grain → +strike → +margin.
         "p1" => vec![
@@ -453,7 +471,14 @@ fn build_stack_tiles(
             emergent(0.5, 240, "emergent λ=0.5, 240 steps", "2_emergent_s240"),
             emergent(0.5, 400, "emergent λ=0.5, 400 steps", "3_emergent_s400"),
         ],
-        other => panic!("unknown --sweep-stack '{other}'; known: p1, v3"),
+        // O0: painted vs smooth-emergent vs structured-emergent (all n=2). Does the
+        // asymmetric+segmented tectonic uplift read as RANGES vs the smooth dome?
+        "o0" => vec![
+            tile(0.04, 0.7, 1.0, "P1 painted (current)", "0_painted"),
+            emergent_o0(0.0, "emergent smooth (n=2)", "1_emergent_smooth"),
+            emergent_o0(1.0, "emergent STRUCTURED (n=2)", "2_emergent_structured"),
+        ],
+        other => panic!("unknown --sweep-stack '{other}'; known: p1, v3, o0"),
     }
 }
 

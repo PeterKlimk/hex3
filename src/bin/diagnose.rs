@@ -150,6 +150,11 @@ struct Cli {
     /// etc.) — the `--sweep-stack v3` preset does this for a clean A/B. Regenerates base.
     #[arg(long, default_value_t = -1.0)]
     emergent_lambda: f32,
+    /// O0 structured emergent uplift (orogen-structure): blend of asymmetric+segmented
+    /// uplift shape vs uniform rebuild. <0 = default (0=off); 1 = fully structured.
+    /// Needs --emergent-lambda >0 and (for the decisive test) --erosion-n ~2.
+    #[arg(long, default_value_t = -1.0)]
+    emergent_structured: f32,
     /// Fine-mesh density knobs (cell-size targets in km / blend). <0 = use the
     /// FINE_* default. Setting any forces fine-base regeneration (no cache). Use
     /// to sweep the ocean/plains/mountain budget: e.g. --fine-plains-km 20.
@@ -267,6 +272,9 @@ fn main() {
     }
     if cli.emergent_lambda >= 0.0 {
         world.fine_structure_params.emergent_lambda = cli.emergent_lambda;
+    }
+    if cli.emergent_structured >= 0.0 {
+        world.fine_structure_params.emergent_structured = cli.emergent_structured;
     }
     // Fine-mesh density overrides (force regeneration so the cache can't serve a
     // base built with the default knobs).

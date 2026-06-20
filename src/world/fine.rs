@@ -82,6 +82,9 @@ pub struct FineStructureParams {
     /// (arc+collision) removed from the static base envelope and rebuilt by active
     /// uplift during erosion. 0 = off (painted/postprocessor path); >0 = emergent.
     pub emergent_lambda: f32,
+    /// O0 (orogen-structure): blend of the structured (asymmetric + segmented) emergent
+    /// uplift shape vs the uniform v3 rebuild. 0 = uniform; 1 = fully structured.
+    pub emergent_structured: f32,
 }
 
 impl Default for FineStructureParams {
@@ -92,6 +95,7 @@ impl Default for FineStructureParams {
             front_strike_weight: FINE_FRONT_STRIKE_WEIGHT,
             margin_contrast: FINE_MARGIN_CONTRAST,
             emergent_lambda: FINE_EMERGENT_LAMBDA,
+            emergent_structured: FINE_EMERGENT_STRUCTURED,
         }
     }
 }
@@ -225,6 +229,10 @@ pub struct FineBase {
     /// means `base_elevation` is the demoted envelope and erosion should run as an
     /// active builder (rift-excluded uplift gated on `coarse_base_elevation`).
     pub emergent_lambda: f32,
+    /// O0 structured-emergent uplift SHAPE per cell (asymmetric front × segmentation ×
+    /// demoted forcing), or `None` for the uniform v3 rebuild. When `Some`, the builder
+    /// volume-normalizes this and uses it as the uplift source instead of `target−base`.
+    pub emergent_uplift_shape: Option<Vec<f32>>,
     pub density: Vec<f32>,
     pub achieved_density_ratio: f32,
 }
@@ -610,6 +618,24 @@ impl FineBase {
         // based fractions are wrong on the adaptive mesh, so weight by cell area.
         report_land_fraction_drift(&tessellation, &coarse_base_elevation, &base_elevation);
 
+        // O0 structured-emergent uplift shape (orogen-structure.md): an asymmetric
+        // front profile × along-strike segmentation × demoted forcing, used by the
+        // builder instead of the uniform `target−base` rebuild. Built here where the
+        // fronts + demoted envelope are in hand; volume-normalized in the erosion stage.
+        let emergent_uplift_shape = (structure_params.emergent_lambda > 0.0
+            && structure_params.emergent_structured > 0.0)
+            .then(|| {
+                compute_emergent_uplift_shape(
+                    &tessellation,
+                    &coarse_cell,
+                    fronts,
+                    &coarse_base_elevation,
+                    &base_elevation,
+                    seed,
+                    structure_params.emergent_structured,
+                )
+            });
+
         Self {
             tessellation,
             coarse_cell,
@@ -617,6 +643,7 @@ impl FineBase {
             base_elevation,
             coarse_base_elevation,
             emergent_lambda: structure_params.emergent_lambda,
+            emergent_uplift_shape,
             density: fine_density,
             achieved_density_ratio,
         }
@@ -663,6 +690,9 @@ impl FineSurface {
         // (full coarse elevation) as the land mask the builder uplift gates on — so a
         // demoted-below-sea orogen cell still uplifts back instead of dying.
         let coarse_target = emergent.then_some(base.coarse_base_elevation.as_slice());
+        // O0: the structured uplift shape, if built (asymmetric/segmented); the builder
+        // volume-normalizes it and uses it instead of the uniform target−base rebuild.
+        let uplift_shape = base.emergent_uplift_shape.as_deref();
 
         // The base already carries the synthesized structural relief (interior
         // fault/fold grain + range-front scarps; built in `FineBase`), so erosion
@@ -695,6 +725,7 @@ impl FineSurface {
                 &geom,
                 params,
                 coarse_target,
+                uplift_shape,
             );
             let t_erode = t0.elapsed();
             let t1 = Instant::now();
@@ -854,6 +885,92 @@ fn lithology_erodibility(
             None => 0.0,
         };
         (geo_log + grain_log + fbm_log).exp()
+    };
+    #[cfg(not(feature = "single-threaded"))]
+    {
+        (0..n).into_par_iter().map(sample).collect()
+    }
+    #[cfg(feature = "single-threaded")]
+    {
+        (0..n).map(sample).collect()
+    }
+}
+
+/// O0 structured-emergent uplift SHAPE (orogen-structure.md): per cell, the demoted
+/// orogen forcing (`target − base`) shaped by an ASYMMETRIC front profile (steep narrow
+/// foreland flank → crest at the front → gentle wide hinterland; side from overriding-vs-
+/// foreland plate membership) × a low-frequency along-strike SEGMENTATION proxy (the range
+/// plunges/segments). Returned UN-normalized — the erosion builder volume-normalizes it so
+/// total uplift is preserved while the distribution becomes tectonic. `structured ∈ (0,1]`
+/// blends the shaped field with the flat demoted forcing.
+#[allow(clippy::too_many_arguments)]
+fn compute_emergent_uplift_shape(
+    tess: &Tessellation,
+    coarse_cell: &[usize],
+    fronts: &OrogenFronts,
+    target: &[f32],
+    base: &[f32],
+    seed: u64,
+    structured: f32,
+) -> Vec<f32> {
+    let n = tess.num_cells();
+    let blend = structured.clamp(0.0, 1.0);
+    let sstep = super::features::smoothstep;
+    let seg_fbm = Fbm::<Perlin>::new(seed.wrapping_add(71) as u32).set_octaves(2);
+
+    let front_tree = (!fronts.points.is_empty()).then(|| {
+        let entries: Vec<[f32; 3]> = fronts.points.iter().map(|p| [p.x, p.y, p.z]).collect();
+        ImmutableKdTree::<f32, 3>::new_from_slice(&entries)
+    });
+    let gather_chord =
+        2.0 * ((FINE_OROGEN_HINTERLAND_WIDTH + FINE_FRONT_GATHER_MARGIN) * 0.5).sin();
+    let gather_r2 = gather_chord * gather_chord;
+
+    let sample = |i: usize| -> f32 {
+        let demoted = (target[i] - base[i]).max(0.0);
+        if demoted <= 1e-6 {
+            return 0.0; // not an (emergent) orogen cell
+        }
+        let Some(tree) = front_tree.as_ref() else {
+            return demoted; // no fronts — fall back to flat forcing
+        };
+        let c = tess.cell_center(i);
+        let plate = fronts.coarse_cell_plate[coarse_cell[i]];
+        // Nearest compatible front: unsigned arc distance + side (overriding vs foreland).
+        let mut best_d = f32::INFINITY;
+        let mut best_side = 1.0f32;
+        for nn in tree.within_unsorted::<SquaredEuclidean>(&[c.x, c.y, c.z], gather_r2) {
+            let item = nn.item as usize;
+            let side = match fronts.accept_plate[item] {
+                None => 1.0, // collision: treat as overriding (one gentle flank)
+                Some(p) => {
+                    if p == plate {
+                        1.0
+                    } else {
+                        -1.0
+                    }
+                }
+            };
+            let d = point_to_arc_distance(c, fronts.seg_a[item], fronts.seg_b[item]);
+            if d < best_d {
+                best_d = d;
+                best_side = side;
+            }
+        }
+        if !best_d.is_finite() {
+            return demoted;
+        }
+        let v = best_side * best_d; // signed front-normal distance
+        let profile = if v < 0.0 {
+            sstep(-FINE_OROGEN_FORELAND_WIDTH, 0.0, v) // steep narrow foreland rise
+        } else {
+            1.0 - sstep(0.0, FINE_OROGEN_HINTERLAND_WIDTH, v) // gentle wide hinterland
+        };
+        let p = c * FINE_OROGEN_SEGMENT_FREQUENCY as f32;
+        let raw = seg_fbm.get([p.x as f64, p.y as f64, p.z as f64]) as f32;
+        let seg = FINE_OROGEN_SEGMENT_MIN + (1.0 - FINE_OROGEN_SEGMENT_MIN) * sstep(-0.4, 0.4, raw);
+        let shaped = demoted * profile * seg;
+        demoted * (1.0 - blend) + shaped * blend
     };
     #[cfg(not(feature = "single-threaded"))]
     {

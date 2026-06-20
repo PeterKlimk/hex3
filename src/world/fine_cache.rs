@@ -45,7 +45,10 @@ use super::{Atmosphere, Crust, Elevation, FeatureFields, Tessellation};
 /// v7: emergent orogens (erosion-v3) demote the orogen peak from the base by
 /// `emergent_lambda·(arc+collision)` and add the field to `FineBase` — a serialized-
 /// struct + generation-logic change; the knob is hashed below.
-const FINE_BASE_CACHE_VERSION: u32 = 7;
+/// v8: O0 structured emergent uplift (orogen-structure) adds the `emergent_uplift_shape`
+/// field to `FineBase` and the `emergent_structured` knob (hashed below) — serialized-
+/// struct + generation-logic change.
+const FINE_BASE_CACHE_VERSION: u32 = 8;
 
 /// How the fine-mesh base should use the on-disk cache.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -107,6 +110,8 @@ pub fn fine_base_key(
     // Emergent orogens (erosion-v3): the demotion fraction (the arc+collision source is
     // already hashed via features). Changes the base envelope, so it's a fine-base input.
     mix_f32(&mut h, structure.emergent_lambda);
+    // O0 structured emergent uplift (orogen-structure): the structured-shape blend knob.
+    mix_f32(&mut h, structure.emergent_structured);
 
     // Strike-aware fronts (P1b): the knob + the convergent-front primitives the
     // banded grain consumes (arc endpoints, per-front overriding side, coarse plate

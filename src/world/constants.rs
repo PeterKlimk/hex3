@@ -1250,6 +1250,31 @@ pub const FINE_MARGIN_PASSIVE_FACTOR: f32 = 0.5;
 // EROSION_UPLIFT_SCALE accordingly when emergent.
 pub const FINE_EMERGENT_LAMBDA: f32 = 0.0;
 
+// --- O0: structured (asymmetric + segmented) emergent uplift (orogen-structure.md) ---
+// Replace the uniform per-cell rebuild of the demoted orogen with a TECTONIC uplift
+// SHAPE: an asymmetric front profile (steep narrow foreland flank → crest at the front
+// → gentle wide hinterland, keyed on overriding-vs-foreland plate side) × a low-freq
+// along-strike SEGMENTATION (proxy noise; the range plunges/segments) × the demoted
+// forcing. Volume-normalized so total uplift is preserved (height stays sane), but the
+// DISTRIBUTION is tectonic. Drives emergent + n>1. 0 = off (uniform v3 rebuild).
+
+/// Master O0 knob: blend of structured shape vs uniform rebuild. 0 = uniform (v3); 1 =
+/// fully structured. The decisive-hack default for an A/B run is 1.
+pub const FINE_EMERGENT_STRUCTURED: f32 = 0.0;
+
+/// Asymmetric front profile widths (radians of front-normal distance): steep narrow rise
+/// on the FORELAND side (≈64 km), gentle wide taper into the HINTERLAND (≈320 km). The
+/// crest sits at the front (v=0).
+pub const FINE_OROGEN_FORELAND_WIDTH: f32 = 0.01;
+pub const FINE_OROGEN_HINTERLAND_WIDTH: f32 = 0.05;
+
+/// Along-strike segmentation proxy frequency (low → long plunging segments). O0 smoke-test
+/// only — NOT a real along-front coordinate (see spec; real arc-length chaining is O3).
+pub const FINE_OROGEN_SEGMENT_FREQUENCY: f64 = 14.0;
+/// Minimum segmentation amplitude (so segments thin/plunge but the belt doesn't fully
+/// vanish into disconnected blobs at O0). Segmentation spans [MIN, 1].
+pub const FINE_OROGEN_SEGMENT_MIN: f32 = 0.15;
+
 /// Emergent builder over-rebuild gain. The builder uplift rebuilds the demoted
 /// envelope (`coarse_target − base`) over the erosion epoch; >1 compensates the
 /// material erosion removes WHILE building, so the eroded orogen lands near the coarse
