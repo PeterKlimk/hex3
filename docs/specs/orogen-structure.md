@@ -80,6 +80,58 @@ Per fine cell, relative to the nearest compatible convergent front:
   along the front for free). **Open decision (see below).**
 - **overriding-side membership** + convergence magnitude (have these).
 
+## Review status (codex, 2026-06-20): SOUND-WITH-FIXES
+
+Core bet sound (asymmetric/segmented uplift-rate is the right lever). Fixes folded in:
+- **Do O0 first** (below) — test the core bet as a contained hack BEFORE building the
+  machinery. If structured uplift can't beat smooth-emergent in an A/B, the full project
+  isn't justified.
+- **Volume-normalize** the structured uplift (don't let height go fully emergent yet):
+  `raw_rate(x) = convergence·asym_profile(v)·segmentation(u)·mask`, scaled so
+  `∫ raw_rate dA · epoch · slope ≈ gain · ∫ demoted_orogen_height dA` (preserve total
+  orogen work, let the DISTRIBUTION be tectonic). Track mean/p95/max/land-flip/volume.
+- **n must be ≥1.5** in any decisive run (default `EROSION_N=1` — set it explicitly).
+- **Proxy segmentation is smoke-test-only.** Low-freq noise at the nearest-front foot is
+  NOT an along-front coordinate (blobs/seams/incoherent at kinks); if O0 with the proxy
+  looks bad the result is AMBIGUOUS. If O0 is promising, do real arc-length CHAINING
+  before O2 (moderate engineering: carry edge endpoint/vertex IDs, group convergent edges
+  by plate-pair+polarity, endpoint graph, walk degree-2 chains, split at triple junctions,
+  arc-length = accumulated angular distance; gaps = separate polylines).
+- **Coarse = macro envelope.** Once O0 is accepted, move the asymmetric front + broad
+  segmentation + deformation width into the COARSE `arc`/`collision` cross-section (drives
+  crust thickness, sea-level, atmosphere, transfer, emergent target) — NOT patched only at
+  fine handoff (leaves coarse atmosphere baked against the old symmetric dome). What breaks
+  is mostly intended (sea level re-solves, coastlines/rain-shadows move, climate sees the
+  new mountains). Keep FINE-scale segmentation/K-bands at fine (avoid coarse aliasing).
+- **80/20:** asymmetric coarse envelope + belt-normalized segmented uplift + n>1 + existing
+  lithology fBm, P1b height bands off. Defer basins, explicit branching, FeatureFields
+  recompute, any global param not derived from boundary kinematics.
+
+## O0 — the decisive hack (do this first)
+
+Contained test of the core bet, no new machinery. In the EMERGENT uplift source only:
+1. P1b/P1c height painting OFF; faint P1a seed only; `n ≈ 2`; `emergent_lambda ≈ 0.5`.
+2. Replace the uniform `(target−base)` per-cell rebuild with a structured shape:
+   `shape(x) = asym_profile(v) · segmentation(u) · orogen_mask`, where `v` = signed
+   front-normal distance (sign from overriding-vs-foreland plate membership — reuse the
+   `OrogenFronts.accept_plate` side test; no normal vector needed), `asym_profile` = steep
+   narrow foreland flank → crest at the front → gentle wide hinterland, `segmentation` =
+   low-freq proxy noise (smoke-test only), `orogen_mask` = where `target−base > 0`.
+3. **Volume-normalize** `shape` so total uplift = `gain · Σ(target−base)·area` (global for
+   O0; per-belt later). `u_thick[i] = C·shape[i]`, `C = gain·Σ(demoted·area)/(epoch·slope·
+   Σ(shape·area))`.
+4. A/B same seed/camera vs (current smooth emergent) and (painted P1). Numerical:
+   summit-slope / drainage-density vs both; visual: does it read as an asymmetric,
+   plunging RANGE vs a dissected dome?
+
+Implementation: compute `shape` in `generate_with_target` (OrogenFronts + signed
+`point_to_arc_distance` are there), store on `FineBase`, pass to `erode`; the builder
+normalizes + uses it as `u_thick` when present. Behind a knob (default off → v3 behaviour).
+
+DECISION GATE: O0 beats smooth-emergent → proceed (coarse envelope → chaining → K-bands).
+O0 ≈ smooth-emergent → the tectonic-uplift idea is weak; reconsider (maybe painted is the
+ceiling after all). O0 ambiguous (proxy-limited) → do chaining and retest before judging.
+
 ## Incremental plan (visually gate each — do NOT build it all at once)
 
 1. **O1 — asymmetric, segmented uplift-rate.** Replace the uniform emergent rebuild with a
