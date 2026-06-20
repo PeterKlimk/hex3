@@ -1238,3 +1238,11 @@ pub const FINE_MARGIN_PASSIVE_FACTOR: f32 = 0.5;
 // Rebuild calibration: uplift_scale * steps * dt ~= lambda (today 0.18); raise
 // EROSION_UPLIFT_SCALE accordingly when emergent.
 pub const FINE_EMERGENT_LAMBDA: f32 = 0.0;
+
+/// Emergent builder over-rebuild gain. The builder uplift rebuilds the demoted
+/// envelope (`coarse_target − base`) over the erosion epoch; >1 compensates the
+/// material erosion removes WHILE building, so the eroded orogen lands near the coarse
+/// target rather than under it. ~1.2 ≈ +20%. Self-calibrating: the per-cell uplift rate
+/// is `gain·(target−base)/(steps·dt·slope)`, so `steps` becomes a pure build-vs-carve
+/// dial (more steps = same total uplift, more carving time) without moving the height.
+pub const EMERGENT_REBUILD_GAIN: f32 = 1.2;

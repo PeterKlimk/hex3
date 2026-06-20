@@ -443,20 +443,31 @@ impl ErosionState {
         // tectonically active basins where uplift/inversion is physical.)
         let mut u_thick: Vec<f32> = (0..n)
             .map(|i| {
-                // Gate on the coarse TARGET land mask when emergent (so demoted-below-
-                // sea orogen cells still rebuild), else on the base (painted path).
-                let gate_elev = coarse_target.map_or(base[i], |t| t[i]);
-                if gate_elev < 0.0 {
-                    return 0.0;
-                }
-                // Emergent rebuilds only the demoted orogen term (arc+collision); the
-                // painted path also carries rift_delta as a small ongoing uplift.
-                let rift = if coarse_target.is_some() {
-                    0.0
+                if let Some(target) = coarse_target {
+                    // EMERGENT (erosion-v3): SELF-CALIBRATING builder. Rebuild the demoted
+                    // envelope (target − base = the removed orogen, ≈ λ·(arc+collision))
+                    // over the erosion epoch, ×gain to offset what erosion removes WHILE
+                    // building, so the eroded orogen lands near the coarse target. Per-cell
+                    // exact (height tracks target regardless of the forcing distribution);
+                    // gated on the TARGET land mask so demoted-below-sea orogen cells still
+                    // rebuild. `params.uplift_scale` is unused here (rate is auto-derived),
+                    // so `steps` is a pure build-vs-carve dial: more steps = same total
+                    // uplift, more carving time.
+                    if target[i] < 0.0 {
+                        return 0.0;
+                    }
+                    let demoted = (target[i] - base[i]).max(0.0);
+                    let epoch = (params.steps as f32 * params.dt).max(1.0);
+                    EMERGENT_REBUILD_GAIN * demoted * inv_slope / epoch
                 } else {
-                    fields.rift_delta[i]
-                };
-                params.uplift_scale * ((fields.arc[i] + fields.collision[i]) * inv_slope + rift)
+                    // Painted path (hold & carve): ongoing tectonic uplift from the
+                    // arc/collision forcing + rift, gated to land (base ≥ sea level).
+                    if base[i] < 0.0 {
+                        return 0.0;
+                    }
+                    params.uplift_scale
+                        * ((fields.arc[i] + fields.collision[i]) * inv_slope + fields.rift_delta[i])
+                }
             })
             .collect();
 

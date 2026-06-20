@@ -185,6 +185,40 @@ This re-tunes the erosion stage as a landscape-evolution problem. Levers, in ord
    This spec assumes it does; the first prototype must demonstrate emergent dendritic
    ranges before the full calibration.
 
+## OUTCOME (2026-06-20): premise FALSIFIED with the current erosion solver
+
+The prototype was built (self-calibrating builder: rebuild `target−base` over the epoch,
+×`EMERGENT_REBUILD_GAIN`, so height tracks target and `steps` is a pure build-vs-carve
+dial). Mechanically sound: height rebuilds to ~90% target, land flips ~2% at λ=0.5.
+
+**But the emergent orogen does NOT dissect into ranges — it stays a smooth swell.**
+Numerical pre-screen (seed 12345, λ=0.5, MFD+nonlinear hillslope on):
+
+| steps | summit eroded slope p50 | p90 | max elev |
+|---|---|---|---|
+| 120 | 2.41e-4 | 1.32e-3 | 0.447 |
+| 240 | 2.32e-4 | 1.14e-3 | 0.442 |
+| 400 | 2.28e-4 | 1.05e-3 | 0.437 |
+
+More carving time → SMOOTHER (slope falls), not sharper. Aggressive channelization
+(channel-support 3, diffusivity 5e-9, SFD) also fails: drainage density ~0.001 km/km²,
+valley spacing ~1000 km (Earth: 0.5–5 km/km²). Emergent summits sit at ~2.3e-4 — BELOW
+global land (3.8e-4), i.e. smooth swells; painted P1a was ~2.8e-3 (~10× more dissected).
+
+**Cause:** stream-power incision is n=1 (linear in slope); a broad smooth uplift dome
+has gentle slopes → weak stream power → no channel cutting; hillslope diffusion then
+smooths it (more steps = smoother). There is no channelization instability / threshold
+incision to manufacture relief from low perturbations. THIS solver dissects relief it is
+GIVEN (why painted P1a works — high rough substrate with steep local slopes), but cannot
+BUILD ranges from a smoothly-rebuilt envelope.
+
+**Conclusion:** the emergent architecture is mechanically correct but the "erosion builds
+the mountains" premise needs an erosion model with threshold/n>1 incision + proper
+hillslope–fluvial competition — a landscape-evolution-solver project, not this interface
+swap. The envelope/uplift/self-calibrating-builder scaffolding (behind `emergent_lambda`,
+default 0) is retained and reusable IF that solver work is done. For now: painted P1 is
+the pragmatic path (this erosion dissects given relief well). See the decision in-session.
+
 ## First prototype (do THIS before the full retune — codex)
 
 The smallest diagnostic path that answers "does the active-LEM premise work at all,"
