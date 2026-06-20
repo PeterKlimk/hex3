@@ -132,6 +132,39 @@ DECISION GATE: O0 beats smooth-emergent → proceed (coarse envelope → chainin
 O0 ≈ smooth-emergent → the tectonic-uplift idea is weak; reconsider (maybe painted is the
 ceiling after all). O0 ambiguous (proxy-limited) → do chaining and retest before judging.
 
+## O-coarse OUTCOME (2026-06-21): implemented, but DEFERRED — asymmetry needs a single owner
+
+Built the asymmetric coarse cross-section (`features.rs` `asym_band` + `compute_overriding_
+side`, behind `coarse_asymmetry`, default 0). It WORKS in isolation (painted path → a
+broad asymmetric massif) but **double-applies with O0**: the coarse band shapes the front
+with its crest offset `peak` INTO the overriding plate, while O0's structured uplift
+(`compute_emergent_uplift_shape`) applies ANOTHER front profile with its crest at the
+boundary. Stacked → two offset crests → an "inner massif + surrounding BARRIER" artifact
+(user-caught; codex-confirmed). Plus a secondary bug: the coarse band's SIGN
+(`compute_overriding_side`, nearest-midpoint KD-tree) and MAGNITUDE (plate-screened
+Dijkstra distance) come from different sources that disagree near curves/triple junctions
+→ wrong-sign lobes. (O0 avoids this — it derives side + distance from the same front.)
+
+**Decision (codex): B for now.** O0 OWNS orogen asymmetry; `coarse_asymmetry` stays 0
+(default). The atmosphere being symmetric (no side-aware rain shadows) is a second-order
+loss vs. breaking the validated emergent terrain. A guard in `generate_fine_pre_with_cap`
+warns if both are enabled. The O-coarse code is retained (default-off) as scaffolding.
+
+**Deferred redesign (C/A hybrid) — the single-owner architecture, when revisited:**
+1. ONE shared signed-distance product from real front arcs (reuse/extend `OrogenFronts`:
+   segment endpoints + overriding plate + chain + arc-length), NOT KD-midpoint-side +
+   Dijkstra-distance from different sources.
+2. Coarse owns only the broad asymmetric ENVELOPE the atmosphere reads.
+3. O0 STOPS applying its front-normal profile — its source becomes `demoted ×
+   segmentation(u)` (the demoted target is ALREADY the coarse asymmetric envelope; the
+   existing volume-normalizing builder keeps height sane). O0 keeps segmentation,
+   dissection, active uplift, erosion timing.
+4. Collision stays SYMMETRIC (no subduction-style overriding/foreland band) until a real
+   bilateral-collision model exists.
+
+**Validated locked state:** O0 (structured emergent uplift) + n≈2 incision +
+`channel_support≈4` + the hillshade render fix. Coarse asymmetry OFF.
+
 ## Incremental plan (visually gate each — do NOT build it all at once)
 
 1. **O1 — asymmetric, segmented uplift-rate.** Replace the uniform emergent rebuild with a

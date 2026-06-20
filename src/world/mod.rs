@@ -315,6 +315,20 @@ impl World {
 
     /// Stage 3 with an explicit fine-mesh cell cap.
     pub fn generate_fine_pre_with_cap(&mut self, fine_max_cells: usize) {
+        // Guard the broken combination (orogen-structure): the coarse asymmetric envelope
+        // and O0's structured-emergent front profile BOTH impose an orogen cross-section
+        // (at different crest positions) → "inner massif + surrounding barrier". Asymmetry
+        // must have a single owner until the front geometry is shared (the deferred C/A
+        // redesign). Until then they must not both be on.
+        if self.coarse_asymmetry > 0.0 && self.fine_structure_params.emergent_structured > 0.0 {
+            log::warn!(
+                "orogen asymmetry is DOUBLE-applied: coarse_asymmetry={:.2} AND \
+                 emergent_structured={:.2} both shape the front → 'barrier' artifact. Use one \
+                 (O0 owns it; keep coarse_asymmetry=0). See docs/specs/orogen-structure.md.",
+                self.coarse_asymmetry,
+                self.fine_structure_params.emergent_structured
+            );
+        }
         let crust = self.crust.as_ref().expect("Crust must be generated first");
         let features = self
             .features
