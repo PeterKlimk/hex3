@@ -720,7 +720,11 @@ pub const FINE_RELAX_PASSES: usize = 3;
 /// less relief; far more = over-graded lowlands. With uplift OFF (relaxation) the
 /// count is just a visual stopping time. Per-step cost is dominated by re-routing,
 /// so this is also the runtime knob.
-pub const EROSION_STEPS: usize = 60;
+// DEFAULT 60→200 (2026-06-21): the emergent build needs more carving time (steps spreads
+// the same total uplift, so more steps = more dissection of the rising orogen) — 200 was
+// the visual-validated budget. This ~3× the erosion stage's time; `steps` is the primary
+// quality↔speed dial (lower = faster, less mature/dissected).
+pub const EROSION_STEPS: usize = 200;
 
 /// Timestep (dimensionless; folded into K / uplift scale). Kept explicit so the
 /// Braun & Willett formula reads as written. Larger dt relaxes faster per step.
@@ -735,7 +739,7 @@ pub const EROSION_M: f32 = 0.5;
 /// profiles. n ≈ 1.5–2 (real bedrock channels) yields sharper valley walls, crisper
 /// divides, and threshold-like response to uplift — the shape control for "ranges, not
 /// bumps". n ≠ 1 uses a per-cell Newton solve of the implicit step (a few iterations).
-pub const EROSION_N: f32 = 1.0;
+pub const EROSION_N: f32 = 2.0;
 
 /// Max Newton iterations for the n ≠ 1 implicit incision solve (per channel cell per
 /// step). The step is small and F is convex, so it converges in ~3–4; 8 is headroom.
@@ -800,7 +804,7 @@ pub const EROSION_DIFFUSIVITY: f32 = 2.0e-8;
 /// (crisper, more planar ridges should LOWER cell-scale curvature, unlike the #1
 /// source smoothing which was a no-op). Watch the trap: too low → a
 /// "critical-slope-everywhere" tiled-facet world.
-pub const EROSION_HILLSLOPE_CRITICAL_SLOPE: f32 = 0.0;
+pub const EROSION_HILLSLOPE_CRITICAL_SLOPE: f32 = 200.0;
 
 /// Jacobi sweeps used to approximate the implicit diffusion solve each step.
 /// More = closer to the exact backward-Euler smoothing. Verified ample at 6
@@ -1131,7 +1135,9 @@ pub const GLACIAL_OVERDEEPEN_MAX: f32 = 0.012;
 /// Scarp relief (elevation units) imposed at the active range front. The master
 /// knob; 0 disables the pass (no front sharpening). Peak offset is ~0.6x this at
 /// the band centre. Sweep with diagnose --fault-scarp.
-pub const FAULT_SCARP_HEIGHT: f32 = 0.04;
+// DEFAULT 0.04→0.0 (2026-06-21): painted range-front scarps OFF under the emergent default
+// (the structured uplift builds the front). Painted A/B only.
+pub const FAULT_SCARP_HEIGHT: f32 = 0.0;
 
 /// Front location: the fraction of the land-max orogen forcing whose contour marks
 /// the range front (where the scarp centres). ~0.4 puts it on the flank of the
@@ -1164,7 +1170,10 @@ pub const FAULT_BASIN_DROP_FRAC: f32 = 0.25;
 /// Amplitude (elevation units) of the interior structural relief. Zero-mean per
 /// coarse cell, so this is the ~peak fBm excursion (≈ this × 10 km). 0 = off
 /// (pure interpolant — the old flat-top behaviour). The master P1a knob.
-pub const FINE_INTERIOR_RELIEF: f32 = 0.04;
+// DEFAULT 0.04→0.005 (2026-06-21): under the emergent default this is just a FAINT seed
+// to break drainage symmetry (erosion builds the relief). For the painted A/B path set it
+// back to ~0.04 (the structural-substrate amplitude).
+pub const FINE_INTERIOR_RELIEF: f32 = 0.005;
 
 /// Base spatial frequency of the interior fBm (cell_center is a unit vector, so
 /// the base-octave wavelength ≈ 1/this rad; 160 ≈ 40 km, squarely in the mid-band
@@ -1214,7 +1223,9 @@ pub const FINE_STRUCTURE_LAND_DRIFT_TOL: f32 = 1e-3;
 /// Blend weight (0..1) of the strike-banded grain vs P1a isotropic grain at a front
 /// (faded by distance to the front). 0 = pure isotropic (P1a); 1 = pure bands. The
 /// master P1b knob.
-pub const FINE_FRONT_STRIKE_WEIGHT: f32 = 0.7;
+// DEFAULT 0.7→0.0 (2026-06-21): P1b strike-banding is OFF — it painted global "sand dune"
+// corduroy (global structure can't be painted; tectonics/O0 owns it). Painted A/B only.
+pub const FINE_FRONT_STRIKE_WEIGHT: f32 = 0.0;
 
 /// Across-front band frequency (cycles per radian of front distance): the ridge-and-
 /// valley wavelength of the fold grain. 200 ≈ 32 km bands (mid-band, dissectable).
@@ -1249,7 +1260,9 @@ pub const FINE_FRONT_GATHER_MARGIN: f32 = 0.012;
 // touches the land/ocean mask. 0 contrast reduces to P1b exactly.
 
 /// Master P1c knob: strength of the margin contrast (0 = off → P1b; 1 = full).
-pub const FINE_MARGIN_CONTRAST: f32 = 1.0;
+// DEFAULT 1.0→0.0 (2026-06-21): P1c margin contrast OFF under the emergent default (it
+// modulated the painted relief; emergent owns the structure). Painted A/B only.
+pub const FINE_MARGIN_CONTRAST: f32 = 0.0;
 
 /// Coastal band width (radians of margin distance): the modulation is full at the
 /// coast (margin ≈ 0) and fades to neutral by this distance inland. 0.05 ≈ 318 km.
@@ -1270,7 +1283,11 @@ pub const FINE_MARGIN_PASSIVE_FACTOR: f32 = 0.5;
 // prototype's hedge; 1.0 = build the orogen entirely from uplift (riskiest).
 // Rebuild calibration: uplift_scale * steps * dt ~= lambda (today 0.18); raise
 // EROSION_UPLIFT_SCALE accordingly when emergent.
-pub const FINE_EMERGENT_LAMBDA: f32 = 0.0;
+// DEFAULT (2026-06-21): emergent orogens are the PRODUCT path (validated: structured
+// uplift + n>1 + channel_support≈4 beats painted P1 dunes + the smooth dome). Set 0 to
+// fall back to the painted path (also requires the painted knobs — interior_relief 0.04,
+// front_strike_weight 0.7, etc.). See docs/specs/orogen-structure.md.
+pub const FINE_EMERGENT_LAMBDA: f32 = 0.5;
 
 // --- O0: structured (asymmetric + segmented) emergent uplift (orogen-structure.md) ---
 // Replace the uniform per-cell rebuild of the demoted orogen with a TECTONIC uplift
@@ -1282,7 +1299,7 @@ pub const FINE_EMERGENT_LAMBDA: f32 = 0.0;
 
 /// Master O0 knob: blend of structured shape vs uniform rebuild. 0 = uniform (v3); 1 =
 /// fully structured. The decisive-hack default for an A/B run is 1.
-pub const FINE_EMERGENT_STRUCTURED: f32 = 0.0;
+pub const FINE_EMERGENT_STRUCTURED: f32 = 1.0;
 
 /// Asymmetric front profile widths (radians of front-normal distance): steep narrow rise
 /// on the FORELAND side (≈64 km), gentle wide taper into the HINTERLAND (≈320 km). The
