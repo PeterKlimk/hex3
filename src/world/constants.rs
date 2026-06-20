@@ -708,9 +708,20 @@ pub const EROSION_STEPS: usize = 60;
 /// Braun & Willett formula reads as written. Larger dt relaxes faster per step.
 pub const EROSION_DT: f32 = 1.0;
 
-/// Stream-power area exponent m in E = K A^m S^n (n = 1 here). 0.5 is the
-/// canonical value; raising it makes large rivers dominate incision.
+/// Stream-power area exponent m in E = K A^m S^n. 0.5 is the canonical value;
+/// raising it makes large rivers dominate incision.
 pub const EROSION_M: f32 = 0.5;
+
+/// Stream-power SLOPE exponent n in E = K A^m S^n. n = 1 is linear (the original,
+/// chosen for the closed-form implicit solve) and gives the roundest, softest valley
+/// profiles. n ≈ 1.5–2 (real bedrock channels) yields sharper valley walls, crisper
+/// divides, and threshold-like response to uplift — the shape control for "ranges, not
+/// bumps". n ≠ 1 uses a per-cell Newton solve of the implicit step (a few iterations).
+pub const EROSION_N: f32 = 1.0;
+
+/// Max Newton iterations for the n ≠ 1 implicit incision solve (per channel cell per
+/// step). The step is small and F is convex, so it converges in ~3–4; 8 is headroom.
+pub const EROSION_INCISION_NEWTON_ITERS: usize = 8;
 
 /// Stream-power coefficient K (erodibility). Drainage area A is "wet area" in
 /// steradians and the receiver distance is in arc radians, so K is small. The

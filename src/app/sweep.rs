@@ -31,6 +31,7 @@ use super::world::{
 /// Knobs the sweep can vary, mapped onto [`ErosionOverrides`] fields.
 pub const SWEEP_KNOBS: &[&str] = &[
     "k",
+    "n",
     "diffusivity",
     "channel_support",
     "hillslope_crit",
@@ -97,6 +98,7 @@ fn apply_knob(ov: &mut ErosionOverrides, name: &str, v: f64) -> Result<(), Strin
     let f = v as f32;
     match name {
         "k" => ov.k = Some(f),
+        "n" => ov.n = Some(f),
         "diffusivity" => ov.diffusivity = Some(f),
         "channel_support" => ov.channel_support_km2 = Some(f),
         "hillslope_crit" => ov.hillslope_critical_slope = Some(f),

@@ -29,6 +29,10 @@ struct Cli {
     /// sweep erosion strength without a recompile (FineBase is cached).
     #[arg(long, default_value_t = -1.0)]
     erosion_k: f32,
+    /// Override stream-power SLOPE exponent n (E=K·A^m·S^n). <0 = EROSION_N default (1);
+    /// >1 (≈1.5–2) = sharper valleys/divides. Newton-solved.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_n: f32,
     /// Override erosion step count. 0 = use the EROSION_STEPS default.
     #[arg(long, default_value_t = 0)]
     erosion_steps: usize,
@@ -188,6 +192,9 @@ fn main() {
     world.generate_atmosphere();
     if cli.erosion_k >= 0.0 {
         world.erosion_params.k = cli.erosion_k;
+    }
+    if cli.erosion_n >= 0.0 {
+        world.erosion_params.n = cli.erosion_n;
     }
     if cli.erosion_steps > 0 {
         world.erosion_params.steps = cli.erosion_steps;

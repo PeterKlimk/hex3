@@ -60,6 +60,9 @@ pub struct ErosionParams {
     pub dt: f32,
     /// Stream-power drainage-area exponent (m in K A^m).
     pub m: f32,
+    /// Stream-power SLOPE exponent (n in K A^m S^n). 1 = linear (closed form); >1 =
+    /// sharper valleys/divides (Newton-solved). Only affects SFD incision.
+    pub n: f32,
     /// Stream-power erodibility coefficient K.
     pub k: f32,
     /// Linear hillslope diffusivity.
@@ -133,6 +136,7 @@ impl Default for ErosionParams {
             steps: EROSION_STEPS,
             dt: EROSION_DT,
             m: EROSION_M,
+            n: EROSION_N,
             k: EROSION_K,
             diffusivity: EROSION_DIFFUSIVITY,
             hillslope_critical_slope: EROSION_HILLSLOPE_CRITICAL_SLOPE,
@@ -718,6 +722,7 @@ impl ErosionState {
                 &routing.order,
                 self.params.k,
                 self.params.dt,
+                self.params.n,
                 self.params.confinement_slope,
             ),
         }
@@ -1168,8 +1173,10 @@ fn incise_step(
     order: &[usize],
     k: f32,
     dt: f32,
+    n: f32,
     confinement_slope: f32,
 ) {
+    let linear_n = (n - 1.0).abs() < 1e-6;
     for &cell in order {
         if is_sink[cell] {
             continue;
@@ -1192,7 +1199,32 @@ fn incise_step(
         // h_i = (h_i + dt K C A^m h_rcv / d) / (1 + dt K C A^m / d), K per-cell
         // (lithologic erodibility), C the confinement gate.
         let f = dt * k * c * erodibility[cell] * area_pow[cell] / d;
-        elev[cell] = (elev[cell] + f * hr) / (1.0 + f);
+        if linear_n {
+            elev[cell] = (elev[cell] + f * hr) / (1.0 + f);
+        } else {
+            // n != 1: detachment-limited stream power E = K C A^m S^n is NONLINEAR in
+            // the new height, so the implicit step has no closed form. Newton-solve
+            // x = h_old - a·(x − hr)^n  with  a = f / d^(n−1)  (so a·(x−hr)^n =
+            // dt·K·C·A^m·((x−hr)/d)^n), over x ∈ [hr, h_old]. F is convex for n ≥ 1 and
+            // F(h_old) > 0, so Newton from h_old descends monotonically to the root.
+            let h_old = elev[cell];
+            let a = f / d.powf(n - 1.0);
+            let mut x = h_old;
+            for _ in 0..EROSION_INCISION_NEWTON_ITERS {
+                let s = (x - hr).max(0.0);
+                let fx = x - h_old + a * s.powf(n);
+                let dfx = 1.0 + a * n * s.powf(n - 1.0);
+                let dx = fx / dfx;
+                x -= dx;
+                if x < hr {
+                    x = hr;
+                }
+                if dx.abs() < 1e-10 {
+                    break;
+                }
+            }
+            elev[cell] = x;
+        }
     }
 }
 
@@ -2471,7 +2503,7 @@ mod tests {
             }
             incise_step(
                 &mut elev, &receiver, &is_sink, &dist, &area, &area_pow, 0.0, &erod, &order, k, dt,
-                0.0,
+                1.0, 0.0,
             );
         }
 
@@ -2509,7 +2541,7 @@ mod tests {
                 }
                 incise_step(
                     &mut elev, &receiver, &is_sink, &dist, &area, &area_pow, 0.0, &erod, &order, k,
-                    dt, 0.0,
+                    dt, 1.0, 0.0,
                 );
             }
             elev[n / 2] - elev[receiver[n / 2]]

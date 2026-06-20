@@ -124,6 +124,7 @@ pub struct ErosionOverrides {
     pub flat_resolution: Option<bool>,
     pub confinement_slope: Option<f32>,
     pub k: Option<f32>,
+    pub n: Option<f32>,
     pub diffusivity: Option<f32>,
     pub channel_support_km2: Option<f32>,
     pub uplift_smooth_km: Option<f32>,
@@ -162,6 +163,9 @@ impl ErosionOverrides {
         }
         if let Some(k) = self.k {
             world.erosion_params.k = k;
+        }
+        if let Some(n) = self.n {
+            world.erosion_params.n = n;
         }
         if let Some(d) = self.diffusivity {
             world.erosion_params.diffusivity = d;

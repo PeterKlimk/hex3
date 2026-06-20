@@ -95,6 +95,11 @@ struct Cli {
     #[arg(long, default_value_t = -1.0)]
     erosion_k: f32,
 
+    /// Stream-power SLOPE exponent n in E=K·A^m·S^n (default 1). <0 = default.
+    /// >1 (≈1.5–2) = sharper valleys/divides ("ranges not bumps"). Newton-solved.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_n: f32,
+
     /// Hillslope diffusivity (smoothing; default 2e-8). <0 = default. HIGHER =
     /// smoother (rounds the sharp dissection). Visual dissection-texture lever.
     #[arg(long, default_value_t = -1.0)]
@@ -303,6 +308,7 @@ fn main() {
         confinement_slope: (cli.erosion_confinement_slope >= 0.0)
             .then_some(cli.erosion_confinement_slope),
         k: (cli.erosion_k >= 0.0).then_some(cli.erosion_k),
+        n: (cli.erosion_n >= 0.0).then_some(cli.erosion_n),
         diffusivity: (cli.erosion_diffusivity >= 0.0).then_some(cli.erosion_diffusivity),
         channel_support_km2: (cli.erosion_channel_support >= 0.0)
             .then_some(cli.erosion_channel_support),
