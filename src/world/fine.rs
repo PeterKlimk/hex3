@@ -10,11 +10,16 @@ use rand_chacha::ChaCha8Rng;
 #[cfg(not(feature = "single-threaded"))]
 use rayon::prelude::*;
 
+use super::boundary::{collect_plate_boundaries, BoundaryKind, SubductionPolarity};
 use super::constants::*;
+use super::dynamics::Dynamics;
 use super::elevation::{coarse_elevation_fields, ElevationFields};
 use super::erosion::ErosionParams;
+use super::features::build_cell_pair_edge_endpoints;
 use super::fine_cache::{self, FineCacheMode};
-use super::{Atmosphere, CellWaterState, Crust, Elevation, FeatureFields, Hydrology, Tessellation};
+use super::{
+    Atmosphere, CellWaterState, Crust, Elevation, FeatureFields, Hydrology, Plates, Tessellation,
+};
 
 type CoarseTree = ImmutableKdTree<f32, 3>;
 
@@ -47,6 +52,223 @@ impl Default for FineDensityParams {
     }
 }
 
+/// Runtime-tunable knobs for the pre-erosion fine STRUCTURAL relief (erosion-v2
+/// Phase 1 / P1a). Mirrors [`FineDensityParams`]: these shape `FineBase`'s
+/// `base_elevation` (the substrate erosion carves), so they are part of the fine-
+/// base cache key, NOT erosion-stage knobs.
+///
+/// `fault_scarp_height` migrated here from [`ErosionParams`] (decision A in
+/// docs/specs/erosion-fine-synthesis.md): structural relief is part of the
+/// pre-erosion base — applying it in the erosion stage left terminal-lake base
+/// levels computed on an unfaulted base, and made the scarp a temporal knob over a
+/// structural input. Moving it here also lets the disk cache key see it (a sweep
+/// of `fault_scarp` / `interior_relief` now regenerates the base per value).
+#[derive(Debug, Clone, Copy)]
+pub struct FineStructureParams {
+    /// Fault range-front scarp relief imposed on the base. 0 = off.
+    pub fault_scarp_height: f32,
+    /// Amplitude of the zero-mean interior structural relief (fault-block / fold
+    /// grain) that breaks the flat interpolated orogen summit so erosion has a
+    /// gradient to organize. 0 = off (pure interpolant). The master P1a knob.
+    pub interior_relief: f32,
+    /// Blend (0..1) of strike-banded grain (aligned to the nearest orogen front)
+    /// vs P1a isotropic grain, faded by distance to the front (P1b). 0 = pure
+    /// isotropic. The master P1b knob.
+    pub front_strike_weight: f32,
+    /// Strength of the active/passive margin contrast: relief is sharpened toward an
+    /// active (convergent) coast and damped toward a passive one (P1c). 0 = off (P1b).
+    pub margin_contrast: f32,
+    /// Emergent-orogens demotion fraction (erosion-v3): fraction of the orogen peak
+    /// (arc+collision) removed from the static base envelope and rebuilt by active
+    /// uplift during erosion. 0 = off (painted/postprocessor path); >0 = emergent.
+    pub emergent_lambda: f32,
+    /// O0 (orogen-structure): blend of the structured (asymmetric + segmented) emergent
+    /// uplift shape vs the uniform v3 rebuild. 0 = uniform; 1 = fully structured.
+    pub emergent_structured: f32,
+}
+
+impl Default for FineStructureParams {
+    fn default() -> Self {
+        Self {
+            fault_scarp_height: FAULT_SCARP_HEIGHT,
+            interior_relief: FINE_INTERIOR_RELIEF,
+            front_strike_weight: FINE_FRONT_STRIKE_WEIGHT,
+            margin_contrast: FINE_MARGIN_CONTRAST,
+            emergent_lambda: FINE_EMERGENT_LAMBDA,
+            emergent_structured: FINE_EMERGENT_STRUCTURED,
+        }
+    }
+}
+
+/// Coarse convergent-boundary primitives for the strike-aware structural relief
+/// (P1b). Built once on the coarse mesh (where plates/dynamics live) and consumed
+/// by the fine-base synthesis as ORIENTATION primitives — the distance to the nearest
+/// *compatible* front orients the interior grain along the orogen (its iso-distance
+/// contours run parallel to the front). Each front is a great-circle ARC (the shared
+/// Voronoi edge), so the distance field is a true offset from the boundary polyline,
+/// NOT a bullseye around a point anchor. NOT a serialized part of `FineBase` — it's a
+/// generation input (like [`FineStructureParams`]), hashed into the cache key.
+#[derive(Debug, Clone, Default)]
+pub struct OrogenFronts {
+    /// Edge-midpoint anchors (unit vectors) — the KD-tree query points used only to
+    /// gather candidate arcs near a cell.
+    pub points: Vec<Vec3>,
+    /// The two Voronoi-vertex endpoints of each front's shared edge: distance is the
+    /// great-circle distance to this ARC, not to `points[i]`.
+    pub seg_a: Vec<Vec3>,
+    pub seg_b: Vec<Vec3>,
+    /// Per-front structural side: `Some(overriding_plate)` for a subduction front
+    /// (fold grain belongs to the overriding plate), `None` for continent–continent
+    /// collision (both sides build mountains).
+    pub accept_plate: Vec<Option<u32>>,
+    /// Coarse `plates.cell_plate`, so a fine cell's plate = `coarse_cell_plate[
+    /// coarse_cell[i]]` resolves which fronts are on its side.
+    pub coarse_cell_plate: Vec<u32>,
+    /// Per-front ALONG-STRIKE coordinate (radians of arc length within its chain): the
+    /// convergent edges are chained into ordered polylines (split at triple junctions),
+    /// and this is each front's position along its chain. Drives PRINCIPLED segmentation
+    /// (the range plunges/segments ALONG its length) instead of the 3D-noise proxy.
+    pub arc_u: Vec<f32>,
+    /// Per-front chain id, so segmentation phase is decorrelated between distinct ranges.
+    pub chain_id: Vec<u32>,
+}
+
+impl OrogenFronts {
+    /// Extract the convergent fronts from the coarse plate boundaries. Filters to
+    /// `BoundaryKind::Convergent` (collision + subduction — the orogen-builders) and
+    /// stores each as its real shared-edge ARC (the two Voronoi-vertex endpoints), so
+    /// the consumer measures distance to the boundary curve, not a single anchor.
+    pub fn build(
+        coarse: &Tessellation,
+        plates: &Plates,
+        crust: &Crust,
+        dynamics: &Dynamics,
+    ) -> Self {
+        let boundaries = collect_plate_boundaries(coarse, plates, crust, dynamics);
+        let endpoints = build_cell_pair_edge_endpoints(coarse);
+        let mut points = Vec::new();
+        let mut seg_a = Vec::new();
+        let mut seg_b = Vec::new();
+        let mut accept_plate = Vec::new();
+        // Voronoi-vertex endpoint IDs per front (for chaining into polylines).
+        let mut vids: Vec<(u32, u32)> = Vec::new();
+        for e in &boundaries {
+            if e.kind != BoundaryKind::Convergent {
+                continue;
+            }
+            let key = if e.cell_a < e.cell_b {
+                (e.cell_a, e.cell_b)
+            } else {
+                (e.cell_b, e.cell_a)
+            };
+            // Real Voronoi-edge arc endpoints (+ their vertex IDs); fall back to a
+            // degenerate arc at the stored bisector point if the edge isn't found.
+            let (va, vb, a, b) = endpoints.get(&key).copied().unwrap_or((
+                u32::MAX,
+                u32::MAX,
+                e.boundary_point,
+                e.boundary_point,
+            ));
+            let sum = a + b;
+            let mid = if sum.length_squared() > 1e-10 {
+                sum.normalize()
+            } else {
+                a
+            };
+            // Subduction → fold grain belongs to the OVERRIDING (non-subducting)
+            // plate; collision (no polarity) → both sides build mountains.
+            let accept = match e.subduction {
+                Some(SubductionPolarity::ASubducts) => Some(e.plate_b as u32),
+                Some(SubductionPolarity::BSubducts) => Some(e.plate_a as u32),
+                None => None,
+            };
+            points.push(mid);
+            seg_a.push(a);
+            seg_b.push(b);
+            accept_plate.push(accept);
+            vids.push((va, vb));
+        }
+        let (arc_u, chain_id) = chain_fronts(&seg_a, &seg_b, &vids);
+        Self {
+            points,
+            seg_a,
+            seg_b,
+            accept_plate,
+            coarse_cell_plate: plates.cell_plate.clone(),
+            arc_u,
+            chain_id,
+        }
+    }
+}
+
+/// Chain convergent fronts into ordered polylines and assign each front an along-strike
+/// coordinate (arc length within its chain) + a chain id. Two fronts are chained only
+/// through a shared Voronoi vertex of DEGREE 2 (exactly those two fronts meet there), so
+/// triple junctions split chains rather than merging unrelated ranges. Within a chain,
+/// arc length accumulates from an arbitrary seed front via the front-graph (great-circle
+/// edge lengths). Returns `(arc_u, chain_id)` per front.
+fn chain_fronts(seg_a: &[Vec3], seg_b: &[Vec3], vids: &[(u32, u32)]) -> (Vec<f32>, Vec<u32>) {
+    let nf = seg_a.len();
+    let mut arc_u = vec![0.0f32; nf];
+    let mut chain_id = vec![0u32; nf];
+    if nf == 0 {
+        return (arc_u, chain_id);
+    }
+    // vertex id -> fronts touching it (skip degenerate u32::MAX endpoints).
+    let mut vert_fronts: std::collections::HashMap<u32, Vec<usize>> =
+        std::collections::HashMap::new();
+    for (f, &(va, vb)) in vids.iter().enumerate() {
+        if va != u32::MAX {
+            vert_fronts.entry(va).or_default().push(f);
+        }
+        if vb != u32::MAX {
+            vert_fronts.entry(vb).or_default().push(f);
+        }
+    }
+    // Front adjacency: f~g if they share a DEGREE-2 vertex.
+    let arc_len = |f: usize| seg_a[f].dot(seg_b[f]).clamp(-1.0, 1.0).acos();
+    let neighbors = |f: usize| -> Vec<usize> {
+        let mut out = Vec::new();
+        for &v in &[vids[f].0, vids[f].1] {
+            if v == u32::MAX {
+                continue;
+            }
+            if let Some(fs) = vert_fronts.get(&v) {
+                if fs.len() == 2 {
+                    out.push(if fs[0] == f { fs[1] } else { fs[0] });
+                }
+            }
+        }
+        out
+    };
+    // BFS each connected component (chain); arc_u = accumulated arc length from the seed.
+    let mut visited = vec![false; nf];
+    let mut next_chain = 0u32;
+    for seed in 0..nf {
+        if visited[seed] {
+            continue;
+        }
+        let cid = next_chain;
+        next_chain += 1;
+        visited[seed] = true;
+        chain_id[seed] = cid;
+        arc_u[seed] = 0.0;
+        let mut stack = vec![seed];
+        while let Some(f) = stack.pop() {
+            for g in neighbors(f) {
+                if !visited[g] {
+                    visited[g] = true;
+                    chain_id[g] = cid;
+                    // Position the neighbour half an edge further along the chain.
+                    arc_u[g] = arc_u[f] + 0.5 * (arc_len(f) + arc_len(g));
+                    stack.push(g);
+                }
+            }
+        }
+    }
+    (arc_u, chain_id)
+}
+
 /// Fine Stage-3/4 world state. The expensive [`FineBase`] (mesh + transferred
 /// fields + pre-erosion base elevation) is built once and shared by two cheap
 /// [`FineSurface`] snapshots:
@@ -72,9 +294,28 @@ pub struct FineBase {
     pub tessellation: Tessellation,
     pub coarse_cell: Vec<usize>,
     pub fields: FineFields,
-    /// Coarse elevation interpolated onto the fine cells (the fixed sea-level
-    /// datum erosion carves into). Distinct from the eroded `surface.elevation`.
+    /// Pre-erosion base the fluvial loop carves into: the interpolated coarse
+    /// elevation PLUS the synthesized fine structural relief (interior fault/fold
+    /// grain + range-front scarps; P1a). On the fixed coarse sea-level datum.
+    /// Distinct from the eroded `surface.elevation`.
     pub base_elevation: Vec<f32>,
+    /// The pure interpolated coarse elevation (no structural relief) — the datum
+    /// the transferred coarse `temperature` field was lapse-baked against. The
+    /// lapse correction in [`FineSurface::from_eroded`] measures relief against
+    /// THIS, not `base_elevation`, so the added fine structure (and later the
+    /// eroded relief) lapse temperature correctly. See erosion-fine-synthesis.md.
+    /// When emergent (erosion-v3), this is ALSO the orogen-build TARGET and the
+    /// coarse-target land mask the builder uplift gates on (base_elevation is the
+    /// demoted envelope, which can dip below the target / sea level).
+    pub coarse_base_elevation: Vec<f32>,
+    /// Emergent-orogens demotion fraction used to build this base (erosion-v3). >0
+    /// means `base_elevation` is the demoted envelope and erosion should run as an
+    /// active builder (rift-excluded uplift gated on `coarse_base_elevation`).
+    pub emergent_lambda: f32,
+    /// O0 structured-emergent uplift SHAPE per cell (asymmetric front × segmentation ×
+    /// demoted forcing), or `None` for the uniform v3 rebuild. When `Some`, the builder
+    /// volume-normalizes this and uses it as the uplift source instead of `target−base`.
+    pub emergent_uplift_shape: Option<Vec<f32>>,
     pub density: Vec<f32>,
     pub achieved_density_ratio: f32,
 }
@@ -89,6 +330,12 @@ pub struct FineSurface {
     /// is the orographic precip recomputed on the eroded relief (rain shadows);
     /// for the pre-erosion surface it is the transferred coarse precip.
     pub precipitation: Vec<f32>,
+    /// Temperature this surface's hydrology used: the transferred coarse field
+    /// lapse-corrected for the relief above the coarse datum (the synthesized
+    /// structural relief on the pre surface, the carved relief on the eroded one).
+    /// Stored so rendering/export/diagnose see the same field hydrology did, not the
+    /// uncorrected coarse-baked one.
+    pub temperature: Vec<f32>,
 }
 
 /// Smooth fields transferred to the fine mesh.
@@ -117,6 +364,8 @@ impl FineWorld {
         max_cells: usize,
         cache: FineCacheMode,
         density_params: FineDensityParams,
+        structure_params: FineStructureParams,
+        fronts: &OrogenFronts,
     ) -> Self {
         let total = Instant::now();
         let base = FineBase::load_or_generate(
@@ -129,6 +378,8 @@ impl FineWorld {
             atmosphere,
             max_cells,
             density_params,
+            structure_params,
+            fronts,
         );
         // Pre-erosion surface: hydrology rides the un-eroded interpolated base.
         let pre =
@@ -233,6 +484,8 @@ impl FineBase {
         atmosphere: &Atmosphere,
         max_cells: usize,
         density_params: FineDensityParams,
+        structure_params: FineStructureParams,
+        fronts: &OrogenFronts,
     ) -> Self {
         let key = fine_cache::fine_base_key(
             seed,
@@ -243,6 +496,8 @@ impl FineBase {
             atmosphere,
             max_cells,
             &density_params,
+            &structure_params,
+            fronts,
         );
         if cache == FineCacheMode::Enabled {
             if let Some(base) = fine_cache::load(key) {
@@ -258,6 +513,8 @@ impl FineBase {
             atmosphere,
             max_cells,
             density_params,
+            structure_params,
+            fronts,
         );
         if matches!(cache, FineCacheMode::Enabled | FineCacheMode::Rebuild) {
             fine_cache::save(key, &base);
@@ -277,6 +534,8 @@ impl FineBase {
         atmosphere: &Atmosphere,
         max_cells: usize,
         density_params: FineDensityParams,
+        structure_params: FineStructureParams,
+        fronts: &OrogenFronts,
     ) -> Self {
         let t0 = Instant::now();
         let preview_hydrology = Hydrology::generate(
@@ -369,7 +628,7 @@ impl FineBase {
         // never re-solves sea level — and the relief matches coarse instead of
         // collapsing toward zero.
         let t0 = Instant::now();
-        let base_elevation = interpolate_coarse_elevation(
+        let coarse_base_elevation = interpolate_coarse_elevation(
             coarse_tessellation,
             &tessellation,
             &coarse_cell,
@@ -377,11 +636,97 @@ impl FineBase {
         );
         log::info!("fine mesh: elevation refine {:.2?}", t0.elapsed());
 
+        // Synthesize the mid-band structural relief erosion will carve (P1a). The
+        // interpolated base is smooth in orogen interiors (the coarse forcing
+        // saturates there → flat-topped highs with no drainage gradient); this adds
+        // fault-block / fold grain + range-front scarps onto it, BEFORE pre-
+        // hydrology so terminal-lake base levels and the temperature lapse see the
+        // real substrate. `coarse_base_elevation` is kept as the lapse baseline.
+        let t0 = Instant::now();
+        let mut base_elevation = coarse_base_elevation.clone();
+        // Emergent orogens (erosion-v3): DEMOTE the orogen peak from the static base
+        // envelope by λ·(arc+collision) — the exactly-separable orogen elevation term
+        // (isostasy is linear, so the peak's elevation contribution IS arc+collision).
+        // Erosion then rebuilds it as active uplift, carving dissected ranges instead
+        // of dissecting a flat plateau. `coarse_base_elevation` is kept as the rebuild
+        // TARGET and the coarse-target land mask. See erosion-v3-emergent-orogens.md.
+        if structure_params.emergent_lambda > 0.0 {
+            let lambda = structure_params.emergent_lambda;
+            let ef = &fields.elevation_fields;
+            for i in 0..base_elevation.len() {
+                base_elevation[i] -= lambda * (ef.arc[i] + ef.collision[i]).max(0.0);
+            }
+            report_envelope_land_flips(&tessellation, &coarse_base_elevation, &base_elevation);
+        }
+        // Interpolate the raw signed margin distance (radians from the coast; +
+        // continental) onto the fine cells for the active/passive margin contrast
+        // (P1c). Reuses the generic coarse-scalar interpolator.
+        let margin_distance = interpolate_coarse_elevation(
+            coarse_tessellation,
+            &tessellation,
+            &coarse_cell,
+            &crust.signed_margin_distance,
+        );
+        add_interior_structural_relief(
+            &tessellation,
+            &coarse_cell,
+            &fields.elevation_fields,
+            fronts,
+            &margin_distance,
+            &mut base_elevation,
+            seed,
+            structure_params.interior_relief,
+            structure_params.front_strike_weight,
+            structure_params.margin_contrast,
+        );
+        // Range-front scarps: sharpen active orogen margins (footwall up / basin
+        // down). Deliberately ASYMMETRIC (real fronts express footwall uplift far
+        // more than basin drop; basins fill), so — unlike the interior grain — they
+        // are NOT coarse-cell zero-mean; the sea-level clamp adds a small positive
+        // bias. The datum/land-fraction safety for the COMBINED structural edit is
+        // verified by the area-weighted drift check below, not by zero-mean alone.
+        apply_fault_scarps(
+            &mut base_elevation,
+            &fields.elevation_fields,
+            structure_params.fault_scarp_height,
+        );
+        log::info!("fine mesh: structural relief {:.2?}", t0.elapsed());
+
+        // Area-weighted land-fraction drift from the combined structural relief
+        // (interior grain + scarps). The interior term is zero-mean per coarse cell
+        // and gated well above sea level, so it should not move the land/ocean mask;
+        // a non-trivial drift means a knob (likely a high `interior_relief` sweep, or
+        // scarps) is flipping near-sea-level cells and silently invalidating the
+        // coarse atmosphere assumptions (erosion-fine-synthesis.md, fix #2). Count-
+        // based fractions are wrong on the adaptive mesh, so weight by cell area.
+        report_land_fraction_drift(&tessellation, &coarse_base_elevation, &base_elevation);
+
+        // O0 structured-emergent uplift shape (orogen-structure.md): an asymmetric
+        // front profile × along-strike segmentation × demoted forcing, used by the
+        // builder instead of the uniform `target−base` rebuild. Built here where the
+        // fronts + demoted envelope are in hand; volume-normalized in the erosion stage.
+        let emergent_uplift_shape = (structure_params.emergent_lambda > 0.0
+            && structure_params.emergent_structured > 0.0)
+            .then(|| {
+                compute_emergent_uplift_shape(
+                    &tessellation,
+                    &coarse_cell,
+                    fronts,
+                    &coarse_base_elevation,
+                    &base_elevation,
+                    seed,
+                    structure_params.emergent_structured,
+                )
+            });
+
         Self {
             tessellation,
             coarse_cell,
             fields,
             base_elevation,
+            coarse_base_elevation,
+            emergent_lambda: structure_params.emergent_lambda,
+            emergent_uplift_shape,
             density: fine_density,
             achieved_density_ratio,
         }
@@ -415,17 +760,27 @@ impl FineSurface {
         // Terminal (endorheic) lakes from the pre-erosion hydrology act as fixed
         // local base levels, so inflowing rivers grade to the lake surface and
         // closed basins drain internally instead of being carved over their spill.
-        let lake_base = terminal_lake_base_levels(&base.tessellation, pre_hydrology);
+        // EMERGENT (erosion-v3): lakes OFF — pre-hydrology on the LOW demoted envelope
+        // would freeze low-envelope lakes as base levels that pin the orogen the uplift
+        // is trying to build (codex). Re-enable once the build is warmed up (future).
+        let emergent = base.emergent_lambda > 0.0;
+        let lake_base = if emergent {
+            vec![f32::NEG_INFINITY; base.tessellation.num_cells()]
+        } else {
+            terminal_lake_base_levels(&base.tessellation, pre_hydrology)
+        };
+        // Emergent: erosion gets the demoted envelope as `base` and the coarse TARGET
+        // (full coarse elevation) as the land mask the builder uplift gates on — so a
+        // demoted-below-sea orogen cell still uplifts back instead of dying.
+        let coarse_target = emergent.then_some(base.coarse_base_elevation.as_slice());
+        // O0: the structured uplift shape, if built (asymmetric/segmented); the builder
+        // volume-normalizes it and uses it instead of the uniform target−base rebuild.
+        let uplift_shape = base.emergent_uplift_shape.as_deref();
 
-        // Fault range-front scarps: sharpen active orogen margins so ranges rise
-        // along near-linear fronts; erosion then cuts canyons through them and the
-        // triangular facets emerge. Applied to the base erosion carves into.
-        let mut faulted_base = base.base_elevation.clone();
-        apply_fault_scarps(
-            &mut faulted_base,
-            &base.fields.elevation_fields,
-            params.fault_scarp_height,
-        );
+        // The base already carries the synthesized structural relief (interior
+        // fault/fold grain + range-front scarps; built in `FineBase`), so erosion
+        // carves directly into it — no separate scarp pass here.
+        let structured_base = &base.base_elevation;
 
         // Coupled erode↔precip loop: each pass re-carves the base relief with the
         // rain-shadow precip from the previous pass (windward flanks, wetter,
@@ -435,17 +790,25 @@ impl FineSurface {
         // carved ranges. Converges in a couple of passes.
         let iters = params.precip_outer_iters.max(1);
         let mut precip = base.fields.precipitation.clone();
-        let mut eroded = faulted_base.clone();
+        let mut eroded = structured_base.clone();
+        // The neighbour geometry (chord distances + finite-volume edge weights) is
+        // a function of the immutable tessellation, so build it once and reuse it
+        // across every erode↔precip pass and the glacial pass instead of
+        // rescanning each cell's Voronoi vertices for shared-edge lengths per call.
+        let geom = super::erosion::NeighborGeometry::build(&base.tessellation);
         for outer in 0..iters {
             let t0 = Instant::now();
             eroded = super::erosion::erode(
                 &base.tessellation,
                 &base.fields.elevation_fields,
-                &faulted_base,
+                structured_base,
                 &precip,
                 &erodibility,
                 &lake_base,
+                &geom,
                 params,
+                coarse_target,
+                uplift_shape,
             );
             let t_erode = t0.elapsed();
             let t1 = Instant::now();
@@ -468,7 +831,7 @@ impl FineSurface {
         // Glacial sculpting on the carved relief: snowline-driven ice over-
         // deepening (U-troughs, tarns) that sharpens the peaks between glaciers.
         let t0 = Instant::now();
-        super::erosion::glacial_erode(&base.tessellation, &mut eroded, &lake_base, params);
+        super::erosion::glacial_erode(&base.tessellation, &mut eroded, &lake_base, &geom, params);
         log::info!("fine mesh: glacial pass {:.2?}", t0.elapsed());
 
         Self::from_eroded(base, &eroded, &precip, params.lake_evap_strength)
@@ -487,16 +850,18 @@ impl FineSurface {
         let elevation = Elevation::refine_from_base(&base.tessellation, eroded);
         log_resolution_probe(&base.tessellation, &elevation);
 
-        // Correct temperature for the relief erosion carved. `fields.temperature`
-        // is the coarse field interpolated onto the fine mesh, so its lapse is
-        // baked against the pre-erosion datum (`base_elevation`). Re-apply the
-        // lapse delta against the eroded relief (held/sharpened peaks, carved
-        // valleys) so basin evaporation sees the terrain it actually drains. Only
-        // positive elevation lapses (matches `generate_surface_temperature`); this
-        // is a no-op for the pre-erosion surface (eroded == base_elevation).
+        // Correct temperature for the relief above the coarse datum.
+        // `fields.temperature` is the coarse field interpolated onto the fine mesh,
+        // so its lapse is baked against the COARSE elevation (`coarse_base_elevation`
+        // — the pure interpolant, NOT `base_elevation`, which now also carries the
+        // synthesized fine structural relief). Re-apply the lapse delta against the
+        // current relief — the structured base for the pre-erosion surface, or the
+        // eroded relief for stage 4 — so the added structure and the carved valleys
+        // both lapse temperature and basin evaporation sees the terrain it drains.
+        // Only positive elevation lapses (matches `generate_surface_temperature`).
         let temperature: Vec<f32> = (0..base.tessellation.num_cells())
             .map(|i| {
-                let delta = eroded[i].max(0.0) - base.base_elevation[i].max(0.0);
+                let delta = eroded[i].max(0.0) - base.coarse_base_elevation[i].max(0.0);
                 base.fields.temperature[i] - super::atmosphere::LAPSE_RATE * delta
             })
             .collect();
@@ -536,6 +901,7 @@ impl FineSurface {
             elevation,
             hydrology,
             precipitation: precip,
+            temperature,
         }
     }
 }
@@ -611,6 +977,408 @@ fn lithology_erodibility(
     {
         (0..n).map(sample).collect()
     }
+}
+
+/// O0 structured-emergent uplift SHAPE (orogen-structure.md): per cell, the demoted
+/// orogen forcing (`target − base`) shaped by an ASYMMETRIC front profile (steep narrow
+/// foreland flank → crest at the front → gentle wide hinterland; side from overriding-vs-
+/// foreland plate membership) × a low-frequency along-strike SEGMENTATION proxy (the range
+/// plunges/segments). Returned UN-normalized — the erosion builder volume-normalizes it so
+/// total uplift is preserved while the distribution becomes tectonic. `structured ∈ (0,1]`
+/// blends the shaped field with the flat demoted forcing.
+#[allow(clippy::too_many_arguments)]
+fn compute_emergent_uplift_shape(
+    tess: &Tessellation,
+    coarse_cell: &[usize],
+    fronts: &OrogenFronts,
+    target: &[f32],
+    base: &[f32],
+    seed: u64,
+    structured: f32,
+) -> Vec<f32> {
+    let n = tess.num_cells();
+    let blend = structured.clamp(0.0, 1.0);
+    let sstep = super::features::smoothstep;
+    let seg_fbm = Fbm::<Perlin>::new(seed.wrapping_add(71) as u32).set_octaves(2);
+
+    let front_tree = (!fronts.points.is_empty()).then(|| {
+        let entries: Vec<[f32; 3]> = fronts.points.iter().map(|p| [p.x, p.y, p.z]).collect();
+        ImmutableKdTree::<f32, 3>::new_from_slice(&entries)
+    });
+    let gather_chord =
+        2.0 * ((FINE_OROGEN_HINTERLAND_WIDTH + FINE_FRONT_GATHER_MARGIN) * 0.5).sin();
+    let gather_r2 = gather_chord * gather_chord;
+
+    let sample = |i: usize| -> f32 {
+        let demoted = (target[i] - base[i]).max(0.0);
+        if demoted <= 1e-6 {
+            return 0.0; // not an (emergent) orogen cell
+        }
+        let Some(tree) = front_tree.as_ref() else {
+            return demoted; // no fronts — fall back to flat forcing
+        };
+        let c = tess.cell_center(i);
+        let plate = fronts.coarse_cell_plate[coarse_cell[i]];
+        // Nearest compatible front: unsigned arc distance + side (overriding vs foreland)
+        // + which front (for its along-strike coordinate).
+        let mut best_d = f32::INFINITY;
+        let mut best_side = 1.0f32;
+        let mut best_front = usize::MAX;
+        for nn in tree.within_unsorted::<SquaredEuclidean>(&[c.x, c.y, c.z], gather_r2) {
+            let item = nn.item as usize;
+            let side = match fronts.accept_plate[item] {
+                None => 1.0, // collision: treat as overriding (one gentle flank)
+                Some(p) => {
+                    if p == plate {
+                        1.0
+                    } else {
+                        -1.0
+                    }
+                }
+            };
+            let d = point_to_arc_distance(c, fronts.seg_a[item], fronts.seg_b[item]);
+            if d < best_d {
+                best_d = d;
+                best_side = side;
+                best_front = item;
+            }
+        }
+        if !best_d.is_finite() {
+            return demoted;
+        }
+        let v = best_side * best_d; // signed front-normal distance
+        let profile = if v < 0.0 {
+            sstep(-FINE_OROGEN_FORELAND_WIDTH, 0.0, v) // steep narrow foreland rise
+        } else {
+            1.0 - sstep(0.0, FINE_OROGEN_HINTERLAND_WIDTH, v) // gentle wide hinterland
+        };
+        // Principled along-strike segmentation: 1-D noise of the nearest front's ARC-LENGTH
+        // coordinate (decorrelated per chain), so the range plunges/segments ALONG its
+        // length coherently — not the 3D-noise proxy (blobs/seams at kinks).
+        let u = fronts.arc_u[best_front];
+        let chain = fronts.chain_id[best_front] as f32;
+        let raw = seg_fbm.get([
+            (u * FINE_OROGEN_SEGMENT_FREQUENCY as f32) as f64 + chain as f64 * 53.13,
+            0.0,
+            0.0,
+        ]) as f32;
+        let seg = FINE_OROGEN_SEGMENT_MIN + (1.0 - FINE_OROGEN_SEGMENT_MIN) * sstep(-0.4, 0.4, raw);
+        let shaped = demoted * profile * seg;
+        demoted * (1.0 - blend) + shaped * blend
+    };
+    #[cfg(not(feature = "single-threaded"))]
+    {
+        (0..n).into_par_iter().map(sample).collect()
+    }
+    #[cfg(feature = "single-threaded")]
+    {
+        (0..n).map(sample).collect()
+    }
+}
+
+/// Great-circle distance (radians) from a unit point `p` to the minor great-circle
+/// ARC between unit endpoints `a` and `b`. If the foot of the perpendicular lies on
+/// the arc it's the cross-track distance; otherwise the nearer endpoint. Used so the
+/// P1b front distance field is a true offset from the boundary polyline (parallel
+/// iso-contours), not a bullseye around a point anchor.
+fn point_to_arc_distance(p: Vec3, a: Vec3, b: Vec3) -> f32 {
+    let ang = |x: Vec3, y: Vec3| x.dot(y).clamp(-1.0, 1.0).acos();
+    let n = a.cross(b);
+    let nlen = n.length();
+    if nlen < 1e-9 {
+        // Degenerate arc (coincident/antipodal endpoints): fall back to an endpoint.
+        return ang(p, a);
+    }
+    let n = n / nlen;
+    let foot = p - n * p.dot(n); // project p onto the arc's great-circle plane
+    if foot.length() > 1e-9 {
+        let foot = foot.normalize();
+        let ab = ang(a, b);
+        // Foot is on the minor arc iff it doesn't overshoot either endpoint.
+        if ang(a, foot) <= ab + 1e-4 && ang(b, foot) <= ab + 1e-4 {
+            return p.dot(n).abs().clamp(0.0, 1.0).asin(); // cross-track distance
+        }
+    }
+    ang(p, a).min(ang(p, b))
+}
+
+/// Synthesize the zero-mean interior structural relief (erosion-v2 Phase 1) and ADD
+/// it to the fine base, in place. The interpolated coarse elevation is smooth in
+/// orogen interiors (the distance-decay forcing saturates there → flat-topped highs),
+/// so erosion has no drainage gradient to organize and degenerates into cottage-
+/// cheese. This imposes a mid-band fault-block / fold-grain HEIGHT field — the
+/// SUBSTRATE erosion dissects into real ranges — gated to high orogen terrain and
+/// made coarse-cell-local zero-mean so it adds sub-coarse structure WITHOUT shifting
+/// the coarse sea-level datum or land fraction (root cause #1 / fix #7,
+/// docs/specs/erosion-fine-synthesis.md).
+///
+/// Two grains, blended by `front_strike_weight` and proximity to a front:
+/// - **Isotropic fBm (P1a):** soft, orientation-free. The fallback everywhere, and
+///   the only grain where no convergent front is near.
+/// - **Strike-banded (P1b):** a banded function of the signed great-circle distance
+///   to the nearest *compatible* convergent front (`fronts`). The distance field's
+///   iso-contours run parallel to the front, so the bands are ridge-and-valley grain
+///   STRIKING ALONG the orogen (fold-and-thrust fabric) — no per-cell strike vector
+///   (which would seam at kinks). "Compatible" = the front's overriding side for a
+///   subduction front, either side for collision (so grain doesn't bleed onto the
+///   subducting plate). The fronts drive ORIENTATION only; amplitude stays gated.
+///
+/// P1c layers an active/passive MARGIN contrast on top: a coastal-band amplitude
+/// scale (from the interpolated `margin_distance` × convergent forcing) that sharpens
+/// an active (convergent) coast and damps a passive one — amplitude only, so the land
+/// mask is untouched. `margin_contrast == 0` reduces to P1b. (A high forced cell on
+/// OCEANIC crust — a volcanic island arc — has a negative margin distance and so reads
+/// as "coastal"; since it's convergent it gets the ACTIVE sharpening, which is the
+/// right call for a steep arc. A rare non-convergent oceanic highland gets mild
+/// passive damping, which is harmless.)
+///
+/// `amplitude == 0` is a no-op (pure interpolant — the old flat-top behaviour).
+#[allow(clippy::too_many_arguments)]
+fn add_interior_structural_relief(
+    tess: &Tessellation,
+    coarse_cell: &[usize],
+    fields: &ElevationFields,
+    fronts: &OrogenFronts,
+    margin_distance: &[f32],
+    base_elev: &mut [f32],
+    seed: u64,
+    amplitude: f32,
+    front_strike_weight: f32,
+    margin_contrast: f32,
+) {
+    if amplitude <= 0.0 {
+        return;
+    }
+    let n = tess.num_cells();
+
+    // Land-normalized orogen forcing (collision + convergent + arc): high in
+    // convergence belts, ~0 in cratons. The same signals the elevation/scarp
+    // machinery keys on, so the grain follows the world's orogens, not free fBm.
+    let forcing: Vec<f32> = (0..n)
+        .map(|i| (fields.collision[i] + fields.convergent[i] + fields.arc[i]).max(0.0))
+        .collect();
+    let fmax = (0..n)
+        .filter(|&i| base_elev[i] >= 0.0)
+        .map(|i| forcing[i])
+        .fold(0.0f32, f32::max)
+        .max(1e-6);
+
+    // Convergent forcing land-max, for the active-margin (subduction) activity in the
+    // P1c margin contrast (active = convergent front at the coast). The contrast is a
+    // strength dial in [0,1] (the active/passive FACTORS set the magnitude); clamp so a
+    // sweep can't push passive `margin_scale` negative and INVERT relief (codex).
+    let margin_contrast = margin_contrast.clamp(0.0, 1.0);
+    let conv_max = (0..n)
+        .filter(|&i| base_elev[i] >= 0.0)
+        .map(|i| fields.convergent[i].max(0.0))
+        .fold(0.0f32, f32::max)
+        .max(1e-6);
+
+    // Blend knob is a weight in [0,1]; clamp so the band/isotropic mix (and hence the
+    // ~[-1,1] boundedness the zero-mean + land-drift argument relies on) holds even if
+    // a sweep passes a larger value.
+    let strike_weight = front_strike_weight.clamp(0.0, 1.0);
+
+    let fbm = Fbm::<Perlin>::new(seed.wrapping_add(61) as u32).set_octaves(FINE_INTERIOR_OCTAVES);
+    let warp_fbm = Fbm::<Perlin>::new(seed.wrapping_add(62) as u32).set_octaves(2);
+    let sstep = super::features::smoothstep;
+
+    // KD-tree over the convergent-front edge-midpoint anchors (only when banding is
+    // actually requested and there are fronts to band toward). The anchors gather
+    // CANDIDATE arcs near a cell; the distance is then measured to the arc itself.
+    let front_tree = (strike_weight > 0.0 && !fronts.points.is_empty()).then(|| {
+        let entries: Vec<[f32; 3]> = fronts.points.iter().map(|p| [p.x, p.y, p.z]).collect();
+        ImmutableKdTree::<f32, 3>::new_from_slice(&entries)
+    });
+    // Candidate gather radius (squared chord): the influence radius plus a margin of
+    // one half-anchor-spacing, so an arc whose midpoint sits just past the influence
+    // radius but whose body enters it is still considered.
+    let gather_chord = 2.0 * ((FINE_FRONT_INFLUENCE_RADIUS + FINE_FRONT_GATHER_MARGIN) * 0.5).sin();
+    let gather_r2 = gather_chord * gather_chord;
+
+    // Great-circle distance (radians, unsigned) to the nearest front ARC on this
+    // cell's structural side, or None if no compatible front is within reach. Unsigned
+    // is fine: the band phase uses `cos` (even) and side-awareness already filters the
+    // wrong (subducting) side, so a signed front-normal coordinate isn't needed.
+    let nearest_front_dist = |i: usize, c: Vec3| -> Option<f32> {
+        let tree = front_tree.as_ref()?;
+        let plate = fronts.coarse_cell_plate[coarse_cell[i]];
+        let mut best = f32::INFINITY;
+        for nn in tree.within_unsorted::<SquaredEuclidean>(&[c.x, c.y, c.z], gather_r2) {
+            let item = nn.item as usize;
+            let compatible = match fronts.accept_plate[item] {
+                None => true,          // collision: both sides build mountains
+                Some(p) => p == plate, // subduction: overriding side only
+            };
+            if compatible {
+                let d = point_to_arc_distance(c, fronts.seg_a[item], fronts.seg_b[item]);
+                if d < best {
+                    best = d;
+                }
+            }
+        }
+        best.is_finite().then_some(best)
+    };
+
+    // Raw gated relief + gate mask per cell. Two gates keep it on high orogen
+    // interiors: an elevation ramp (so the zero-mean negative excursions stay well
+    // above sea level → land fraction preserved by construction) and a forcing ramp
+    // (so cratons stay quiet). `in_gate` records membership in the zero-mean set
+    // independently of whether the noise sample happens to be exactly 0.
+    let sample = |i: usize| -> (f32, bool) {
+        let elev_gate = sstep(
+            FINE_INTERIOR_MIN_ELEV,
+            FINE_INTERIOR_MIN_ELEV + FINE_INTERIOR_ELEV_BAND,
+            base_elev[i],
+        );
+        if elev_gate <= 0.0 {
+            return (0.0, false);
+        }
+        let force_gate = sstep(
+            FINE_INTERIOR_FORCING_THRESHOLD,
+            FINE_INTERIOR_FORCING_THRESHOLD + FINE_INTERIOR_FORCING_BAND,
+            forcing[i] / fmax,
+        );
+        let gate = elev_gate * force_gate;
+        if gate <= 0.0 {
+            return (0.0, false);
+        }
+        let c = tess.cell_center(i);
+        let p = c * FINE_INTERIOR_FREQUENCY as f32;
+        let isotropic = fbm.get([p.x as f64, p.y as f64, p.z as f64]) as f32;
+
+        // Blend toward the strike-banded grain near a compatible front, fading back
+        // to isotropic at the influence radius.
+        let value = match nearest_front_dist(i, c) {
+            Some(d) if d < FINE_FRONT_INFLUENCE_RADIUS => {
+                let pw = c * FINE_FRONT_WARP_FREQUENCY as f32;
+                let warp =
+                    FINE_FRONT_WARP * warp_fbm.get([pw.x as f64, pw.y as f64, pw.z as f64]) as f32;
+                // cos of the (warped) front distance → ridges parallel to the front.
+                let band =
+                    (std::f32::consts::TAU * FINE_FRONT_BAND_FREQUENCY as f32 * (d + warp)).cos();
+                let w = strike_weight * (1.0 - sstep(0.0, FINE_FRONT_INFLUENCE_RADIUS, d));
+                w * band + (1.0 - w) * isotropic
+            }
+            _ => isotropic,
+        };
+
+        // P1c active/passive margin contrast: a coastal-band amplitude scale, full at
+        // the coast and fading to neutral (1.0) inland, that sharpens an ACTIVE
+        // (convergent) margin and damps a PASSIVE one. Modulates amplitude only (stays
+        // within the elevation gate), so it never moves the land/ocean mask.
+        let margin_scale = if margin_contrast > 0.0 {
+            let coastal = 1.0 - sstep(0.0, FINE_MARGIN_WIDTH, margin_distance[i].max(0.0));
+            let activity = (fields.convergent[i].max(0.0) / conv_max).clamp(0.0, 1.0);
+            let target = FINE_MARGIN_PASSIVE_FACTOR
+                + activity * (FINE_MARGIN_ACTIVE_FACTOR - FINE_MARGIN_PASSIVE_FACTOR);
+            1.0 + margin_contrast * coastal * (target - 1.0)
+        } else {
+            1.0
+        };
+        (gate * amplitude * margin_scale * value, true)
+    };
+    #[cfg(not(feature = "single-threaded"))]
+    let raw: Vec<(f32, bool)> = (0..n).into_par_iter().map(sample).collect();
+    #[cfg(feature = "single-threaded")]
+    let raw: Vec<(f32, bool)> = (0..n).map(sample).collect();
+
+    // Coarse-cell-local zero-mean (area-weighted) over the GATED cells only:
+    // subtract each coarse cell's gated mean from its gated fine cells, leaving
+    // ungated cells at exactly 0. The area-weighted perturbation over every coarse
+    // cell is then ~0, so the coarse datum and per-cell mean elevation are preserved
+    // (no fine sea-level re-solve), and untouched lowland/ocean cells cannot drift
+    // across the land threshold.
+    let areas = tess.cell_areas();
+    let ncoarse = coarse_cell.iter().copied().max().map_or(0, |m| m + 1);
+    let mut sum_wd = vec![0.0f64; ncoarse];
+    let mut sum_w = vec![0.0f64; ncoarse];
+    for i in 0..n {
+        if raw[i].1 {
+            let c = coarse_cell[i];
+            sum_wd[c] += (areas[i] * raw[i].0) as f64;
+            sum_w[c] += areas[i] as f64;
+        }
+    }
+    for i in 0..n {
+        if raw[i].1 {
+            let c = coarse_cell[i];
+            let mean = if sum_w[c] > 0.0 {
+                (sum_wd[c] / sum_w[c]) as f32
+            } else {
+                0.0
+            };
+            base_elev[i] += raw[i].0 - mean;
+        }
+    }
+}
+
+/// Area-weighted land-fraction drift from the structural relief: `land = elev >= 0`,
+/// weighted by cell area (the fine mesh is adaptive, so a cell COUNT over-weights the
+/// dense mountain cells). Logs the before/after land fraction and the drift; warns if
+/// it exceeds a small tolerance — the structural relief is meant to add sub-coarse
+/// detail WITHOUT moving the land/ocean mask the coarse atmosphere was solved on
+/// (erosion-fine-synthesis.md). `~0` at the default knobs; a warning flags a knob
+/// (high `interior_relief`, or scarps) flipping near-sea-level cells.
+fn report_land_fraction_drift(tess: &Tessellation, before: &[f32], after: &[f32]) {
+    let areas = tess.cell_areas();
+    let mut total = 0.0f64;
+    let mut land_before = 0.0f64;
+    let mut land_after = 0.0f64;
+    for i in 0..tess.num_cells() {
+        let a = areas[i] as f64;
+        total += a;
+        if before[i] >= 0.0 {
+            land_before += a;
+        }
+        if after[i] >= 0.0 {
+            land_after += a;
+        }
+    }
+    if total <= 0.0 {
+        return;
+    }
+    let (fb, fa) = (land_before / total, land_after / total);
+    let drift = fa - fb;
+    log::info!(
+        "fine mesh: land fraction (area-weighted) {:.4} -> {:.4} (drift {:+.2e})",
+        fb,
+        fa,
+        drift
+    );
+    if drift.abs() > FINE_STRUCTURE_LAND_DRIFT_TOL as f64 {
+        log::warn!(
+            "fine mesh: structural relief shifted land fraction by {:+.2e} (> tol {:.0e}); a knob is flipping near-sea-level cells — the coarse atmosphere mask is no longer consistent",
+            drift,
+            FINE_STRUCTURE_LAND_DRIFT_TOL
+        );
+    }
+}
+
+/// Emergent-orogens audit (erosion-v3): how much intended-LAND the envelope demotion
+/// pushed below sea level. The builder uplift gates on the coarse-target mask so these
+/// cells DO rebuild, but a large area-weighted flip fraction means the demotion is
+/// drowning real coast (the decomposition doesn't commute with the coarse sea-level
+/// solve), so λ is too aggressive. Logs the area-weighted fraction of cells with
+/// `target >= 0` but `envelope < 0`.
+fn report_envelope_land_flips(tess: &Tessellation, target: &[f32], envelope: &[f32]) {
+    let areas = tess.cell_areas();
+    let mut land = 0.0f64;
+    let mut flipped = 0.0f64;
+    for i in 0..tess.num_cells() {
+        if target[i] >= 0.0 {
+            let a = areas[i] as f64;
+            land += a;
+            if envelope[i] < 0.0 {
+                flipped += a;
+            }
+        }
+    }
+    let frac = if land > 0.0 { flipped / land } else { 0.0 };
+    log::info!(
+        "fine mesh: emergent envelope land flips (area-weighted) {:.2}% of land (target>=0, envelope<0; rebuilt by uplift but flags too-aggressive λ)",
+        100.0 * frac
+    );
 }
 
 /// Fault range-front scarps (v1 proxy): sharpen active orogen margins on the fine

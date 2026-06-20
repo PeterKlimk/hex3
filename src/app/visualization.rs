@@ -3,7 +3,7 @@
 //! This module generates visual elements (arrows, markers, colored edges)
 //! for rendering plate tectonics data, separated from the domain models.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use glam::Vec3;
 
@@ -20,50 +20,30 @@ pub fn build_boundary_edge_colors(world: &World) -> HashMap<(usize, usize), Vec3
     let voronoi = &tessellation.voronoi;
 
     let mut edge_colors: HashMap<(usize, usize), Vec3> = HashMap::new();
-    let mut processed_cell_pairs: HashSet<(usize, usize)> = HashSet::new();
 
     for (cell_idx, neighbors) in tessellation.adjacency.iter().enumerate() {
         let plate_a = plates.cell_plate[cell_idx] as usize;
 
         for &neighbor_idx in neighbors {
+            if neighbor_idx <= cell_idx {
+                continue;
+            }
+
             let plate_b = plates.cell_plate[neighbor_idx] as usize;
 
             if plate_a == plate_b {
                 continue;
             }
 
-            let cell_pair = if cell_idx < neighbor_idx {
-                (cell_idx, neighbor_idx)
-            } else {
-                (neighbor_idx, cell_idx)
+            let Some((shared_a, shared_b)) = shared_edge_vertices(
+                voronoi.cell(cell_idx).vertex_indices,
+                voronoi.cell(neighbor_idx).vertex_indices,
+            ) else {
+                continue;
             };
 
-            if processed_cell_pairs.contains(&cell_pair) {
-                continue;
-            }
-            processed_cell_pairs.insert(cell_pair);
-
-            let cell_verts: HashSet<u32> = voronoi
-                .cell(cell_idx)
-                .vertex_indices
-                .iter()
-                .copied()
-                .collect();
-            let neighbor_verts: HashSet<u32> = voronoi
-                .cell(neighbor_idx)
-                .vertex_indices
-                .iter()
-                .copied()
-                .collect();
-
-            let shared: Vec<u32> = cell_verts.intersection(&neighbor_verts).copied().collect();
-
-            if shared.len() != 2 {
-                continue;
-            }
-
-            let a = shared[0] as usize;
-            let b = shared[1] as usize;
+            let a = shared_a as usize;
+            let b = shared_b as usize;
             let edge_key = if a < b { (a, b) } else { (b, a) };
 
             let cell_pos = tessellation.cell_center(cell_idx);
@@ -105,6 +85,28 @@ pub fn build_boundary_edge_colors(world: &World) -> HashMap<(usize, usize), Vec3
     }
 
     edge_colors
+}
+
+fn shared_edge_vertices(a: &[u32], b: &[u32]) -> Option<(u32, u32)> {
+    let mut first = None;
+    let mut second = None;
+
+    for &av in a {
+        if b.contains(&av) {
+            if first.is_none() {
+                first = Some(av);
+            } else if second.is_none() {
+                second = Some(av);
+            } else {
+                return None;
+            }
+        }
+    }
+
+    match (first, second) {
+        (Some(a), Some(b)) => Some((a, b)),
+        _ => None,
+    }
 }
 
 /// Generate velocity arrow line segments for boundary cells.

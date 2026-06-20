@@ -159,6 +159,60 @@ absence flags an emergent coupling worth having (see design-philosophy memory).
   rebuilds. The substrate the time-evolution thread (A′2) will reuse. Needed
   because before/after on stage-3 work is otherwise too slow to see.
 
+## Performance / algorithmic optimization notes (June 2026)
+
+These are category-2 candidates: likely bigger than allocation cleanup, but not
+same-output by default unless the cache/invalidation boundaries are exact. Keep
+same-output work separate from parameter tuning and intentional output changes.
+
+### Reuse hydrology/erosion graph scaffolding
+- **Observation:** hydrology and erosion repeatedly derive graph views from the
+  same primitives: `drainage_dir`, upstream contributors, topological order,
+  flow accumulation, basin/outflow traversals.
+- **Candidate:** materialize reusable structures for the active drainage graph:
+  compact `drains_into`, a topological processing order, and maybe common
+  per-cell flags/masks used by rivers, erosion, and basin analysis.
+- **Why:** each O(N) rebuild plus allocation is tolerable on coarse meshes but
+  expensive on the adaptive fine mesh; erosion can repeat this work whenever
+  routing is recomputed.
+- **Same-output path:** cache only pure derived data keyed by the exact
+  `drainage_dir`/active stage. Invalidate whenever elevation/routing changes.
+- **Risk:** stale graph caches are subtle and wrong; make invalidation explicit.
+
+### Share render topology and index construction
+- **Observation:** colored terrain, unified relief, elevation-map, and edge
+  buffers all walk the same Voronoi topology and fan-triangulate cells in similar
+  ways. Fine meshes already use shared vertices for some paths, while coarse
+  modes duplicate per-cell vertices for sharp coloring/wrap behaviour.
+- **Candidate:** introduce a reusable render-topology layer per tessellation:
+  shared triangle indices, per-cell triangle ranges, unique edge index list, and
+  maybe antimeridian/wrap metadata for map mode. Attribute builders would fill
+  colors/elevations/materials without rediscovering topology.
+- **Why:** large fine-mesh index buffers and topology walks are deterministic
+  work currently repeated across buffer rebuilds and mode-specific meshes.
+- **Same-output path:** start with shared-vertex fine surfaces where topology is
+  already identical. Keep a separate duplicated-vertex topology for coarse/map
+  paths so sharp per-cell colours and wrap handling remain unchanged.
+- **Risk:** forcing all modes through one mesh abstraction would blur legitimate
+  differences between coarse cell-flat rendering and fine shared rendering.
+
+### Fine mesh sampling/relaxation and erosion reroute cadence
+- **Observation:** stage 3/4 cost is dominated by how many fine cells are made,
+  how they are sampled/relaxed, Voronoi construction, and how often erosion
+  recomputes routing over the fine graph.
+- **Candidate:** investigate adaptive relaxation only where density gradients or
+  quality metrics need it; reuse nearest-neighbour/kd structures across relax
+  passes where valid; recompute erosion routing less often or only where
+  elevation changed enough; use coarse-to-fine hydrology hints.
+- **Why:** this attacks the high-order cost drivers rather than just removing
+  duplicate allocations.
+- **Same-output path:** limited. Reusing an identical nearest-neighbour
+  structure inside an exact algorithm may qualify, but changing relaxation,
+  route cadence, or adaptive thresholds changes the generated world and belongs
+  in tuning/algorithm experiments.
+- **Risk:** these may improve speed while changing terrain character; evaluate
+  with visual A/B and diagnostics, not just wall-clock time.
+
 ## Deferred / known
 - **Rivers:** rendering rework (huge blocks don't suit high-density cells) +
   possibly a deeper rework. Out of scope for erosion-as-written.

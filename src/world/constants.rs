@@ -371,6 +371,24 @@ pub const COLLISION_WIDTH: f32 = 0.02;
 /// 0.015 rad ≈ 96 km on Earth. Places peak near boundary, not far inland.
 pub const COLLISION_PEAK_DIST: f32 = 0.015;
 
+// --- Coarse orogen ASYMMETRY (orogen-structure: the coarse envelope) ---
+// The arc/collision cross-section is a SYMMETRIC Gaussian of distance-to-boundary →
+// dome/plateau, not a real range. This makes it ASYMMETRIC using a per-cell SIGNED
+// distance (overriding plate +, foreland −, from subduction polarity): the crest sits
+// near the boundary with a STEEP narrow FORELAND flank and a GENTLE wide HINTERLAND. The
+// modulation rides on the existing arc/collision magnitude, so it propagates to the macro
+// elevation (atmosphere/rain-shadows see the real mountains) and the fine emergent target.
+// Blend 0 = symmetric (current); 1 = full asymmetry. Default off until A/B-validated.
+
+/// Master coarse-asymmetry blend (0..1). 0 = symmetric Gaussian (unchanged).
+pub const COARSE_OROGEN_ASYMMETRY: f32 = 0.0;
+/// Foreland-side band width MULTIPLIER (×the symmetric width): <1 = steeper, narrower
+/// foreland flank (the thrust front).
+pub const COARSE_ASYM_FORELAND_MULT: f32 = 0.6;
+/// Hinterland-side band width MULTIPLIER: >1 = gentler, wider hinterland taper (the
+/// back-arc / plateau side).
+pub const COARSE_ASYM_HINTERLAND_MULT: f32 = 2.0;
+
 /// Decay length for tectonic activity field (radians).
 /// Controls how far "tectonically active" influence spreads from boundaries.
 pub const ACTIVITY_INFLUENCE_LENGTH: f32 = 0.05;
@@ -702,15 +720,30 @@ pub const FINE_RELAX_PASSES: usize = 3;
 /// less relief; far more = over-graded lowlands. With uplift OFF (relaxation) the
 /// count is just a visual stopping time. Per-step cost is dominated by re-routing,
 /// so this is also the runtime knob.
-pub const EROSION_STEPS: usize = 60;
+// DEFAULT 60→200 (2026-06-21): the emergent build needs more carving time (steps spreads
+// the same total uplift, so more steps = more dissection of the rising orogen) — 200 was
+// the visual-validated budget. This ~3× the erosion stage's time; `steps` is the primary
+// quality↔speed dial (lower = faster, less mature/dissected).
+pub const EROSION_STEPS: usize = 200;
 
 /// Timestep (dimensionless; folded into K / uplift scale). Kept explicit so the
 /// Braun & Willett formula reads as written. Larger dt relaxes faster per step.
 pub const EROSION_DT: f32 = 1.0;
 
-/// Stream-power area exponent m in E = K A^m S^n (n = 1 here). 0.5 is the
-/// canonical value; raising it makes large rivers dominate incision.
+/// Stream-power area exponent m in E = K A^m S^n. 0.5 is the canonical value;
+/// raising it makes large rivers dominate incision.
 pub const EROSION_M: f32 = 0.5;
+
+/// Stream-power SLOPE exponent n in E = K A^m S^n. n = 1 is linear (the original,
+/// chosen for the closed-form implicit solve) and gives the roundest, softest valley
+/// profiles. n ≈ 1.5–2 (real bedrock channels) yields sharper valley walls, crisper
+/// divides, and threshold-like response to uplift — the shape control for "ranges, not
+/// bumps". n ≠ 1 uses a per-cell Newton solve of the implicit step (a few iterations).
+pub const EROSION_N: f32 = 2.0;
+
+/// Max Newton iterations for the n ≠ 1 implicit incision solve (per channel cell per
+/// step). The step is small and F is convex, so it converges in ~3–4; 8 is headroom.
+pub const EROSION_INCISION_NEWTON_ITERS: usize = 8;
 
 /// Stream-power coefficient K (erodibility). Drainage area A is "wet area" in
 /// steradians and the receiver distance is in arc radians, so K is small. The
@@ -740,6 +773,39 @@ pub const EROSION_K: f32 = 4.0e-2;
 /// incision produces. Up = rounder/smoother; toward 0 = sharper but speckle-prone.
 pub const EROSION_DIFFUSIVITY: f32 = 2.0e-8;
 
+/// Roering nonlinear-hillslope critical slope S_c (escalation #2,
+/// docs/specs/erosion-escalations.md). Linear creep (EROSION_DIFFUSIVITY) rounds
+/// every ridge into mush and can't hold a crest against constantly-regenerated
+/// relief without over-smoothing everything. The Roering, Kirchner & Dietrich
+/// (1999) flux law `q = -D ∇h / (1 - (|∇h|/S_c)²)` instead lets the creep
+/// diffusivity blow up as the slope approaches a critical angle S_c: gentle
+/// slopes creep ~linearly (`q ≈ -D∇h`), but slopes near S_c transport so fast
+/// they can't get steeper — so hillslopes become PLANAR and ridgelines CRISP
+/// (the angle-of-repose facet) instead of rounded. This gives channel initiation
+/// a credible, physically-limited hillslope to compete against (must precede the
+/// channelization escalation #4).
+///
+/// Implemented as a slope-dependent conductivity multiplier `κ = 1/(1-(S/S_c)²)`
+/// on the existing implicit edge weights, with the ratio `S/S_c` regularized
+/// (clamped below 1) so the flux is bounded near S_c — the explicit singularity
+/// the trap warns about can't fire. `κ ≡ 1` when this is 0, recovering the exact
+/// linear diffusion above, so 0 = OFF (current behaviour).
+///
+/// UNITS: code slope = Δelevation / Δradian (the diffusion's native units, same
+/// as EROSION_DEPOSITION_SLOPE), NOT a dimensionless grade. Convert a physical
+/// hillslope grade (rise/run) via `S_code ≈ grade · R / (m per elev-unit)` =
+/// `grade · 6.371e6 / 1e4 ≈ grade · 637` (canonical ~10 km/elev-unit). So a
+/// ~30-45° angle-of-repose grade (0.6-1.0) is S_code ≈ 380-640. CAVEAT: this acts
+/// on CELL-TO-CELL slopes (~1.5 km mountain cells), which are gentler than true
+/// sub-cell hillslope angles — the eroded mesh's steepest cell slopes sit near
+/// S_code ~290 (grade ~0.45) — so to bite on the steepest cells the starting band
+/// is lower, S_code ~150-300 (grade ~0.24-0.47). Default off; calibrate via
+/// `--erosion-hillslope-crit` against the curv-rms / peak% roughness counters
+/// (crisper, more planar ridges should LOWER cell-scale curvature, unlike the #1
+/// source smoothing which was a no-op). Watch the trap: too low → a
+/// "critical-slope-everywhere" tiled-facet world.
+pub const EROSION_HILLSLOPE_CRITICAL_SLOPE: f32 = 200.0;
+
 /// Jacobi sweeps used to approximate the implicit diffusion solve each step.
 /// More = closer to the exact backward-Euler smoothing. Verified ample at 6
 /// (seed 12345, --fine-max 300000, --erosion-diffusion-iters sweep): 6 -> 24
@@ -756,6 +822,53 @@ pub const EROSION_DIFFUSION_ITERS: usize = 6;
 /// each re-route. 1 = re-route every step (exact, slowest). Higher = faster,
 /// staler network between re-routes.
 pub const EROSION_REROUTE_INTERVAL: usize = 6;
+
+/// Barnes-style convergent flat resolution (Barnes, Lehman & Mulla 2014): on a
+/// priority-flood-filled surface, drain flat interiors with a synthetic descent
+/// toward outlets and away from higher walls, instead of the bare priority-flood
+/// wavefront (`flood_parent`) which spirals and gets incised as spiral grooves.
+/// `false` reproduces the old wavefront routing (for A/B). See
+/// docs/specs/erosion-routing-ladder.md (Rung 1).
+pub const EROSION_FLAT_RESOLUTION: bool = true;
+
+/// Multiple-flow-direction exponent (Rung 2 area + Rung 3 incision). Each cell
+/// spreads its flow — and its stream-power incision — to all downslope neighbours
+/// weighted by `slope^p`; `p` is the SFD↔MFD dial: `p → ∞` recovers single-flow
+/// (sharp, 1-cell channels = the perforation), `p ≈ 1` is fully dispersive
+/// (smoother, valleys re-converge). `0` = pure SFD (single-receiver area +
+/// incision, the pre-Rung-2 behaviour).
+///
+/// DEFAULT OFF. Rung 3 hypothesised MFD incision would break the 1-cell
+/// perforation. It does NOT: sweeping p at 600k AND at full ~2.5M (seed 12345)
+/// moved curv-rms only ~3% and left elevation unchanged — the cell-scale roughness
+/// erosion adds (curv-rms ~7-8x base→eroded) is INVARIANT to SFD↔MFD, to diffusion
+/// magnitude (Rung 0), and to reroute frequency. So the swiss-cheese is not
+/// routing-driven; the cause is elsewhere in the loop (deposition / diffusion
+/// solver / fold-back — under investigation). This MFD path is correct LEM practice
+/// (divergent flow, mesh-insensitive) and kept as a toggle, but it is not the fix,
+/// so it stays off (it adds a per-reroute sort + CSR for ~no gain on this artifact).
+/// `p → ∞` ≈ SFD, `p ≈ 1` fully dispersive. A/B with `--erosion-mfd-exponent`.
+/// See docs/specs/erosion-routing-ladder.md.
+pub const EROSION_MFD_EXPONENT: f32 = 0.0;
+
+/// Plains alluvial regime gate (docs/specs/erosion-valleys-not-channels.md,
+/// Phase 1). Stream-power incision is faded by a confinement factor
+/// `C = smoothstep(0, this, channel_slope)` in [0,1]: full incision (C=1) on
+/// bedrock/mountain channels at/above this slope, fading to none (C=0) on gentle
+/// alluvial plains — where the transport-aware deposition then grades the lowland
+/// to a floodplain instead of erosion gouging a cell-wide ditch ("huge one-cell
+/// river"). Channel slope is Δelev/Δkm (elev-units per km); the land distribution
+/// runs p50 ~4e-4, p90 ~2e-3, so 5e-4 (~0.5% gradient) sits at the plains/upland
+/// divide. `0` disables the gate (C=1 everywhere = the pre-Phase-1 behaviour).
+/// DEFAULT OFF. The gate is physically correct for the plains-floodplain goal, but
+/// the A/B (2026-06-16) showed it is NOT the swiss-cheese fix: at honest channel
+/// slopes (≤3e-3) it only fades gentle PLAINS channels and does ~nothing visible,
+/// because the "too busy/sharp" dissection lives in steeper UPLAND incision. Only
+/// an absurd value (~3e-1, a 300% gradient — i.e. incision off everywhere) removes
+/// it, and that flattens mountains too. So this stays off and dormant (kept for
+/// docs/specs/erosion-valleys-not-channels.md Phase 1 / plains floodplains); the
+/// actual dissection-texture levers are K, diffusivity, and channel support.
+pub const EROSION_CONFINEMENT_SLOPE: f32 = 0.0;
 
 /// Scales tectonic uplift added to crust thickness each step. Source is the
 /// transferred feature forcing: (arc + collision) are elevation magnitudes
@@ -782,6 +895,36 @@ pub const EROSION_REROUTE_INTERVAL: usize = 6;
 /// EROSION_STEPS), so move them together. 0 = relaxation only (peaks decay); up =
 /// taller, more actively-rising orogens.
 pub const EROSION_UPLIFT_SCALE: f32 = 0.003;
+
+/// Forcing-smoothing length (km) for the tectonic uplift SOURCE, applied once in
+/// `ErosionState::new` before the step loop. Escalation #1
+/// (docs/specs/erosion-uplift-smoothing.md): the per-step uplift source
+/// `u_thick = SCALE·((arc+collision)/slope + rift_delta)` is built from coarse
+/// feature fields interpolated onto the fine mesh; if that handoff carries
+/// wavelengths below the landform scale, erosion re-injects high-frequency
+/// tectonic "work" every step and the orogens equilibrate with cell-scale chatter
+/// ("swiss cheese"). Component-isolation pinned uplift as the dominant mountain-top
+/// bump source. So we smooth the FORCING — never the final elevation — over a
+/// physically-named length: the sub-grid orogenic forcing width (real tectonic
+/// uplift is smooth at cell scale; sub-cell variation is unmodelled detail).
+///
+/// Mechanism: a conservative, area-weighted graph diffusion of `u_thick` within
+/// the LAND mask (no-flux at the coastline, so uplift never bleeds onto submerged
+/// cells and the integrated area-weighted uplift is preserved exactly). Because
+/// the diffusion is linear, smoothing the combined source is identical to
+/// smoothing arc/collision/rift_delta separately and recombining — the signed
+/// rift thinning superposes correctly with the positive orogen uplift (no
+/// magnitude blur, so the trap of rift thinning bleeding into orogen uplift does
+/// not arise). The length is the kernel's Gaussian std-dev (variance 2·D·τ per
+/// axis), so e.g. 30 km smooths sub-30 km source chatter while leaving the macro
+/// orogen front intact.
+///
+/// 0 = off (current behaviour — the source enters erosion unsmoothed). Calibrate
+/// to the cell/landform scale (a few × the fine mountain-cell size): enough to
+/// kill sub-landform speckle (`morans_i(u_thick)` rises toward smooth), not so
+/// much that it rounds the genuine orogen front or flattens peaks. Exposed via
+/// `ErosionParams` + diagnose/app (`--erosion-uplift-smooth`) for A/B.
+pub const EROSION_UPLIFT_SMOOTH_KM: f32 = 0.0;
 
 /// Fraction of a terminal sink's depth-to-base-level (sea level, or a lake
 /// surface) that routed sediment may fill (delta / lake-infill building at the
@@ -832,7 +975,11 @@ pub const EROSION_DEPOSITION_SLOPE: f32 = 6.0;
 /// this gates the few-cell hillslope band between channel heads. The primary
 /// drainage-density knob — up = sparser/blockier networks, down = finer
 /// dissection (0 disables). 0 = off.
-pub const EROSION_CHANNEL_SUPPORT_KM2: f32 = 30.0;
+/// Lowered 30→4 (2026-06-20): on the structured-emergent orogens the high massif was
+/// UNDER-dissected (channels didn't reach the divides → active uplift made hillslope
+/// spikes); ~3-5 km² lets channels initiate higher and carve coherent ridge-and-valley
+/// into the high terrain instead of spikes (visual-settled).
+pub const EROSION_CHANNEL_SUPPORT_KM2: f32 = 4.0;
 
 // --- Lithologic erodibility K(x) (role-1 fine-mesh seed) -------------------
 //
@@ -936,7 +1083,15 @@ pub const LAKE_EVAP_DIFFUSE_STEPS: usize = 5;
 /// glacial" knob. 0 disables the whole pass (no glaciers). Up = deeper troughs /
 /// more over-deepening. Sweep with diagnose --glacial-k and read the glaciated
 /// coverage + relief change it logs (a reference, not a target).
-pub const GLACIAL_K: f32 = 6.0e-3;
+///
+/// DEFAULT-OFF (2026-06-20). The v1 single-flow pass injects cell-scale roughness
+/// ("prickle": curv-rms ~8x, glacial-flux checker ~49%) instead of clean glacial
+/// landforms — it point-routes ice like water (no glacier width / ice-surface
+/// slope). Disabled until the OpenLEM-style glacial stream-power rework lands; see
+/// docs/specs/erosion-glacial-streampower.md. Cosmetic snow caps (coloring.rs
+/// `apply_snow_cap`) are independent of this and still render. Set >0 to A/B the v1
+/// pass; production stays fluvial-only for now.
+pub const GLACIAL_K: f32 = 0.0;
 
 /// Glacial sub-steps (re-route + accumulate + abrade each), letting troughs and
 /// over-deepened basins develop. A handful suffices; the routing dominates cost.
@@ -980,7 +1135,9 @@ pub const GLACIAL_OVERDEEPEN_MAX: f32 = 0.012;
 /// Scarp relief (elevation units) imposed at the active range front. The master
 /// knob; 0 disables the pass (no front sharpening). Peak offset is ~0.6x this at
 /// the band centre. Sweep with diagnose --fault-scarp.
-pub const FAULT_SCARP_HEIGHT: f32 = 0.04;
+// DEFAULT 0.04→0.0 (2026-06-21): painted range-front scarps OFF under the emergent default
+// (the structured uplift builds the front). Painted A/B only.
+pub const FAULT_SCARP_HEIGHT: f32 = 0.0;
 
 /// Front location: the fraction of the land-max orogen forcing whose contour marks
 /// the range front (where the scarp centres). ~0.4 puts it on the flank of the
@@ -996,3 +1153,177 @@ pub const FAULT_FRONT_BAND: f32 = 0.2;
 /// sediment), and a symmetric scarp over-drops the lowlands and drowns coastal
 /// land, so the basin side is damped well below 1.0.
 pub const FAULT_BASIN_DROP_FRAC: f32 = 0.25;
+
+// --- Fine interior structural relief (erosion-v2 Phase 1 / P1a) ---
+// The fine base is the coarse elevation INTERPOLATED onto fine cells, so orogen
+// interiors are smooth flat-topped plateaus (the coarse forcing saturates there):
+// no drainage gradient, so erosion spirals into cottage-cheese instead of
+// dissecting real ranges (root cause #1, [[hex3-summit-cottage-cheese]]). This is
+// a mid-band structural HEIGHT term (fault-block / fold grain) added to the base
+// BEFORE pre-hydrology, gated to high orogen interiors, made coarse-cell-local
+// zero-mean so it adds sub-coarse structure WITHOUT shifting the coarse datum /
+// land fraction. It is the SUBSTRATE erosion carves, not painted final relief.
+// P1a is isotropic fBm (soft, no strike-aware fronts — that's P1b); the height
+// term is what fix #7 (codex) requires: erodibility alone gives a flat summit no
+// gradient. Sweep amplitude with `--sweep interior_relief` / diagnose.
+
+/// Amplitude (elevation units) of the interior structural relief. Zero-mean per
+/// coarse cell, so this is the ~peak fBm excursion (≈ this × 10 km). 0 = off
+/// (pure interpolant — the old flat-top behaviour). The master P1a knob.
+// DEFAULT 0.04→0.005 (2026-06-21): under the emergent default this is just a FAINT seed
+// to break drainage symmetry (erosion builds the relief). For the painted A/B path set it
+// back to ~0.04 (the structural-substrate amplitude).
+pub const FINE_INTERIOR_RELIEF: f32 = 0.005;
+
+/// Base spatial frequency of the interior fBm (cell_center is a unit vector, so
+/// the base-octave wavelength ≈ 1/this rad; 160 ≈ 40 km, squarely in the mid-band
+/// between the coarse Nyquist (~70 km) and the channel scale (~few km)).
+pub const FINE_INTERIOR_FREQUENCY: f64 = 160.0;
+
+/// Octaves of the interior fBm. 5 reaches ≈ 40/16 ≈ 2.5 km at the finest octave,
+/// down to the channel scale erosion organizes on.
+pub const FINE_INTERIOR_OCTAVES: usize = 5;
+
+/// Elevation gate (elevation units): structure fades in over
+/// [`MIN`, `MIN`+`BAND`]. Keeps the (signed) relief on high orogen terrain well
+/// above sea level so the zero-mean negative excursions never flip a near-coast
+/// land cell to ocean (land fraction preserved by construction, not by clamping —
+/// clamping would re-introduce a positive bias). MIN must exceed the worst-case
+/// downward excursion (~2× amplitude after the per-cell mean subtraction) for the
+/// default amplitude; a high-amplitude sweep may show small land drift (caught by
+/// the area-weighted drift check).
+pub const FINE_INTERIOR_MIN_ELEV: f32 = 0.10;
+pub const FINE_INTERIOR_ELEV_BAND: f32 = 0.08;
+
+/// Orogen-forcing gate: structure fades in over [`THRESHOLD`, `THRESHOLD`+`BAND`]
+/// of the land-normalized (collision+convergent+arc) forcing, so faults/folds live
+/// in convergence belts and cratons stay quiet (per the noise philosophy).
+pub const FINE_INTERIOR_FORCING_THRESHOLD: f32 = 0.15;
+pub const FINE_INTERIOR_FORCING_BAND: f32 = 0.35;
+
+/// Tolerance for the area-weighted land-fraction drift the structural relief may
+/// introduce (interior grain + scarps) before it's flagged as invalidating the
+/// coarse atmosphere's land/ocean mask. The relief is zero-mean + gated above sea
+/// level, so well-behaved knobs sit far below this; it catches high-amplitude
+/// sweeps flipping near-coast cells.
+pub const FINE_STRUCTURE_LAND_DRIFT_TOL: f32 = 1e-3;
+
+// --- Fine strike-aware structural relief (erosion-v2 Phase 1 / P1b) ---
+// P1a's interior grain is isotropic fBm (the transferred fields carry no boundary
+// strike). P1b orients it ALONG the orogen front using the coarse convergent plate
+// boundaries as primitives: the signed great-circle distance to the nearest
+// compatible front is a globally-consistent field whose iso-distance contours run
+// PARALLEL to the front, so a banded function of that distance gives ridge-and-
+// valley grain striking along the range (fold-and-thrust fabric) — without any
+// per-cell strike vector (which would seam at kinks). Near a front the relief blends
+// toward the bands; far from any front it falls back to P1a isotropic grain. Magnitude
+// stays gated by the P1a elevation+forcing gates (primitives drive ORIENTATION, not a
+// new uplift model). See docs/specs/erosion-fine-synthesis.md rung P1b.
+
+/// Blend weight (0..1) of the strike-banded grain vs P1a isotropic grain at a front
+/// (faded by distance to the front). 0 = pure isotropic (P1a); 1 = pure bands. The
+/// master P1b knob.
+// DEFAULT 0.7→0.0 (2026-06-21): P1b strike-banding is OFF — it painted global "sand dune"
+// corduroy (global structure can't be painted; tectonics/O0 owns it). Painted A/B only.
+pub const FINE_FRONT_STRIKE_WEIGHT: f32 = 0.0;
+
+/// Across-front band frequency (cycles per radian of front distance): the ridge-and-
+/// valley wavelength of the fold grain. 200 ≈ 32 km bands (mid-band, dissectable).
+pub const FINE_FRONT_BAND_FREQUENCY: f64 = 200.0;
+
+/// Front influence radius (radians): beyond this great-circle distance from any
+/// compatible front a cell gets no banding and falls back to P1a isotropic grain.
+/// 0.09 rad ≈ 573 km spans a typical orogen interior from its front.
+pub const FINE_FRONT_INFLUENCE_RADIUS: f32 = 0.09;
+
+/// Along-strike warp of the bands (radians, added to the front distance before
+/// banding) so ridges undulate instead of being perfectly parallel contour lines.
+/// ≈ 25 km, about one band wavelength.
+pub const FINE_FRONT_WARP: f32 = 0.004;
+/// Spatial frequency of the along-strike warp fBm (low = long, smooth undulations).
+pub const FINE_FRONT_WARP_FREQUENCY: f64 = 40.0;
+
+/// Extra gather radius (radians) added to the influence radius when collecting
+/// candidate front arcs: an arc whose midpoint anchor sits just past the influence
+/// radius but whose body enters it is still considered. ≈ one coarse half-edge.
+pub const FINE_FRONT_GATHER_MARGIN: f32 = 0.012;
+
+// --- Fine active/passive margin contrast (erosion-v2 Phase 1 / P1c) ---
+// The coarse model already widens the SHELF by margin activity (continentality →
+// crust thickness → bathymetry). P1c adds the sub-coarse STRUCTURAL contrast at the
+// continental margin: where high terrain meets the coast near a convergent front
+// (ACTIVE margin, Andes-type), sharpen the structural relief so ranges rise steeply
+// from the shore; on a PASSIVE coast (no convergence) damp it so the coastal upland
+// stays quiet. Keyed on the interpolated raw `Crust.signed_margin_distance` (radians
+// from the coast; + continental, − oceanic) × the transferred convergent forcing.
+// Modulates AMPLITUDE within the existing elevation gate (land-safe), so it never
+// touches the land/ocean mask. 0 contrast reduces to P1b exactly.
+
+/// Master P1c knob: strength of the margin contrast (0 = off → P1b; 1 = full).
+// DEFAULT 1.0→0.0 (2026-06-21): P1c margin contrast OFF under the emergent default (it
+// modulated the painted relief; emergent owns the structure). Painted A/B only.
+pub const FINE_MARGIN_CONTRAST: f32 = 0.0;
+
+/// Coastal band width (radians of margin distance): the modulation is full at the
+/// coast (margin ≈ 0) and fades to neutral by this distance inland. 0.05 ≈ 318 km.
+pub const FINE_MARGIN_WIDTH: f32 = 0.05;
+
+/// Relief amplitude scale at the coast for a fully ACTIVE margin (convergent front at
+/// the shore): >1 sharpens the coastal front.
+pub const FINE_MARGIN_ACTIVE_FACTOR: f32 = 1.3;
+/// Relief amplitude scale at the coast for a fully PASSIVE margin: <1 quiets it.
+pub const FINE_MARGIN_PASSIVE_FACTOR: f32 = 0.5;
+
+// --- Emergent orogens (erosion-v3 prototype) ---
+// Demote the orogen peak from the static fine base and re-supply it as active uplift, so
+// fine erosion BUILDS dissected ranges instead of dissecting a pre-baked flat plateau.
+// See docs/specs/erosion-v3-emergent-orogens.md. `lambda` = fraction of the orogen peak
+// (arc+collision elevation) removed from the base envelope and rebuilt by uplift over the
+// erosion epoch. 0 = off (current painted/postprocessor behaviour); 0.25-0.5 = the
+// prototype's hedge; 1.0 = build the orogen entirely from uplift (riskiest).
+// Rebuild calibration: uplift_scale * steps * dt ~= lambda (today 0.18); raise
+// EROSION_UPLIFT_SCALE accordingly when emergent.
+// DEFAULT (2026-06-21): emergent orogens are the PRODUCT path (validated: structured
+// uplift + n>1 + channel_support≈4 beats painted P1 dunes + the smooth dome). Set 0 to
+// fall back to the painted path (also requires the painted knobs — interior_relief 0.04,
+// front_strike_weight 0.7, etc.). See docs/specs/orogen-structure.md.
+pub const FINE_EMERGENT_LAMBDA: f32 = 0.5;
+
+// --- O0: structured (asymmetric + segmented) emergent uplift (orogen-structure.md) ---
+// Replace the uniform per-cell rebuild of the demoted orogen with a TECTONIC uplift
+// SHAPE: an asymmetric front profile (steep narrow foreland flank → crest at the front
+// → gentle wide hinterland, keyed on overriding-vs-foreland plate side) × a low-freq
+// along-strike SEGMENTATION (proxy noise; the range plunges/segments) × the demoted
+// forcing. Volume-normalized so total uplift is preserved (height stays sane), but the
+// DISTRIBUTION is tectonic. Drives emergent + n>1. 0 = off (uniform v3 rebuild).
+
+/// Master O0 knob: blend of structured shape vs uniform rebuild. 0 = uniform (v3); 1 =
+/// fully structured. The decisive-hack default for an A/B run is 1.
+pub const FINE_EMERGENT_STRUCTURED: f32 = 1.0;
+
+/// Asymmetric front profile widths (radians of front-normal distance): steep narrow rise
+/// on the FORELAND side (≈64 km), gentle wide taper into the HINTERLAND (≈320 km). The
+/// crest sits at the front (v=0).
+pub const FINE_OROGEN_FORELAND_WIDTH: f32 = 0.01;
+pub const FINE_OROGEN_HINTERLAND_WIDTH: f32 = 0.05;
+
+/// Along-strike segmentation proxy frequency (low → long plunging segments). O0 smoke-test
+/// only — NOT a real along-front coordinate (see spec; real arc-length chaining is O3).
+pub const FINE_OROGEN_SEGMENT_FREQUENCY: f64 = 14.0;
+/// Minimum segmentation amplitude (so segments thin/plunge but the belt doesn't fully
+/// vanish into disconnected blobs at O0). Segmentation spans [MIN, 1].
+pub const FINE_OROGEN_SEGMENT_MIN: f32 = 0.15;
+
+/// Emergent builder over-rebuild gain. The builder uplift rebuilds the demoted
+/// envelope (`coarse_target − base`) over the erosion epoch; >1 compensates the
+/// material erosion removes WHILE building, so the eroded orogen lands near the coarse
+/// target rather than under it. ~1.2 ≈ +20%. Self-calibrating: the per-cell uplift rate
+/// is `gain·(target−base)/(steps·dt·slope)`, so `steps` becomes a pure build-vs-carve
+/// dial (more steps = same total uplift, more carving time) without moving the height.
+pub const EMERGENT_REBUILD_GAIN: f32 = 1.2;
+
+/// Land floor for the O0 structured builder (elevation units ≈ 50 m): every demoted
+/// target-land cell is uplifted to at least this above sea before the shaped excess is
+/// distributed, so structured (asymmetric/segmented) uplift can't leave demoted-below-sea
+/// cells submerged (no land loss). See erosion.rs structured builder.
+pub const EMERGENT_LAND_FLOOR_MARGIN: f32 = 0.005;

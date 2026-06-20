@@ -1,6 +1,7 @@
 mod coloring;
 pub mod export;
 mod state;
+pub mod sweep;
 mod view;
 mod visualization;
 pub mod world;
@@ -18,7 +19,7 @@ use winit::{
 };
 
 pub use state::AppState;
-pub use view::{ClimateLayer, RenderMode, ViewMode};
+pub use view::{ClimateLayer, RenderMode, RiverMode, ViewMode};
 
 /// Configuration for the app from CLI arguments.
 pub struct AppConfig {
@@ -26,6 +27,7 @@ pub struct AppConfig {
     pub target_stage: u32,
     pub voronoi_backend: VoronoiBackend,
     pub fine_cache: FineCacheMode,
+    pub erosion: crate::app::world::ErosionOverrides,
 }
 
 pub struct App {
@@ -64,6 +66,7 @@ impl ApplicationHandler for App {
             seed,
             self.config.voronoi_backend,
             self.config.fine_cache,
+            self.config.erosion,
         ));
 
         // Advance to target stage

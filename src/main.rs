@@ -72,9 +72,227 @@ struct Cli {
     #[arg(long)]
     rebuild_fine_cache: bool,
 
+    /// MFD erosion exponent (routing ladder Rung 2/3). <0 = EROSION_MFD_EXPONENT
+    /// default (off); 0 = single-flow; ~1 dispersive .. high ≈ single-flow. Set
+    /// >0 to visually A/B MFD incision. See docs/specs/erosion-routing-ladder.md.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_mfd_exponent: f32,
+
+    /// Barnes convergent flat resolution (Rung 1). -1 = default (on); 0 = off
+    /// (old flood_parent wavefront); 1 = on. A/B the spiral-on-flats fix.
+    #[arg(long, default_value_t = -1)]
+    erosion_flat_resolution: i8,
+
+    /// Plains alluvial regime gate: channel slope (elev/km) at/above which
+    /// incision is full; gentler channels fade to alluvial (floodplains, not
+    /// ditches). <0 = EROSION_CONFINEMENT_SLOPE default (off). See
+    /// docs/specs/erosion-valleys-not-channels.md.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_confinement_slope: f32,
+
+    /// Erosion erodibility K (incision strength; default 4e-2). <0 = default.
+    /// LOWER = gentler dissection (less sharp). Visual dissection-texture lever.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_k: f32,
+
+    /// Stream-power SLOPE exponent n in E=K·A^m·S^n (default 1). <0 = default.
+    /// >1 (≈1.5–2) = sharper valleys/divides ("ranges not bumps"). Newton-solved.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_n: f32,
+
+    /// Hillslope diffusivity (smoothing; default 2e-8). <0 = default. HIGHER =
+    /// smoother (rounds the sharp dissection). Visual dissection-texture lever.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_diffusivity: f32,
+
+    /// Channel-initiation support area (km² at mean land wetness; default 30).
+    /// <0 = default. HIGHER = channels start later = LOWER drainage density
+    /// (fewer/broader valleys, less "busy"). The primary density lever.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_channel_support: f32,
+
+    /// Uplift-FORCING smoothing length (km; escalation #1). Smooths the per-step
+    /// tectonic uplift source over a sub-grid orogenic width to remove mountain-top
+    /// cell-scale "swiss cheese" without flattening orogens. <0 = default; 0 = off.
+    /// See docs/specs/erosion-uplift-smoothing.md.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_uplift_smooth: f32,
+
+    /// Roering nonlinear-hillslope critical slope S_c (escalation #2; Δelev/radian,
+    /// ~grade·637). Diffusivity blows up toward S_c -> planar slopes + crisp
+    /// ridges (vs linear-creep mush). <0 = default; 0 = off. Visual de-prickle
+    /// lever; sweep ~150-300. See docs/specs/erosion-escalations.md.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_hillslope_crit: f32,
+
+    /// Hillslope-diffusion Jacobi sweeps per step (default 6). 0 = default. LOWER =
+    /// cheaper diffuse phase; 6->3 measured metric-equivalent (incision percentiles
+    /// byte-identical) — a near-free speedup, visual-confirm it.
+    #[arg(long, default_value_t = 0)]
+    erosion_diffusion_iters: usize,
+
+    /// Steps between drainage re-routings (default 6). 0 = default; 1 = re-route
+    /// every step. HIGHER = cheaper route phase; 6->12 measured near-equivalent
+    /// (~3-5% incision drift). Visual-A/B the speedup.
+    #[arg(long, default_value_t = 0)]
+    erosion_reroute_interval: usize,
+
+    /// Fluvial step count per precip pass (default 60). 0 = default. FEWER = cheaper
+    /// AND less-mature / less-dissected terrain (erosion is still evolving at 60, not
+    /// converged) — a perf x "less busy" fidelity dial, not free.
+    #[arg(long, default_value_t = 0)]
+    erosion_steps: usize,
+
+    /// Coupled erode<->precip feedback passes (default 2). 0 = default; 1 = no
+    /// feedback (halves total erosion, but +16% incision / pricklier — the 2nd pass
+    /// does anti-prickle healing). Fidelity dial, not free.
+    #[arg(long, default_value_t = 0)]
+    erosion_precip_iters: usize,
+
+    /// Tectonic uplift scale ("Hold & carve"). <0 = EROSION_UPLIFT_SCALE default;
+    /// 0 = relaxation only.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_uplift_scale: f32,
+
+    /// Depositional repose slope (fans/floodplains/deltas). <0 = default; 0 =
+    /// sink-fill only.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_deposition_slope: f32,
+
+    /// Lithologic erodibility contrast sigma. <0 = default; 0 = uniform K.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_litho_sigma: f32,
+
+    /// Structural-grain erodibility strength (fold-belt ridge-and-valley). <0 =
+    /// default; 0 = off.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_litho_grain: f32,
+
+    /// Orographic precip modulation strength (windward wetter, lee drier). <0 =
+    /// default; 0 = coarse precip.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_orographic_strength: f32,
+
+    /// Lakes-as-evaporation precip boost. <0 = default; 0 = off.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_lake_evap: f32,
+
+    /// Glacial abrasion coefficient (ice-flux over-deepening). <0 = default; 0 =
+    /// no glacial pass.
+    #[arg(long, default_value_t = -1.0)]
+    glacial_k: f32,
+
+    /// Fault range-front scarp relief. <0 = default; 0 = off (smooth fronts).
+    #[arg(long, default_value_t = -1.0)]
+    fault_scarp: f32,
+
+    /// Fine interior structural relief amplitude (P1a: mid-band fault/fold grain
+    /// that breaks the flat orogen summit). <0 = default; 0 = off (pure interpolant).
+    #[arg(long, default_value_t = -1.0)]
+    interior_relief: f32,
+
+    /// Fine strike-band weight (P1b: interior grain aligned to the nearest orogen
+    /// front vs isotropic). <0 = default; 0 = isotropic (P1a).
+    #[arg(long, default_value_t = -1.0)]
+    front_strike_weight: f32,
+
+    /// Fine margin contrast (P1c: sharpen relief on active coasts, damp passive).
+    /// <0 = default; 0 = off (P1b).
+    #[arg(long, default_value_t = -1.0)]
+    margin_contrast: f32,
+
+    /// Emergent-orogens demotion fraction (erosion-v3): demote λ·(arc+collision) and
+    /// rebuild via active uplift. <0 = default (0=off). Pair with --erosion-uplift-scale.
+    #[arg(long, default_value_t = -1.0)]
+    emergent_lambda: f32,
+
+    /// O0 structured emergent uplift (asymmetric+segmented vs uniform rebuild).
+    /// <0 = default (0=off); 1 = fully structured. Needs --emergent-lambda + --erosion-n~2.
+    #[arg(long, default_value_t = -1.0)]
+    emergent_structured: f32,
+
+    /// Coarse orogen asymmetry blend (steep foreland / gentle hinterland macro envelope).
+    /// <0 = default (0=symmetric); 1 = full. Changes the macro elevation + atmosphere.
+    #[arg(long, default_value_t = -1.0)]
+    coarse_asymmetry: f32,
+
+    /// Sweep mode: erosion knob to vary across columns (enables a headless
+    /// render-to-PNG sweep). Knobs: k, diffusivity, channel_support,
+    /// hillslope_crit, confinement_slope, uplift_smooth, mfd_exponent,
+    /// diffusion_iters, reroute_interval, steps, precip_iters, flat_resolution.
+    #[arg(long)]
+    sweep: Option<String>,
+
+    /// Cumulative-stack preset (e.g. "p1"): render a fixed sequence of knob combos
+    /// (each rung layered on the previous) sharing one camera set, instead of a
+    /// single-knob --sweep. Ignores --sweep/--sweep-values.
+    #[arg(long)]
+    sweep_stack: Option<String>,
+
+    /// Comma-separated values for --sweep (e.g. "10,30,60,120").
+    #[arg(long, default_value = "")]
+    sweep_values: String,
+
+    /// Optional second knob varied across rows (2-D grid).
+    #[arg(long)]
+    sweep2: Option<String>,
+
+    /// Comma-separated values for --sweep2.
+    #[arg(long, default_value = "")]
+    sweep2_values: String,
+
+    /// Output directory for sweep PNG tiles + montage.png.
+    #[arg(long, default_value = "sweep_out")]
+    out_dir: PathBuf,
+
+    /// Sweep tile width in pixels.
+    #[arg(long, default_value_t = 1024)]
+    sweep_width: u32,
+
+    /// Sweep tile height in pixels.
+    #[arg(long, default_value_t = 1024)]
+    sweep_height: u32,
+
+    /// Sweep camera yaw in degrees (globe orbit).
+    #[arg(long, default_value_t = 30.0)]
+    sweep_yaw: f32,
+
+    /// Sweep camera pitch in degrees (globe orbit).
+    #[arg(long, default_value_t = 25.0)]
+    sweep_pitch: f32,
+
+    /// Sweep camera distance from globe center (overview).
+    #[arg(long, default_value_t = 2.2)]
+    sweep_distance: f32,
+
+    /// Zoomed close-up views per tile (auto-aimed at the highest land), in
+    /// addition to the globe overview. 0 = overview only.
+    #[arg(long, default_value_t = 3)]
+    sweep_zoom_views: usize,
+
+    /// Close-up camera altitude above target (smaller = tighter zoom).
+    #[arg(long, default_value_t = 0.3)]
+    sweep_zoom_alt: f32,
+
+    /// Rivers in sweep tiles: off, major, or all.
+    #[arg(long, default_value = "major")]
+    sweep_rivers: String,
+
     /// Legacy flag: equivalent to --stage 2
     #[arg(long, hide = true)]
     stage2: bool,
+}
+
+/// Parse a comma-separated list of f64 values, ignoring empty entries.
+fn parse_values(s: &str) -> Vec<f64> {
+    s.split(',')
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .map(|t| {
+            t.parse::<f64>()
+                .unwrap_or_else(|_| panic!("invalid sweep value: '{t}'"))
+        })
+        .collect()
 }
 
 fn main() {
@@ -93,6 +311,42 @@ fn main() {
     };
 
     let backend = VoronoiBackend::from(cli.voronoi_backend);
+    let erosion = app::world::ErosionOverrides {
+        mfd_exponent: (cli.erosion_mfd_exponent >= 0.0).then_some(cli.erosion_mfd_exponent),
+        flat_resolution: (cli.erosion_flat_resolution >= 0)
+            .then_some(cli.erosion_flat_resolution != 0),
+        confinement_slope: (cli.erosion_confinement_slope >= 0.0)
+            .then_some(cli.erosion_confinement_slope),
+        k: (cli.erosion_k >= 0.0).then_some(cli.erosion_k),
+        n: (cli.erosion_n >= 0.0).then_some(cli.erosion_n),
+        diffusivity: (cli.erosion_diffusivity >= 0.0).then_some(cli.erosion_diffusivity),
+        channel_support_km2: (cli.erosion_channel_support >= 0.0)
+            .then_some(cli.erosion_channel_support),
+        uplift_smooth_km: (cli.erosion_uplift_smooth >= 0.0).then_some(cli.erosion_uplift_smooth),
+        hillslope_critical_slope: (cli.erosion_hillslope_crit >= 0.0)
+            .then_some(cli.erosion_hillslope_crit),
+        diffusion_iters: (cli.erosion_diffusion_iters > 0).then_some(cli.erosion_diffusion_iters),
+        reroute_interval: (cli.erosion_reroute_interval > 0)
+            .then_some(cli.erosion_reroute_interval),
+        steps: (cli.erosion_steps > 0).then_some(cli.erosion_steps),
+        precip_outer_iters: (cli.erosion_precip_iters > 0).then_some(cli.erosion_precip_iters),
+        uplift_scale: (cli.erosion_uplift_scale >= 0.0).then_some(cli.erosion_uplift_scale),
+        deposition_slope: (cli.erosion_deposition_slope >= 0.0)
+            .then_some(cli.erosion_deposition_slope),
+        litho_sigma: (cli.erosion_litho_sigma >= 0.0).then_some(cli.erosion_litho_sigma),
+        litho_grain_strength: (cli.erosion_litho_grain >= 0.0).then_some(cli.erosion_litho_grain),
+        orographic_precip_strength: (cli.erosion_orographic_strength >= 0.0)
+            .then_some(cli.erosion_orographic_strength),
+        lake_evap_strength: (cli.erosion_lake_evap >= 0.0).then_some(cli.erosion_lake_evap),
+        glacial_k: (cli.glacial_k >= 0.0).then_some(cli.glacial_k),
+        fault_scarp_height: (cli.fault_scarp >= 0.0).then_some(cli.fault_scarp),
+        interior_relief: (cli.interior_relief >= 0.0).then_some(cli.interior_relief),
+        front_strike_weight: (cli.front_strike_weight >= 0.0).then_some(cli.front_strike_weight),
+        margin_contrast: (cli.margin_contrast >= 0.0).then_some(cli.margin_contrast),
+        emergent_lambda: (cli.emergent_lambda >= 0.0).then_some(cli.emergent_lambda),
+        emergent_structured: (cli.emergent_structured >= 0.0).then_some(cli.emergent_structured),
+        coarse_asymmetry: (cli.coarse_asymmetry >= 0.0).then_some(cli.coarse_asymmetry),
+    };
     let fine_cache = if cli.no_fine_cache {
         FineCacheMode::Disabled
     } else if cli.rebuild_fine_cache {
@@ -101,7 +355,43 @@ fn main() {
         FineCacheMode::Enabled
     };
 
-    if cli.headless {
+    if cli.sweep.is_some() || cli.sweep_stack.is_some() {
+        let river_mode = match cli.sweep_rivers.as_str() {
+            "off" => app::RiverMode::Off,
+            "major" => app::RiverMode::Major,
+            "all" => app::RiverMode::All,
+            other => panic!("invalid --sweep-rivers '{other}'; use off, major, or all"),
+        };
+        let values1 = parse_values(&cli.sweep_values);
+        if cli.sweep_stack.is_none() && values1.is_empty() {
+            panic!("--sweep requires --sweep-values (e.g. --sweep-values 10,30,60)");
+        }
+        let opts = app::sweep::SweepOptions {
+            seed: cli.seed.unwrap_or_else(rand::random),
+            cells: cli.cells,
+            fine_scale: cli.fine_scale,
+            // Sweeps are about erosion, so default to the erosion stage.
+            target_stage: cli.stage.unwrap_or(4),
+            voronoi_backend: backend,
+            fine_cache,
+            base_erosion: erosion,
+            stack: cli.sweep_stack.clone(),
+            knob1: cli.sweep.clone().unwrap_or_default(),
+            values1,
+            knob2: cli.sweep2.clone(),
+            values2: parse_values(&cli.sweep2_values),
+            out_dir: cli.out_dir,
+            width: cli.sweep_width,
+            height: cli.sweep_height,
+            yaw_deg: cli.sweep_yaw,
+            pitch_deg: cli.sweep_pitch,
+            distance: cli.sweep_distance,
+            zoom_views: cli.sweep_zoom_views,
+            zoom_alt: cli.sweep_zoom_alt,
+            river_mode,
+        };
+        app::sweep::run_sweep(opts);
+    } else if cli.headless {
         run_headless(
             cli.seed,
             cli.cells,
@@ -110,9 +400,17 @@ fn main() {
             cli.export,
             backend,
             fine_cache,
+            erosion,
         );
     } else {
-        run_interactive(cli.seed, target_stage, cli.export, backend, fine_cache);
+        run_interactive(
+            cli.seed,
+            target_stage,
+            cli.export,
+            backend,
+            fine_cache,
+            erosion,
+        );
     }
 }
 
@@ -125,6 +423,7 @@ fn run_headless(
     export_path: Option<PathBuf>,
     voronoi_backend: VoronoiBackend,
     fine_cache: FineCacheMode,
+    erosion: app::world::ErosionOverrides,
 ) {
     let seed = seed.unwrap_or_else(rand::random);
     println!(
@@ -135,7 +434,17 @@ fn run_headless(
     // Generate world
     print!("Generating world... ");
     let start = std::time::Instant::now();
-    let mut world = create_world_with_options(seed, num_cells, voronoi_backend, fine_cache);
+    let coarse_asymmetry = erosion
+        .coarse_asymmetry
+        .unwrap_or(hex3::world::COARSE_OROGEN_ASYMMETRY);
+    let mut world = create_world_with_options(
+        seed,
+        num_cells,
+        voronoi_backend,
+        fine_cache,
+        coarse_asymmetry,
+    );
+    erosion.apply(&mut world);
     // Apply the fine-mesh resolution multiplier. A non-default scale changes the
     // sampled mesh, so the disk cache (keyed on the density params) would miss
     // anyway; disable it to avoid writing a base per scale.
@@ -186,6 +495,7 @@ fn run_interactive(
     export_path: Option<PathBuf>,
     voronoi_backend: VoronoiBackend,
     fine_cache: FineCacheMode,
+    erosion: app::world::ErosionOverrides,
 ) {
     let event_loop = EventLoop::new().expect("Failed to create event loop");
     event_loop.set_control_flow(ControlFlow::Wait);
@@ -199,6 +509,7 @@ fn run_interactive(
         target_stage,
         voronoi_backend,
         fine_cache,
+        erosion,
     };
 
     let mut app = app::App::new(config);

@@ -1,4 +1,7 @@
-use hex3::world::{ErosionParams, FineCacheMode, FineDensityParams, FineWorld, World};
+use hex3::world::{
+    ErosionParams, FineCacheMode, FineDensityParams, FineStructureParams, FineWorld, OrogenFronts,
+    World,
+};
 
 /// Build a tiny coarse world through stage 2 (atmosphere) — shared setup for the
 /// fine-mesh smoke tests.
@@ -14,6 +17,12 @@ fn coarse_world() -> World {
 }
 
 fn generate_pre(world: &World) -> FineWorld {
+    let fronts = OrogenFronts::build(
+        &world.tessellation,
+        world.plates.as_ref().unwrap(),
+        world.crust.as_ref().unwrap(),
+        world.dynamics.as_ref().unwrap(),
+    );
     FineWorld::generate_pre(
         world.seed,
         &world.tessellation,
@@ -24,6 +33,8 @@ fn generate_pre(world: &World) -> FineWorld {
         4000,
         FineCacheMode::Disabled,
         FineDensityParams::default(),
+        FineStructureParams::default(),
+        &fronts,
     )
 }
 

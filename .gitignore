@@ -19,6 +19,11 @@ analysis_*.md
 analysis_*.png
 map_*.png
 
+# Sweep-harness PNG output (tiles + montage); default --out-dir and common ones.
+/sweep_out/
+/sweep_smoke/
+sweep_*/
+
 # Claude Code personal/per-machine settings (allowlist, local overrides).
 # Shared settings belong in .claude/settings.json instead.
 .claude/settings.local.json

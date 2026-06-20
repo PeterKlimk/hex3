@@ -1123,36 +1123,36 @@ fn calculate_water_levels(basins: &mut [Basin], climate_ratio: f32) {
             continue;
         }
 
-        group_level[g] = if target_area <= 0.0 || eff_ratio <= 0.0 || groups[g].sorted_elev.is_empty()
-        {
-            bottom - 1.0
-        } else if target_area >= capacity {
-            // Overflows to the external saddle; route excess to the downstream group.
-            let overflow_amount = effective_catchment - (capacity / eff_ratio);
-            if let Some(t) = groups[g].overflow_group {
-                received[t] += overflow_amount.max(0.0);
-            }
-            spill
-        } else {
-            // Partial fill by AREA: submerge whole cells whose cumulative area
-            // fits; the level sits between the last submerged cell and the next.
-            let mut cumulative = 0.0f32;
-            let mut last_submerged: Option<usize> = None;
-            for (idx, &area) in groups[g].sorted_area.iter().enumerate() {
-                if cumulative + area > target_area {
-                    break;
+        group_level[g] =
+            if target_area <= 0.0 || eff_ratio <= 0.0 || groups[g].sorted_elev.is_empty() {
+                bottom - 1.0
+            } else if target_area >= capacity {
+                // Overflows to the external saddle; route excess to the downstream group.
+                let overflow_amount = effective_catchment - (capacity / eff_ratio);
+                if let Some(t) = groups[g].overflow_group {
+                    received[t] += overflow_amount.max(0.0);
                 }
-                cumulative += area;
-                last_submerged = Some(idx);
-            }
-            match last_submerged {
-                None => bottom - 1.0,
-                Some(k) if k + 1 < groups[g].sorted_elev.len() => {
-                    (groups[g].sorted_elev[k] + groups[g].sorted_elev[k + 1]) / 2.0
+                spill
+            } else {
+                // Partial fill by AREA: submerge whole cells whose cumulative area
+                // fits; the level sits between the last submerged cell and the next.
+                let mut cumulative = 0.0f32;
+                let mut last_submerged: Option<usize> = None;
+                for (idx, &area) in groups[g].sorted_area.iter().enumerate() {
+                    if cumulative + area > target_area {
+                        break;
+                    }
+                    cumulative += area;
+                    last_submerged = Some(idx);
                 }
-                Some(_) => spill,
-            }
-        };
+                match last_submerged {
+                    None => bottom - 1.0,
+                    Some(k) if k + 1 < groups[g].sorted_elev.len() => {
+                        (groups[g].sorted_elev[k] + groups[g].sorted_elev[k + 1]) / 2.0
+                    }
+                    Some(_) => spill,
+                }
+            };
     }
 
     // 5. Write each group's surface level back to its member basins.

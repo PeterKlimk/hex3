@@ -29,6 +29,10 @@ struct Cli {
     /// sweep erosion strength without a recompile (FineBase is cached).
     #[arg(long, default_value_t = -1.0)]
     erosion_k: f32,
+    /// Override stream-power SLOPE exponent n (E=K·A^m·S^n). <0 = EROSION_N default (1);
+    /// >1 (≈1.5–2) = sharper valleys/divides. Newton-solved.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_n: f32,
     /// Override erosion step count. 0 = use the EROSION_STEPS default.
     #[arg(long, default_value_t = 0)]
     erosion_steps: usize,
@@ -45,6 +49,27 @@ struct Cli {
     /// under-converged (speckle).
     #[arg(long, default_value_t = 0)]
     erosion_diffusion_iters: usize,
+    /// Override the drainage re-route interval (steps between re-routings).
+    /// 0 = use the EROSION_REROUTE_INTERVAL default; 1 = re-route every step.
+    /// Set to 1 to test whether stale routing is driving the spiral/perforation
+    /// artifacts (see docs/specs/erosion.md "Roughness counters").
+    #[arg(long, default_value_t = 0)]
+    erosion_reroute_interval: usize,
+    /// Barnes convergent flat resolution (Rung 1). -1 = use the
+    /// EROSION_FLAT_RESOLUTION default; 0 = off (old flood_parent wavefront);
+    /// 1 = on. A/B the spiral-on-flats fix (docs/specs/erosion-routing-ladder.md).
+    #[arg(long, default_value_t = -1)]
+    erosion_flat_resolution: i8,
+    /// MFD drainage-area exponent (Rung 2). <0 = use EROSION_MFD_EXPONENT; 0 =
+    /// single-flow (SFD); higher = sharper (p→∞ ≈ SFD), lower ≈ 1 = dispersive.
+    /// Sweep to A/B multi-flow vs single-flow discharge.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_mfd_exponent: f32,
+    /// Plains alluvial regime gate: channel slope (elev/km) at/above which
+    /// incision is full; gentler channels fade to alluvial. <0 = use
+    /// EROSION_CONFINEMENT_SLOPE; 0 = off. See docs/specs/erosion-valleys-not-channels.md.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_confinement_slope: f32,
     /// Override lithologic erodibility contrast (exp-amplitude sigma). <0 = use
     /// the EROSION_LITHO_SIGMA default; 0 = uniform K (no lithology).
     #[arg(long, default_value_t = -1.0)]
@@ -54,6 +79,19 @@ struct Cli {
     /// default; 0 = relaxation only (no uplift).
     #[arg(long, default_value_t = -1.0)]
     erosion_uplift_scale: f32,
+    /// Override uplift-FORCING smoothing length (km). Escalation #1: smooths the
+    /// per-step uplift source over a sub-grid orogenic width to kill mountain-top
+    /// cell-scale chatter without flattening orogens. <0 = use
+    /// EROSION_UPLIFT_SMOOTH_KM default; 0 = off. See
+    /// docs/specs/erosion-uplift-smoothing.md.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_uplift_smooth: f32,
+    /// Override Roering nonlinear-hillslope critical slope S_c (escalation #2;
+    /// Δelev/radian, ~grade·637). Diffusivity blows up toward S_c -> planar
+    /// slopes + crisp ridges. <0 = use EROSION_HILLSLOPE_CRITICAL_SLOPE default;
+    /// 0 = off (linear creep). Read curv-rms/peak% as you sweep ~150-300.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_hillslope_crit: f32,
     /// Override orographic precip modulation strength (climate↔erosion: windward
     /// wetter, lee drier). <0 = use OROGRAPHIC_PRECIP_STRENGTH; 0 = coarse precip.
     #[arg(long, default_value_t = -1.0)]
@@ -76,6 +114,12 @@ struct Cli {
     /// and abraded volume as you sweep it.
     #[arg(long, default_value_t = -1.0)]
     glacial_k: f32,
+    /// Override glacial over-deepening max (reverse-gradient/tarn depth a cell may
+    /// carve below its receiver). <0 = use GLACIAL_OVERDEEPEN_MAX default; 0 =
+    /// no over-deepening (no closed rock basins). Isolates over-deepening from
+    /// SFD ice abrasion as the curv-rms/pit source.
+    #[arg(long, default_value_t = -1.0)]
+    glacial_overdeepen_max: f32,
     /// Override structural-grain erodibility strength (fold-belt ridge-and-valley).
     /// <0 = use EROSION_LITHO_GRAIN_STRENGTH default; 0 = no grain. Experimental.
     #[arg(long, default_value_t = -1.0)]
@@ -84,6 +128,37 @@ struct Cli {
     /// <0 = use FAULT_SCARP_HEIGHT default; 0 = off (smooth fronts).
     #[arg(long, default_value_t = -1.0)]
     fault_scarp: f32,
+    /// Override fine interior structural relief amplitude (P1a: mid-band fault/fold
+    /// grain that breaks the flat orogen summit). <0 = use FINE_INTERIOR_RELIEF
+    /// default; 0 = off (pure interpolant). Regenerates the fine base.
+    #[arg(long, default_value_t = -1.0)]
+    interior_relief: f32,
+    /// Override fine strike-band weight (P1b: how much of the interior grain aligns
+    /// to the nearest orogen front vs isotropic). <0 = use FINE_FRONT_STRIKE_WEIGHT
+    /// default; 0 = isotropic (P1a). Regenerates the fine base.
+    #[arg(long, default_value_t = -1.0)]
+    front_strike_weight: f32,
+    /// Override fine margin contrast (P1c: sharpen relief on active/convergent coasts,
+    /// damp on passive ones). <0 = use FINE_MARGIN_CONTRAST default; 0 = off (P1b).
+    /// Regenerates the fine base.
+    #[arg(long, default_value_t = -1.0)]
+    margin_contrast: f32,
+    /// Coarse orogen asymmetry blend (steep foreland / gentle hinterland macro envelope).
+    /// <0 = default (0=symmetric); 1 = full. Changes the macro elevation + atmosphere.
+    #[arg(long, default_value_t = -1.0)]
+    coarse_asymmetry: f32,
+    /// Emergent-orogens demotion fraction (erosion-v3): demote λ·(arc+collision) from
+    /// the base and rebuild it by active uplift. <0 = default (0=off); 0.25-0.5 = test.
+    /// Pair with a raised --erosion-uplift-scale (~λ/(steps·dt)). NOTE: the painted P1
+    /// relief still runs unless you also zero it (--interior-relief 0.005 --fault-scarp 0
+    /// etc.) — the `--sweep-stack v3` preset does this for a clean A/B. Regenerates base.
+    #[arg(long, default_value_t = -1.0)]
+    emergent_lambda: f32,
+    /// O0 structured emergent uplift (orogen-structure): blend of asymmetric+segmented
+    /// uplift shape vs uniform rebuild. <0 = default (0=off); 1 = fully structured.
+    /// Needs --emergent-lambda >0 and (for the decisive test) --erosion-n ~2.
+    #[arg(long, default_value_t = -1.0)]
+    emergent_structured: f32,
     /// Fine-mesh density knobs (cell-size targets in km / blend). <0 = use the
     /// FINE_* default. Setting any forces fine-base regeneration (no cache). Use
     /// to sweep the ocean/plains/mountain budget: e.g. --fine-plains-km 20.
@@ -118,6 +193,9 @@ fn main() {
         cli.seed, cli.cells
     );
     let mut world = World::new(cli.seed, cli.cells, 1);
+    if cli.coarse_asymmetry >= 0.0 {
+        world.coarse_asymmetry = cli.coarse_asymmetry; // before generate_features (below)
+    }
     world.generate_plates(hex3::world::NUM_PLATES_DEFAULT);
     world.generate_crust();
     world.generate_dynamics();
@@ -126,6 +204,9 @@ fn main() {
     world.generate_atmosphere();
     if cli.erosion_k >= 0.0 {
         world.erosion_params.k = cli.erosion_k;
+    }
+    if cli.erosion_n >= 0.0 {
+        world.erosion_params.n = cli.erosion_n;
     }
     if cli.erosion_steps > 0 {
         world.erosion_params.steps = cli.erosion_steps;
@@ -139,11 +220,29 @@ fn main() {
     if cli.erosion_diffusion_iters > 0 {
         world.erosion_params.diffusion_iters = cli.erosion_diffusion_iters;
     }
+    if cli.erosion_reroute_interval > 0 {
+        world.erosion_params.reroute_interval = cli.erosion_reroute_interval;
+    }
+    if cli.erosion_flat_resolution >= 0 {
+        world.erosion_params.flat_resolution = cli.erosion_flat_resolution != 0;
+    }
+    if cli.erosion_mfd_exponent >= 0.0 {
+        world.erosion_params.mfd_exponent = cli.erosion_mfd_exponent;
+    }
+    if cli.erosion_confinement_slope >= 0.0 {
+        world.erosion_params.confinement_slope = cli.erosion_confinement_slope;
+    }
     if cli.erosion_litho_sigma >= 0.0 {
         world.erosion_params.litho_sigma = cli.erosion_litho_sigma;
     }
     if cli.erosion_uplift_scale >= 0.0 {
         world.erosion_params.uplift_scale = cli.erosion_uplift_scale;
+    }
+    if cli.erosion_uplift_smooth >= 0.0 {
+        world.erosion_params.uplift_smooth_km = cli.erosion_uplift_smooth;
+    }
+    if cli.erosion_hillslope_crit >= 0.0 {
+        world.erosion_params.hillslope_critical_slope = cli.erosion_hillslope_crit;
     }
     if cli.erosion_orographic_strength >= 0.0 {
         world.erosion_params.orographic_precip_strength = cli.erosion_orographic_strength;
@@ -157,6 +256,9 @@ fn main() {
     if cli.erosion_deposition_slope >= 0.0 {
         world.erosion_params.deposition_slope = cli.erosion_deposition_slope;
     }
+    if cli.glacial_overdeepen_max >= 0.0 {
+        world.erosion_params.glacial_overdeepen_max = cli.glacial_overdeepen_max;
+    }
     if cli.glacial_k >= 0.0 {
         world.erosion_params.glacial_k = cli.glacial_k;
     }
@@ -164,7 +266,22 @@ fn main() {
         world.erosion_params.litho_grain_strength = cli.litho_grain_strength;
     }
     if cli.fault_scarp >= 0.0 {
-        world.erosion_params.fault_scarp_height = cli.fault_scarp;
+        world.fine_structure_params.fault_scarp_height = cli.fault_scarp;
+    }
+    if cli.interior_relief >= 0.0 {
+        world.fine_structure_params.interior_relief = cli.interior_relief;
+    }
+    if cli.front_strike_weight >= 0.0 {
+        world.fine_structure_params.front_strike_weight = cli.front_strike_weight;
+    }
+    if cli.margin_contrast >= 0.0 {
+        world.fine_structure_params.margin_contrast = cli.margin_contrast;
+    }
+    if cli.emergent_lambda >= 0.0 {
+        world.fine_structure_params.emergent_lambda = cli.emergent_lambda;
+    }
+    if cli.emergent_structured >= 0.0 {
+        world.fine_structure_params.emergent_structured = cli.emergent_structured;
     }
     // Fine-mesh density overrides (force regeneration so the cache can't serve a
     // base built with the default knobs).
@@ -277,6 +394,166 @@ fn main() {
             fine.tessellation().num_cells(),
             fine.achieved_density_ratio()
         );
+        // ---- Erosion roughness counters (artifact vs. genuine dissection) ----
+        // pit% is the swiss-cheese meter (a drained surface is ~0); checkerboard%
+        // the SFD-groove banding; aspect R/entropy catch GLOBAL anisotropy / mesh-
+        // axis locking only (a local spiral with balanced azimuths stays hidden —
+        // judge spirals on the map). Pre-erosion (stage 3) vs eroded (stage 4) on
+        // the SAME fine mesh. NOTE: the land mask is recomputed per surface, so the
+        // `land` column shifts if erosion moves cells across sea level — a falling
+        // pit% with a falling `land` may be submergence, not artifact removal.
+        // See docs/specs/erosion.md.
+        let ftess = fine.tessellation();
+        let pre = hex3::world::roughness_counters(ftess, &fine.surface_for(3).elevation.values);
+        let ero = hex3::world::roughness_counters(ftess, &fine.surface_for(4).elevation.values);
+        println!(
+            "\n-- Erosion roughness counters (reroute-interval {})  [pit% is the swiss-cheese meter; lower better] --",
+            world.erosion_params.reroute_interval
+        );
+        println!(
+            "             {:>9} {:>10} {:>10} {:>10} {:>12} {:>9} {:>9}",
+            "land", "pit%", "peak%", "checker%", "curv-rms", "aspectR", "entropy"
+        );
+        let row = |label: &str, c: &hex3::world::RoughnessCounters| {
+            println!(
+                "  {:<8}   {:>9} {:>10.3} {:>10.3} {:>10.2} {:>12.3e} {:>9.3} {:>9.3}",
+                label,
+                c.land,
+                c.pit_pct,
+                c.peak_pct,
+                c.checkerboard_pct,
+                c.curv_rms,
+                c.aspect_r,
+                c.aspect_entropy
+            );
+        };
+        row("pre", &pre);
+        row("eroded", &ero);
+        println!(
+            "  {:<8}   {:>+9} {:>+10.3} {:>+10.3} {:>+10.2} {:>12} {:>+9.3} {:>+9.3}",
+            "delta",
+            ero.land as i64 - pre.land as i64,
+            ero.pit_pct - pre.pit_pct,
+            ero.peak_pct - pre.peak_pct,
+            ero.checkerboard_pct - pre.checkerboard_pct,
+            "",
+            ero.aspect_r - pre.aspect_r,
+            ero.aspect_entropy - pre.aspect_entropy,
+        );
+
+        // ---- Mountain-top plateau probe (the localized "cottage cheese on flat
+        // summits" artifact). Global counters are blind to a summit-only pattern,
+        // so restrict to the highest land (top elevation decile) and compare
+        // pre-erosion vs eroded THERE. Also report summit max-downhill slope: low
+        // slope = genuinely flat-topped (plateau). If the texture is already in
+        // `pre`, it's the fine-base synthesis (interp + noise), not erosion/routing.
+        {
+            let pre_e = &fine.surface_for(3).elevation.values;
+            let ero_e = &fine.surface_for(4).elevation.values;
+            let mut land_el: Vec<f32> = ero_e.iter().copied().filter(|&e| e >= 0.0).collect();
+            land_el.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            let thr = land_el[((land_el.len() as f32 * 0.90) as usize).min(land_el.len() - 1)];
+            let mask = |src: &[f32]| -> Vec<f32> {
+                (0..ftess.num_cells())
+                    .map(|i| if ero_e[i] >= thr { src[i] } else { -1.0 })
+                    .collect()
+            };
+            let pre_top = hex3::world::roughness_counters(ftess, &mask(pre_e));
+            let ero_top = hex3::world::roughness_counters(ftess, &mask(ero_e));
+            // Summit max-downhill slope (elev/km), pre and eroded, for flatness.
+            let summit_slopes = |elev: &[f32]| -> Vec<f32> {
+                let mut s = Vec::new();
+                for i in 0..ftess.num_cells() {
+                    if ero_e[i] < thr {
+                        continue;
+                    }
+                    let ci = ftess.cell_center(i);
+                    let mut g = 0.0f32;
+                    for &nb in ftess.neighbors(i) {
+                        let d = (ci - ftess.cell_center(nb)).length().max(1e-9) * EARTH_RADIUS_KM;
+                        g = g.max((elev[i] - elev[nb]) / d);
+                    }
+                    s.push(g);
+                }
+                s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                s
+            };
+            let pct = |v: &[f32], p: f32| v[(((v.len() as f32) * p) as usize).min(v.len() - 1)];
+            let (sp, se) = (summit_slopes(pre_e), summit_slopes(ero_e));
+            println!(
+                "\n-- Mountain-top plateau probe (top elev decile, elev>={:.3}) --",
+                thr
+            );
+            row("top pre", &pre_top);
+            row("top eroded", &ero_top);
+            println!(
+                "  summit max-downhill slope (elev/km): pre p50 {:.3e} p90 {:.3e} | eroded p50 {:.3e} p90 {:.3e}  (global land slope p50 ~3.8e-4; << = flat plateau)",
+                pct(&sp, 0.5),
+                pct(&sp, 0.9),
+                pct(&se, 0.5),
+                pct(&se, 0.9),
+            );
+        }
+
+        // ---- Carved dissection density (the "too busy" calibration target) ----
+        // Incision = pre-erosion base minus eroded (meters). A "carved" cell is
+        // incised past a depth threshold (a real valley, not surface noise); the
+        // density of carved cells (channel km / km² land) and spacing ~1/Dd index
+        // how busy the dissection is — and UNLIKE the hydrology network this
+        // responds to channel-support / K. Resolution + threshold dependent, so
+        // read vs Earth as a ballpark + a knob-response signal, not a hard number.
+        const M_PER_UNIT: f32 = 10_000.0; // ~10 km vertical per elev-unit
+        let base = &fine.surface_for(3).elevation.values;
+        let eroded = &fine.surface_for(4).elevation.values;
+        let fareas = ftess.cell_areas();
+        let mut land_area_km2 = 0.0f64;
+        let mut depths: Vec<f32> = Vec::new(); // land incision depth (m, clamped >=0)
+        let mut carved: Vec<(f32, f32)> = Vec::new(); // (depth_m, width_km) for incised
+        for i in 0..ftess.num_cells() {
+            if eroded[i] < 0.0 {
+                continue; // ocean
+            }
+            land_area_km2 += (fareas[i] * EARTH_RADIUS_KM * EARTH_RADIUS_KM) as f64;
+            let inc = (base[i] - eroded[i]) * M_PER_UNIT;
+            depths.push(inc.max(0.0));
+            if inc > 0.0 {
+                carved.push((inc, fareas[i].sqrt() * EARTH_RADIUS_KM));
+            }
+        }
+        depths.sort_by(f32::total_cmp);
+        let nland = depths.len().max(1);
+        let dq = |p: f32| depths[(((nland - 1) as f32) * p) as usize];
+        println!(
+            "\n-- Carved dissection (incision = base - eroded)  [Earth land Dd ~0.5-5 km/km², spacing ~0.2-2 km] --"
+        );
+        println!(
+            "  incision depth (land): p50 {:>4.0} m | p90 {:>4.0} m | p99 {:>5.0} m | max {:>5.0} m",
+            dq(0.50),
+            dq(0.90),
+            dq(0.99),
+            dq(1.0),
+        );
+        for thr in [30.0f32, 100.0, 300.0] {
+            let len_km: f64 = carved
+                .iter()
+                .filter(|&&(d, _)| d >= thr)
+                .map(|&(_, w)| w as f64)
+                .sum();
+            let cnt = carved.iter().filter(|&&(d, _)| d >= thr).count();
+            let dd = if land_area_km2 > 0.0 {
+                len_km / land_area_km2
+            } else {
+                0.0
+            };
+            let spacing = if dd > 0.0 { 1.0 / dd } else { f64::INFINITY };
+            println!(
+                "  carved >{:>3.0} m: {:>5.1}% of land | Dd ~{:.3} km/km² | spacing ~{:.2} km",
+                thr,
+                100.0 * cnt as f32 / nland as f32,
+                dd,
+                spacing,
+            );
+        }
     }
 
     // ---- Global elevation structure ----
@@ -1057,11 +1334,13 @@ fn main() {
         let mtn: Vec<usize> = (0..n).filter(|&i| elevation[i] >= RANGE_ELEV).collect();
         let stride = (mtn.len() / 20_000).max(1);
         let sample: Vec<usize> = mtn.iter().copied().step_by(stride).collect();
+        // ~10 km vertical per elev-unit (canonical scale) -> meters for Earth refs.
+        const M_PER_UNIT: f32 = 10_000.0;
         println!(
-            "\n-- Fine-scale local relief (fixed-radius max-min elev, {} mountain samples) --",
+            "\n-- Fine-scale local relief (fixed-radius max-min, meters, {} mountain samples)  [Earth mountains: ~1-2 km within 25 km; hills ~0.3-1 km] --",
             sample.len()
         );
-        println!("   (scale-controlled: across a mountain-density sweep, rising p90 => still under-resolved, flat => converged)");
+        println!("   ('sharp' = high relief at short scale; scale-controlled: rising p90 across a density sweep => under-resolved, flat => converged)");
         for &rk in &[10.0f32, 25.0f32] {
             let rad = rk / EARTH_RADIUS_KM; // small-angle: chord ≈ arc
             let rsq = rad * rad;
@@ -1080,9 +1359,9 @@ fn main() {
                 .collect();
             relief_r.sort_by(f32::total_cmp);
             let m = relief_r.len().max(1);
-            let q = |p: f32| relief_r[(((m - 1) as f32) * p) as usize];
+            let q = |p: f32| relief_r[(((m - 1) as f32) * p) as usize] * M_PER_UNIT;
             println!(
-                "  R={:>2.0} km: local relief p50 {:.4} | p90 {:.4} | p99 {:.4}",
+                "  R={:>2.0} km: local relief p50 {:>5.0} m | p90 {:>5.0} m | p99 {:>5.0} m",
                 rk,
                 q(0.50),
                 q(0.90),

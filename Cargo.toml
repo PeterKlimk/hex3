@@ -58,3 +58,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 bincode = "1"
 flate2 = "1"
+
+# PNG output (offscreen sweep renders)
+png = "0.17"

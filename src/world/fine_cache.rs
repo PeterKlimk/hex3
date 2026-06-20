@@ -18,7 +18,7 @@ use std::path::PathBuf;
 use glam::Vec3;
 
 use super::constants::*;
-use super::fine::{FineBase, FineDensityParams};
+use super::fine::{FineBase, FineDensityParams, FineStructureParams, OrogenFronts};
 use super::{Atmosphere, Crust, Elevation, FeatureFields, Tessellation};
 
 /// Bump when fine-mesh GENERATION CODE changes (sampling / relaxation / field
@@ -32,7 +32,26 @@ use super::{Atmosphere, Crust, Elevation, FeatureFields, Tessellation};
 /// false hit; (b) coarse drainage now uses distance-normalized steepest descent,
 /// which shifts the flow field feeding the fine-mesh density prior — a
 /// generation-logic change the content hash can't observe.
-const FINE_BASE_CACHE_VERSION: u32 = 3;
+/// v4: the fine base now synthesizes interior structural relief + range-front
+/// scarps into `base_elevation` (erosion-v2 P1a) — a code-generated change the
+/// pre-v4 hash can't observe; the structural knobs ARE hashed (below) but the
+/// generation logic itself needs the bump.
+/// v5: the interior relief is now strike-aware near convergent fronts (P1b) — the
+/// banded grain is a generation-logic change; `front_strike_weight` + the convergent-
+/// front primitives are hashed below, but the logic itself needs the bump.
+/// v6: active/passive margin contrast (P1c) modulates the relief amplitude near the
+/// coast — a generation-logic change; `margin_contrast` + its shape constants are
+/// hashed below, but the logic itself needs the bump.
+/// v7: emergent orogens (erosion-v3) demote the orogen peak from the base by
+/// `emergent_lambda·(arc+collision)` and add the field to `FineBase` — a serialized-
+/// struct + generation-logic change; the knob is hashed below.
+/// v8: O0 structured emergent uplift (orogen-structure) adds the `emergent_uplift_shape`
+/// field to `FineBase` and the `emergent_structured` knob (hashed below) — serialized-
+/// struct + generation-logic change.
+/// v9: O0 segmentation now uses real arc-length CHAINING of the fronts (not 3D-noise
+/// proxy) + the structured builder gained a per-cell land floor — generation-logic
+/// changes the content hash can't observe.
+const FINE_BASE_CACHE_VERSION: u32 = 9;
 
 /// How the fine-mesh base should use the on-disk cache.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -60,6 +79,8 @@ pub fn fine_base_key(
     atmosphere: &Atmosphere,
     max_cells: usize,
     density: &FineDensityParams,
+    structure: &FineStructureParams,
+    fronts: &OrogenFronts,
 ) -> u64 {
     let mut h = 0xcbf2_9ce4_8422_2325u64; // FNV-1a offset basis
     mix_u64(&mut h, FINE_BASE_CACHE_VERSION as u64);
@@ -81,6 +102,58 @@ pub fn fine_base_key(
         mix_f32(&mut h, f);
     }
     mix_u64(&mut h, FINE_RELAX_PASSES as u64);
+
+    // Structural-relief knobs that shape the pre-erosion base_elevation (P1a;
+    // decision A — these are fine-base inputs, so a sweep regenerates the base).
+    mix_f32(&mut h, structure.fault_scarp_height);
+    mix_f32(&mut h, structure.interior_relief);
+    // Active/passive margin contrast (P1c): the knob (the margin SOURCE,
+    // crust.signed_margin_distance, is already hashed above). Shape constants below.
+    mix_f32(&mut h, structure.margin_contrast);
+    // Emergent orogens (erosion-v3): the demotion fraction (the arc+collision source is
+    // already hashed via features). Changes the base envelope, so it's a fine-base input.
+    mix_f32(&mut h, structure.emergent_lambda);
+    // O0 structured emergent uplift (orogen-structure): the structured-shape blend knob.
+    mix_f32(&mut h, structure.emergent_structured);
+
+    // Strike-aware fronts (P1b): the knob + the convergent-front primitives the
+    // banded grain consumes (arc endpoints, per-front overriding side, coarse plate
+    // map). The arc endpoints are the consumed geometry; `points` is derived from them.
+    mix_f32(&mut h, structure.front_strike_weight);
+    mix_vec3s(&mut h, &fronts.seg_a);
+    mix_vec3s(&mut h, &fronts.seg_b);
+    mix_u64(&mut h, fronts.accept_plate.len() as u64);
+    for a in &fronts.accept_plate {
+        // distinguish None (collision) from Some(plate); +1 avoids a 0/None clash.
+        mix_u64(&mut h, a.map_or(0, |p| p as u64 + 1));
+    }
+    mix_u64(&mut h, fronts.coarse_cell_plate.len() as u64);
+    for &p in &fronts.coarse_cell_plate {
+        mix_u64(&mut h, p as u64);
+    }
+
+    // Structural-relief SHAPE constants (P1a interior + P1b fronts). These are
+    // generation constants the FineBase synthesis consumes but no hashed input
+    // observes, so a recompile that tweaks one would otherwise false-hit the cache
+    // (cf. FINE_RELAX_PASSES above). Hash them so a constant change is a clean miss.
+    for f in [
+        FINE_INTERIOR_FREQUENCY as f32,
+        FINE_INTERIOR_OCTAVES as f32,
+        FINE_INTERIOR_MIN_ELEV,
+        FINE_INTERIOR_ELEV_BAND,
+        FINE_INTERIOR_FORCING_THRESHOLD,
+        FINE_INTERIOR_FORCING_BAND,
+        FINE_FRONT_BAND_FREQUENCY as f32,
+        FINE_FRONT_INFLUENCE_RADIUS,
+        FINE_FRONT_WARP,
+        FINE_FRONT_WARP_FREQUENCY as f32,
+        FINE_FRONT_GATHER_MARGIN,
+        FINE_MARGIN_WIDTH,
+        FINE_MARGIN_ACTIVE_FACTOR,
+        FINE_MARGIN_PASSIVE_FACTOR,
+    ] {
+        mix_f32(&mut h, f);
+    }
 
     // Coarse-world fingerprint. The generators pin the coarse mesh identity
     // (seed + resolution + Lloyd). Coarse elevation + atmosphere capture every

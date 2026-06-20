@@ -6,9 +6,11 @@ use wgpu::{
 };
 use winit::{dpi::PhysicalSize, window::Window};
 
-/// GPU context holding all wgpu resources.
+/// GPU context holding all wgpu resources. `surface` is `None` for a headless
+/// context (offscreen rendering, e.g. the sweep harness), which renders to its
+/// own textures instead of a swapchain.
 pub struct GpuContext {
-    pub surface: Surface<'static>,
+    pub surface: Option<Surface<'static>>,
     pub device: Device,
     pub queue: Queue,
     pub config: SurfaceConfiguration,
@@ -84,7 +86,7 @@ impl GpuContext {
         surface.configure(&device, &config);
 
         Self {
-            surface,
+            surface: Some(surface),
             device,
             queue,
             config,
@@ -93,13 +95,69 @@ impl GpuContext {
         }
     }
 
-    /// Resize the surface.
+    /// Create a headless GPU context (no window/surface) for offscreen rendering.
+    /// The format is a fixed sRGB 8-bit RGBA so readback bytes are PNG-ready.
+    pub async fn new_headless(width: u32, height: u32) -> Self {
+        let instance = Instance::new(&InstanceDescriptor {
+            backends: Backends::all(),
+            ..Default::default()
+        });
+
+        let adapter = instance
+            .request_adapter(&RequestAdapterOptions {
+                power_preference: PowerPreference::HighPerformance,
+                compatible_surface: None,
+                force_fallback_adapter: false,
+            })
+            .await
+            .expect("Failed to find suitable GPU adapter");
+
+        let mut required_limits = Limits::default();
+        required_limits.max_buffer_size = adapter.limits().max_buffer_size;
+
+        let (device, queue) = adapter
+            .request_device(&DeviceDescriptor {
+                label: Some("hex3_headless_device"),
+                required_features: Features::empty(),
+                required_limits,
+                memory_hints: Default::default(),
+                trace: Default::default(),
+                experimental_features: Default::default(),
+            })
+            .await
+            .expect("Failed to create device");
+
+        let format = TextureFormat::Rgba8UnormSrgb;
+        let config = SurfaceConfiguration {
+            usage: TextureUsages::RENDER_ATTACHMENT,
+            format,
+            width,
+            height,
+            present_mode: PresentMode::AutoNoVsync,
+            alpha_mode: wgpu::CompositeAlphaMode::Auto,
+            view_formats: vec![],
+            desired_maximum_frame_latency: 2,
+        };
+
+        Self {
+            surface: None,
+            device,
+            queue,
+            config,
+            size: PhysicalSize::new(width, height),
+            format,
+        }
+    }
+
+    /// Resize the surface (no-op for a headless context).
     pub fn resize(&mut self, new_size: PhysicalSize<u32>) {
         if new_size.width > 0 && new_size.height > 0 {
             self.size = new_size;
             self.config.width = new_size.width;
             self.config.height = new_size.height;
-            self.surface.configure(&self.device, &self.config);
+            if let Some(surface) = &self.surface {
+                surface.configure(&self.device, &self.config);
+            }
         }
     }
 
