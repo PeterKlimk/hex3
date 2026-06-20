@@ -203,6 +203,12 @@ struct Cli {
     #[arg(long)]
     sweep: Option<String>,
 
+    /// Cumulative-stack preset (e.g. "p1"): render a fixed sequence of knob combos
+    /// (each rung layered on the previous) sharing one camera set, instead of a
+    /// single-knob --sweep. Ignores --sweep/--sweep-values.
+    #[arg(long)]
+    sweep_stack: Option<String>,
+
     /// Comma-separated values for --sweep (e.g. "10,30,60,120").
     #[arg(long, default_value = "")]
     sweep_values: String,
@@ -325,7 +331,7 @@ fn main() {
         FineCacheMode::Enabled
     };
 
-    if let Some(knob1) = cli.sweep.clone() {
+    if cli.sweep.is_some() || cli.sweep_stack.is_some() {
         let river_mode = match cli.sweep_rivers.as_str() {
             "off" => app::RiverMode::Off,
             "major" => app::RiverMode::Major,
@@ -333,7 +339,7 @@ fn main() {
             other => panic!("invalid --sweep-rivers '{other}'; use off, major, or all"),
         };
         let values1 = parse_values(&cli.sweep_values);
-        if values1.is_empty() {
+        if cli.sweep_stack.is_none() && values1.is_empty() {
             panic!("--sweep requires --sweep-values (e.g. --sweep-values 10,30,60)");
         }
         let opts = app::sweep::SweepOptions {
@@ -345,7 +351,8 @@ fn main() {
             voronoi_backend: backend,
             fine_cache,
             base_erosion: erosion,
-            knob1,
+            stack: cli.sweep_stack.clone(),
+            knob1: cli.sweep.clone().unwrap_or_default(),
             values1,
             knob2: cli.sweep2.clone(),
             values2: parse_values(&cli.sweep2_values),

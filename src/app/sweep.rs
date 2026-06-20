@@ -65,6 +65,11 @@ pub struct SweepOptions {
     pub fine_cache: FineCacheMode,
     /// Baseline overrides applied to every tile (the non-swept knobs).
     pub base_erosion: ErosionOverrides,
+    /// Preset cumulative stack (e.g. "p1"): renders a fixed sequence of knob
+    /// combinations (each rung layered on the previous) instead of a single-knob
+    /// sweep, sharing one camera set so the rungs are directly comparable. When
+    /// `Some`, `knob1`/`values1`/`knob2` are ignored.
+    pub stack: Option<String>,
     /// Knob varied across columns and its values.
     pub knob1: String,
     pub values1: Vec<f64>,
@@ -391,11 +396,38 @@ fn build_views(world: &World, opts: &SweepOptions) -> Vec<(Mat4, Vec3, String)> 
     views
 }
 
+/// Cumulative-stack presets: each tile layers one rung's knobs on the previous, so
+/// the rows read as "as if I'd signed off on each in turn". The `base_erosion`
+/// supplies the non-P1 knobs; the P1 knobs are set explicitly per tile.
+fn build_stack_tiles(
+    name: &str,
+    base: &ErosionOverrides,
+) -> Vec<(ErosionOverrides, String, String)> {
+    let tile = |ir: f32, fsw: f32, mc: f32, label: &str, fname: &str| {
+        let mut o = *base;
+        o.interior_relief = Some(ir);
+        o.front_strike_weight = Some(fsw);
+        o.margin_contrast = Some(mc);
+        (o, label.to_string(), fname.to_string())
+    };
+    match name {
+        // erosion-v2 Phase 1: flat interpolant → +interior grain → +strike → +margin.
+        "p1" => vec![
+            tile(0.0, 0.0, 0.0, "baseline (P1 off)", "0_baseline"),
+            tile(0.04, 0.0, 0.0, "P1a interior", "1_p1a"),
+            tile(0.04, 0.7, 0.0, "P1a+P1b strike", "2_p1ab"),
+            tile(0.04, 0.7, 1.0, "P1a+P1b+P1c margin", "3_p1abc"),
+        ],
+        other => panic!("unknown --sweep-stack '{other}'; known: p1"),
+    }
+}
+
 /// Run the sweep: generate + render every knob combination to PNG tiles and a
 /// stitched montage in `opts.out_dir`.
 pub fn run_sweep(opts: SweepOptions) {
-    // Validate knob names up front so a typo fails before any (slow) generation.
-    {
+    // Validate knob names up front so a typo fails before any (slow) generation
+    // (knob sweeps only; a stack preset uses fixed, pre-validated knobs).
+    if opts.stack.is_none() {
         let mut probe = ErosionOverrides::default();
         apply_knob(&mut probe, &opts.knob1, opts.values1[0]).unwrap_or_else(|e| panic!("{e}"));
         if let Some(k2) = &opts.knob2 {
@@ -406,37 +438,51 @@ pub fn run_sweep(opts: SweepOptions) {
     std::fs::create_dir_all(&opts.out_dir)
         .unwrap_or_else(|e| panic!("create {}: {e}", opts.out_dir.display()));
 
-    // Flatten the knob grid into a tile list (row-major: knob2 outer, knob1 inner).
-    let rows: Vec<Option<f64>> = if opts.knob2.is_some() && !opts.values2.is_empty() {
-        opts.values2.iter().map(|&v| Some(v)).collect()
+    // Tile list: a cumulative stack preset, or the flattened knob grid (row-major:
+    // knob2 outer, knob1 inner).
+    let tiles: Vec<(ErosionOverrides, String, String)> = if let Some(stack) = &opts.stack {
+        build_stack_tiles(stack, &opts.base_erosion)
     } else {
-        vec![None]
-    };
-    let mut tiles: Vec<(ErosionOverrides, String, String)> = Vec::new();
-    for row_val in &rows {
-        for &v1 in &opts.values1 {
-            let mut overrides = opts.base_erosion;
-            apply_knob(&mut overrides, &opts.knob1, v1).unwrap();
-            let mut label = format!("{}={}", opts.knob1, fmt_value(v1));
-            let mut fname = format!("{}_{}", opts.knob1, fmt_value(v1));
-            if let (Some(k2), Some(v2)) = (&opts.knob2, row_val) {
-                apply_knob(&mut overrides, k2, *v2).unwrap();
-                label = format!("{label}, {}={}", k2, fmt_value(*v2));
-                fname = format!("{fname}__{}_{}", k2, fmt_value(*v2));
+        let rows: Vec<Option<f64>> = if opts.knob2.is_some() && !opts.values2.is_empty() {
+            opts.values2.iter().map(|&v| Some(v)).collect()
+        } else {
+            vec![None]
+        };
+        let mut tiles = Vec::new();
+        for row_val in &rows {
+            for &v1 in &opts.values1 {
+                let mut overrides = opts.base_erosion;
+                apply_knob(&mut overrides, &opts.knob1, v1).unwrap();
+                let mut label = format!("{}={}", opts.knob1, fmt_value(v1));
+                let mut fname = format!("{}_{}", opts.knob1, fmt_value(v1));
+                if let (Some(k2), Some(v2)) = (&opts.knob2, row_val) {
+                    apply_knob(&mut overrides, k2, *v2).unwrap();
+                    label = format!("{label}, {}={}", k2, fmt_value(*v2));
+                    fname = format!("{fname}__{}_{}", k2, fmt_value(*v2));
+                }
+                tiles.push((overrides, label, fname));
             }
-            tiles.push((overrides, label, fname));
         }
-    }
+        tiles
+    };
     let n_tiles = tiles.len();
 
+    let what = if let Some(stack) = &opts.stack {
+        format!("stack '{stack}'")
+    } else {
+        format!(
+            "{} ({} values){}",
+            opts.knob1,
+            opts.values1.len(),
+            opts.knob2
+                .as_ref()
+                .map(|k| format!(" x {} ({} values)", k, opts.values2.len()))
+                .unwrap_or_default(),
+        )
+    };
     println!(
-        "Sweep: {} ({} values){} -> {} tiles x {} views at {}x{}, stage {}, seed {}",
-        opts.knob1,
-        opts.values1.len(),
-        opts.knob2
-            .as_ref()
-            .map(|k| format!(" x {} ({} values)", k, rows.len()))
-            .unwrap_or_default(),
+        "Sweep: {} -> {} tiles x {} views at {}x{}, stage {}, seed {}",
+        what,
         n_tiles,
         1 + opts.zoom_views,
         opts.width,
