@@ -453,25 +453,29 @@ impl ErosionState {
         // uplifting: those are either sub-sea-level — already excluded — or genuinely
         // tectonically active basins where uplift/inversion is physical.)
         let epoch = (params.steps as f32 * params.dt).max(1.0);
-        // O0 (orogen-structure): volume-normalization constant for the STRUCTURED builder.
-        // The shape redistributes uplift tectonically (asymmetric/segmented); normalize it
-        // so the total uplifted elevation·area equals the gained demoted volume — height
-        // stays sane while the distribution becomes tectonic. `shape_c = gain·Σ(demoted·a)/
-        // Σ(shape·a)`; then uplifted-elev[i] = shape_c·shape[i].
+        // O0 (orogen-structure): land-safe normalization for the STRUCTURED builder. The
+        // shape redistributes uplift tectonically (asymmetric/segmented) — but pure
+        // renormalization robs low-shape cells, so demoted-below-sea cells stay submerged
+        // (land loss). Instead: a per-cell FLOOR brings every target-land cell back above
+        // sea (no land loss), then the REMAINING gained volume is distributed by the shape
+        // (concentrating relief at fronts/high segments). Total uplift = gain·demoted
+        // volume preserved; floor first, shape the excess. `shape_c` scales the excess.
+        let floor = |i: usize| (EMERGENT_LAND_FLOOR_MARGIN - base[i]).max(0.0);
         let shape_c: Option<f32> = match (coarse_target, uplift_shape) {
             (Some(target), Some(shape)) => {
                 let a = tess.cell_areas();
-                let mut dvol = 0.0f64;
-                let mut svol = 0.0f64;
+                let (mut dvol, mut svol, mut fvol) = (0.0f64, 0.0f64, 0.0f64);
                 for i in 0..n {
                     if target[i] >= 0.0 {
                         let ai = a[i] as f64;
                         dvol += (target[i] - base[i]).max(0.0) as f64 * ai;
                         svol += shape[i].max(0.0) as f64 * ai;
+                        fvol += floor(i) as f64 * ai;
                     }
                 }
+                let excess_vol = (EMERGENT_REBUILD_GAIN as f64 * dvol - fvol).max(0.0);
                 Some(if svol > 0.0 {
-                    (EMERGENT_REBUILD_GAIN as f64 * dvol / svol) as f32
+                    (excess_vol / svol) as f32
                 } else {
                     0.0
                 })
@@ -492,8 +496,8 @@ impl ErosionState {
                         return 0.0;
                     }
                     if let (Some(c), Some(shape)) = (shape_c, uplift_shape) {
-                        // O0 structured: the volume-normalized tectonic uplift shape.
-                        c * shape[i].max(0.0) * inv_slope / epoch
+                        // O0 structured: per-cell land floor + volume-balanced shaped excess.
+                        (floor(i) + c * shape[i].max(0.0)) * inv_slope / epoch
                     } else {
                         // Uniform v3 rebuild: per-cell exact (height tracks target).
                         let demoted = (target[i] - base[i]).max(0.0);

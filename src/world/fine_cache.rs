@@ -48,7 +48,10 @@ use super::{Atmosphere, Crust, Elevation, FeatureFields, Tessellation};
 /// v8: O0 structured emergent uplift (orogen-structure) adds the `emergent_uplift_shape`
 /// field to `FineBase` and the `emergent_structured` knob (hashed below) — serialized-
 /// struct + generation-logic change.
-const FINE_BASE_CACHE_VERSION: u32 = 8;
+/// v9: O0 segmentation now uses real arc-length CHAINING of the fronts (not 3D-noise
+/// proxy) + the structured builder gained a per-cell land floor — generation-logic
+/// changes the content hash can't observe.
+const FINE_BASE_CACHE_VERSION: u32 = 9;
 
 /// How the fine-mesh base should use the on-disk cache.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

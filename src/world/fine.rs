@@ -124,6 +124,13 @@ pub struct OrogenFronts {
     /// Coarse `plates.cell_plate`, so a fine cell's plate = `coarse_cell_plate[
     /// coarse_cell[i]]` resolves which fronts are on its side.
     pub coarse_cell_plate: Vec<u32>,
+    /// Per-front ALONG-STRIKE coordinate (radians of arc length within its chain): the
+    /// convergent edges are chained into ordered polylines (split at triple junctions),
+    /// and this is each front's position along its chain. Drives PRINCIPLED segmentation
+    /// (the range plunges/segments ALONG its length) instead of the 3D-noise proxy.
+    pub arc_u: Vec<f32>,
+    /// Per-front chain id, so segmentation phase is decorrelated between distinct ranges.
+    pub chain_id: Vec<u32>,
 }
 
 impl OrogenFronts {
@@ -143,6 +150,8 @@ impl OrogenFronts {
         let mut seg_a = Vec::new();
         let mut seg_b = Vec::new();
         let mut accept_plate = Vec::new();
+        // Voronoi-vertex endpoint IDs per front (for chaining into polylines).
+        let mut vids: Vec<(u32, u32)> = Vec::new();
         for e in &boundaries {
             if e.kind != BoundaryKind::Convergent {
                 continue;
@@ -152,12 +161,14 @@ impl OrogenFronts {
             } else {
                 (e.cell_b, e.cell_a)
             };
-            // Real Voronoi-edge arc endpoints; fall back to a degenerate arc at the
-            // stored bisector point if the edge isn't found.
-            let (a, b) = endpoints
-                .get(&key)
-                .copied()
-                .unwrap_or((e.boundary_point, e.boundary_point));
+            // Real Voronoi-edge arc endpoints (+ their vertex IDs); fall back to a
+            // degenerate arc at the stored bisector point if the edge isn't found.
+            let (va, vb, a, b) = endpoints.get(&key).copied().unwrap_or((
+                u32::MAX,
+                u32::MAX,
+                e.boundary_point,
+                e.boundary_point,
+            ));
             let sum = a + b;
             let mid = if sum.length_squared() > 1e-10 {
                 sum.normalize()
@@ -175,15 +186,87 @@ impl OrogenFronts {
             seg_a.push(a);
             seg_b.push(b);
             accept_plate.push(accept);
+            vids.push((va, vb));
         }
+        let (arc_u, chain_id) = chain_fronts(&seg_a, &seg_b, &vids);
         Self {
             points,
             seg_a,
             seg_b,
             accept_plate,
             coarse_cell_plate: plates.cell_plate.clone(),
+            arc_u,
+            chain_id,
         }
     }
+}
+
+/// Chain convergent fronts into ordered polylines and assign each front an along-strike
+/// coordinate (arc length within its chain) + a chain id. Two fronts are chained only
+/// through a shared Voronoi vertex of DEGREE 2 (exactly those two fronts meet there), so
+/// triple junctions split chains rather than merging unrelated ranges. Within a chain,
+/// arc length accumulates from an arbitrary seed front via the front-graph (great-circle
+/// edge lengths). Returns `(arc_u, chain_id)` per front.
+fn chain_fronts(seg_a: &[Vec3], seg_b: &[Vec3], vids: &[(u32, u32)]) -> (Vec<f32>, Vec<u32>) {
+    let nf = seg_a.len();
+    let mut arc_u = vec![0.0f32; nf];
+    let mut chain_id = vec![0u32; nf];
+    if nf == 0 {
+        return (arc_u, chain_id);
+    }
+    // vertex id -> fronts touching it (skip degenerate u32::MAX endpoints).
+    let mut vert_fronts: std::collections::HashMap<u32, Vec<usize>> =
+        std::collections::HashMap::new();
+    for (f, &(va, vb)) in vids.iter().enumerate() {
+        if va != u32::MAX {
+            vert_fronts.entry(va).or_default().push(f);
+        }
+        if vb != u32::MAX {
+            vert_fronts.entry(vb).or_default().push(f);
+        }
+    }
+    // Front adjacency: f~g if they share a DEGREE-2 vertex.
+    let arc_len = |f: usize| seg_a[f].dot(seg_b[f]).clamp(-1.0, 1.0).acos();
+    let neighbors = |f: usize| -> Vec<usize> {
+        let mut out = Vec::new();
+        for &v in &[vids[f].0, vids[f].1] {
+            if v == u32::MAX {
+                continue;
+            }
+            if let Some(fs) = vert_fronts.get(&v) {
+                if fs.len() == 2 {
+                    out.push(if fs[0] == f { fs[1] } else { fs[0] });
+                }
+            }
+        }
+        out
+    };
+    // BFS each connected component (chain); arc_u = accumulated arc length from the seed.
+    let mut visited = vec![false; nf];
+    let mut next_chain = 0u32;
+    for seed in 0..nf {
+        if visited[seed] {
+            continue;
+        }
+        let cid = next_chain;
+        next_chain += 1;
+        visited[seed] = true;
+        chain_id[seed] = cid;
+        arc_u[seed] = 0.0;
+        let mut stack = vec![seed];
+        while let Some(f) = stack.pop() {
+            for g in neighbors(f) {
+                if !visited[g] {
+                    visited[g] = true;
+                    chain_id[g] = cid;
+                    // Position the neighbour half an edge further along the chain.
+                    arc_u[g] = arc_u[f] + 0.5 * (arc_len(f) + arc_len(g));
+                    stack.push(g);
+                }
+            }
+        }
+    }
+    (arc_u, chain_id)
 }
 
 /// Fine Stage-3/4 world state. The expensive [`FineBase`] (mesh + transferred
@@ -936,9 +1019,11 @@ fn compute_emergent_uplift_shape(
         };
         let c = tess.cell_center(i);
         let plate = fronts.coarse_cell_plate[coarse_cell[i]];
-        // Nearest compatible front: unsigned arc distance + side (overriding vs foreland).
+        // Nearest compatible front: unsigned arc distance + side (overriding vs foreland)
+        // + which front (for its along-strike coordinate).
         let mut best_d = f32::INFINITY;
         let mut best_side = 1.0f32;
+        let mut best_front = usize::MAX;
         for nn in tree.within_unsorted::<SquaredEuclidean>(&[c.x, c.y, c.z], gather_r2) {
             let item = nn.item as usize;
             let side = match fronts.accept_plate[item] {
@@ -955,6 +1040,7 @@ fn compute_emergent_uplift_shape(
             if d < best_d {
                 best_d = d;
                 best_side = side;
+                best_front = item;
             }
         }
         if !best_d.is_finite() {
@@ -966,8 +1052,16 @@ fn compute_emergent_uplift_shape(
         } else {
             1.0 - sstep(0.0, FINE_OROGEN_HINTERLAND_WIDTH, v) // gentle wide hinterland
         };
-        let p = c * FINE_OROGEN_SEGMENT_FREQUENCY as f32;
-        let raw = seg_fbm.get([p.x as f64, p.y as f64, p.z as f64]) as f32;
+        // Principled along-strike segmentation: 1-D noise of the nearest front's ARC-LENGTH
+        // coordinate (decorrelated per chain), so the range plunges/segments ALONG its
+        // length coherently — not the 3D-noise proxy (blobs/seams at kinks).
+        let u = fronts.arc_u[best_front];
+        let chain = fronts.chain_id[best_front] as f32;
+        let raw = seg_fbm.get([
+            (u * FINE_OROGEN_SEGMENT_FREQUENCY as f32) as f64 + chain as f64 * 53.13,
+            0.0,
+            0.0,
+        ]) as f32;
         let seg = FINE_OROGEN_SEGMENT_MIN + (1.0 - FINE_OROGEN_SEGMENT_MIN) * sstep(-0.4, 0.4, raw);
         let shaped = demoted * profile * seg;
         demoted * (1.0 - blend) + shaped * blend

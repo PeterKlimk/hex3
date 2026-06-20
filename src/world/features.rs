@@ -955,7 +955,7 @@ pub(crate) fn build_cell_pair_edge_midpoints(
 /// iso-distance contours scallop into bullseyes). Used by the P1b strike-aware relief.
 pub(crate) fn build_cell_pair_edge_endpoints(
     tessellation: &Tessellation,
-) -> HashMap<(usize, usize), (Vec3, Vec3)> {
+) -> HashMap<(usize, usize), (u32, u32, Vec3, Vec3)> {
     let voronoi = &tessellation.voronoi;
     let mut edge_to_cells: HashMap<(u32, u32), Vec<usize>> = HashMap::new();
 
@@ -971,7 +971,8 @@ pub(crate) fn build_cell_pair_edge_endpoints(
         }
     }
 
-    let mut cell_pair_to_endpoints: HashMap<(usize, usize), (Vec3, Vec3)> = HashMap::new();
+    let mut cell_pair_to_endpoints: HashMap<(usize, usize), (u32, u32, Vec3, Vec3)> =
+        HashMap::new();
     for ((va, vb), cells) in edge_to_cells {
         if cells.len() != 2 {
             continue;
@@ -983,7 +984,7 @@ pub(crate) fn build_cell_pair_edge_endpoints(
         };
         let v0 = voronoi.vertices[va as usize];
         let v1 = voronoi.vertices[vb as usize];
-        cell_pair_to_endpoints.insert(key, (v0, v1));
+        cell_pair_to_endpoints.insert(key, (va, vb, v0, v1));
     }
     cell_pair_to_endpoints
 }

@@ -1282,3 +1282,9 @@ pub const FINE_OROGEN_SEGMENT_MIN: f32 = 0.15;
 /// is `gain·(target−base)/(steps·dt·slope)`, so `steps` becomes a pure build-vs-carve
 /// dial (more steps = same total uplift, more carving time) without moving the height.
 pub const EMERGENT_REBUILD_GAIN: f32 = 1.2;
+
+/// Land floor for the O0 structured builder (elevation units ≈ 50 m): every demoted
+/// target-land cell is uplifted to at least this above sea before the shaped excess is
+/// distributed, so structured (asymmetric/segmented) uplift can't leave demoted-below-sea
+/// cells submerged (no land loss). See erosion.rs structured builder.
+pub const EMERGENT_LAND_FLOOR_MARGIN: f32 = 0.005;
