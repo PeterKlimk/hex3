@@ -139,6 +139,11 @@ struct Cli {
     /// Regenerates the fine base.
     #[arg(long, default_value_t = -1.0)]
     margin_contrast: f32,
+    /// Emergent-orogens demotion fraction (erosion-v3): demote λ·(arc+collision) from
+    /// the base and rebuild it by active uplift. <0 = default (0=off); 0.25-0.5 = test.
+    /// Pair with a raised --erosion-uplift-scale (~λ/(steps·dt)). Regenerates the base.
+    #[arg(long, default_value_t = -1.0)]
+    emergent_lambda: f32,
     /// Fine-mesh density knobs (cell-size targets in km / blend). <0 = use the
     /// FINE_* default. Setting any forces fine-base regeneration (no cache). Use
     /// to sweep the ocean/plains/mountain budget: e.g. --fine-plains-km 20.
@@ -250,6 +255,9 @@ fn main() {
     }
     if cli.margin_contrast >= 0.0 {
         world.fine_structure_params.margin_contrast = cli.margin_contrast;
+    }
+    if cli.emergent_lambda >= 0.0 {
+        world.fine_structure_params.emergent_lambda = cli.emergent_lambda;
     }
     // Fine-mesh density overrides (force regeneration so the cache can't serve a
     // base built with the default knobs).

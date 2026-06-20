@@ -78,6 +78,10 @@ pub struct FineStructureParams {
     /// Strength of the active/passive margin contrast: relief is sharpened toward an
     /// active (convergent) coast and damped toward a passive one (P1c). 0 = off (P1b).
     pub margin_contrast: f32,
+    /// Emergent-orogens demotion fraction (erosion-v3): fraction of the orogen peak
+    /// (arc+collision) removed from the static base envelope and rebuilt by active
+    /// uplift during erosion. 0 = off (painted/postprocessor path); >0 = emergent.
+    pub emergent_lambda: f32,
 }
 
 impl Default for FineStructureParams {
@@ -87,6 +91,7 @@ impl Default for FineStructureParams {
             interior_relief: FINE_INTERIOR_RELIEF,
             front_strike_weight: FINE_FRONT_STRIKE_WEIGHT,
             margin_contrast: FINE_MARGIN_CONTRAST,
+            emergent_lambda: FINE_EMERGENT_LAMBDA,
         }
     }
 }
@@ -212,7 +217,14 @@ pub struct FineBase {
     /// lapse correction in [`FineSurface::from_eroded`] measures relief against
     /// THIS, not `base_elevation`, so the added fine structure (and later the
     /// eroded relief) lapse temperature correctly. See erosion-fine-synthesis.md.
+    /// When emergent (erosion-v3), this is ALSO the orogen-build TARGET and the
+    /// coarse-target land mask the builder uplift gates on (base_elevation is the
+    /// demoted envelope, which can dip below the target / sea level).
     pub coarse_base_elevation: Vec<f32>,
+    /// Emergent-orogens demotion fraction used to build this base (erosion-v3). >0
+    /// means `base_elevation` is the demoted envelope and erosion should run as an
+    /// active builder (rift-excluded uplift gated on `coarse_base_elevation`).
+    pub emergent_lambda: f32,
     pub density: Vec<f32>,
     pub achieved_density_ratio: f32,
 }
@@ -541,6 +553,20 @@ impl FineBase {
         // real substrate. `coarse_base_elevation` is kept as the lapse baseline.
         let t0 = Instant::now();
         let mut base_elevation = coarse_base_elevation.clone();
+        // Emergent orogens (erosion-v3): DEMOTE the orogen peak from the static base
+        // envelope by λ·(arc+collision) — the exactly-separable orogen elevation term
+        // (isostasy is linear, so the peak's elevation contribution IS arc+collision).
+        // Erosion then rebuilds it as active uplift, carving dissected ranges instead
+        // of dissecting a flat plateau. `coarse_base_elevation` is kept as the rebuild
+        // TARGET and the coarse-target land mask. See erosion-v3-emergent-orogens.md.
+        if structure_params.emergent_lambda > 0.0 {
+            let lambda = structure_params.emergent_lambda;
+            let ef = &fields.elevation_fields;
+            for i in 0..base_elevation.len() {
+                base_elevation[i] -= lambda * (ef.arc[i] + ef.collision[i]).max(0.0);
+            }
+            report_envelope_land_flips(&tessellation, &coarse_base_elevation, &base_elevation);
+        }
         // Interpolate the raw signed margin distance (radians from the coast; +
         // continental) onto the fine cells for the active/passive margin contrast
         // (P1c). Reuses the generic coarse-scalar interpolator.
@@ -590,6 +616,7 @@ impl FineBase {
             fields,
             base_elevation,
             coarse_base_elevation,
+            emergent_lambda: structure_params.emergent_lambda,
             density: fine_density,
             achieved_density_ratio,
         }
@@ -623,7 +650,19 @@ impl FineSurface {
         // Terminal (endorheic) lakes from the pre-erosion hydrology act as fixed
         // local base levels, so inflowing rivers grade to the lake surface and
         // closed basins drain internally instead of being carved over their spill.
-        let lake_base = terminal_lake_base_levels(&base.tessellation, pre_hydrology);
+        // EMERGENT (erosion-v3): lakes OFF — pre-hydrology on the LOW demoted envelope
+        // would freeze low-envelope lakes as base levels that pin the orogen the uplift
+        // is trying to build (codex). Re-enable once the build is warmed up (future).
+        let emergent = base.emergent_lambda > 0.0;
+        let lake_base = if emergent {
+            vec![f32::NEG_INFINITY; base.tessellation.num_cells()]
+        } else {
+            terminal_lake_base_levels(&base.tessellation, pre_hydrology)
+        };
+        // Emergent: erosion gets the demoted envelope as `base` and the coarse TARGET
+        // (full coarse elevation) as the land mask the builder uplift gates on — so a
+        // demoted-below-sea orogen cell still uplifts back instead of dying.
+        let coarse_target = emergent.then_some(base.coarse_base_elevation.as_slice());
 
         // The base already carries the synthesized structural relief (interior
         // fault/fold grain + range-front scarps; built in `FineBase`), so erosion
@@ -655,6 +694,7 @@ impl FineSurface {
                 &lake_base,
                 &geom,
                 params,
+                coarse_target,
             );
             let t_erode = t0.elapsed();
             let t1 = Instant::now();
@@ -1102,6 +1142,32 @@ fn report_land_fraction_drift(tess: &Tessellation, before: &[f32], after: &[f32]
             FINE_STRUCTURE_LAND_DRIFT_TOL
         );
     }
+}
+
+/// Emergent-orogens audit (erosion-v3): how much intended-LAND the envelope demotion
+/// pushed below sea level. The builder uplift gates on the coarse-target mask so these
+/// cells DO rebuild, but a large area-weighted flip fraction means the demotion is
+/// drowning real coast (the decomposition doesn't commute with the coarse sea-level
+/// solve), so λ is too aggressive. Logs the area-weighted fraction of cells with
+/// `target >= 0` but `envelope < 0`.
+fn report_envelope_land_flips(tess: &Tessellation, target: &[f32], envelope: &[f32]) {
+    let areas = tess.cell_areas();
+    let mut land = 0.0f64;
+    let mut flipped = 0.0f64;
+    for i in 0..tess.num_cells() {
+        if target[i] >= 0.0 {
+            let a = areas[i] as f64;
+            land += a;
+            if envelope[i] < 0.0 {
+                flipped += a;
+            }
+        }
+    }
+    let frac = if land > 0.0 { flipped / land } else { 0.0 };
+    log::info!(
+        "fine mesh: emergent envelope land flips (area-weighted) {:.2}% of land (target>=0, envelope<0; rebuilt by uplift but flags too-aggressive λ)",
+        100.0 * frac
+    );
 }
 
 /// Fault range-front scarps (v1 proxy): sharpen active orogen margins on the fine

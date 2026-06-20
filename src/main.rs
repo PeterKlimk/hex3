@@ -196,6 +196,11 @@ struct Cli {
     #[arg(long, default_value_t = -1.0)]
     margin_contrast: f32,
 
+    /// Emergent-orogens demotion fraction (erosion-v3): demote λ·(arc+collision) and
+    /// rebuild via active uplift. <0 = default (0=off). Pair with --erosion-uplift-scale.
+    #[arg(long, default_value_t = -1.0)]
+    emergent_lambda: f32,
+
     /// Sweep mode: erosion knob to vary across columns (enables a headless
     /// render-to-PNG sweep). Knobs: k, diffusivity, channel_support,
     /// hillslope_crit, confinement_slope, uplift_smooth, mfd_exponent,
@@ -322,6 +327,7 @@ fn main() {
         interior_relief: (cli.interior_relief >= 0.0).then_some(cli.interior_relief),
         front_strike_weight: (cli.front_strike_weight >= 0.0).then_some(cli.front_strike_weight),
         margin_contrast: (cli.margin_contrast >= 0.0).then_some(cli.margin_contrast),
+        emergent_lambda: (cli.emergent_lambda >= 0.0).then_some(cli.emergent_lambda),
     };
     let fine_cache = if cli.no_fine_cache {
         FineCacheMode::Disabled

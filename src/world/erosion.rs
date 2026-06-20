@@ -169,6 +169,7 @@ impl Default for ErosionParams {
 /// Thin wrapper over [`ErosionState`]: `new(..).step(EROSION_STEPS)` is the batch
 /// run. The before/after roughness probes (and the diagnostics they print) live
 /// here, where the `Tessellation` is in hand.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn erode(
     tess: &Tessellation,
     fields: &ElevationFields,
@@ -178,6 +179,7 @@ pub(crate) fn erode(
     lake_base: &[f32],
     geom: &NeighborGeometry,
     params: ErosionParams,
+    coarse_target: Option<&[f32]>,
 ) -> Vec<f32> {
     roughness_report(tess, base, "base ");
     let mut state = ErosionState::new(
@@ -189,6 +191,7 @@ pub(crate) fn erode(
         lake_base,
         geom,
         params,
+        coarse_target,
     );
     state.step(params.steps);
     state.log_summary();
@@ -405,6 +408,7 @@ pub(crate) struct ErosionState {
 }
 
 impl ErosionState {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         tess: &Tessellation,
         fields: &ElevationFields,
@@ -414,6 +418,11 @@ impl ErosionState {
         lake_base: &[f32],
         geom: &NeighborGeometry,
         params: ErosionParams,
+        // EMERGENT (erosion-v3): when Some, the full coarse-target elevation. The
+        // builder uplift gates on THIS (not the demoted `base`), so a demoted-below-sea
+        // orogen cell still uplifts back, and it EXCLUDES rift_delta (only the demoted
+        // arc+collision orogen term is re-supplied). None = current painted behaviour.
+        coarse_target: Option<&[f32]>,
     ) -> Self {
         let n = tess.num_cells();
         let slope = isostasy_slope();
@@ -434,11 +443,20 @@ impl ErosionState {
         // tectonically active basins where uplift/inversion is physical.)
         let mut u_thick: Vec<f32> = (0..n)
             .map(|i| {
-                if base[i] < 0.0 {
+                // Gate on the coarse TARGET land mask when emergent (so demoted-below-
+                // sea orogen cells still rebuild), else on the base (painted path).
+                let gate_elev = coarse_target.map_or(base[i], |t| t[i]);
+                if gate_elev < 0.0 {
                     return 0.0;
                 }
-                params.uplift_scale
-                    * ((fields.arc[i] + fields.collision[i]) * inv_slope + fields.rift_delta[i])
+                // Emergent rebuilds only the demoted orogen term (arc+collision); the
+                // painted path also carries rift_delta as a small ongoing uplift.
+                let rift = if coarse_target.is_some() {
+                    0.0
+                } else {
+                    fields.rift_delta[i]
+                };
+                params.uplift_scale * ((fields.arc[i] + fields.collision[i]) * inv_slope + rift)
             })
             .collect();
 

@@ -42,7 +42,10 @@ use super::{Atmosphere, Crust, Elevation, FeatureFields, Tessellation};
 /// v6: active/passive margin contrast (P1c) modulates the relief amplitude near the
 /// coast — a generation-logic change; `margin_contrast` + its shape constants are
 /// hashed below, but the logic itself needs the bump.
-const FINE_BASE_CACHE_VERSION: u32 = 6;
+/// v7: emergent orogens (erosion-v3) demote the orogen peak from the base by
+/// `emergent_lambda·(arc+collision)` and add the field to `FineBase` — a serialized-
+/// struct + generation-logic change; the knob is hashed below.
+const FINE_BASE_CACHE_VERSION: u32 = 7;
 
 /// How the fine-mesh base should use the on-disk cache.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -101,6 +104,9 @@ pub fn fine_base_key(
     // Active/passive margin contrast (P1c): the knob (the margin SOURCE,
     // crust.signed_margin_distance, is already hashed above). Shape constants below.
     mix_f32(&mut h, structure.margin_contrast);
+    // Emergent orogens (erosion-v3): the demotion fraction (the arc+collision source is
+    // already hashed via features). Changes the base envelope, so it's a fine-base input.
+    mix_f32(&mut h, structure.emergent_lambda);
 
     // Strike-aware fronts (P1b): the knob + the convergent-front primitives the
     // banded grain consumes (arc endpoints, per-front overriding side, coarse plate

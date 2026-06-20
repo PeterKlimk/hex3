@@ -1227,3 +1227,14 @@ pub const FINE_MARGIN_WIDTH: f32 = 0.05;
 pub const FINE_MARGIN_ACTIVE_FACTOR: f32 = 1.3;
 /// Relief amplitude scale at the coast for a fully PASSIVE margin: <1 quiets it.
 pub const FINE_MARGIN_PASSIVE_FACTOR: f32 = 0.5;
+
+// --- Emergent orogens (erosion-v3 prototype) ---
+// Demote the orogen peak from the static fine base and re-supply it as active uplift, so
+// fine erosion BUILDS dissected ranges instead of dissecting a pre-baked flat plateau.
+// See docs/specs/erosion-v3-emergent-orogens.md. `lambda` = fraction of the orogen peak
+// (arc+collision elevation) removed from the base envelope and rebuilt by uplift over the
+// erosion epoch. 0 = off (current painted/postprocessor behaviour); 0.25-0.5 = the
+// prototype's hedge; 1.0 = build the orogen entirely from uplift (riskiest).
+// Rebuild calibration: uplift_scale * steps * dt ~= lambda (today 0.18); raise
+// EROSION_UPLIFT_SCALE accordingly when emergent.
+pub const FINE_EMERGENT_LAMBDA: f32 = 0.0;
