@@ -846,33 +846,6 @@ fn project_wind_field(
     phi
 }
 
-fn normalize_positive_field(mut values: Vec<f32>, percentile: f32) -> Vec<f32> {
-    let mut samples: Vec<f32> = values
-        .iter()
-        .copied()
-        .filter(|&v| v.is_finite() && v > 0.0)
-        .collect();
-    if samples.is_empty() {
-        values.fill(0.0);
-        return values;
-    }
-
-    samples.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let p = percentile.clamp(0.5, 0.999);
-    let idx = ((samples.len() - 1) as f32 * p).round() as usize;
-    let scale = samples[idx].max(1e-6);
-
-    for v in &mut values {
-        if !v.is_finite() || *v <= 0.0 {
-            *v = 0.0;
-        } else {
-            *v = (*v / scale).clamp(0.0, 1.0);
-        }
-    }
-
-    values
-}
-
 fn normalize_signed_field(mut values: Vec<f32>, percentile: f32) -> Vec<f32> {
     let mut samples: Vec<f32> = values
         .iter()
