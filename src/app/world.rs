@@ -138,6 +138,7 @@ pub struct ErosionOverrides {
     pub litho_sigma: Option<f32>,
     pub litho_grain_strength: Option<f32>,
     pub orographic_precip_strength: Option<f32>,
+    pub downwind_shadow_strength: Option<f32>,
     pub lake_evap_strength: Option<f32>,
     pub glacial_k: Option<f32>,
     // Fine-base structural-relief knobs (P1a): these target `fine_structure_params`,
@@ -206,6 +207,9 @@ impl ErosionOverrides {
         }
         if let Some(o) = self.orographic_precip_strength {
             world.erosion_params.orographic_precip_strength = o;
+        }
+        if let Some(d) = self.downwind_shadow_strength {
+            world.erosion_params.downwind_shadow_strength = d;
         }
         if let Some(l) = self.lake_evap_strength {
             world.erosion_params.lake_evap_strength = l;

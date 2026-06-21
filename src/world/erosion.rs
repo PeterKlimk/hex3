@@ -112,6 +112,9 @@ pub struct ErosionParams {
     /// Strength of the orographic precip modulation on the eroded fine relief
     /// (climate↔erosion feedback: windward wetter, lee drier). 0 = coarse precip.
     pub orographic_precip_strength: f32,
+    /// Strength of the DOWNWIND rain shadow: propagates the local lee dry-anomaly downwind
+    /// along the per-cell wind so lee basins keep drying. 0 = off. See rain-shadow.md.
+    pub downwind_shadow_strength: f32,
     /// Coupled erode↔precip feedback passes (≥1). 2 = one feedback pass.
     pub precip_outer_iters: usize,
     /// Lakes-as-evaporation precip boost strength (local humidity halo). 0 = off.
@@ -153,6 +156,7 @@ impl Default for ErosionParams {
             litho_sigma: EROSION_LITHO_SIGMA,
             litho_grain_strength: EROSION_LITHO_GRAIN_STRENGTH,
             orographic_precip_strength: OROGRAPHIC_PRECIP_STRENGTH,
+            downwind_shadow_strength: DOWNWIND_SHADOW_STRENGTH,
             precip_outer_iters: EROSION_PRECIP_OUTER_ITERS,
             lake_evap_strength: LAKE_EVAP_STRENGTH,
             glacial_k: GLACIAL_K,
