@@ -185,9 +185,6 @@ fn render_relief(
         .with_rivers(river_mode != RiverMode::Off)
         .with_river_major_only(river_mode == RiverMode::Major);
 
-    // Rivers are drawn by the draped river TEXTURE (group 1), not quads.
-    let river_mesh = None;
-
     let scene = RenderScene {
         fill_pipeline: FillPipelineKind::UnifiedGlobe,
         fill: IndexedDraw {
@@ -200,7 +197,6 @@ fn render_relief(
         arrows: None,
         pole_markers: None,
         rivers: None,
-        river_mesh,
         wind_particles: None,
         gpu_particles: None,
     };

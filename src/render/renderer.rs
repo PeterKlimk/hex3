@@ -95,10 +95,9 @@ pub struct RenderScene<'a> {
     pub edges: Option<EdgeDraw<'a>>,
     pub arrows: Option<LineDraw<'a>>,
     pub pole_markers: Option<IndexedDraw<'a>>,
-    /// Legacy line-based rivers (SurfaceVertex)
+    /// Line-based rivers (SurfaceVertex) for non-relief modes; relief mode draws rivers via
+    /// the draped SDF texture in the unified shader.
     pub rivers: Option<SurfaceLineDraw<'a>>,
-    /// Triangle-based rivers (UnifiedVertex) - uses unified pipeline
-    pub river_mesh: Option<IndexedDraw<'a>>,
     /// Wind particle trails (MeshVertex lines) - legacy CPU particles
     pub wind_particles: Option<LineDraw<'a>>,
     /// GPU wind particle system
@@ -521,15 +520,6 @@ impl Renderer {
                 render_pass.set_pipeline(&self.surface_line_pipeline);
                 render_pass.set_vertex_buffer(0, rivers.vertex_buffer.slice(..));
                 render_pass.draw(0..rivers.vertex_count, 0..1);
-            }
-
-            // Triangle-based rivers (uses unified pipeline for material-aware lighting)
-            if let Some(river_mesh) = scene.river_mesh.filter(|draw| draw.index_count > 0) {
-                render_pass.set_pipeline(&self.unified_fill_pipeline);
-                render_pass.set_vertex_buffer(0, river_mesh.vertex_buffer.slice(..));
-                render_pass
-                    .set_index_buffer(river_mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                render_pass.draw_indexed(0..river_mesh.index_count, 0, 0..1);
             }
 
             // Wind particle trails (legacy CPU particles)

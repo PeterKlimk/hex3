@@ -466,26 +466,18 @@ impl AppState {
                 (None, None)
             };
 
-        // Rivers: Use triangle mesh for Relief mode, line-based for other modes
-        let (rivers, river_mesh) = if self.view_mode == ViewMode::Globe {
-            if use_unified {
-                // Relief mode: rivers are drawn by the DRAPED river TEXTURE (group 1 of the
-                // unified shader, gated by rivers_enabled), not floating quad ribbons.
-                (None, None)
-            } else {
-                // Other modes: use line-based rivers
-                let lines = self
-                    .world_buffers
-                    .river_buffer(self.river_mode)
-                    .filter(|(_, count)| *count > 0)
-                    .map(|(buffer, count)| SurfaceLineDraw {
-                        vertex_buffer: buffer,
-                        vertex_count: count,
-                    });
-                (lines, None)
-            }
+        // Rivers: relief mode draws them via the draped SDF texture (in the unified shader);
+        // other globe modes use line-based rivers.
+        let rivers = if self.view_mode == ViewMode::Globe && !use_unified {
+            self.world_buffers
+                .river_buffer(self.river_mode)
+                .filter(|(_, count)| *count > 0)
+                .map(|(buffer, count)| SurfaceLineDraw {
+                    vertex_buffer: buffer,
+                    vertex_count: count,
+                })
         } else {
-            (None, None)
+            None
         };
 
         // GPU wind particles: update and render when in Climate/Wind mode on Globe view
@@ -523,7 +515,6 @@ impl AppState {
                 arrows,
                 pole_markers,
                 rivers,
-                river_mesh,
                 wind_particles: None, // Legacy CPU particles no longer used
                 gpu_particles,
             },
