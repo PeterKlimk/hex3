@@ -10,12 +10,9 @@ use std::collections::HashMap;
 use std::f32::consts::PI;
 
 use glam::Vec3;
-use kiddo::{ImmutableKdTree, SquaredEuclidean};
 use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
 
-use super::boundary::{
-    collect_plate_boundaries, BoundaryKind, PlateBoundaryEdge, SubductionPolarity,
-};
+use super::boundary::{collect_plate_boundaries, BoundaryKind, SubductionPolarity};
 use super::constants::*;
 use super::crust::{Crust, CrustType};
 use super::dynamics::Dynamics;
@@ -102,18 +99,9 @@ impl FeatureFields {
         plates: &Plates,
         crust: &Crust,
         dynamics: &Dynamics,
-        asymmetry: f32,
     ) -> Self {
         let boundaries = collect_plate_boundaries(tessellation, plates, crust, dynamics);
         let num_cells = tessellation.num_cells();
-        // Per-cell overriding-vs-foreland SIDE for the asymmetric coarse envelope (+1
-        // overriding, −1 foreland, from subduction polarity; +1/symmetric for collision
-        // and cells with no nearby convergent front). Empty when asymmetry is off.
-        let overriding_side: Vec<f32> = if asymmetry > 0.0 {
-            compute_overriding_side(tessellation, plates, &boundaries)
-        } else {
-            Vec::new()
-        };
         let boundary_edge_midpoints = build_cell_pair_edge_midpoints(tessellation);
 
         // Cell areas for resolution-independent forcing normalization.
@@ -692,8 +680,7 @@ impl FeatureFields {
                     )
                 };
                 let uplift = sqrt_response(forcing, sens, max_uplift);
-                let side_i = overriding_side.get(i).copied().unwrap_or(1.0);
-                let mut val = uplift * asym_band(arc_dist_val, side_i, peak, width, asymmetry);
+                let mut val = uplift * gaussian_band(arc_dist_val, peak, width);
 
                 // Oceanic arcs: multiplicative noise to create island clustering.
                 // Noise determines which parts of the arc form islands vs remain underwater.
@@ -737,9 +724,7 @@ impl FeatureFields {
                         COLLISION_SENSITIVITY,
                         COLLISION_MAX_UPLIFT,
                     );
-                    let side_i = overriding_side.get(i).copied().unwrap_or(1.0);
-                    collision[i] = uplift
-                        * asym_band(d, side_i, COLLISION_PEAK_DIST, COLLISION_WIDTH, asymmetry);
+                    collision[i] = uplift * gaussian_band(d, COLLISION_PEAK_DIST, COLLISION_WIDTH);
                 }
             }
 
@@ -1468,75 +1453,6 @@ pub fn gaussian_band(dist: f32, peak: f32, width: f32) -> f32 {
     let w = width.max(1e-6);
     let z = (dist - peak) / w;
     (-0.5 * z * z).exp()
-}
-
-/// Asymmetric orogen cross-section band (orogen-structure: the coarse envelope). The
-/// symmetric `gaussian_band` of distance-to-boundary makes a dome; this morphs it toward
-/// an ASYMMETRIC range — crest near the boundary, STEEP narrow FORELAND flank, GENTLE
-/// wide HINTERLAND — using the per-cell SIGNED distance `v = side·dist` (side +1
-/// overriding, −1 foreland). Width narrows on the foreland side (`v < peak`) and widens
-/// on the hinterland side. `blend` ∈ [0,1] lerps symmetric → asymmetric (0 = unchanged).
-fn asym_band(dist: f32, side: f32, peak: f32, width: f32, blend: f32) -> f32 {
-    let band_sym = gaussian_band(dist, peak, width);
-    if blend <= 0.0 {
-        return band_sym;
-    }
-    let v = side * dist;
-    let w = if v < peak {
-        width * COARSE_ASYM_FORELAND_MULT
-    } else {
-        width * COARSE_ASYM_HINTERLAND_MULT
-    };
-    let z = (v - peak) / w.max(1e-6);
-    let band_asym = (-0.5 * z * z).exp();
-    band_sym * (1.0 - blend) + band_asym * blend
-}
-
-/// Per-cell overriding-vs-foreland side for the asymmetric envelope: `+1` if the cell is
-/// on the overriding plate of its nearest CONVERGENT boundary (or the front is a collision
-/// — symmetric), `−1` if on the foreland/subducting side. Nearest convergent edge midpoint
-/// via a KD-tree; overriding plate from the subduction polarity. `+1` if no convergent
-/// front exists (the band is ≈0 there anyway).
-fn compute_overriding_side(
-    tess: &Tessellation,
-    plates: &Plates,
-    boundaries: &[PlateBoundaryEdge],
-) -> Vec<f32> {
-    let mut pts: Vec<[f32; 3]> = Vec::new();
-    let mut over: Vec<Option<u32>> = Vec::new();
-    for e in boundaries {
-        if e.kind != BoundaryKind::Convergent {
-            continue;
-        }
-        let p = e.boundary_point;
-        pts.push([p.x, p.y, p.z]);
-        over.push(match e.subduction {
-            Some(SubductionPolarity::ASubducts) => Some(e.plate_b as u32),
-            Some(SubductionPolarity::BSubducts) => Some(e.plate_a as u32),
-            None => None, // collision: no polarity → symmetric
-        });
-    }
-    let n = tess.num_cells();
-    if pts.is_empty() {
-        return vec![1.0; n];
-    }
-    let tree = ImmutableKdTree::<f32, 3>::new_from_slice(&pts);
-    (0..n)
-        .map(|i| {
-            let c = tess.cell_center(i);
-            let nn = tree.nearest_one::<SquaredEuclidean>(&[c.x, c.y, c.z]);
-            match over[nn.item as usize] {
-                None => 1.0, // collision front: keep symmetric
-                Some(op) => {
-                    if plates.cell_plate[i] == op {
-                        1.0
-                    } else {
-                        -1.0
-                    }
-                }
-            }
-        })
-        .collect()
 }
 
 /// Exponential decay from distance.
