@@ -40,9 +40,16 @@ probe into `diagnose` before the next mountain ADD.
   O0 drops its front-profile; collision stays symmetric).
 
 ## Other candidate directions
-- 🆕 **River re-work / analysis** — rivers look bad graphically in 3D (and possibly drainage
-  quality). UNDER CONSIDERATION (raised 2026-06-22). Needs a grounded analysis: rendering
-  (how river ribbons are drawn/displaced on the 3D relief) + hydrology (network plausibility).
+- **River RENDERING re-work — ✅ DONE (merged 2026-06-22).** Floating quad ribbons → rivers
+  baked into an equirect **SDF texture** the terrain shader samples by lat/lon and
+  reconstructs as **thin, crisp, screen-space-AA'd** rivers draped on the surface; water-
+  shaded (fresnel/glint, distinct from ocean). The existing **Off/Major/All** river mode is
+  now the real density control (is-major in the SDF B channel; was non-functional). Non-relief
+  modes keep line rivers; dead quad path removed.
+- ⬜ **River HYDROLOGY pass (next)** — the deferred half: the network itself is sparse and many
+  rivers don't reach the sea (interior basins / threshold). Make drainage denser + sea-reaching
+  so rivers go from "render correctly" to "look right". This is where to assess network
+  plausibility (dendritic, trunk-to-mouth, lake handling).
 - ⬜ **Perf** — default gen ~3× slower (n=2 Newton + 200 erosion steps); `EROSION_STEPS` is the
   quality↔speed dial. Revisit if iteration speed bites.
 
