@@ -24,8 +24,10 @@ pub const LLOYD_ITERATIONS: usize = 2;
 pub const NUM_PLATES: usize = hex3::world::NUM_PLATES_DEFAULT;
 
 /// Minimum flow for "all rivers" mode, as fraction of total cells.
-/// E.g., 0.0003 means a cell needs 0.03% of total cells draining through it.
-const RIVER_MIN_FLOW_FRACTION: f32 = 0.0003;
+/// E.g., 0.00005 means a cell needs 0.005% of total cells draining through it.
+/// Lowered 0.0003→0.00005 (river-render): the draped texture can afford a much denser,
+/// more dendritic network than the fat quads could; shows tributaries, not just trunks.
+const RIVER_MIN_FLOW_FRACTION: f32 = 0.00005;
 
 /// Minimum flow for a river mouth to be a "major outlet", as fraction of total cells.
 /// Rivers are traced upstream from outlets exceeding this threshold.
@@ -756,7 +758,7 @@ pub fn generate_world_buffers(
 
     // Draped-river texture: bake the network into an equirect RGBA texture + bind group
     // (group 1 of the unified pipeline). Always built (transparent when no rivers exist).
-    let (river_tex_w, river_tex_h) = (4096u32, 2048u32);
+    let (river_tex_w, river_tex_h) = (8192u32, 4096u32);
     let river_rgba = bake_river_texture(world, river_tex_w, river_tex_h);
     let river_texture = device.create_texture_with_data(
         queue,
@@ -1328,7 +1330,9 @@ pub fn bake_river_texture(world: &World, width: u32, height: u32) -> Vec<u8> {
     };
     let tess = world.active_tessellation();
     let max_flow = render_data.max_flow.max(1e-6);
-    let radius_scale = width as f32 / (2.0 * std::f32::consts::PI); // sphere length → u-px
+    // River line width in PIXELS (independent of the fat quad widths): thin tributaries →
+    // slightly wider trunks. Scales with texture resolution so it looks the same at any size.
+    let px = width as f32 / 8192.0;
     let include = render_data.include(RiverSet::All);
 
     for (i, &on) in include.iter().enumerate() {
@@ -1344,13 +1348,13 @@ pub fn bake_river_texture(world: &World, width: u32, height: u32) -> Vec<u8> {
         } else {
             tess.cell_center(j)
         };
-        let width_sphere = flow_to_width(hydrology.flow_accumulation[i], max_flow);
-        let radius_px = (width_sphere * 0.5 * radius_scale).max(0.6);
+        let t = (hydrology.flow_accumulation[i] / max_flow).sqrt();
+        let radius_px = (px * (0.9 + t * 2.2)).max(0.7);
         stamp_segment(&mut buf, w, h, start, end, radius_px);
     }
 
     // Lake outflow channels.
-    let outflow_radius = (RIVER_MAX_WIDTH * 0.5 * radius_scale).max(0.8);
+    let outflow_radius = (px * 2.5).max(0.8);
     for (_basin, path) in &render_data.lake_outflow_paths {
         for seg in path.windows(2) {
             stamp_segment(
