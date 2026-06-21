@@ -1,9 +1,7 @@
 use glam::Vec3;
 use wgpu::util::DeviceExt;
 
-use hex3::geometry::{
-    Material, MeshVertex, SurfaceVertex, UnifiedMesh, UnifiedVertex, VoronoiMesh,
-};
+use hex3::geometry::{MeshVertex, SurfaceVertex, UnifiedMesh, VoronoiMesh};
 use hex3::render::{create_index_buffer, create_vertex_buffer, ElevationVertex};
 use hex3::util::Timed;
 use hex3::world::{FineCacheMode, VoronoiBackend, World};
@@ -24,8 +22,10 @@ pub const LLOYD_ITERATIONS: usize = 2;
 pub const NUM_PLATES: usize = hex3::world::NUM_PLATES_DEFAULT;
 
 /// Minimum flow for "all rivers" mode, as fraction of total cells.
-/// E.g., 0.0003 means a cell needs 0.03% of total cells draining through it.
-const RIVER_MIN_FLOW_FRACTION: f32 = 0.0003;
+/// E.g., 0.00005 means a cell needs 0.005% of total cells draining through it.
+/// Lowered 0.0003→0.00005 (river-render): the draped texture can afford a much denser,
+/// more dendritic network than the fat quads could; shows tributaries, not just trunks.
+const RIVER_MIN_FLOW_FRACTION: f32 = 0.00005;
 
 /// Minimum flow for a river mouth to be a "major outlet", as fraction of total cells.
 /// Rivers are traced upstream from outlets exceeding this threshold.
@@ -35,12 +35,6 @@ const RIVER_OUTLET_FRACTION: f32 = 0.004;
 /// Minimum flow to continue tracing a river branch, as fraction of total cells.
 /// At confluences, branches above this threshold are followed.
 const RIVER_BRANCH_FRACTION: f32 = 0.0006;
-
-// River geometry constants (for triangle strip rendering)
-/// Minimum river width (smallest tributaries)
-const RIVER_MIN_WIDTH: f32 = 0.003;
-/// Maximum river width (major rivers)
-const RIVER_MAX_WIDTH: f32 = 0.015;
 
 fn buffer_bytes<T>(items: &[T]) -> usize {
     items.len() * std::mem::size_of::<T>()
@@ -78,17 +72,17 @@ pub struct WorldBuffers {
     // coincides with the fill-mesh rebuild. `None` after every buffer regen.
     pub relief_edge: Option<ReliefEdgeBuffers>,
 
-    // Rivers (line-based for non-relief, triangle mesh for relief)
+    // Line-based rivers (non-relief modes). Relief mode uses the draped SDF texture below.
     pub river_all_vertex_buffer: wgpu::Buffer,
     pub river_major_vertex_buffer: wgpu::Buffer,
     pub num_river_all_vertices: u32,
     pub num_river_major_vertices: u32,
-    pub river_mesh_all_vertex_buffer: wgpu::Buffer,
-    pub river_mesh_all_index_buffer: wgpu::Buffer,
-    pub river_mesh_major_vertex_buffer: wgpu::Buffer,
-    pub river_mesh_major_index_buffer: wgpu::Buffer,
-    pub num_river_mesh_all_indices: u32,
-    pub num_river_mesh_major_indices: u32,
+
+    // Draped rivers: baked equirect river texture (group 1) + its bind group. Always
+    // present (transparent when there are no rivers / pre-hydrology) so the unified
+    // pipeline's group 1 is always bindable. `_river_texture` is kept alive for the view.
+    pub river_bind_group: wgpu::BindGroup,
+    _river_texture: wgpu::Texture,
 
     // Plate overlays (arrows + pole markers)
     pub arrow_vertex_buffer: wgpu::Buffer,
@@ -602,7 +596,11 @@ pub fn generate_colored_mesh(
 
 /// Generate GPU buffers from a World.
 /// Creates one dynamic colored mesh (initially Terrain mode) plus specialized buffers.
-pub fn generate_world_buffers(device: &wgpu::Device, world: &World) -> WorldBuffers {
+pub fn generate_world_buffers(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    world: &World,
+) -> WorldBuffers {
     let use_fine = world.shows_fine();
     let voronoi = &world.active_tessellation().voronoi;
     let elevation = world.active_elevation().unwrap();
@@ -704,26 +702,18 @@ pub fn generate_world_buffers(device: &wgpu::Device, world: &World) -> WorldBuff
         generate_river_vertices(world, river_render_data.as_ref(), RiverSet::All);
     let river_major_vertices =
         generate_river_vertices(world, river_render_data.as_ref(), RiverSet::Major);
-    let river_mesh_all = generate_river_mesh(world, river_render_data.as_ref(), RiverSet::All);
-    let river_mesh_major = generate_river_mesh(world, river_render_data.as_ref(), RiverSet::Major);
 
     if !river_all_vertices.is_empty() {
         log::debug!(
-            "River segments: {} line, {} triangles (major: {} line, {} triangles)",
+            "River line segments: {} (major: {})",
             river_all_vertices.len() / 2,
-            river_mesh_all.indices.len() / 3,
             river_major_vertices.len() / 2,
-            river_mesh_major.indices.len() / 3,
         );
     }
 
     if use_fine {
         let unified_vertex_bytes = buffer_bytes(&unified_mesh.vertices);
         let unified_index_bytes = buffer_bytes(&unified_mesh.indices);
-        let river_vertex_bytes =
-            buffer_bytes(&river_mesh_all.vertices) + buffer_bytes(&river_mesh_major.vertices);
-        let river_index_bytes =
-            buffer_bytes(&river_mesh_all.indices) + buffer_bytes(&river_mesh_major.indices);
         log::info!(
             "fine mesh GPU relief mesh: vertices={}, indices={}, vertex_bytes={:.1} MiB, index_bytes={:.1} MiB, total={:.1} MiB",
             unified_mesh.vertices.len(),
@@ -732,17 +722,57 @@ pub fn generate_world_buffers(device: &wgpu::Device, world: &World) -> WorldBuff
             unified_index_bytes as f64 / 1_048_576.0,
             (unified_vertex_bytes + unified_index_bytes) as f64 / 1_048_576.0,
         );
-        log::info!(
-            "fine mesh GPU river meshes: all_indices={}, major_indices={}, vertex_bytes={:.1} MiB, index_bytes={:.1} MiB, total={:.1} MiB",
-            river_mesh_all.indices.len(),
-            river_mesh_major.indices.len(),
-            river_vertex_bytes as f64 / 1_048_576.0,
-            river_index_bytes as f64 / 1_048_576.0,
-            (river_vertex_bytes + river_index_bytes) as f64 / 1_048_576.0,
-        );
     }
 
     drop(_t);
+
+    // Draped-river texture: bake the network into an equirect RGBA texture + bind group
+    // (group 1 of the unified pipeline). Always built (transparent when no rivers exist).
+    let (river_tex_w, river_tex_h) = (8192u32, 4096u32);
+    let river_rgba = bake_river_texture(world, river_tex_w, river_tex_h);
+    let river_texture = device.create_texture_with_data(
+        queue,
+        &wgpu::TextureDescriptor {
+            label: Some("river_texture"),
+            size: wgpu::Extent3d {
+                width: river_tex_w,
+                height: river_tex_h,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        },
+        wgpu::util::TextureDataOrder::LayerMajor,
+        &river_rgba,
+    );
+    let river_view = river_texture.create_view(&wgpu::TextureViewDescriptor::default());
+    let river_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("river_sampler"),
+        address_mode_u: wgpu::AddressMode::Repeat, // longitude wraps
+        address_mode_v: wgpu::AddressMode::ClampToEdge,
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        mipmap_filter: wgpu::FilterMode::Nearest,
+        ..Default::default()
+    });
+    let river_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("river_bind_group"),
+        layout: &hex3::render::create_river_bind_group_layout(device),
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&river_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(&river_sampler),
+            },
+        ],
+    });
 
     WorldBuffers {
         // Dynamic colored mesh
@@ -784,28 +814,9 @@ pub fn generate_world_buffers(device: &wgpu::Device, world: &World) -> WorldBuff
         ),
         num_river_all_vertices: river_all_vertices.len() as u32,
         num_river_major_vertices: river_major_vertices.len() as u32,
-        river_mesh_all_vertex_buffer: create_vertex_buffer(
-            device,
-            &river_mesh_all.vertices,
-            "river_mesh_all_vertex",
-        ),
-        river_mesh_all_index_buffer: create_index_buffer(
-            device,
-            &river_mesh_all.indices,
-            "river_mesh_all_index",
-        ),
-        river_mesh_major_vertex_buffer: create_vertex_buffer(
-            device,
-            &river_mesh_major.vertices,
-            "river_mesh_major_vertex",
-        ),
-        river_mesh_major_index_buffer: create_index_buffer(
-            device,
-            &river_mesh_major.indices,
-            "river_mesh_major_index",
-        ),
-        num_river_mesh_all_indices: river_mesh_all.indices.len() as u32,
-        num_river_mesh_major_indices: river_mesh_major.indices.len() as u32,
+
+        river_bind_group,
+        _river_texture: river_texture,
 
         // Plate overlays
         arrow_vertex_buffer: create_vertex_buffer(device, &arrow_vertices, "arrow_vertex"),
@@ -1171,266 +1182,135 @@ fn generate_lake_outflow_vertices(
     }
 }
 
-// =============================================================================
-// Triangle-based river mesh generation (Phase 2)
-// =============================================================================
+// ---------------------------------------------------------------------------
+// River TEXTURE bake (river-render re-work): rasterize the river network into an
+// equirectangular RGBA mask so the terrain shader can draw rivers AS SURFACE SHADING
+// (perfectly draped) instead of floating quad ribbons. This reuses the same network +
+// flow-widths the quads used; only the rendering changes.
+// ---------------------------------------------------------------------------
 
-/// River mesh data: vertices and indices for triangle rendering.
-pub struct RiverMesh {
-    pub vertices: Vec<UnifiedVertex>,
-    pub indices: Vec<u32>,
+/// World position (unit sphere) → equirect pixel (u,v). Convention must match the shader.
+fn river_uv(p: Vec3, w: usize, h: usize) -> (f32, f32) {
+    let p = p.normalize();
+    let lat = p.y.clamp(-1.0, 1.0).asin(); // [-π/2, π/2]
+    let lon = p.z.atan2(p.x); // [-π, π]
+    let u = (lon / (2.0 * std::f32::consts::PI) + 0.5) * w as f32;
+    let v = (0.5 - lat / std::f32::consts::PI) * h as f32;
+    (u, v)
 }
 
-/// Convert flow to river width using sqrt scaling.
-fn flow_to_width(flow: f32, max_flow: f32) -> f32 {
-    let t = (flow / max_flow).sqrt();
-    RIVER_MIN_WIDTH + t * (RIVER_MAX_WIDTH - RIVER_MIN_WIDTH)
-}
+/// Distance range (pixels) the SDF encodes: R=0 on the river centerline → R=255 at
+/// `RIVER_SDF_RANGE_PX` or beyond. MUST match `RIVER_SDF_RANGE_PX` in unified.wgsl.
+const RIVER_SDF_RANGE_PX: f32 = 6.0;
 
-/// Generate a triangle-strip river mesh (used in Relief mode).
-/// Each segment is a quad (2 triangles) with width based on flow.
-fn generate_river_mesh(
-    world: &World,
-    render_data: Option<&RiverRenderData>,
-    set: RiverSet,
-) -> RiverMesh {
-    let Some(hydrology) = world.active_hydrology() else {
-        return RiverMesh {
-            vertices: Vec::new(),
-            indices: Vec::new(),
-        };
-    };
-    let Some(render_data) = render_data else {
-        return RiverMesh {
-            vertices: Vec::new(),
-            indices: Vec::new(),
-        };
-    };
-    let elevation = world.active_elevation().unwrap();
-    let tessellation = world.active_tessellation();
-
-    let include = render_data.include(set);
-    let max_flow = render_data.max_flow;
-
-    let included_count = include.iter().filter(|&&included| included).count();
-    let mut vertices = Vec::with_capacity(included_count * 6);
-    let mut indices = Vec::with_capacity(included_count * 12);
-
-    for (cell_idx, &included) in include.iter().enumerate() {
-        if !included {
+/// Stamp the unsigned distance-to-point into R (keeping the minimum), the nearest river's
+/// flow into G, and whether that nearest river is a MAJOR river into B (so the shader can
+/// honour the Off/Major/All density mode). Longitude wraps at the seam.
+fn stamp_distance(buf: &mut [u8], w: usize, h: usize, cu: f32, cv: f32, flow_u8: u8, major: bool) {
+    let r1 = RIVER_SDF_RANGE_PX + 1.0;
+    let major_u8 = if major { 255 } else { 0 };
+    for vv in (cv - r1).floor() as i32..=(cv + r1).ceil() as i32 {
+        if vv < 0 || vv >= h as i32 {
             continue;
         }
-
-        let Some(downstream_idx) = hydrology.downstream(cell_idx) else {
-            continue;
-        };
-
-        let flow = hydrology.flow_accumulation[cell_idx];
-        generate_river_segment_quad(
-            tessellation,
-            elevation,
-            hydrology,
-            cell_idx,
-            downstream_idx,
-            flow,
-            max_flow,
-            RIVER_COLOR,
-            &mut vertices,
-            &mut indices,
-        );
-    }
-
-    // Add lake outflow rivers
-    generate_lake_outflow_quads(
-        world,
-        &render_data.lake_outflow_paths,
-        max_flow,
-        RIVER_COLOR,
-        &mut vertices,
-        &mut indices,
-    );
-
-    RiverMesh { vertices, indices }
-}
-
-/// Generate a quad (2 triangles) for a river segment.
-/// Positions are on the unit sphere; shader applies displacement based on elevation.
-#[allow(clippy::too_many_arguments)]
-fn generate_river_segment_quad(
-    tessellation: &hex3::world::Tessellation,
-    elevation: &hex3::world::Elevation,
-    hydrology: &hex3::world::Hydrology,
-    cell_idx: usize,
-    downstream_idx: usize,
-    flow: f32,
-    max_flow: f32,
-    color: Vec3,
-    vertices: &mut Vec<UnifiedVertex>,
-    indices: &mut Vec<u32>,
-) {
-    let start_center = tessellation.cell_center(cell_idx);
-    let end_center = tessellation.cell_center(downstream_idx);
-
-    // Use simulation elevation (without micro noise) - shader adds micro noise
-    let start_elev = elevation.values[cell_idx];
-    let end_elev = if hydrology.is_submerged(downstream_idx) {
-        if hydrology.is_ocean(downstream_idx) {
-            0.0
-        } else {
-            hydrology
-                .basin(downstream_idx)
-                .map(|b| b.water_level)
-                .unwrap_or(0.0)
-        }
-    } else {
-        elevation.values[downstream_idx]
-    };
-
-    // End position: stop at water's edge if downstream is submerged
-    let end_pos = if hydrology.is_submerged(downstream_idx) {
-        ((start_center + end_center) / 2.0).normalize()
-    } else {
-        end_center
-    };
-
-    // Normals (on unit sphere, position = normal for lighting)
-    let n1 = start_center;
-    let n2 = end_pos;
-
-    // Tangent along river flow (this segment)
-    let tangent = (end_pos - start_center).normalize();
-
-    // Bitangent perpendicular to flow, in tangent plane of sphere
-    let bitangent1 = tangent.cross(n1).normalize();
-    let bitangent2 = tangent.cross(n2).normalize();
-
-    // Width based on flow
-    let width = flow_to_width(flow, max_flow);
-    let half_width = width / 2.0;
-
-    // Four corners of the quad for this segment (on unit sphere, undisplaced)
-    // Shader will apply elevation-based displacement
-    let p0 = (start_center + bitangent1 * half_width).normalize();
-    let p1 = (start_center - bitangent1 * half_width).normalize();
-    let p2 = (end_pos + bitangent2 * half_width).normalize();
-    let p3 = (end_pos - bitangent2 * half_width).normalize();
-
-    // Add segment vertices with elevation - shader does displacement
-    let base_idx = vertices.len() as u32;
-    vertices.push(UnifiedVertex::new(
-        p0,
-        n1,
-        color,
-        start_elev,
-        Material::River,
-    ));
-    vertices.push(UnifiedVertex::new(
-        p1,
-        n1,
-        color,
-        start_elev,
-        Material::River,
-    ));
-    vertices.push(UnifiedVertex::new(p2, n2, color, end_elev, Material::River));
-    vertices.push(UnifiedVertex::new(p3, n2, color, end_elev, Material::River));
-
-    // Two triangles with CCW winding when viewed from outside sphere
-    indices.push(base_idx);
-    indices.push(base_idx + 2);
-    indices.push(base_idx + 1);
-
-    indices.push(base_idx + 1);
-    indices.push(base_idx + 2);
-    indices.push(base_idx + 3);
-
-    // Add joint triangles if there's a downstream segment (fills gap at bend)
-    if !hydrology.is_submerged(downstream_idx) {
-        if let Some(next_downstream_idx) = hydrology.downstream(downstream_idx) {
-            let next_center = tessellation.cell_center(next_downstream_idx);
-            let next_tangent = (next_center - end_center).normalize();
-            let next_bitangent = next_tangent.cross(n2).normalize();
-
-            // Next segment's start vertices at end_pos
-            let next_width = flow_to_width(hydrology.flow_accumulation[downstream_idx], max_flow);
-            let next_half_width = next_width / 2.0;
-
-            let q0 = (end_pos + next_bitangent * next_half_width).normalize();
-            let q1 = (end_pos - next_bitangent * next_half_width).normalize();
-
-            // Add joint vertices
-            let joint_base = vertices.len() as u32;
-            vertices.push(UnifiedVertex::new(q0, n2, color, end_elev, Material::River));
-            vertices.push(UnifiedVertex::new(q1, n2, color, end_elev, Material::River));
-
-            // Fill the gap with triangles
-            indices.push(base_idx + 2);
-            indices.push(joint_base);
-            indices.push(base_idx + 3);
-
-            indices.push(base_idx + 3);
-            indices.push(joint_base);
-            indices.push(joint_base + 1);
-        }
-    }
-}
-
-/// Generate quads for lake outflow rivers.
-fn generate_lake_outflow_quads(
-    world: &World,
-    lake_outflow_paths: &[(usize, Vec<usize>)],
-    max_flow: f32,
-    color: Vec3,
-    vertices: &mut Vec<UnifiedVertex>,
-    indices: &mut Vec<u32>,
-) {
-    let Some(hydrology) = world.active_hydrology() else {
-        return;
-    };
-    let elevation = world.active_elevation().unwrap();
-    let tessellation = world.active_tessellation();
-
-    // Lake outflows use a high flow value for width
-    let outflow_flow = max_flow * 0.5;
-
-    for (_basin_idx, path) in lake_outflow_paths {
-        for window in path.windows(2) {
-            let cell_idx = window[0];
-            let downstream_idx = window[1];
-
-            generate_river_segment_quad(
-                tessellation,
-                elevation,
-                hydrology,
-                cell_idx,
-                downstream_idx,
-                outflow_flow,
-                max_flow,
-                color,
-                vertices,
-                indices,
-            );
-        }
-
-        // Final segment to water
-        if let Some(&last_cell) = path.last() {
-            if let Some(downstream_idx) = hydrology.downstream(last_cell) {
-                if hydrology.is_submerged(downstream_idx) {
-                    generate_river_segment_quad(
-                        tessellation,
-                        elevation,
-                        hydrology,
-                        last_cell,
-                        downstream_idx,
-                        outflow_flow,
-                        max_flow,
-                        color,
-                        vertices,
-                        indices,
-                    );
-                }
+        for uu in (cu - r1).floor() as i32..=(cu + r1).ceil() as i32 {
+            let d = (((uu as f32) - cu).powi(2) + ((vv as f32) - cv).powi(2)).sqrt();
+            if d > RIVER_SDF_RANGE_PX {
+                continue;
+            }
+            let d_u8 = (d / RIVER_SDF_RANGE_PX * 255.0) as u8;
+            let px = uu.rem_euclid(w as i32) as usize;
+            let idx = (vv as usize * w + px) * 4;
+            if d_u8 < buf[idx] {
+                buf[idx] = d_u8; // R = distance to centerline (0 = on river)
+                buf[idx + 1] = flow_u8; // G = nearest river's flow factor
+                buf[idx + 2] = major_u8; // B = nearest river is a major river
             }
         }
     }
+}
+
+/// Rasterize one river segment a→b (unit-sphere endpoints) into the distance field,
+/// walking the shortest path across the longitude seam.
+fn stamp_segment(buf: &mut [u8], w: usize, h: usize, a: Vec3, b: Vec3, flow_u8: u8, major: bool) {
+    let (u0, v0) = river_uv(a, w, h);
+    let (mut u1, v1) = river_uv(b, w, h);
+    if (u1 - u0).abs() > w as f32 * 0.5 {
+        if u1 > u0 {
+            u1 -= w as f32;
+        } else {
+            u1 += w as f32;
+        }
+    }
+    let len = (u1 - u0).hypot(v1 - v0).max(1.0);
+    let steps = len.ceil() as usize;
+    for s in 0..=steps {
+        let t = s as f32 / steps as f32;
+        stamp_distance(
+            buf,
+            w,
+            h,
+            u0 + (u1 - u0) * t,
+            v0 + (v1 - v0) * t,
+            flow_u8,
+            major,
+        );
+    }
+}
+
+/// Bake the river network into an equirectangular RGBA SDF: R = distance-to-river (0 = on a
+/// river, 255 = far), G = nearest river's flow factor (downstream widening), B = nearest
+/// river is MAJOR (the Off/Major/All density mode is a shader toggle on this, not a re-bake).
+/// The terrain shader reconstructs thin, crisp, screen-space-AA'd rivers from this.
+pub fn bake_river_texture(world: &World, width: u32, height: u32) -> Vec<u8> {
+    let (w, h) = (width as usize, height as usize);
+    // R = 255 (far / no river) everywhere; G/B/A = 0.
+    let mut buf = vec![0u8; w * h * 4];
+    for texel in buf.chunks_mut(4) {
+        texel[0] = 255;
+    }
+    let (Some(render_data), Some(hydrology)) =
+        (prepare_river_render_data(world), world.active_hydrology())
+    else {
+        return buf;
+    };
+    let tess = world.active_tessellation();
+    let max_flow = render_data.max_flow.max(1e-6);
+    let include_all = render_data.include(RiverSet::All);
+    let include_major = render_data.include(RiverSet::Major);
+
+    for (i, &on) in include_all.iter().enumerate() {
+        if !on {
+            continue;
+        }
+        let Some(j) = hydrology.downstream(i) else {
+            continue;
+        };
+        let start = tess.cell_center(i);
+        let end = if hydrology.is_submerged(j) {
+            ((start + tess.cell_center(j)) / 2.0).normalize()
+        } else {
+            tess.cell_center(j)
+        };
+        let flow_u8 = ((hydrology.flow_accumulation[i] / max_flow).sqrt() * 255.0) as u8;
+        stamp_segment(&mut buf, w, h, start, end, flow_u8, include_major[i]);
+    }
+
+    // Lake outflow channels — treat as major rivers (they carry a basin's full discharge).
+    for (_basin, path) in &render_data.lake_outflow_paths {
+        for seg in path.windows(2) {
+            stamp_segment(
+                &mut buf,
+                w,
+                h,
+                tess.cell_center(seg[0]),
+                tess.cell_center(seg[1]),
+                200,
+                true,
+            );
+        }
+    }
+    buf
 }
 
 fn print_world_stats(world: &World) {

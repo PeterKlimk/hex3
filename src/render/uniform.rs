@@ -51,8 +51,12 @@ pub struct Uniforms {
     /// Slope shading (1.0 = shade from the displaced face normal — real hillshade;
     /// 0.0 = shade from the smooth sphere normal). Only meaningful with relief on.
     pub slope_shading: f32,
+    /// Rivers (1.0 = blend the baked river texture into the surface; 0.0 = off).
+    pub rivers_enabled: f32,
+    /// River density mode: 1.0 = major rivers only; 0.0 = all rivers.
+    pub river_major_only: f32,
     /// Padding to align to 16 bytes.
-    pub _padding2: [f32; 5],
+    pub _padding2: [f32; 3],
 }
 
 impl Uniforms {
@@ -66,8 +70,22 @@ impl Uniforms {
             hemisphere_lighting: 1.0,
             map_mode: 0.0,
             slope_shading: 0.0,
-            _padding2: [0.0; 5],
+            rivers_enabled: 0.0,
+            river_major_only: 0.0,
+            _padding2: [0.0; 3],
         }
+    }
+
+    /// Enable/disable blending the baked river texture into the surface.
+    pub fn with_rivers(mut self, enabled: bool) -> Self {
+        self.rivers_enabled = if enabled { 1.0 } else { 0.0 };
+        self
+    }
+
+    /// River density mode: true = major rivers only; false = all rivers.
+    pub fn with_river_major_only(mut self, major_only: bool) -> Self {
+        self.river_major_only = if major_only { 1.0 } else { 0.0 };
+        self
     }
 
     /// Set whether relief displacement is enabled.

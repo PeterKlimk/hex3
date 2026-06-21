@@ -181,21 +181,9 @@ fn render_relief(
         // sphere-normal shading washed peaks out to flat white. See unified.wgsl.
         .with_slope_shading(true)
         .with_hemisphere_lighting(false)
-        .with_map_mode(false);
-
-    let river_mesh = match river_mode {
-        RiverMode::Off => None,
-        RiverMode::Major => (buffers.num_river_mesh_major_indices > 0).then_some(IndexedDraw {
-            vertex_buffer: &buffers.river_mesh_major_vertex_buffer,
-            index_buffer: &buffers.river_mesh_major_index_buffer,
-            index_count: buffers.num_river_mesh_major_indices,
-        }),
-        RiverMode::All => (buffers.num_river_mesh_all_indices > 0).then_some(IndexedDraw {
-            vertex_buffer: &buffers.river_mesh_all_vertex_buffer,
-            index_buffer: &buffers.river_mesh_all_index_buffer,
-            index_count: buffers.num_river_mesh_all_indices,
-        }),
-    };
+        .with_map_mode(false)
+        .with_rivers(river_mode != RiverMode::Off)
+        .with_river_major_only(river_mode == RiverMode::Major);
 
     let scene = RenderScene {
         fill_pipeline: FillPipelineKind::UnifiedGlobe,
@@ -204,11 +192,11 @@ fn render_relief(
             index_buffer: &buffers.unified_index_buffer,
             index_count: buffers.num_unified_indices,
         },
+        river_texture_bind_group: Some(&buffers.river_bind_group),
         edges: None,
         arrows: None,
         pole_markers: None,
         rivers: None,
-        river_mesh,
         wind_particles: None,
         gpu_particles: None,
     };
@@ -597,7 +585,7 @@ pub fn run_sweep(opts: SweepOptions) {
             montage = vec![0u8; (montage_w * montage_h * 4) as usize];
         }
 
-        let buffers = generate_world_buffers(&gpu.device, &world);
+        let buffers = generate_world_buffers(&gpu.device, &gpu.queue, &world);
         for (vi, (view_proj, eye, vlabel)) in views.iter().enumerate() {
             render_relief(
                 &gpu,

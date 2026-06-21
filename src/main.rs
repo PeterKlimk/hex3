@@ -60,6 +60,10 @@ struct Cli {
     #[arg(long, value_name = "FILE")]
     export: Option<PathBuf>,
 
+    /// Bake the river network into an equirectangular PNG (river-render dev/debug).
+    #[arg(long, value_name = "FILE")]
+    river_texture: Option<PathBuf>,
+
     /// Voronoi backend to use (convex-hull or knn-clipping)
     #[arg(long, value_enum, default_value_t = CliVoronoiBackend::ConvexHull)]
     voronoi_backend: CliVoronoiBackend,
@@ -399,6 +403,7 @@ fn main() {
             cli.fine_scale,
             target_stage,
             cli.export,
+            cli.river_texture,
             backend,
             fine_cache,
             erosion,
@@ -422,6 +427,7 @@ fn run_headless(
     fine_scale: f32,
     target_stage: u32,
     export_path: Option<PathBuf>,
+    river_texture_path: Option<PathBuf>,
     voronoi_backend: VoronoiBackend,
     fine_cache: FineCacheMode,
     erosion: app::world::ErosionOverrides,
@@ -478,6 +484,22 @@ fn run_headless(
     // Export if requested
     if let Some(path) = export_path {
         app::export::export_world(&mut world, seed, &path);
+    }
+
+    // Bake the river network to an equirect PNG (river-render dev/debug).
+    if let Some(path) = river_texture_path {
+        let (w, h) = (4096u32, 2048u32);
+        let rgba = app::world::bake_river_texture(&world, w, h);
+        let file = std::fs::File::create(&path).expect("create river texture file");
+        let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), w, h);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        encoder
+            .write_header()
+            .expect("png header")
+            .write_image_data(&rgba)
+            .expect("png write");
+        println!("Baked river texture -> {}", path.display());
     }
 }
 

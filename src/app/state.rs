@@ -89,7 +89,7 @@ impl AppState {
             create_world_with_options(seed, NUM_CELLS, voronoi_backend, fine_cache);
         erosion_overrides.apply(&mut world_data);
         let initial_viewed_stage = world_data.current_stage();
-        let world_buffers = generate_world_buffers(&gpu.device, &world_data);
+        let world_buffers = generate_world_buffers(&gpu.device, &gpu.queue, &world_data);
 
         let mut camera = OrbitCamera::new();
         camera.set_aspect(gpu.aspect());
@@ -168,7 +168,8 @@ impl AppState {
         self.erosion_overrides.apply(&mut self.world_data);
         self.viewed_stage = self.world_data.current_stage();
         self.inactive_buffers.clear(); // stale across a new world
-        self.world_buffers = generate_world_buffers(&self.gpu.device, &self.world_data);
+        self.world_buffers =
+            generate_world_buffers(&self.gpu.device, &self.gpu.queue, &self.world_data);
         self.seed = seed;
         self.rng = ChaCha8Rng::seed_from_u64(seed);
         self.gpu_particles = None; // Will be recreated on stage advance
@@ -270,7 +271,7 @@ impl AppState {
 
         let activated = match self.inactive_buffers.remove(&target) {
             Some(bufs) => bufs,
-            None => generate_world_buffers(&self.gpu.device, &self.world_data),
+            None => generate_world_buffers(&self.gpu.device, &self.gpu.queue, &self.world_data),
         };
         let prev = std::mem::replace(&mut self.world_buffers, activated);
         if leaving != target {
@@ -323,7 +324,8 @@ impl AppState {
         let with_water = hydrology.basins.iter().filter(|b| b.has_water()).count();
 
         // Now regenerate buffers (needs immutable borrow of world_data)
-        self.world_buffers = generate_world_buffers(&self.gpu.device, &self.world_data);
+        self.world_buffers =
+            generate_world_buffers(&self.gpu.device, &self.gpu.queue, &self.world_data);
 
         println!(
             "Climate ratio: {:.2} | Lakes: {} with water, {} overflowing",
@@ -373,7 +375,9 @@ impl AppState {
         let uniforms = Uniforms::new(view_proj, camera_pos, light_dir)
             .with_relief(relief_enabled)
             .with_hemisphere_lighting(self.hemisphere_lighting)
-            .with_map_mode(map_mode_enabled);
+            .with_map_mode(map_mode_enabled)
+            .with_rivers(self.river_mode != RiverMode::Off)
+            .with_river_major_only(self.river_mode == RiverMode::Major);
 
         // Select pipeline and buffers based on render mode
         // Wind layers use unified (relief) mesh so particles align with terrain
@@ -462,40 +466,18 @@ impl AppState {
                 (None, None)
             };
 
-        // Rivers: Use triangle mesh for Relief mode, line-based for other modes
-        let (rivers, river_mesh) = if self.view_mode == ViewMode::Globe {
-            if use_unified {
-                // Relief mode: use triangle-based rivers
-                let mesh = match self.river_mode {
-                    RiverMode::Off => None,
-                    RiverMode::Major => (self.world_buffers.num_river_mesh_major_indices > 0)
-                        .then_some(IndexedDraw {
-                            vertex_buffer: &self.world_buffers.river_mesh_major_vertex_buffer,
-                            index_buffer: &self.world_buffers.river_mesh_major_index_buffer,
-                            index_count: self.world_buffers.num_river_mesh_major_indices,
-                        }),
-                    RiverMode::All => (self.world_buffers.num_river_mesh_all_indices > 0)
-                        .then_some(IndexedDraw {
-                            vertex_buffer: &self.world_buffers.river_mesh_all_vertex_buffer,
-                            index_buffer: &self.world_buffers.river_mesh_all_index_buffer,
-                            index_count: self.world_buffers.num_river_mesh_all_indices,
-                        }),
-                };
-                (None, mesh)
-            } else {
-                // Other modes: use line-based rivers
-                let lines = self
-                    .world_buffers
-                    .river_buffer(self.river_mode)
-                    .filter(|(_, count)| *count > 0)
-                    .map(|(buffer, count)| SurfaceLineDraw {
-                        vertex_buffer: buffer,
-                        vertex_count: count,
-                    });
-                (lines, None)
-            }
+        // Rivers: relief mode draws them via the draped SDF texture (in the unified shader);
+        // other globe modes use line-based rivers.
+        let rivers = if self.view_mode == ViewMode::Globe && !use_unified {
+            self.world_buffers
+                .river_buffer(self.river_mode)
+                .filter(|(_, count)| *count > 0)
+                .map(|(buffer, count)| SurfaceLineDraw {
+                    vertex_buffer: buffer,
+                    vertex_count: count,
+                })
         } else {
-            (None, None)
+            None
         };
 
         // GPU wind particles: update and render when in Climate/Wind mode on Globe view
@@ -528,11 +510,11 @@ impl AppState {
             RenderScene {
                 fill_pipeline,
                 fill,
+                river_texture_bind_group: Some(&self.world_buffers.river_bind_group),
                 edges,
                 arrows,
                 pole_markers,
                 rivers,
-                river_mesh,
                 wind_particles: None, // Legacy CPU particles no longer used
                 gpu_particles,
             },

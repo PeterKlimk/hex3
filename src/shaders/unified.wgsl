@@ -35,10 +35,24 @@ struct Uniforms {
     hemisphere_lighting: f32, // 1.0 = hemisphere, 0.0 = simple diffuse
     map_mode: f32, // 0.0 = globe view, 1.0 = equirectangular map view
     slope_shading: f32, // 1.0 = shade from displaced face normal (hillshade)
-    _padding2: f32,
+    rivers_enabled: f32, // 1.0 = blend the baked river texture into the surface
+    river_major_only: f32, // 1.0 = major rivers only; 0.0 = all rivers
 }
 
+// River SDF: R = distance-to-river over [0, RIVER_SDF_RANGE_PX] px (must match the CPU bake),
+// G = nearest river's flow factor, B = nearest river is major. Rivers are reconstructed THIN
+// and crisp in-shader (width is flow-tapered, never exaggerated).
+const RIVER_SDF_RANGE_PX: f32 = 6.0;
+const RIVER_BASE_WIDTH_PX: f32 = 0.7;  // thin tributary half-width (px)
+const RIVER_FLOW_WIDTH_PX: f32 = 1.4;  // extra half-width for max-flow trunks (px)
+const RIVER_DEEP_COLOR: vec3<f32> = vec3<f32>(0.09, 0.20, 0.38);
+
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
+
+// Per-world baked river network (equirectangular RGBA; alpha = river coverage). Rivers are
+// drawn AS SURFACE SHADING here (perfectly draped) instead of floating quad ribbons.
+@group(1) @binding(0) var river_tex: texture_2d<f32>;
+@group(1) @binding(1) var river_samp: sampler;
 
 // Constants for map projection
 const PI: f32 = 3.14159265359;
@@ -59,6 +73,7 @@ struct VertexOutput {
     @location(1) world_normal: vec3<f32>,
     @location(2) color: vec3<f32>,
     @location(3) @interpolate(flat) material: u32,
+    @location(4) river_uv: vec2<f32>,
 }
 
 // Simple 3D hash for procedural noise (fast, deterministic)
@@ -148,6 +163,12 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     out.world_normal = in.normal;  // Normal is still the original sphere normal
     out.color = in.color;
     out.material = in.material;
+
+    // River-texture UV from the base SPHERE position (works in globe + map mode); must
+    // match the CPU bake convention (lon=atan2(z,x), lat=asin(y)).
+    let r_lon = atan2(in.position.z, in.position.x);
+    let r_lat = asin(clamp(in.position.y, -1.0, 1.0));
+    out.river_uv = vec2<f32>(r_lon / (2.0 * PI) + 0.5, 0.5 - r_lat / PI);
     return out;
 }
 
@@ -208,6 +229,33 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let H = normalize(L + V);
         let glint = pow(max(dot(N, H), 0.0), 128.0);
         final_color += vec3<f32>(glint * 0.2);
+    }
+
+    // Draped rivers: reconstruct a thin, crisp river from the distance field and shade it as
+    // water. rivers_enabled is a uniform so this branch is uniform control flow.
+    if (uniforms.rivers_enabled > 0.5) {
+        let s = textureSample(river_tex, river_samp, in.river_uv);
+        // Density mode: in "major only" hide rivers whose nearest river isn't major.
+        let visible = uniforms.river_major_only < 0.5 || s.b > 0.5;
+        let dist_px = s.r * RIVER_SDF_RANGE_PX; // 0 = on centerline
+        let flow = s.g;
+        // Screen-space AA from the SDF gradient → crisp at any zoom.
+        let aa = max(fwidth(dist_px), 0.4);
+        // Thin, flow-tapered width — with a screen-space floor (~1px) so rivers stay visible
+        // when zoomed out without fattening when zoomed in. Never exaggerated.
+        let world_width = RIVER_BASE_WIDTH_PX + flow * RIVER_FLOW_WIDTH_PX;
+        let width = max(world_width, aa);
+        let river_a = select(0.0, 1.0 - smoothstep(width - aa, width + aa, dist_px), visible);
+        if (river_a > 0.001) {
+            // Water look: sky-reflective (fresnel) deep blue + a sun glint, distinct from
+            // the flat ocean, partially lit by the terrain shading.
+            let fres = pow(1.0 - max(dot(N, V), 0.0), 3.0);
+            var water = mix(RIVER_DEEP_COLOR, SKY_COLOR, fres * 0.5);
+            let Hr = normalize(L + V);
+            water += vec3<f32>(pow(max(dot(N, Hr), 0.0), 64.0) * 0.3);
+            water *= 0.55 + 0.45 * max(NdotL, 0.0);
+            final_color = mix(final_color, water, river_a);
+        }
     }
 
     return vec4<f32>(final_color, alpha);
