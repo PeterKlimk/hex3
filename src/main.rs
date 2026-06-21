@@ -173,6 +173,11 @@ struct Cli {
     #[arg(long, default_value_t = -1.0)]
     erosion_orographic_strength: f32,
 
+    /// Downwind rain-shadow strength (propagate lee dry-anomaly downwind). <0 = default
+    /// (0=off); up = stronger progressive lee drying.
+    #[arg(long, default_value_t = -1.0)]
+    erosion_downwind_shadow: f32,
+
     /// Lakes-as-evaporation precip boost. <0 = default; 0 = off.
     #[arg(long, default_value_t = -1.0)]
     erosion_lake_evap: f32,
@@ -332,6 +337,8 @@ fn main() {
         litho_grain_strength: (cli.erosion_litho_grain >= 0.0).then_some(cli.erosion_litho_grain),
         orographic_precip_strength: (cli.erosion_orographic_strength >= 0.0)
             .then_some(cli.erosion_orographic_strength),
+        downwind_shadow_strength: (cli.erosion_downwind_shadow >= 0.0)
+            .then_some(cli.erosion_downwind_shadow),
         lake_evap_strength: (cli.erosion_lake_evap >= 0.0).then_some(cli.erosion_lake_evap),
         glacial_k: (cli.glacial_k >= 0.0).then_some(cli.glacial_k),
         fault_scarp_height: (cli.fault_scarp >= 0.0).then_some(cli.fault_scarp),

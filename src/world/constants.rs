@@ -1034,6 +1034,25 @@ pub const OROGRAPHIC_PRECIP_MIN: f32 = 0.3;
 /// Upper clamp on the modulation factor (wettest windward = MAX x coarse precip).
 pub const OROGRAPHIC_PRECIP_MAX: f32 = 2.5;
 
+// --- Downwind rain shadow (side-aware lee drying; docs/specs/rain-shadow.md) ---
+// The local orographic term above is purely per-cell, so a flat lee basin behind a crest
+// (wind·∇elev≈0) snaps back to coarse precip. This propagates each cell's LOCAL lee
+// dry-anomaly DOWNWIND along the per-cell wind in one ordered O(N) DAG sweep (NOT CFL
+// advection — that over-dried the fine mesh), so the lee progressively dries. Mean-invariant
+// (renormalized), so only the spatial distribution shifts windward-wet / lee-dry.
+/// Master strength: fraction of the propagated downwind dry-anomaly applied. 0 = OFF
+/// (bit-identical to local-only). Up = stronger progressive lee drying.
+pub const DOWNWIND_SHADOW_STRENGTH: f32 = 0.0;
+/// Fetch decay length in KM (converted to unit-sphere chord via PLANET_RADIUS_KM): the
+/// anomaly carried per hop decays as exp(−chord/fetch), so a plume dies after a bounded arc
+/// length independent of cell count (resolution-robust — the fix for the over-dry trap).
+pub const DOWNWIND_SHADOW_FETCH_KM: f32 = 300.0;
+/// Hard floor as a fraction of coarse precip (≤ OROGRAPHIC_PRECIP_MIN so it never raises the
+/// local lee minimum). Applied pre-renorm; audited post-renorm.
+pub const DOWNWIND_SHADOW_FLOOR: f32 = 0.25;
+/// Minimum cos(wind[i], i→neighbor) for a neighbor to count as downwind (0.5 ≈ ±60° cone).
+pub const DOWNWIND_CONE_COS: f32 = 0.5;
+
 /// Coupled erode↔precip feedback passes. Each pass re-carves the base relief with
 /// the rain-shadow precipitation from the previous pass, so windward flanks
 /// (wetter) dissect more than lee. 1 = erode once (precip still recomputed for

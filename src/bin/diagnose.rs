@@ -96,6 +96,10 @@ struct Cli {
     /// wetter, lee drier). <0 = use OROGRAPHIC_PRECIP_STRENGTH; 0 = coarse precip.
     #[arg(long, default_value_t = -1.0)]
     erosion_orographic_strength: f32,
+    /// Override downwind rain-shadow strength (lee dry-anomaly propagated downwind).
+    /// <0 = use DOWNWIND_SHADOW_STRENGTH (0=off).
+    #[arg(long, default_value_t = -1.0)]
+    erosion_downwind_shadow: f32,
     /// Override coupled erode↔precip feedback passes. 0 = use
     /// EROSION_PRECIP_OUTER_ITERS default; 1 = no erosion feedback.
     #[arg(long, default_value_t = 0)]
@@ -239,6 +243,9 @@ fn main() {
     }
     if cli.erosion_orographic_strength >= 0.0 {
         world.erosion_params.orographic_precip_strength = cli.erosion_orographic_strength;
+    }
+    if cli.erosion_downwind_shadow >= 0.0 {
+        world.erosion_params.downwind_shadow_strength = cli.erosion_downwind_shadow;
     }
     if cli.erosion_precip_iters > 0 {
         world.erosion_params.precip_outer_iters = cli.erosion_precip_iters;

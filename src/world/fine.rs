@@ -818,6 +818,7 @@ impl FineSurface {
                 &base.fields.wind,
                 &base.fields.precipitation,
                 params.orographic_precip_strength,
+                params.downwind_shadow_strength,
             );
             log::info!(
                 "fine mesh: erode+precip pass {}/{} (erode {:.2?}, precip {:.2?})",
@@ -1461,9 +1462,10 @@ fn fine_precipitation(
     wind: &[Vec3],
     coarse_precip: &[f32],
     strength: f32,
+    downwind_strength: f32,
 ) -> Vec<f32> {
     let n = tess.num_cells();
-    if strength <= 0.0 {
+    if strength <= 0.0 && downwind_strength <= 0.0 {
         return coarse_precip.to_vec();
     }
 
@@ -1502,6 +1504,20 @@ fn fine_precipitation(
         })
         .collect();
 
+    // Downwind rain shadow (rain-shadow.md): propagate each cell's LOCAL lee dry-anomaly
+    // downwind along the per-cell wind so lee basins keep drying instead of snapping back
+    // to coarse precip. One ordered O(N) DAG sweep — no CFL advection (the over-dry trap).
+    if downwind_strength > 0.0 {
+        precip = downwind_lee_shadow(
+            tess,
+            elevation,
+            wind,
+            coarse_precip,
+            &precip,
+            downwind_strength,
+        );
+    }
+
     // Renormalize to AREA-weighted land mean 1.0: on the adaptive mesh the many
     // tiny land cells must not dominate the mean, and hydrology now integrates
     // precip × area, so the budget it calibrates against is the area-weighted one.
@@ -1522,6 +1538,146 @@ fn fine_precipitation(
             for p in &mut precip {
                 *p *= k;
             }
+        }
+    }
+
+    // Over-dry audit (rain-shadow.md): the floor is applied pre-renorm, so it is soft after
+    // rescale. Log the honest tripwires — the renorm pins the MEAN, so a sliding MEDIAN /
+    // climbing floor-hit fraction (not the mean) signals over-drying.
+    if downwind_strength > 0.0 {
+        log_downwind_shadow_audit(elevation, &precip, coarse_precip);
+    }
+    precip
+}
+
+/// Diagnostics for the downwind rain shadow: how dry the lee got after renormalization.
+fn log_downwind_shadow_audit(elevation: &[f32], precip: &[f32], coarse_precip: &[f32]) {
+    let mut ratios: Vec<f32> = (0..elevation.len())
+        .filter(|&i| elevation[i] >= 0.0 && coarse_precip[i] > 1e-6)
+        .map(|i| precip[i] / coarse_precip[i])
+        .collect();
+    if ratios.is_empty() {
+        return;
+    }
+    ratios.sort_by(f32::total_cmp);
+    let pct = |p: f32| ratios[((ratios.len() - 1) as f32 * p) as usize];
+    let n = ratios.len() as f32;
+    let floor_hits = ratios
+        .iter()
+        .filter(|&&r| r <= DOWNWIND_SHADOW_FLOOR + 1e-4)
+        .count() as f32;
+    let over_max = ratios
+        .iter()
+        .filter(|&&r| r > OROGRAPHIC_PRECIP_MAX)
+        .count() as f32;
+    log::info!(
+        "downwind shadow audit: precip/coarse p10={:.2} median={:.2} p90={:.2} | floor-hit {:.1}% over-MAX {:.1}%",
+        pct(0.10),
+        pct(0.50),
+        pct(0.90),
+        100.0 * floor_hits / n,
+        100.0 * over_max / n,
+    );
+}
+
+/// Propagate each land cell's LOCAL lee dry-anomaly DOWNWIND along the per-cell wind in one
+/// ordered O(N) DAG sweep (rain-shadow.md). Each land cell points to its single most-downwind
+/// land neighbour (local wind, not a global axis — the circulation is latitude-banded with
+/// zonal reversal). The resulting functional graph is topo-sorted (Kahn); cells left in a
+/// cycle (anti-parallel wind eddies) receive from outside but do not propagate further (their
+/// outgoing edge is effectively cut). NOT CFL advection — no timestep, so the resolution-
+/// dependent over-dry trap cannot occur. Mean is restored by the caller's renormalization.
+fn downwind_lee_shadow(
+    tess: &Tessellation,
+    elevation: &[f32],
+    wind: &[Vec3],
+    coarse_precip: &[f32],
+    precip_initial: &[f32],
+    strength: f32,
+) -> Vec<f32> {
+    let n = tess.num_cells();
+    let fetch_chord = (DOWNWIND_SHADOW_FETCH_KM / PLANET_RADIUS_KM).max(1e-6);
+
+    // Seed: each land cell's local lee dry-anomaly (the moisture the per-cell term suppressed).
+    let mut accum = vec![0.0f32; n];
+    for i in 0..n {
+        if elevation[i] > 0.0 {
+            accum[i] = (coarse_precip[i] - precip_initial[i]).max(0.0);
+        }
+    }
+
+    // Per-cell single downwind receiver: the land neighbour best aligned with wind[i]
+    // (cos > cone). Near-zero wind or no qualifying neighbour → no receiver (anomaly rains
+    // out locally). Out-degree ≤ 1 → a functional graph.
+    let mut receiver = vec![usize::MAX; n];
+    let mut indeg = vec![0u32; n];
+    for i in 0..n {
+        if elevation[i] <= 0.0 {
+            continue;
+        }
+        let w = wind[i];
+        if w.length_squared() < 1e-12 {
+            continue;
+        }
+        let wn = w.normalize();
+        let ci = tess.cell_center(i);
+        let mut best_cos = DOWNWIND_CONE_COS;
+        let mut best_j = usize::MAX;
+        for &j in tess.neighbors(i) {
+            if elevation[j] <= 0.0 {
+                continue; // receivers must be land
+            }
+            let dir = tess.cell_center(j) - ci;
+            let d2 = dir.length_squared();
+            if d2 < 1e-20 {
+                continue;
+            }
+            let cos = wn.dot(dir) / d2.sqrt();
+            if cos > best_cos {
+                best_cos = cos;
+                best_j = j;
+            }
+        }
+        if best_j != usize::MAX {
+            receiver[i] = best_j;
+            indeg[best_j] += 1;
+        }
+    }
+
+    // Topological order (Kahn, deterministic FIFO). Only carriers (receiver != MAX) enter the
+    // order. Cells whose indeg never reaches 0 are in a cycle → omitted (their outgoing edge
+    // is cut); they still RECEIVE from acyclic upwind cells via the sweep below.
+    let mut order: Vec<usize> = Vec::with_capacity(n);
+    let mut queue: std::collections::VecDeque<usize> = (0..n)
+        .filter(|&i| indeg[i] == 0 && receiver[i] != usize::MAX)
+        .collect();
+    while let Some(i) = queue.pop_front() {
+        order.push(i);
+        let r = receiver[i];
+        indeg[r] -= 1;
+        if indeg[r] == 0 && receiver[r] != usize::MAX {
+            queue.push_back(r);
+        }
+    }
+
+    // One ordered sweep: each cell's anomaly is final (all upwind contributors are earlier in
+    // `order`) before it carries a fetch-decayed fraction to its receiver. The remainder is
+    // dropped (rained out — cannot amplify).
+    let mut incoming = vec![0.0f32; n];
+    for &i in &order {
+        let r = receiver[i];
+        let d = (tess.cell_center(r) - tess.cell_center(i)).length();
+        let carried = accum[i] * (-d / fetch_chord).exp();
+        accum[r] += carried;
+        incoming[r] += carried;
+    }
+
+    // Apply the arriving downwind anomaly under a floor (≤ coarse precip · FLOOR).
+    let mut precip = precip_initial.to_vec();
+    for i in 0..n {
+        if elevation[i] > 0.0 {
+            let dried = precip_initial[i] - strength * incoming[i];
+            precip[i] = dried.max(DOWNWIND_SHADOW_FLOOR * coarse_precip[i]);
         }
     }
     precip
