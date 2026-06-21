@@ -898,8 +898,14 @@ impl FineSurface {
             log::info!("fine mesh: lake-evap + re-hydrology {:.2?}", t0.elapsed());
         }
 
+        // Adopt the drainage-integrated (outlet-carved) elevation as the rendered surface so
+        // the relief is consistent with where the rivers actually drain (carved channels are
+        // real water gaps). `integrate_basins` is idempotent on an already-carved surface.
         Self {
-            elevation,
+            elevation: Elevation {
+                values: hydrology.elevation.clone(),
+                ..elevation
+            },
             hydrology,
             precipitation: precip,
             temperature,
