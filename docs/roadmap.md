@@ -46,13 +46,14 @@ probe into `diagnose` before the next mountain ADD.
   shaded (fresnel/glint, distinct from ocean). The existing **Off/Major/All** river mode is
   now the real density control (is-major in the SDF B channel; was non-functional). Non-relief
   modes keep line rivers; dead quad path removed.
-- ⬜ **River HYDROLOGY pass (next) — PLANNED, see `docs/specs/drainage-integration.md`.** Root
-  cause (measured + Codex-confirmed): drainage does depression FILLING but no INTEGRATION, so
-  ~30% of land is endorheic on the coarse macro shape and ~50% on the fine (Earth ≈18%). Fix =
-  a basin-integration / outlet-breaching pass (breach spill saddles under a pluvial climate,
-  rerun at present), NOT forcing terrain coastward or just cranking climate. Ordered plan:
-  (1) extend `--drainage-audit`, (2) micro-pit breaching, (3) geologic integration,
-  (4) retune `DEFAULT_CLIMATE_RATIO` 0.15→~0.3. Target 15–25% endorheic.
+- ✅ **River HYDROLOGY pass — DONE (merged 2026-06-22), see `docs/specs/drainage-integration.md`.**
+  Root cause (measured + Codex-confirmed): drainage did depression FILLING but no INTEGRATION
+  (~30% endorheic coarse, ~50% fine). Shipped a basin-integration pre-pass that carves outlet
+  channels (micro-pit geometry criterion + carve along the priority-flood spill path), adopted
+  into the rendered terrain as real water gaps. **Fine endorheic 42% → 17.2%** (≈Earth), rivers
+  now reach the sea. The "pluvial overflow" criterion was tested and rejected (step function,
+  over-integrates); climate left at 0.15 (a user dial). Possible follow-ups: lakes too sparse
+  (climate), and a targeted high-discharge criterion if a major river still ends inland.
 - ⬜ **Perf** — default gen ~3× slower (n=2 Newton + 200 erosion steps); `EROSION_STEPS` is the
   quality↔speed dial. Revisit if iteration speed bites.
 

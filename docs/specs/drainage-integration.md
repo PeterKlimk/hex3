@@ -1,7 +1,40 @@
 # Drainage integration: making rivers reach the sea
 
-Status: PLANNED (not implemented). The "river hydrology" half of the river re-work (the
-rendering half shipped — see `hex3-river-rendering` memory + roadmap). Codex-reviewed.
+Status: **IMPLEMENTED & merged 2026-06-22** (the core integration pass). Codex-reviewed.
+
+## OUTCOME (what shipped)
+
+A drainage-integration pre-pass (`integrate_basins` in hydrology.rs) carves outlet channels
+so rivers reach the sea, run before the present-climate hydrology:
+- **Selection (v1): micro-pit geometry** — breach basins that are small (`total_area <
+  MICRO_BASIN_AREA`) or shallow (`spill−bottom < MICRO_BASIN_DEPTH`). Physically: low-relief
+  basins integrate over geologic time; deep high-relief basins can stay endorheic (Caspian).
+- **Carve:** `carve_outlet` walks the priority-flood `flood_parent` tree (oceanward) from each
+  selected basin's lowest cell, lowering only the spill saddle / barrier into a monotonic
+  descent (a thin notch, `CARVE_SLOPE`), then re-runs the hydrology on the carved surface.
+- **Terrain consistency:** the carved elevation is adopted as the rendered fine surface
+  (`from_eroded`), so the outlet channels are real water gaps. `integrate_basins` is
+  idempotent on an already-carved surface (no closed basins → nothing to breach).
+- Gated by `HEX3_NO_DRAINAGE_INTEGRATION` (A/B).
+
+**Measured (`--drainage-audit`, seed 12345, area-weighted):** fine endorheic land
+**42% → 17.2%** @40k (≈ Earth's 18%, in the 15–25% target), coarse 23% → 4.8%, fine−coarse
+inflation **19 pp → ~5 pp** (Codex's <5–8 pp target). Basins 630 → ~180. 49 tests pass.
+
+**Tested & rejected — the "pluvial overflow" criterion (Codex step 3).** Evaluating basins
+under a wetter paleo-climate and breaching the ones that overflow is a *step function*, not a
+tuning dial (off=17%, on=10.6% at any ratio 0.18–0.6) — it over-integrates below target with
+no useful control. The micro-pit geometry proxy hits the target cleanly and is physically
+defensible, so it's the shipped criterion. (Code path left available for future revisit.)
+
+**Climate (Codex step 4): left at `DEFAULT_CLIMATE_RATIO = 0.15`.** Integration handles the
+sea-reaching goal at 0.15 with in-target endorheic; raising climate would only trade endorheic
+(below target) for more lakes. Climate stays a user dial (Up/Down). Revisit if lakes look too
+sparse (`lake_fraction ≈ 0.07%`).
+
+---
+
+Original plan (below). Codex-reviewed.
 
 ## Problem
 
