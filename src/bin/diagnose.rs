@@ -1449,10 +1449,7 @@ fn audit_hydrology(
         land_area += a;
 
         // Lake water on land counts toward the lake fraction.
-        if matches!(
-            hydro.water_state(i),
-            hex3::world::CellWaterState::LakeWater
-        ) {
+        if matches!(hydro.water_state(i), hex3::world::CellWaterState::LakeWater) {
             lake_area += a;
         }
 
@@ -1486,11 +1483,7 @@ fn audit_hydrology(
         }
     }
 
-    let num_endorheic_basins = hydro
-        .basins
-        .iter()
-        .filter(|b| !b.is_overflowing())
-        .count();
+    let num_endorheic_basins = hydro.basins.iter().filter(|b| !b.is_overflowing()).count();
 
     DrainageAudit {
         label: label.to_string(),
@@ -1555,7 +1548,11 @@ fn run_drainage_audit(world: &World, seed: u64) {
     let fine_audit = match world.fine.as_ref() {
         Some(fine) => {
             let surf = fine.surface_for(u32::MAX); // eroded stage-4 surface
-            Some(audit_hydrology("FINE (eroded)", fine.tessellation(), &surf.hydrology))
+            Some(audit_hydrology(
+                "FINE (eroded)",
+                fine.tessellation(),
+                &surf.hydrology,
+            ))
         }
         None => {
             println!("  [FINE] no fine surface present (run without disabling fine mesh)");
@@ -1574,7 +1571,10 @@ fn run_drainage_audit(world: &World, seed: u64) {
         100.0 * coarse.endorheic_land_area / coarse.land_area.max(1e-30),
         fine_audit
             .as_ref()
-            .map(|f| format!("{:.1}%", 100.0 * f.endorheic_land_area / f.land_area.max(1e-30)))
+            .map(|f| format!(
+                "{:.1}%",
+                100.0 * f.endorheic_land_area / f.land_area.max(1e-30)
+            ))
             .unwrap_or_else(|| "n/a".into())
     );
 }

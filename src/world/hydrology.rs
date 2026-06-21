@@ -164,6 +164,22 @@ const MIN_OCEAN_AREA_FRACTION: f32 = 0.001;
 /// At equilibrium: lake_surface_area = catchment_area × climate_ratio
 pub const DEFAULT_CLIMATE_RATIO: f32 = 0.15;
 
+// --- Drainage integration (docs/specs/drainage-integration.md) ---
+// Real drainage networks INTEGRATE over geologic time: rivers breach divides and basins
+// capture each other, so most interior basins have an inherited outlet even in arid present
+// climates. The generator only does depression FILLING, leaving ~30-50% of land endorheic.
+// This carves outlet channels (along the priority-flood spill path) for basins that geologic
+// time would have integrated, BEFORE the present-climate hydrology runs.
+/// Basins with surface area below this (steradians) are micro-pit artifacts (mostly from
+/// fine relief/erosion) — breached aggressively. ~0.001 sr ≈ a handful of fine cells.
+const MICRO_BASIN_AREA: f32 = 0.0015;
+/// Basins shallower than this (spill − bottom, elevation units) are breached regardless of
+/// area — shallow noise depressions that would integrate trivially.
+const MICRO_BASIN_DEPTH: f32 = 0.012;
+/// Per-cell descent enforced when carving an outlet channel (elevation units). Small so the
+/// breach is a thin notch, not a canyon.
+const CARVE_SLOPE: f32 = 0.0002;
+
 /// Minimum water body max depth for classification as a lake.
 /// Shallower connected components are not considered lakes (filtered out).
 /// This is checked per water body (connected component), not per basin.
@@ -218,6 +234,13 @@ impl Hydrology {
             &areas,
         );
         log::info!("hydrology: identify ocean cells {:.2?}", t0.elapsed());
+
+        // Drainage integration: carve outlet channels for basins geologic time would have
+        // breached, so the present-climate hydrology drains them to the sea (not endorheic).
+        let t0 = Instant::now();
+        let integrated_elevation = integrate_basins(tessellation, raw_elevation, &areas, &is_ocean);
+        let raw_elevation: &[f32] = &integrated_elevation;
+        log::info!("hydrology: drainage integration {:.2?}", t0.elapsed());
 
         // Step 2: Priority-flood from ocean to detect all basins
         let t0 = Instant::now();
@@ -302,7 +325,7 @@ impl Hydrology {
         };
 
         Self {
-            elevation: raw_elevation.clone(),
+            elevation: raw_elevation.to_vec(),
             filled_elevation,
             drainage_dir,
             flow_accumulation,
@@ -750,6 +773,74 @@ fn priority_flood_with_basins(
     }
 
     (filled, basin_id, basins, flood_parent)
+}
+
+/// Carve a monotonically-descending outlet channel from `start` (a basin's lowest cell) out
+/// to the ocean, following the priority-flood `flood_parent` tree (which points oceanward).
+/// Lowers only the barrier (the spill saddle + any rise above the running target); once the
+/// path drops below the target it follows the natural descent. Edits `elevation` in place.
+fn carve_outlet(
+    elevation: &mut [f32],
+    flood_parent: &[Option<usize>],
+    is_ocean: &[bool],
+    start: usize,
+) {
+    let n = elevation.len();
+    let mut target = elevation[start];
+    let mut c = start;
+    let mut guard = 0;
+    while !is_ocean[c] && guard < n {
+        guard += 1;
+        let Some(p) = flood_parent[c] else { break };
+        target -= CARVE_SLOPE;
+        if elevation[p] > target {
+            elevation[p] = target; // carve the barrier down
+        } else {
+            target = elevation[p]; // already below target → follow the natural descent
+        }
+        c = p;
+    }
+}
+
+/// Drainage integration: carve outlet channels for basins that geologic time would have
+/// breached, so they drain to the sea instead of ponding endorheically. v1 breaches the
+/// micro-pit artifacts (small or shallow basins); the macro/pluvial criterion is layered on
+/// next. Returns a carved copy of `elevation`. Gated by HEX3_NO_DRAINAGE_INTEGRATION (A/B).
+fn integrate_basins(
+    tessellation: &Tessellation,
+    elevation: &[f32],
+    areas: &[f32],
+    is_ocean: &[bool],
+) -> Vec<f32> {
+    let mut working = elevation.to_vec();
+    if std::env::var("HEX3_NO_DRAINAGE_INTEGRATION").is_ok() {
+        return working;
+    }
+    let (_filled, _basin_id, basins, flood_parent) =
+        priority_flood_with_basins(tessellation, elevation, areas, is_ocean);
+    let mut breached = 0;
+    for basin in &basins {
+        let depth = basin.spill_elevation - basin.bottom_elevation;
+        let is_micro = basin.total_area < MICRO_BASIN_AREA || depth < MICRO_BASIN_DEPTH;
+        if !is_micro {
+            continue;
+        }
+        // The basin's lowest cell (start of the outlet channel).
+        let bottom_cell = basin
+            .cells
+            .iter()
+            .copied()
+            .min_by(|&a, &b| elevation[a].total_cmp(&elevation[b]))
+            .unwrap_or(basin.cells[0]);
+        carve_outlet(&mut working, &flood_parent, is_ocean, bottom_cell);
+        breached += 1;
+    }
+    log::info!(
+        "hydrology: drainage integration breached {}/{} basins",
+        breached,
+        basins.len()
+    );
+    working
 }
 
 /// For each cell, the basin that CAPTURES its runoff: the first basin reached by
