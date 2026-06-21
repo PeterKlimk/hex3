@@ -182,7 +182,8 @@ fn render_relief(
         .with_slope_shading(true)
         .with_hemisphere_lighting(false)
         .with_map_mode(false)
-        .with_rivers(river_mode != RiverMode::Off);
+        .with_rivers(river_mode != RiverMode::Off)
+        .with_river_exaggeration(2.0);
 
     // Rivers are drawn by the draped river TEXTURE (group 1), not quads.
     let river_mesh = None;

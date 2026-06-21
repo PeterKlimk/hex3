@@ -36,7 +36,15 @@ struct Uniforms {
     map_mode: f32, // 0.0 = globe view, 1.0 = equirectangular map view
     slope_shading: f32, // 1.0 = shade from displaced face normal (hillshade)
     rivers_enabled: f32, // 1.0 = blend the baked river texture into the surface
+    river_exaggeration: f32, // river width multiplier (1.0 = thin; >1 = thicker modes)
 }
+
+// River SDF: R channel = distance-to-river over [0, RIVER_SDF_RANGE_PX] px (must match the
+// CPU bake), G = nearest river's flow factor. Width is reconstructed thin + crisp in-shader.
+const RIVER_SDF_RANGE_PX: f32 = 6.0;
+const RIVER_BASE_WIDTH_PX: f32 = 0.6;  // thin tributary half-width (px)
+const RIVER_FLOW_WIDTH_PX: f32 = 1.1;  // extra half-width for max-flow trunks (px)
+const RIVER_DEEP_COLOR: vec3<f32> = vec3<f32>(0.09, 0.20, 0.38);
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 
@@ -222,11 +230,28 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         final_color += vec3<f32>(glint * 0.2);
     }
 
-    // Draped rivers: blend the baked river color (lit like the terrain) by its coverage.
-    // rivers_enabled is a uniform so this branch is uniform control flow (sampling is legal).
+    // Draped rivers: reconstruct a thin, crisp river from the distance field and shade it as
+    // water. rivers_enabled is a uniform so this branch is uniform control flow.
     if (uniforms.rivers_enabled > 0.5) {
-        let river = textureSample(river_tex, river_samp, in.river_uv);
-        final_color = mix(final_color, river.rgb * lighting, river.a);
+        let s = textureSample(river_tex, river_samp, in.river_uv);
+        let dist_px = s.r * RIVER_SDF_RANGE_PX; // 0 = on centerline
+        let flow = s.g;
+        // Width (px): thin base + downstream widening, scaled by the exaggeration mode.
+        let width = (RIVER_BASE_WIDTH_PX + flow * RIVER_FLOW_WIDTH_PX)
+            * max(uniforms.river_exaggeration, 0.0);
+        // Screen-space anti-aliasing from the SDF gradient → crisp at any zoom.
+        let aa = max(fwidth(dist_px), 0.4);
+        let river_a = 1.0 - smoothstep(width - aa, width + aa, dist_px);
+        if (river_a > 0.001) {
+            // Water look: sky-reflective (fresnel) deep blue + a sun glint, distinct from
+            // the flat ocean, partially lit by the terrain shading.
+            let fres = pow(1.0 - max(dot(N, V), 0.0), 3.0);
+            var water = mix(RIVER_DEEP_COLOR, SKY_COLOR, fres * 0.5);
+            let Hr = normalize(L + V);
+            water += vec3<f32>(pow(max(dot(N, Hr), 0.0), 64.0) * 0.3);
+            water *= 0.55 + 0.45 * max(NdotL, 0.0);
+            final_color = mix(final_color, water, river_a);
+        }
     }
 
     return vec4<f32>(final_color, alpha);

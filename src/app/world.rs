@@ -1267,41 +1267,37 @@ fn river_uv(p: Vec3, w: usize, h: usize) -> (f32, f32) {
     (u, v)
 }
 
-/// Stamp a soft (anti-aliased) disc of `r` pixels into the RGBA buffer; longitude wraps
-/// at the seam. Max-blends coverage so overlapping segments don't accumulate darkness.
-fn stamp_disc(buf: &mut [u8], w: usize, h: usize, cu: f32, cv: f32, r: f32) {
-    let r1 = r + 1.0;
-    let (rc, gc, bc) = (
-        (RIVER_COLOR.x * 255.0) as u8,
-        (RIVER_COLOR.y * 255.0) as u8,
-        (RIVER_COLOR.z * 255.0) as u8,
-    );
+/// Distance range (pixels) the SDF encodes: R=0 on the river centerline → R=255 at
+/// `RIVER_SDF_RANGE_PX` or beyond. MUST match `RIVER_SDF_RANGE_PX` in unified.wgsl.
+const RIVER_SDF_RANGE_PX: f32 = 6.0;
+
+/// Stamp the unsigned distance-to-point into the R channel (keeping the minimum) and the
+/// nearest river's flow into G. Longitude wraps at the seam.
+fn stamp_distance(buf: &mut [u8], w: usize, h: usize, cu: f32, cv: f32, flow_u8: u8) {
+    let r1 = RIVER_SDF_RANGE_PX + 1.0;
     for vv in (cv - r1).floor() as i32..=(cv + r1).ceil() as i32 {
         if vv < 0 || vv >= h as i32 {
             continue;
         }
         for uu in (cu - r1).floor() as i32..=(cu + r1).ceil() as i32 {
-            let dist = (((uu as f32) - cu).powi(2) + ((vv as f32) - cv).powi(2)).sqrt();
-            let cov = (1.0 - (dist - r).max(0.0)).clamp(0.0, 1.0);
-            if cov <= 0.0 {
+            let d = (((uu as f32) - cu).powi(2) + ((vv as f32) - cv).powi(2)).sqrt();
+            if d > RIVER_SDF_RANGE_PX {
                 continue;
             }
+            let d_u8 = (d / RIVER_SDF_RANGE_PX * 255.0) as u8;
             let px = uu.rem_euclid(w as i32) as usize;
             let idx = (vv as usize * w + px) * 4;
-            let a = (cov * 255.0) as u8;
-            if a > buf[idx + 3] {
-                buf[idx] = rc;
-                buf[idx + 1] = gc;
-                buf[idx + 2] = bc;
-                buf[idx + 3] = a;
+            if d_u8 < buf[idx] {
+                buf[idx] = d_u8; // R = distance to centerline (0 = on river)
+                buf[idx + 1] = flow_u8; // G = nearest river's flow factor
             }
         }
     }
 }
 
-/// Rasterize one river segment a→b (unit-sphere endpoints) at `radius` px, walking the
-/// shortest path across the longitude seam.
-fn stamp_segment(buf: &mut [u8], w: usize, h: usize, a: Vec3, b: Vec3, radius: f32) {
+/// Rasterize one river segment a→b (unit-sphere endpoints) into the distance field,
+/// walking the shortest path across the longitude seam.
+fn stamp_segment(buf: &mut [u8], w: usize, h: usize, a: Vec3, b: Vec3, flow_u8: u8) {
     let (u0, v0) = river_uv(a, w, h);
     let (mut u1, v1) = river_uv(b, w, h);
     if (u1 - u0).abs() > w as f32 * 0.5 {
@@ -1315,14 +1311,20 @@ fn stamp_segment(buf: &mut [u8], w: usize, h: usize, a: Vec3, b: Vec3, radius: f
     let steps = len.ceil() as usize;
     for s in 0..=steps {
         let t = s as f32 / steps as f32;
-        stamp_disc(buf, w, h, u0 + (u1 - u0) * t, v0 + (v1 - v0) * t, radius);
+        stamp_distance(buf, w, h, u0 + (u1 - u0) * t, v0 + (v1 - v0) * t, flow_u8);
     }
 }
 
-/// Bake the river network into an equirectangular RGBA texture (alpha = river coverage).
+/// Bake the river network into an equirectangular RGBA SDF: R = distance-to-river (0 = on a
+/// river, 255 = far), G = nearest river's flow factor (for downstream widening). The terrain
+/// shader reconstructs thin, crisp, screen-space-AA'd rivers from this.
 pub fn bake_river_texture(world: &World, width: u32, height: u32) -> Vec<u8> {
     let (w, h) = (width as usize, height as usize);
+    // R = 255 (far / no river) everywhere; G/B/A = 0.
     let mut buf = vec![0u8; w * h * 4];
+    for texel in buf.chunks_mut(4) {
+        texel[0] = 255;
+    }
     let (Some(render_data), Some(hydrology)) =
         (prepare_river_render_data(world), world.active_hydrology())
     else {
@@ -1330,9 +1332,6 @@ pub fn bake_river_texture(world: &World, width: u32, height: u32) -> Vec<u8> {
     };
     let tess = world.active_tessellation();
     let max_flow = render_data.max_flow.max(1e-6);
-    // River line width in PIXELS (independent of the fat quad widths): thin tributaries →
-    // slightly wider trunks. Scales with texture resolution so it looks the same at any size.
-    let px = width as f32 / 8192.0;
     let include = render_data.include(RiverSet::All);
 
     for (i, &on) in include.iter().enumerate() {
@@ -1348,13 +1347,11 @@ pub fn bake_river_texture(world: &World, width: u32, height: u32) -> Vec<u8> {
         } else {
             tess.cell_center(j)
         };
-        let t = (hydrology.flow_accumulation[i] / max_flow).sqrt();
-        let radius_px = (px * (0.9 + t * 2.2)).max(0.7);
-        stamp_segment(&mut buf, w, h, start, end, radius_px);
+        let flow_u8 = ((hydrology.flow_accumulation[i] / max_flow).sqrt() * 255.0) as u8;
+        stamp_segment(&mut buf, w, h, start, end, flow_u8);
     }
 
-    // Lake outflow channels.
-    let outflow_radius = (px * 2.5).max(0.8);
+    // Lake outflow channels — treat as moderately large rivers.
     for (_basin, path) in &render_data.lake_outflow_paths {
         for seg in path.windows(2) {
             stamp_segment(
@@ -1363,7 +1360,7 @@ pub fn bake_river_texture(world: &World, width: u32, height: u32) -> Vec<u8> {
                 h,
                 tess.cell_center(seg[0]),
                 tess.cell_center(seg[1]),
-                outflow_radius,
+                200,
             );
         }
     }

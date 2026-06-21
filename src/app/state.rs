@@ -47,6 +47,8 @@ pub struct AppState {
 
     pub show_edges: bool,
     pub river_mode: RiverMode,
+    /// River width exaggeration mode (1.0 = thin/realistic; cycled by J).
+    pub river_exaggeration: f32,
     pub noise_layer: NoiseLayer,
     pub feature_layer: FeatureLayer,
     pub climate_layer: ClimateLayer,
@@ -116,7 +118,7 @@ impl AppState {
         println!("Ready! Drag to rotate, scroll to zoom.");
         println!("  Tab: toggle map view");
         println!("  1-8: Relief/Terrain/Elevation/Plates/Noise/Hydrology/Features/Climate");
-        println!("  E: toggle edges | V: cycle rivers (Off/Major/All)");
+        println!("  E: toggle edges | V: cycle rivers (Off/Major/All) | J: river width (thin/moderate/strong)");
         println!("  H: toggle hemisphere lighting | D: export data");
         println!("  R: regenerate | Space: advance stage");
         println!("  Up/Down: adjust climate (wetter/drier) [Stage 3]");
@@ -139,6 +141,7 @@ impl AppState {
             inactive_buffers: std::collections::HashMap::new(),
             show_edges: false,
             river_mode: RiverMode::Major,
+            river_exaggeration: 1.0,
             noise_layer: NoiseLayer::Combined,
             feature_layer: FeatureLayer::default(),
             climate_layer: ClimateLayer::default(),
@@ -376,7 +379,8 @@ impl AppState {
             .with_relief(relief_enabled)
             .with_hemisphere_lighting(self.hemisphere_lighting)
             .with_map_mode(map_mode_enabled)
-            .with_rivers(self.river_mode != RiverMode::Off);
+            .with_rivers(self.river_mode != RiverMode::Off)
+            .with_river_exaggeration(self.river_exaggeration);
 
         // Select pipeline and buffers based on render mode
         // Wind layers use unified (relief) mesh so particles align with terrain
