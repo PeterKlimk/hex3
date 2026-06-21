@@ -46,10 +46,13 @@ probe into `diagnose` before the next mountain ADD.
   shaded (fresnel/glint, distinct from ocean). The existing **Off/Major/All** river mode is
   now the real density control (is-major in the SDF B channel; was non-functional). Non-relief
   modes keep line rivers; dead quad path removed.
-- ⬜ **River HYDROLOGY pass (next)** — the deferred half: the network itself is sparse and many
-  rivers don't reach the sea (interior basins / threshold). Make drainage denser + sea-reaching
-  so rivers go from "render correctly" to "look right". This is where to assess network
-  plausibility (dendritic, trunk-to-mouth, lake handling).
+- ⬜ **River HYDROLOGY pass (next) — PLANNED, see `docs/specs/drainage-integration.md`.** Root
+  cause (measured + Codex-confirmed): drainage does depression FILLING but no INTEGRATION, so
+  ~30% of land is endorheic on the coarse macro shape and ~50% on the fine (Earth ≈18%). Fix =
+  a basin-integration / outlet-breaching pass (breach spill saddles under a pluvial climate,
+  rerun at present), NOT forcing terrain coastward or just cranking climate. Ordered plan:
+  (1) extend `--drainage-audit`, (2) micro-pit breaching, (3) geologic integration,
+  (4) retune `DEFAULT_CLIMATE_RATIO` 0.15→~0.3. Target 15–25% endorheic.
 - ⬜ **Perf** — default gen ~3× slower (n=2 Newton + 200 erosion steps); `EROSION_STEPS` is the
   quality↔speed dial. Revisit if iteration speed bites.
 
