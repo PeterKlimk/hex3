@@ -211,11 +211,6 @@ struct Cli {
     #[arg(long, default_value_t = -1.0)]
     emergent_structured: f32,
 
-    /// Coarse orogen asymmetry blend (steep foreland / gentle hinterland macro envelope).
-    /// <0 = default (0=symmetric); 1 = full. Changes the macro elevation + atmosphere.
-    #[arg(long, default_value_t = -1.0)]
-    coarse_asymmetry: f32,
-
     /// Sweep mode: erosion knob to vary across columns (enables a headless
     /// render-to-PNG sweep). Knobs: k, diffusivity, channel_support,
     /// hillslope_crit, confinement_slope, uplift_smooth, mfd_exponent,
@@ -345,7 +340,6 @@ fn main() {
         margin_contrast: (cli.margin_contrast >= 0.0).then_some(cli.margin_contrast),
         emergent_lambda: (cli.emergent_lambda >= 0.0).then_some(cli.emergent_lambda),
         emergent_structured: (cli.emergent_structured >= 0.0).then_some(cli.emergent_structured),
-        coarse_asymmetry: (cli.coarse_asymmetry >= 0.0).then_some(cli.coarse_asymmetry),
     };
     let fine_cache = if cli.no_fine_cache {
         FineCacheMode::Disabled
@@ -434,16 +428,7 @@ fn run_headless(
     // Generate world
     print!("Generating world... ");
     let start = std::time::Instant::now();
-    let coarse_asymmetry = erosion
-        .coarse_asymmetry
-        .unwrap_or(hex3::world::COARSE_OROGEN_ASYMMETRY);
-    let mut world = create_world_with_options(
-        seed,
-        num_cells,
-        voronoi_backend,
-        fine_cache,
-        coarse_asymmetry,
-    );
+    let mut world = create_world_with_options(seed, num_cells, voronoi_backend, fine_cache);
     erosion.apply(&mut world);
     // Apply the fine-mesh resolution multiplier. A non-default scale changes the
     // sampled mesh, so the disk cache (keyed on the density params) would miss

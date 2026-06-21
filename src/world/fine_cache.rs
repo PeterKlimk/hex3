@@ -185,7 +185,6 @@ pub fn fine_base_key(
         &features.activity,
         &features.convergent,
         &features.divergent,
-        &features.transform,
         &features.ridge_distance,
         &features.ridge_age_distance,
         &features.ridge_spreading_rate,

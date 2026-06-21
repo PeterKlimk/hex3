@@ -32,15 +32,6 @@ pub struct Atmosphere {
     /// Surface temperature per cell (normalized 0-1, can go negative at high elevation).
     pub temperature: Vec<f32>,
 
-    /// Land-ocean thermal contrast factor: 0 at ocean cells, saturating inland.
-    pub continentality: Vec<f32>,
-
-    /// Upper-layer temperature used to derive pressure forcing (latitude-only).
-    pub upper_temperature: Vec<f32>,
-
-    /// Pressure forcing per cell (1 - upper_temperature: hot = low pressure).
-    pub pressure: Vec<f32>,
-
     /// Upper wind per cell (terrain-unaware, free-flowing atmospheric wind).
     pub upper_wind: Vec<Vec3>,
 
@@ -50,22 +41,18 @@ pub struct Atmosphere {
     /// Uplift per cell (proxy from convergence + orographic upslope flow).
     pub uplift: Vec<f32>,
 
-    /// Steady-state airborne moisture per cell.
-    pub moisture: Vec<f32>,
-
     /// Precipitation per cell, normalized to mean 1.0 over the sphere.
     /// Drives hydrology flow accumulation and lake equilibria.
     pub precipitation: Vec<f32>,
-
-    /// Correction potential from projection (for debugging/visualization).
-    pub phi: Vec<f32>,
 }
 
 impl Atmosphere {
     /// Generate atmosphere data from tessellation and elevation.
     pub fn generate(tessellation: &Tessellation, elevation: &Elevation) -> Self {
-        // Step 1: Surface temperature from latitude + elevation lapse (display/climate field)
-        let (temperature, continentality) =
+        // Step 1: Surface temperature from latitude + elevation lapse (display/climate field).
+        // continentality is consumed INSIDE generate_surface_temperature (the land-ocean
+        // thermal contrast); the returned copy is not stored (no external consumer).
+        let (temperature, _continentality) =
             generate_surface_temperature(tessellation, &elevation.values);
 
         // Step 2: Upper-layer temperature (latitude-only; avoids "mountain high pressure" artifacts)
@@ -113,15 +100,10 @@ impl Atmosphere {
 
         Self {
             temperature,
-            continentality,
-            upper_temperature,
-            pressure,
             upper_wind,
             wind,
             uplift,
-            moisture: moisture_result.moisture,
             precipitation: moisture_result.precipitation,
-            phi,
         }
     }
 
@@ -862,33 +844,6 @@ fn project_wind_field(
     }
 
     phi
-}
-
-fn normalize_positive_field(mut values: Vec<f32>, percentile: f32) -> Vec<f32> {
-    let mut samples: Vec<f32> = values
-        .iter()
-        .copied()
-        .filter(|&v| v.is_finite() && v > 0.0)
-        .collect();
-    if samples.is_empty() {
-        values.fill(0.0);
-        return values;
-    }
-
-    samples.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let p = percentile.clamp(0.5, 0.999);
-    let idx = ((samples.len() - 1) as f32 * p).round() as usize;
-    let scale = samples[idx].max(1e-6);
-
-    for v in &mut values {
-        if !v.is_finite() || *v <= 0.0 {
-            *v = 0.0;
-        } else {
-            *v = (*v / scale).clamp(0.0, 1.0);
-        }
-    }
-
-    values
 }
 
 fn normalize_signed_field(mut values: Vec<f32>, percentile: f32) -> Vec<f32> {

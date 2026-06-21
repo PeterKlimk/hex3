@@ -131,12 +131,6 @@ pub struct World {
     /// so it is part of the fine-base cache key (a sweep regenerates the base).
     pub fine_structure_params: FineStructureParams,
 
-    /// Coarse orogen asymmetry blend (0..1; orogen-structure). 0 = symmetric Gaussian
-    /// cross-section (current); >0 makes the macro arc/collision envelope asymmetric
-    /// (steep foreland / gentle hinterland), so the atmosphere + fine target see real
-    /// mountains. Applied in `generate_features`.
-    pub coarse_asymmetry: f32,
-
     /// Whether fine-mesh base generation reads/writes the on-disk cache.
     pub fine_cache: FineCacheMode,
 
@@ -194,7 +188,6 @@ impl World {
             erosion_params: ErosionParams::default(),
             fine_density_params: FineDensityParams::default(),
             fine_structure_params: FineStructureParams::default(),
-            coarse_asymmetry: COARSE_OROGEN_ASYMMETRY,
             fine_cache: FineCacheMode::default(),
             view_stage: u32::MAX,
         }
@@ -262,7 +255,6 @@ impl World {
             plates,
             crust,
             dynamics,
-            self.coarse_asymmetry,
         ));
     }
 
@@ -315,20 +307,6 @@ impl World {
 
     /// Stage 3 with an explicit fine-mesh cell cap.
     pub fn generate_fine_pre_with_cap(&mut self, fine_max_cells: usize) {
-        // Guard the broken combination (orogen-structure): the coarse asymmetric envelope
-        // and O0's structured-emergent front profile BOTH impose an orogen cross-section
-        // (at different crest positions) → "inner massif + surrounding barrier". Asymmetry
-        // must have a single owner until the front geometry is shared (the deferred C/A
-        // redesign). Until then they must not both be on.
-        if self.coarse_asymmetry > 0.0 && self.fine_structure_params.emergent_structured > 0.0 {
-            log::warn!(
-                "orogen asymmetry is DOUBLE-applied: coarse_asymmetry={:.2} AND \
-                 emergent_structured={:.2} both shape the front → 'barrier' artifact. Use one \
-                 (O0 owns it; keep coarse_asymmetry=0). See docs/specs/orogen-structure.md.",
-                self.coarse_asymmetry,
-                self.fine_structure_params.emergent_structured
-            );
-        }
         let crust = self.crust.as_ref().expect("Crust must be generated first");
         let features = self
             .features

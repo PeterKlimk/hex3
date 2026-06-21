@@ -16,7 +16,10 @@ use super::Tessellation;
 
 /// Result of the moisture simulation.
 pub struct MoistureResult {
-    /// Steady-state airborne moisture per cell (raw units).
+    /// Steady-state airborne moisture per cell (raw units). Retained as a solver output
+    /// validated by tests; production consumes only `precipitation` (the atmosphere no
+    /// longer stores the moisture field).
+    #[cfg_attr(not(test), allow(dead_code))]
     pub moisture: Vec<f32>,
     /// Precipitation rate per cell, normalized to mean 1.0 over the sphere
     /// (so hydrology flow units stay "average-cell equivalents").
