@@ -54,11 +54,6 @@ pub struct FeatureFields {
     /// Used for regime-aware noise modulation (extensional texture).
     pub divergent: Vec<f32>,
 
-    /// Transform boundary influence scalar (0-1).
-    /// High near transform boundaries, decays into plate interiors.
-    /// Reserved for future directional/shear-aware noise.
-    pub transform: Vec<f32>,
-
     /// Raw distance from nearest mid-ocean ridge (radians).
     /// Stored for diagnostics/visualization; age-sensitive consumers use
     /// `ridge_age_distance`.
@@ -161,7 +156,6 @@ impl FeatureFields {
         let mut activity_seed = vec![0.0f32; num_cells];
         let mut convergent_seed = vec![0.0f32; num_cells];
         let mut divergent_seed = vec![0.0f32; num_cells];
-        let mut transform_seed = vec![0.0f32; num_cells];
 
         for b in &boundaries {
             // Activity: all boundary cells get activity based on relative speed
@@ -186,12 +180,9 @@ impl FeatureFields {
                     divergent_seed[b.cell_a] += force * area_scale(b.cell_a);
                     divergent_seed[b.cell_b] += force * area_scale(b.cell_b);
                 }
-                BoundaryKind::Transform => {
-                    let shear = b.shear.abs();
-                    let force = shear * b.edge_length;
-                    transform_seed[b.cell_a] += force * area_scale(b.cell_a);
-                    transform_seed[b.cell_b] += force * area_scale(b.cell_b);
-                }
+                // Transform (strike-slip) boundaries produce no vertical relief and feed
+                // no downstream field — classified but not accumulated.
+                BoundaryKind::Transform => {}
             }
 
             let edge_midpoint = cell_pair_edge_midpoint(
@@ -606,13 +597,6 @@ impl FeatureFields {
             DIVERGENT_INFLUENCE_LENGTH,
             mean_neighbor_dist,
         );
-        let transform = compute_influence_field(
-            tessellation,
-            plates,
-            &transform_seed,
-            TRANSFORM_INFLUENCE_LENGTH,
-            mean_neighbor_dist,
-        );
 
         // Convert distance fields to feature magnitudes
         let mut trench = vec![0.0f32; num_cells];
@@ -778,12 +762,11 @@ impl FeatureFields {
                 collision_max
             );
             log::debug!(
-                "  Activity: sum={:.2}, max={:.3} | Convergent max={:.3} | Divergent max={:.3} | Transform max={:.3}",
+                "  Activity: sum={:.2}, max={:.3} | Convergent max={:.3} | Divergent max={:.3}",
                 activity_sum,
                 activity_max,
                 convergent.iter().cloned().fold(0.0f32, f32::max),
                 divergent.iter().cloned().fold(0.0f32, f32::max),
-                transform.iter().cloned().fold(0.0f32, f32::max),
             );
         }
 
@@ -796,7 +779,6 @@ impl FeatureFields {
             activity,
             convergent,
             divergent,
-            transform,
             ridge_distance: ridge_dist,
             ridge_age_distance: ridge_age_dist,
             ridge_spreading_rate,

@@ -376,7 +376,6 @@ pub const COLLISION_PEAK_DIST: f32 = 0.015;
 pub const ACTIVITY_INFLUENCE_LENGTH: f32 = 0.05;
 pub const CONVERGENT_INFLUENCE_LENGTH: f32 = 0.06;
 pub const DIVERGENT_INFLUENCE_LENGTH: f32 = 0.06;
-pub const TRANSFORM_INFLUENCE_LENGTH: f32 = 0.05;
 
 // Boundary classification thresholds
 
