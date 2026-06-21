@@ -1271,10 +1271,12 @@ fn river_uv(p: Vec3, w: usize, h: usize) -> (f32, f32) {
 /// `RIVER_SDF_RANGE_PX` or beyond. MUST match `RIVER_SDF_RANGE_PX` in unified.wgsl.
 const RIVER_SDF_RANGE_PX: f32 = 6.0;
 
-/// Stamp the unsigned distance-to-point into the R channel (keeping the minimum) and the
-/// nearest river's flow into G. Longitude wraps at the seam.
-fn stamp_distance(buf: &mut [u8], w: usize, h: usize, cu: f32, cv: f32, flow_u8: u8) {
+/// Stamp the unsigned distance-to-point into R (keeping the minimum), the nearest river's
+/// flow into G, and whether that nearest river is a MAJOR river into B (so the shader can
+/// honour the Off/Major/All density mode). Longitude wraps at the seam.
+fn stamp_distance(buf: &mut [u8], w: usize, h: usize, cu: f32, cv: f32, flow_u8: u8, major: bool) {
     let r1 = RIVER_SDF_RANGE_PX + 1.0;
+    let major_u8 = if major { 255 } else { 0 };
     for vv in (cv - r1).floor() as i32..=(cv + r1).ceil() as i32 {
         if vv < 0 || vv >= h as i32 {
             continue;
@@ -1290,6 +1292,7 @@ fn stamp_distance(buf: &mut [u8], w: usize, h: usize, cu: f32, cv: f32, flow_u8:
             if d_u8 < buf[idx] {
                 buf[idx] = d_u8; // R = distance to centerline (0 = on river)
                 buf[idx + 1] = flow_u8; // G = nearest river's flow factor
+                buf[idx + 2] = major_u8; // B = nearest river is a major river
             }
         }
     }
@@ -1297,7 +1300,7 @@ fn stamp_distance(buf: &mut [u8], w: usize, h: usize, cu: f32, cv: f32, flow_u8:
 
 /// Rasterize one river segment a→b (unit-sphere endpoints) into the distance field,
 /// walking the shortest path across the longitude seam.
-fn stamp_segment(buf: &mut [u8], w: usize, h: usize, a: Vec3, b: Vec3, flow_u8: u8) {
+fn stamp_segment(buf: &mut [u8], w: usize, h: usize, a: Vec3, b: Vec3, flow_u8: u8, major: bool) {
     let (u0, v0) = river_uv(a, w, h);
     let (mut u1, v1) = river_uv(b, w, h);
     if (u1 - u0).abs() > w as f32 * 0.5 {
@@ -1311,13 +1314,14 @@ fn stamp_segment(buf: &mut [u8], w: usize, h: usize, a: Vec3, b: Vec3, flow_u8: 
     let steps = len.ceil() as usize;
     for s in 0..=steps {
         let t = s as f32 / steps as f32;
-        stamp_distance(buf, w, h, u0 + (u1 - u0) * t, v0 + (v1 - v0) * t, flow_u8);
+        stamp_distance(buf, w, h, u0 + (u1 - u0) * t, v0 + (v1 - v0) * t, flow_u8, major);
     }
 }
 
 /// Bake the river network into an equirectangular RGBA SDF: R = distance-to-river (0 = on a
-/// river, 255 = far), G = nearest river's flow factor (for downstream widening). The terrain
-/// shader reconstructs thin, crisp, screen-space-AA'd rivers from this.
+/// river, 255 = far), G = nearest river's flow factor (downstream widening), B = nearest
+/// river is MAJOR (the Off/Major/All density mode is a shader toggle on this, not a re-bake).
+/// The terrain shader reconstructs thin, crisp, screen-space-AA'd rivers from this.
 pub fn bake_river_texture(world: &World, width: u32, height: u32) -> Vec<u8> {
     let (w, h) = (width as usize, height as usize);
     // R = 255 (far / no river) everywhere; G/B/A = 0.
@@ -1332,9 +1336,10 @@ pub fn bake_river_texture(world: &World, width: u32, height: u32) -> Vec<u8> {
     };
     let tess = world.active_tessellation();
     let max_flow = render_data.max_flow.max(1e-6);
-    let include = render_data.include(RiverSet::All);
+    let include_all = render_data.include(RiverSet::All);
+    let include_major = render_data.include(RiverSet::Major);
 
-    for (i, &on) in include.iter().enumerate() {
+    for (i, &on) in include_all.iter().enumerate() {
         if !on {
             continue;
         }
@@ -1348,10 +1353,10 @@ pub fn bake_river_texture(world: &World, width: u32, height: u32) -> Vec<u8> {
             tess.cell_center(j)
         };
         let flow_u8 = ((hydrology.flow_accumulation[i] / max_flow).sqrt() * 255.0) as u8;
-        stamp_segment(&mut buf, w, h, start, end, flow_u8);
+        stamp_segment(&mut buf, w, h, start, end, flow_u8, include_major[i]);
     }
 
-    // Lake outflow channels — treat as moderately large rivers.
+    // Lake outflow channels — treat as major rivers (they carry a basin's full discharge).
     for (_basin, path) in &render_data.lake_outflow_paths {
         for seg in path.windows(2) {
             stamp_segment(
@@ -1361,6 +1366,7 @@ pub fn bake_river_texture(world: &World, width: u32, height: u32) -> Vec<u8> {
                 tess.cell_center(seg[0]),
                 tess.cell_center(seg[1]),
                 200,
+                true,
             );
         }
     }

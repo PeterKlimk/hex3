@@ -186,16 +186,6 @@ impl ApplicationHandler for App {
                         println!("Rivers: {}", state.river_mode.name());
                         state.window.request_redraw();
                     }
-                    PhysicalKey::Code(KeyCode::KeyJ) => {
-                        // Cycle river width exaggeration: thin → moderate → strong.
-                        state.river_exaggeration = match state.river_exaggeration {
-                            x if x < 1.5 => 2.0,
-                            x if x < 2.75 => 3.5,
-                            _ => 1.0,
-                        };
-                        println!("River width: {:.1}x", state.river_exaggeration);
-                        state.window.request_redraw();
-                    }
                     PhysicalKey::Code(KeyCode::KeyW) => {
                         // Toggle between surface and upper wind
                         let is_wind_layer = matches!(

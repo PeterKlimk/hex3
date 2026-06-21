@@ -36,14 +36,15 @@ struct Uniforms {
     map_mode: f32, // 0.0 = globe view, 1.0 = equirectangular map view
     slope_shading: f32, // 1.0 = shade from displaced face normal (hillshade)
     rivers_enabled: f32, // 1.0 = blend the baked river texture into the surface
-    river_exaggeration: f32, // river width multiplier (1.0 = thin; >1 = thicker modes)
+    river_major_only: f32, // 1.0 = major rivers only; 0.0 = all rivers
 }
 
-// River SDF: R channel = distance-to-river over [0, RIVER_SDF_RANGE_PX] px (must match the
-// CPU bake), G = nearest river's flow factor. Width is reconstructed thin + crisp in-shader.
+// River SDF: R = distance-to-river over [0, RIVER_SDF_RANGE_PX] px (must match the CPU bake),
+// G = nearest river's flow factor, B = nearest river is major. Rivers are reconstructed THIN
+// and crisp in-shader (width is flow-tapered, never exaggerated).
 const RIVER_SDF_RANGE_PX: f32 = 6.0;
-const RIVER_BASE_WIDTH_PX: f32 = 0.6;  // thin tributary half-width (px)
-const RIVER_FLOW_WIDTH_PX: f32 = 1.1;  // extra half-width for max-flow trunks (px)
+const RIVER_BASE_WIDTH_PX: f32 = 0.7;  // thin tributary half-width (px)
+const RIVER_FLOW_WIDTH_PX: f32 = 1.4;  // extra half-width for max-flow trunks (px)
 const RIVER_DEEP_COLOR: vec3<f32> = vec3<f32>(0.09, 0.20, 0.38);
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -234,14 +235,17 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // water. rivers_enabled is a uniform so this branch is uniform control flow.
     if (uniforms.rivers_enabled > 0.5) {
         let s = textureSample(river_tex, river_samp, in.river_uv);
+        // Density mode: in "major only" hide rivers whose nearest river isn't major.
+        let visible = uniforms.river_major_only < 0.5 || s.b > 0.5;
         let dist_px = s.r * RIVER_SDF_RANGE_PX; // 0 = on centerline
         let flow = s.g;
-        // Width (px): thin base + downstream widening, scaled by the exaggeration mode.
-        let width = (RIVER_BASE_WIDTH_PX + flow * RIVER_FLOW_WIDTH_PX)
-            * max(uniforms.river_exaggeration, 0.0);
-        // Screen-space anti-aliasing from the SDF gradient → crisp at any zoom.
+        // Screen-space AA from the SDF gradient → crisp at any zoom.
         let aa = max(fwidth(dist_px), 0.4);
-        let river_a = 1.0 - smoothstep(width - aa, width + aa, dist_px);
+        // Thin, flow-tapered width — with a screen-space floor (~1px) so rivers stay visible
+        // when zoomed out without fattening when zoomed in. Never exaggerated.
+        let world_width = RIVER_BASE_WIDTH_PX + flow * RIVER_FLOW_WIDTH_PX;
+        let width = max(world_width, aa);
+        let river_a = select(0.0, 1.0 - smoothstep(width - aa, width + aa, dist_px), visible);
         if (river_a > 0.001) {
             // Water look: sky-reflective (fresnel) deep blue + a sun glint, distinct from
             // the flat ocean, partially lit by the terrain shading.
