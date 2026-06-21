@@ -21,6 +21,11 @@ struct Cli {
     /// Max components listed per section.
     #[arg(long, default_value_t = 8)]
     top: usize,
+    /// Run the COARSE-vs-FINE drainage audit (endorheic land fraction, lake
+    /// fraction, basin counts) and exit. Compares the freshly-computed coarse
+    /// hydrology against the fine (eroded stage-4) hydrology.
+    #[arg(long, default_value_t = false)]
+    drainage_audit: bool,
     /// Fine-mesh cell cap (the emergent count is coarsened to fit). Lower it to
     /// iterate faster on erosion/roughness probes. 0 = use the FINE_MAX_CELLS default.
     #[arg(long, default_value_t = 0)]
@@ -323,6 +328,11 @@ fn main() {
         world.generate_hydrology_with_fine_cap(cli.fine_max);
     } else {
         world.generate_hydrology();
+    }
+
+    if cli.drainage_audit {
+        run_drainage_audit(&world, cli.seed);
+        return;
     }
 
     let tess = world.active_tessellation();
@@ -1369,4 +1379,202 @@ fn main() {
             );
         }
     }
+}
+
+/// Result of auditing one hydrology surface (coarse or fine).
+struct DrainageAudit {
+    label: String,
+    num_cells: usize,
+    land_cells: usize,
+    land_area: f64,
+    endorheic_land_area: f64,
+    lake_area: f64,
+    num_basins: usize,
+    num_endorheic_basins: usize,
+}
+
+/// Classify a basin chain as sea-reaching or endorheic by walking the
+/// `overflow_target` chain. A basin's water escapes to the sea only if every
+/// basin along the chain is currently overflowing (full to its spill point) and
+/// the chain terminates at a basin whose `overflow_target == None` (drains to
+/// ocean). Stops at the first non-overflowing basin (endorheic terminal sink).
+/// Cycles (mutually-overflowing closed groups with no external escape) are
+/// treated as endorheic. Returns true if sea-reaching.
+fn basin_reaches_sea(basins: &[hex3::world::Basin], start: usize) -> bool {
+    let mut cur = start;
+    let mut visited = std::collections::HashSet::new();
+    let cap = basins.len() + 1;
+    for _ in 0..cap {
+        if !visited.insert(cur) {
+            return false; // cycle: closed group, no escape -> endorheic
+        }
+        let b = &basins[cur];
+        if !b.is_overflowing() {
+            return false; // water pools here below spill -> endorheic terminal
+        }
+        match b.overflow_target {
+            None => return true, // overflowing AND drains to ocean -> sea-reaching
+            Some(next) => cur = next,
+        }
+    }
+    false // ran past the cap without resolving -> treat as endorheic
+}
+
+/// Audit one hydrology surface over LAND cells (area-weighted).
+fn audit_hydrology(
+    label: &str,
+    tess: &hex3::world::Tessellation,
+    hydro: &hex3::world::Hydrology,
+) -> DrainageAudit {
+    let n = tess.num_cells();
+    let areas = tess.cell_areas();
+
+    // Pre-classify every basin once.
+    let basin_sea: Vec<bool> = (0..hydro.basins.len())
+        .map(|b| basin_reaches_sea(&hydro.basins, b))
+        .collect();
+
+    let mut land_cells = 0usize;
+    let mut land_area = 0.0f64;
+    let mut endorheic_land_area = 0.0f64;
+    let mut lake_area = 0.0f64;
+
+    for i in 0..n {
+        if hydro.is_ocean(i) {
+            continue;
+        }
+        // LAND = anything not ocean. Lake/dry-basin cells sit on land surface.
+        let a = areas[i] as f64;
+        land_cells += 1;
+        land_area += a;
+
+        // Lake water on land counts toward the lake fraction.
+        if matches!(
+            hydro.water_state(i),
+            hex3::world::CellWaterState::LakeWater
+        ) {
+            lake_area += a;
+        }
+
+        // Trace this cell's drainage to its first basin (capture point), then
+        // classify via that basin's overflow chain. If the drainage path reaches
+        // ocean without entering any basin, it is sea-reaching.
+        let endorheic = {
+            let mut cell = i;
+            let mut hops = 0usize;
+            let cap = n + 1;
+            loop {
+                if hydro.is_ocean(cell) {
+                    break false; // reached the sea directly
+                }
+                if let Some(bid) = hydro.basin_id[cell] {
+                    // First basin entered: its chain decides the fate.
+                    break !basin_sea[bid];
+                }
+                hops += 1;
+                if hops > cap {
+                    break true; // drainage cycle off-basin: cannot reach sea
+                }
+                match hydro.downstream(cell) {
+                    Some(next) => cell = next,
+                    None => break true, // dead-end not in a basin -> inland sink
+                }
+            }
+        };
+        if endorheic {
+            endorheic_land_area += a;
+        }
+    }
+
+    let num_endorheic_basins = hydro
+        .basins
+        .iter()
+        .filter(|b| !b.is_overflowing())
+        .count();
+
+    DrainageAudit {
+        label: label.to_string(),
+        num_cells: n,
+        land_cells,
+        land_area,
+        endorheic_land_area,
+        lake_area,
+        num_basins: hydro.basins.len(),
+        num_endorheic_basins,
+    }
+}
+
+fn print_audit(a: &DrainageAudit) {
+    let land = a.land_area.max(1e-30);
+    println!(
+        "  [{}] cells={} land_cells={} land_area={:.4} sr\n     endorheic_land_fraction = {:.1}%   lake_fraction_of_land = {:.2}%\n     basins: {} total, {} endorheic (non-overflowing) = {:.1}%",
+        a.label,
+        a.num_cells,
+        a.land_cells,
+        a.land_area,
+        100.0 * a.endorheic_land_area / land,
+        100.0 * a.lake_area / land,
+        a.num_basins,
+        a.num_endorheic_basins,
+        if a.num_basins > 0 {
+            100.0 * a.num_endorheic_basins as f64 / a.num_basins as f64
+        } else {
+            0.0
+        },
+    );
+}
+
+/// COARSE-vs-FINE drainage audit. Computes endorheic land fraction, lake
+/// fraction, and basin counts for (A) the fine eroded hydrology and (B) a
+/// freshly-computed coarse hydrology, using the SAME generator + default
+/// climate ratio.
+fn run_drainage_audit(world: &World, seed: u64) {
+    use hex3::world::{Hydrology, DEFAULT_CLIMATE_RATIO};
+
+    println!(
+        "\n================ DRAINAGE AUDIT seed={} (climate_ratio={}) ================",
+        seed, DEFAULT_CLIMATE_RATIO
+    );
+    println!("(land = non-ocean cells; all fractions AREA-weighted in steradians)");
+
+    // (B) COARSE hydrology: same call fine.rs uses for its preview, on the
+    // coarse tessellation + coarse elevation + coarse crust/atmosphere fields.
+    let crust = world.crust.as_ref().expect("crust");
+    let coarse_elev = world.elevation.as_ref().expect("coarse elevation");
+    let atmos = world.atmosphere.as_ref().expect("atmosphere");
+    let coarse_hydro = Hydrology::generate(
+        &world.tessellation,
+        crust,
+        coarse_elev,
+        &atmos.precipitation,
+        &atmos.temperature,
+    );
+    let coarse = audit_hydrology("COARSE", &world.tessellation, &coarse_hydro);
+
+    // (A) FINE hydrology: the eroded stage-4 surface (default view_stage = MAX).
+    let fine_audit = match world.fine.as_ref() {
+        Some(fine) => {
+            let surf = fine.surface_for(u32::MAX); // eroded stage-4 surface
+            Some(audit_hydrology("FINE (eroded)", fine.tessellation(), &surf.hydrology))
+        }
+        None => {
+            println!("  [FINE] no fine surface present (run without disabling fine mesh)");
+            None
+        }
+    };
+
+    print_audit(&coarse);
+    if let Some(f) = &fine_audit {
+        print_audit(f);
+    }
+
+    println!("\n  VERDICT INPUTS:");
+    println!(
+        "    COARSE endorheic-land = {:.1}%   FINE endorheic-land = {}",
+        100.0 * coarse.endorheic_land_area / coarse.land_area.max(1e-30),
+        fine_audit
+            .as_ref()
+            .map(|f| format!("{:.1}%", 100.0 * f.endorheic_land_area / f.land_area.max(1e-30)))
+            .unwrap_or_else(|| "n/a".into())
+    );
 }
