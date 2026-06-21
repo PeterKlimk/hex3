@@ -90,6 +90,12 @@ pub struct WorldBuffers {
     pub num_river_mesh_all_indices: u32,
     pub num_river_mesh_major_indices: u32,
 
+    // Draped rivers: baked equirect river texture (group 1) + its bind group. Always
+    // present (transparent when there are no rivers / pre-hydrology) so the unified
+    // pipeline's group 1 is always bindable. `_river_texture` is kept alive for the view.
+    pub river_bind_group: wgpu::BindGroup,
+    _river_texture: wgpu::Texture,
+
     // Plate overlays (arrows + pole markers)
     pub arrow_vertex_buffer: wgpu::Buffer,
     pub pole_marker_vertex_buffer: wgpu::Buffer,
@@ -602,7 +608,11 @@ pub fn generate_colored_mesh(
 
 /// Generate GPU buffers from a World.
 /// Creates one dynamic colored mesh (initially Terrain mode) plus specialized buffers.
-pub fn generate_world_buffers(device: &wgpu::Device, world: &World) -> WorldBuffers {
+pub fn generate_world_buffers(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    world: &World,
+) -> WorldBuffers {
     let use_fine = world.shows_fine();
     let voronoi = &world.active_tessellation().voronoi;
     let elevation = world.active_elevation().unwrap();
@@ -744,6 +754,54 @@ pub fn generate_world_buffers(device: &wgpu::Device, world: &World) -> WorldBuff
 
     drop(_t);
 
+    // Draped-river texture: bake the network into an equirect RGBA texture + bind group
+    // (group 1 of the unified pipeline). Always built (transparent when no rivers exist).
+    let (river_tex_w, river_tex_h) = (4096u32, 2048u32);
+    let river_rgba = bake_river_texture(world, river_tex_w, river_tex_h);
+    let river_texture = device.create_texture_with_data(
+        queue,
+        &wgpu::TextureDescriptor {
+            label: Some("river_texture"),
+            size: wgpu::Extent3d {
+                width: river_tex_w,
+                height: river_tex_h,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        },
+        wgpu::util::TextureDataOrder::LayerMajor,
+        &river_rgba,
+    );
+    let river_view = river_texture.create_view(&wgpu::TextureViewDescriptor::default());
+    let river_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("river_sampler"),
+        address_mode_u: wgpu::AddressMode::Repeat, // longitude wraps
+        address_mode_v: wgpu::AddressMode::ClampToEdge,
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        mipmap_filter: wgpu::FilterMode::Nearest,
+        ..Default::default()
+    });
+    let river_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("river_bind_group"),
+        layout: &hex3::render::create_river_bind_group_layout(device),
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&river_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(&river_sampler),
+            },
+        ],
+    });
+
     WorldBuffers {
         // Dynamic colored mesh
         colored_vertex_buffer,
@@ -806,6 +864,9 @@ pub fn generate_world_buffers(device: &wgpu::Device, world: &World) -> WorldBuff
         ),
         num_river_mesh_all_indices: river_mesh_all.indices.len() as u32,
         num_river_mesh_major_indices: river_mesh_major.indices.len() as u32,
+
+        river_bind_group,
+        _river_texture: river_texture,
 
         // Plate overlays
         arrow_vertex_buffer: create_vertex_buffer(device, &arrow_vertices, "arrow_vertex"),
@@ -1185,6 +1246,124 @@ pub struct RiverMesh {
 fn flow_to_width(flow: f32, max_flow: f32) -> f32 {
     let t = (flow / max_flow).sqrt();
     RIVER_MIN_WIDTH + t * (RIVER_MAX_WIDTH - RIVER_MIN_WIDTH)
+}
+
+// ---------------------------------------------------------------------------
+// River TEXTURE bake (river-render re-work): rasterize the river network into an
+// equirectangular RGBA mask so the terrain shader can draw rivers AS SURFACE SHADING
+// (perfectly draped) instead of floating quad ribbons. This reuses the same network +
+// flow-widths the quads used; only the rendering changes.
+// ---------------------------------------------------------------------------
+
+/// World position (unit sphere) → equirect pixel (u,v). Convention must match the shader.
+fn river_uv(p: Vec3, w: usize, h: usize) -> (f32, f32) {
+    let p = p.normalize();
+    let lat = p.y.clamp(-1.0, 1.0).asin(); // [-π/2, π/2]
+    let lon = p.z.atan2(p.x); // [-π, π]
+    let u = (lon / (2.0 * std::f32::consts::PI) + 0.5) * w as f32;
+    let v = (0.5 - lat / std::f32::consts::PI) * h as f32;
+    (u, v)
+}
+
+/// Stamp a soft (anti-aliased) disc of `r` pixels into the RGBA buffer; longitude wraps
+/// at the seam. Max-blends coverage so overlapping segments don't accumulate darkness.
+fn stamp_disc(buf: &mut [u8], w: usize, h: usize, cu: f32, cv: f32, r: f32) {
+    let r1 = r + 1.0;
+    let (rc, gc, bc) = (
+        (RIVER_COLOR.x * 255.0) as u8,
+        (RIVER_COLOR.y * 255.0) as u8,
+        (RIVER_COLOR.z * 255.0) as u8,
+    );
+    for vv in (cv - r1).floor() as i32..=(cv + r1).ceil() as i32 {
+        if vv < 0 || vv >= h as i32 {
+            continue;
+        }
+        for uu in (cu - r1).floor() as i32..=(cu + r1).ceil() as i32 {
+            let dist = (((uu as f32) - cu).powi(2) + ((vv as f32) - cv).powi(2)).sqrt();
+            let cov = (1.0 - (dist - r).max(0.0)).clamp(0.0, 1.0);
+            if cov <= 0.0 {
+                continue;
+            }
+            let px = uu.rem_euclid(w as i32) as usize;
+            let idx = (vv as usize * w + px) * 4;
+            let a = (cov * 255.0) as u8;
+            if a > buf[idx + 3] {
+                buf[idx] = rc;
+                buf[idx + 1] = gc;
+                buf[idx + 2] = bc;
+                buf[idx + 3] = a;
+            }
+        }
+    }
+}
+
+/// Rasterize one river segment a→b (unit-sphere endpoints) at `radius` px, walking the
+/// shortest path across the longitude seam.
+fn stamp_segment(buf: &mut [u8], w: usize, h: usize, a: Vec3, b: Vec3, radius: f32) {
+    let (u0, v0) = river_uv(a, w, h);
+    let (mut u1, v1) = river_uv(b, w, h);
+    if (u1 - u0).abs() > w as f32 * 0.5 {
+        if u1 > u0 {
+            u1 -= w as f32;
+        } else {
+            u1 += w as f32;
+        }
+    }
+    let len = (u1 - u0).hypot(v1 - v0).max(1.0);
+    let steps = len.ceil() as usize;
+    for s in 0..=steps {
+        let t = s as f32 / steps as f32;
+        stamp_disc(buf, w, h, u0 + (u1 - u0) * t, v0 + (v1 - v0) * t, radius);
+    }
+}
+
+/// Bake the river network into an equirectangular RGBA texture (alpha = river coverage).
+pub fn bake_river_texture(world: &World, width: u32, height: u32) -> Vec<u8> {
+    let (w, h) = (width as usize, height as usize);
+    let mut buf = vec![0u8; w * h * 4];
+    let (Some(render_data), Some(hydrology)) =
+        (prepare_river_render_data(world), world.active_hydrology())
+    else {
+        return buf;
+    };
+    let tess = world.active_tessellation();
+    let max_flow = render_data.max_flow.max(1e-6);
+    let radius_scale = width as f32 / (2.0 * std::f32::consts::PI); // sphere length → u-px
+    let include = render_data.include(RiverSet::All);
+
+    for (i, &on) in include.iter().enumerate() {
+        if !on {
+            continue;
+        }
+        let Some(j) = hydrology.downstream(i) else {
+            continue;
+        };
+        let start = tess.cell_center(i);
+        let end = if hydrology.is_submerged(j) {
+            ((start + tess.cell_center(j)) / 2.0).normalize()
+        } else {
+            tess.cell_center(j)
+        };
+        let width_sphere = flow_to_width(hydrology.flow_accumulation[i], max_flow);
+        let radius_px = (width_sphere * 0.5 * radius_scale).max(0.6);
+        stamp_segment(&mut buf, w, h, start, end, radius_px);
+    }
+
+    // Lake outflow channels.
+    let outflow_radius = (RIVER_MAX_WIDTH * 0.5 * radius_scale).max(0.8);
+    for (_basin, path) in &render_data.lake_outflow_paths {
+        for seg in path.windows(2) {
+            stamp_segment(
+                &mut buf,
+                w,
+                h,
+                tess.cell_center(seg[0]),
+                tess.cell_center(seg[1]),
+                outflow_radius,
+            );
+        }
+    }
+    buf
 }
 
 /// Generate a triangle-strip river mesh (used in Relief mode).

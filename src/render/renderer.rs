@@ -60,9 +60,38 @@ pub enum EdgeDraw<'a> {
 
 use super::WindParticleSystem;
 
+/// Bind-group layout for the per-world baked river texture (group 1 of the unified
+/// pipeline). Created identically by the renderer (for the pipeline) and by
+/// `generate_world_buffers` (for the bind group) — structurally compatible.
+pub fn create_river_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("river_texture_bind_group_layout"),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
+    })
+}
+
 pub struct RenderScene<'a> {
     pub fill_pipeline: FillPipelineKind,
     pub fill: IndexedDraw<'a>,
+    /// Per-world baked river texture bind group (group 1; required for unified fills).
+    pub river_texture_bind_group: Option<&'a wgpu::BindGroup>,
     pub edges: Option<EdgeDraw<'a>>,
     pub arrows: Option<LineDraw<'a>>,
     pub pole_markers: Option<IndexedDraw<'a>>,
@@ -205,10 +234,13 @@ impl Renderer {
             .build();
 
         // Unified pipelines with material-aware lighting
+        let river_bind_group_layout = create_river_bind_group_layout(&gpu.device);
+
         let unified_fill_pipeline = PipelineBuilder::new(&gpu.device, gpu.format)
             .shader(&unified_shader)
             .vertex_layout(UnifiedVertex::desc())
             .bind_group_layout(&bind_group_layout)
+            .bind_group_layout(&river_bind_group_layout)
             .alpha_blend()
             .label("unified_fill_pipeline")
             .build();
@@ -217,6 +249,7 @@ impl Renderer {
             .shader(&unified_shader)
             .vertex_layout(UnifiedVertex::desc())
             .bind_group_layout(&bind_group_layout)
+            .bind_group_layout(&river_bind_group_layout)
             .cull_mode(None)
             .depth_write(false)
             .alpha_blend()
@@ -414,6 +447,16 @@ impl Renderer {
 
             render_pass.set_pipeline(fill_pipeline);
             render_pass.set_bind_group(0, bind_group, &[]);
+            // Unified pipelines require group 1 (the per-world river texture).
+            let is_unified = matches!(
+                scene.fill_pipeline,
+                FillPipelineKind::UnifiedGlobe | FillPipelineKind::UnifiedMap
+            );
+            if is_unified {
+                if let Some(river_bg) = scene.river_texture_bind_group {
+                    render_pass.set_bind_group(1, river_bg, &[]);
+                }
+            }
             render_pass.set_vertex_buffer(0, scene.fill.vertex_buffer.slice(..));
             render_pass
                 .set_index_buffer(scene.fill.index_buffer.slice(..), wgpu::IndexFormat::Uint32);

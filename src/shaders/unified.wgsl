@@ -35,10 +35,15 @@ struct Uniforms {
     hemisphere_lighting: f32, // 1.0 = hemisphere, 0.0 = simple diffuse
     map_mode: f32, // 0.0 = globe view, 1.0 = equirectangular map view
     slope_shading: f32, // 1.0 = shade from displaced face normal (hillshade)
-    _padding2: f32,
+    rivers_enabled: f32, // 1.0 = blend the baked river texture into the surface
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
+
+// Per-world baked river network (equirectangular RGBA; alpha = river coverage). Rivers are
+// drawn AS SURFACE SHADING here (perfectly draped) instead of floating quad ribbons.
+@group(1) @binding(0) var river_tex: texture_2d<f32>;
+@group(1) @binding(1) var river_samp: sampler;
 
 // Constants for map projection
 const PI: f32 = 3.14159265359;
@@ -59,6 +64,7 @@ struct VertexOutput {
     @location(1) world_normal: vec3<f32>,
     @location(2) color: vec3<f32>,
     @location(3) @interpolate(flat) material: u32,
+    @location(4) river_uv: vec2<f32>,
 }
 
 // Simple 3D hash for procedural noise (fast, deterministic)
@@ -148,6 +154,12 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     out.world_normal = in.normal;  // Normal is still the original sphere normal
     out.color = in.color;
     out.material = in.material;
+
+    // River-texture UV from the base SPHERE position (works in globe + map mode); must
+    // match the CPU bake convention (lon=atan2(z,x), lat=asin(y)).
+    let r_lon = atan2(in.position.z, in.position.x);
+    let r_lat = asin(clamp(in.position.y, -1.0, 1.0));
+    out.river_uv = vec2<f32>(r_lon / (2.0 * PI) + 0.5, 0.5 - r_lat / PI);
     return out;
 }
 
@@ -208,6 +220,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let H = normalize(L + V);
         let glint = pow(max(dot(N, H), 0.0), 128.0);
         final_color += vec3<f32>(glint * 0.2);
+    }
+
+    // Draped rivers: blend the baked river color (lit like the terrain) by its coverage.
+    // rivers_enabled is a uniform so this branch is uniform control flow (sampling is legal).
+    if (uniforms.rivers_enabled > 0.5) {
+        let river = textureSample(river_tex, river_samp, in.river_uv);
+        final_color = mix(final_color, river.rgb * lighting, river.a);
     }
 
     return vec4<f32>(final_color, alpha);
