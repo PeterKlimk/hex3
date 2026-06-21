@@ -1,8 +1,37 @@
 # Fine-mesh downwind rain shadow (side-aware orographic precipitation)
 
-Status: DESIGNED (not implemented). Priority-1 ADD from the first-principles architecture
-review. **Codex-reviewed → revised** (global-axis ordering and fetch units were fixed; see
-"Codex revisions" below). Default-off; lands dark and is swept before any merge.
+Status: IMPLEMENTED, default-off. **RECLASSIFIED to a river/climate-realism toggle — it is
+NOT a mountain-shape feature** (see OUTCOME). Codex-reviewed twice (design + outcome).
+
+## OUTCOME (2026-06-22): a DRAINAGE feature, not a relief feature
+
+Implemented and measured (seed 12345, stage 4, downwind 0.0 vs 0.6, same base mesh, 648k
+land cells):
+- **Flow accumulation (rivers/discharge): median +30.6%, p90 +90%, 86% of cells shift >10%**
+  — substantial drainage reshaping (windward-dense / lee-sparse).
+- **Elevation (the landform): median |Δ| = 0.00000, p90 = 0.00315** — essentially unchanged.
+
+So the rain shadow moves rivers a lot and mountains almost not at all. This is arithmetic,
+not a bug: with `EROSION_M=0.5, EROSION_N=2.0`, equilibrium slope `S ∝ A^(−m/n) = A^(−0.25)`,
+so halving lee discharge gives only ~18% steeper slope (the "spikier lee" seen in renders);
+incision sees `A^m`, so +30% flow = only ~14% incision-power change. Compounded by transient
+(non-equilibrium) erosion that re-erodes from `structured_base` each outer pass, the
+mean-invariant renorm removing net denudation, and uplift being precip-independent.
+
+**The original "priority-1, HIGH on visible mountains" estimate was WRONG** — it conflated
+precip-asymmetry with relief-asymmetry. Lesson adopted: every ADD is now gated on an
+**elevation-first A/B** (mountain-mask p90 |Δelev| ≥ 0.01; derived fields like flow/precip
+do not count). Rain-shadow's p90 (0.003) fails that bar by 3×.
+
+**KEEP as:** asymmetric river networks / hydrology / climate maps. Default-off. Useful range
+~0.2–0.4 (0.6 = aggressive diagnostic; audit median ~0.52, floor-hit ~27%). **Do NOT** put it
+on the mountain-shape roadmap or build a non-mean-invariant "dry the planet" variant for
+relief — that's the wrong lever (Codex-confirmed).
+
+---
+
+Original design notes (Codex-reviewed → revised; global-axis ordering and fetch units were
+fixed — see "Codex revisions" below). Default-off; lands dark and is swept before any merge.
 
 ## The gap
 
