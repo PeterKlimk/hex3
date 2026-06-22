@@ -27,10 +27,20 @@ tuning dial (off=17%, on=10.6% at any ratio 0.18–0.6) — it over-integrates b
 no useful control. The micro-pit geometry proxy hits the target cleanly and is physically
 defensible, so it's the shipped criterion. (Code path left available for future revisit.)
 
-**Climate (Codex step 4): left at `DEFAULT_CLIMATE_RATIO = 0.15`.** Integration handles the
-sea-reaching goal at 0.15 with in-target endorheic; raising climate would only trade endorheic
-(below target) for more lakes. Climate stays a user dial (Up/Down). Revisit if lakes look too
-sparse (`lake_fraction ≈ 0.07%`).
+**Climate (Codex step 4): tried `0.3`, REVERTED to `0.15` — the climate-for-lakes retune does
+NOT work.** Measured: climate `0.15` vs `1.5` give IDENTICAL lake_fraction (~0%) AND endorheic
+land (17.2%) — climate is inert here. Root cause: **the integration breached the lake-holding
+basins** (lakes ~0.8% pre-integration → ~0% after). A drained basin can't pond, and climate
+can't refill a basin that's been carved open. (Also flagged: climate appears not to move
+endorheic at all post-integration — possible deeper issue in `calculate_water_levels` worth a
+look.) A `"climate"` sweep knob was added as tooling (`set_active_climate_ratio` post-gen).
+
+**LAKES are now a separate follow-up — not a climate dial.** The integration traded lakes for
+sea-reaching drainage. To get lakes back without re-breaking drainage, the lever is the
+breach/keep BALANCE: breach only tiny noise pits, KEEP real basins, and let them fill to spill
+and OVERFLOW so they become lakes *with outlets* (lake + drains to sea). That's a deliberate
+rebalance of `MICRO_BASIN_*` + climate, not a one-knob bump — and Codex's warning ("overflow by
+lake-filling masks the geometry") means it needs care.
 
 ---
 

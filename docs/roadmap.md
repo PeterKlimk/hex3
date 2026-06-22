@@ -54,6 +54,12 @@ probe into `diagnose` before the next mountain ADD.
   now reach the sea. The "pluvial overflow" criterion was tested and rejected (step function,
   over-integrates); climate left at 0.15 (a user dial). Possible follow-ups: lakes too sparse
   (climate), and a targeted high-discharge criterion if a major river still ends inland.
+- ⬜ **Lakes** — the drainage integration traded lakes for sea-reaching rivers (lakes ~0.8% →
+  ~0%; breached basins can't pond). The climate dial is INERT (0.15 vs 1.5 → same ~0% lakes).
+  To restore lakes: rebalance breaching (breach only tiny noise pits, KEEP real basins, fill to
+  overflow → lakes with outlets) — a deliberate breach/keep + climate balance, not a one-knob
+  bump. Also flagged: climate appears not to move endorheic post-integration (possible
+  `calculate_water_levels` issue). See `docs/specs/drainage-integration.md`.
 - ⬜ **Perf** — default gen ~3× slower (n=2 Newton + 200 erosion steps); `EROSION_STEPS` is the
   quality↔speed dial. Revisit if iteration speed bites.
 
