@@ -73,6 +73,34 @@ fill. (NOTE: this CHANGES the rendered fine terrain — carved water gaps differ
 visual sweep before merge. Climate-sweep confirmation of the live dial is the next check.)
 49 tests pass.
 
+**CODEX PHYSICAL REVIEW (2026-06-22, 2 rounds) + hardening.** Codex endorsed the basin-aware
+carve but rated the depth keep/breach as a *pragmatic heuristic*, not a geomorphic model.
+Round-2 convergence + what we did about it:
+- **Water-budget criterion is degenerate in THIS solver, root cause identified.** We'd already
+  tested the "pluvial overflow" criterion (breach basins that overflow under a wetter paleo-
+  climate) and found it a STEP FUNCTION (off 17% / on 10.6% at any ratio 0.18–0.6). Mechanism:
+  a basin overflows when `catchment·(r/evap) ≥ capacity`, so `r_crit = capacity·evap/catchment`;
+  `catchment` uses **first-basin attribution**, making network position near-BINARY (trunk →
+  `r_crit≪1` always overflows; isolated pit → `r_crit≳1` never overflows). `r_crit` is bimodal
+  with a gap across the usable climate range → a single multiplicative knob can't land in it.
+  Codex agreed and RETRACTED "use paleo-overflow instead of depth"; the real fix is **storage-
+  aware surplus transfer** (fill local basins, evaporate from lake area, pass only excess
+  downstream) to de-bimodalize `r_crit` — deferred as the long-term water-budget model.
+- **Depth accepted as an incision-resistance proxy** (sill height an outlet must cut), not just
+  a ponding/render threshold — and it's *continuous*, which is why it gives a usable dial.
+- **DONE — split thresholds.** `MIN_INTEGRATION_SILL_RELIEF` (integration keep) is now a
+  separate constant from `MIN_LAKE_DEPTH` (lake render), even though both = 0.01 today.
+- **DONE — over-connection audit** (`HEX3_OVERCONNECT_AUDIT`): re-solves water levels with
+  breached-pit precip masked out (≈ pre-integration, water trapped) on the same carved geometry
+  and counts kept basins that flip overflowing→not. **Result: 0/17 (0.0%)** on the fine eroded
+  surface (0/1 pre-erosion, 0/2 coarse) — the cascade is NOT manufacturing connectivity; the
+  16.7%→13.7% improvement is real. `integrate_basins` now returns the breached-cell mask.
+- **Still open (roadmap):** `TINY_SPIKE_AREA` is a scale-coupled magic number doing the dominant
+  keep/breach work (~37 of 61 lake-capable basins, ≈8100 km² Earth-equiv) — replace with a
+  coherence/resolution-aware spike test (cell count, rim coherence). Resolution-scale
+  `CARVE_SLOPE` (per-cell gradient). Explicit basin spill-hierarchy receiver (medium). Storage-
+  aware surplus-transfer water budget (the principled long-term model).
+
 **LAKES are now a separate follow-up — not a climate dial.** The integration traded lakes for
 sea-reaching drainage. To get lakes back without re-breaking drainage, the lever is the
 breach/keep BALANCE: breach only tiny noise pits, KEEP real basins, and let them fill to spill

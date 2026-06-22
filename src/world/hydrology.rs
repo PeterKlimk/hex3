@@ -170,14 +170,20 @@ pub const DEFAULT_CLIMATE_RATIO: f32 = 0.15;
 // climates. The generator only does depression FILLING, leaving ~30-50% of land endorheic.
 // This carves outlet channels (along the priority-flood spill path) for basins that geologic
 // time would have integrated, BEFORE the present-climate hydrology runs.
-/// Lake-capable basins (depth ≥ `MIN_LAKE_DEPTH`) are KEPT by integration — they can pond a
-/// real lake and overflow with an outlet. Only basins TOO SHALLOW to hold a lake are breached
-/// (drainage artifacts / noise pits that integrate trivially). A deep basin that is genuinely
-/// negligible in footprint (a 1–2 fine-cell erosion spike) is still breached via the strict
-/// `TINY_SPIKE_AREA` floor below, so deep speckle doesn't survive as a pin-prick lake.
-/// (Previously a `depth < 0.012` + `OR`-area gate breached the [0.01,0.012) lake band and small
-/// deep basins, which — together with collateral carving — destroyed lake geometry. See
-/// docs/specs/drainage-integration.md.)
+/// Minimum sill relief (spill − bottom) for a basin to RESIST drainage integration — i.e. the
+/// sill height an outlet would have to incise before geologic time breaches the basin. Basins
+/// with less relief are shallow enough that integration is trivial, so they're breached. This
+/// is a geologic-persistence / incision-resistance criterion and is DELIBERATELY SEPARATE from
+/// `MIN_LAKE_DEPTH` (a rendering threshold) even though both are "depth": "deep enough to render
+/// as a lake" and "deep enough to stay endorheic over geologic time" are different questions
+/// (Codex round-2). Kept ≈ `MIN_INTEGRATION_SILL_RELIEF` is a PRAGMATIC proxy for the real
+/// water-budget/incision model (see docs/specs/drainage-integration.md roadmap).
+const MIN_INTEGRATION_SILL_RELIEF: f32 = 0.01;
+/// Basins with footprint below this (steradians) are breached even if they clear the sill-relief
+/// bar — a guard against deep erosion speckle surviving as a pin-prick lake. NOTE: this is a
+/// crude SCALE-COUPLED heuristic (≈8100 km² Earth-equiv, NOT physically "tiny") and is currently
+/// the dominant keep/breach lever among real basins; flagged for replacement with a
+/// coherence/resolution-aware spike test (cell count, rim coherence). See docs roadmap.
 const TINY_SPIKE_AREA: f32 = 0.0002;
 /// Per-cell descent enforced when carving an outlet channel (elevation units). Small so the
 /// breach is a thin notch, not a canyon.
@@ -241,7 +247,8 @@ impl Hydrology {
         // Drainage integration: carve outlet channels for basins geologic time would have
         // breached, so the present-climate hydrology drains them to the sea (not endorheic).
         let t0 = Instant::now();
-        let integrated_elevation = integrate_basins(tessellation, raw_elevation, &areas, &is_ocean);
+        let (integrated_elevation, breached_cell) =
+            integrate_basins(tessellation, raw_elevation, &areas, &is_ocean);
         let raw_elevation: &[f32] = &integrated_elevation;
         log::info!("hydrology: drainage integration {:.2?}", t0.elapsed());
 
@@ -292,6 +299,54 @@ impl Hydrology {
         let climate_ratio = DEFAULT_CLIMATE_RATIO;
         calculate_water_levels(&mut basins, climate_ratio);
         log::info!("hydrology: water levels {:.2?}", t0.elapsed());
+
+        // Over-connection audit (HEX3_OVERCONNECT_AUDIT): does a kept basin overflow only
+        // because integration routed breached-pit runoff INTO it? Re-solve water levels with the
+        // breached-pit precipitation masked out (≈ pre-integration, when that water was trapped
+        // endorheically), on the SAME carved geometry, and count kept (sill-resisting) basins
+        // that flip overflowing→not. A high fraction means the cascade manufactures connectivity
+        // (Codex round-1 #5). Diagnostic only — does not affect output.
+        if std::env::var("HEX3_OVERCONNECT_AUDIT").is_ok() {
+            let masked_precip: Vec<f32> = precipitation
+                .iter()
+                .zip(&breached_cell)
+                .map(|(&p, &b)| if b { 0.0 } else { p })
+                .collect();
+            let mut native = basins.clone();
+            compute_basin_catchments(
+                &mut native,
+                &basin_id,
+                &drainage_dir,
+                &masked_precip,
+                temperature,
+                &areas,
+                global_mean_temperature,
+            );
+            calculate_water_levels(&mut native, climate_ratio);
+            let mut kept_overflowing = 0usize;
+            let mut depends_on_routed = 0usize;
+            for (b, nb) in basins.iter().zip(&native) {
+                let resists =
+                    (b.spill_elevation - b.bottom_elevation) >= MIN_INTEGRATION_SILL_RELIEF;
+                if resists && b.is_overflowing() {
+                    kept_overflowing += 1;
+                    if !nb.is_overflowing() {
+                        depends_on_routed += 1;
+                    }
+                }
+            }
+            let frac = if kept_overflowing > 0 {
+                100.0 * depends_on_routed as f32 / kept_overflowing as f32
+            } else {
+                0.0
+            };
+            log::info!(
+                "hydrology: OVERCONNECT AUDIT — {}/{} overflowing kept basins depend on routed-in breached-pit inflow ({:.1}%)",
+                depends_on_routed,
+                kept_overflowing,
+                frac
+            );
+        }
 
         // Step 9: Extract connected water bodies from wet cells
         let t0 = Instant::now();
@@ -824,33 +879,46 @@ fn carve_outlet(
 /// Drainage integration: carve outlet channels for basins that geologic time would have
 /// breached, so they drain to the sea instead of ponding endorheically. KEEPS lake-capable
 /// basins (depth ≥ `MIN_LAKE_DEPTH`) so they pond + overflow as lakes-with-outlets; breaches
-/// only basins too shallow to hold a lake (drainage artifacts) plus genuinely negligible deep
-/// spikes (`TINY_SPIKE_AREA`). The carve is basin-aware (routes into, not through, preserved
-/// basins). Returns a carved copy of `elevation`. Gated by HEX3_NO_DRAINAGE_INTEGRATION (A/B).
+/// only basins too shallow to resist integration (`MIN_INTEGRATION_SILL_RELIEF`) plus genuinely
+/// negligible deep spikes (`TINY_SPIKE_AREA`). The carve is basin-aware (routes into, not
+/// through, preserved basins). Returns the carved elevation plus a per-cell mask of cells whose
+/// pre-carve basin was BREACHED (the routed-in / "manufactured" runoff source — used by the
+/// over-connection audit). Gated by HEX3_NO_DRAINAGE_INTEGRATION (A/B).
 fn integrate_basins(
     tessellation: &Tessellation,
     elevation: &[f32],
     areas: &[f32],
     is_ocean: &[bool],
-) -> Vec<f32> {
+) -> (Vec<f32>, Vec<bool>) {
     let mut working = elevation.to_vec();
+    let mut breached_cell = vec![false; elevation.len()];
     if std::env::var("HEX3_NO_DRAINAGE_INTEGRATION").is_ok() {
-        return working;
+        return (working, breached_cell);
     }
     let (_filled, basin_id, basins, flood_parent) =
         priority_flood_with_basins(tessellation, elevation, areas, is_ocean);
 
-    // Lake-capable basins (deep enough to pond a real lake) — KEPT, unless a genuinely
-    // negligible deep spike. Everything else (too shallow to be a lake) is breached.
-    let lake_capable: Vec<bool> = basins
+    // KEEP a basin if it resists integration (sill relief ≥ MIN_INTEGRATION_SILL_RELIEF) AND is
+    // not a negligible deep spike. Breach everything else. (Sill relief is the integration
+    // criterion — distinct from MIN_LAKE_DEPTH, the lake-render threshold.)
+    let resists: Vec<bool> = basins
         .iter()
-        .map(|b| (b.spill_elevation - b.bottom_elevation) >= MIN_LAKE_DEPTH)
+        .map(|b| (b.spill_elevation - b.bottom_elevation) >= MIN_INTEGRATION_SILL_RELIEF)
         .collect();
     let keep: Vec<bool> = basins
         .iter()
-        .zip(&lake_capable)
-        .map(|(b, &lc)| lc && b.total_area >= TINY_SPIKE_AREA)
+        .zip(&resists)
+        .map(|(b, &r)| r && b.total_area >= TINY_SPIKE_AREA)
         .collect();
+
+    // Mark every cell whose basin will be breached (its runoff becomes routed-in inflow).
+    for (cell, bid) in basin_id.iter().enumerate() {
+        if let Some(b) = bid {
+            if !keep[*b] {
+                breached_cell[cell] = true;
+            }
+        }
+    }
 
     let mut breached = 0;
     let mut lowered: Vec<usize> = Vec::new();
@@ -878,32 +946,23 @@ fn integrate_basins(
     }
 
     // Collateral-carving diagnostic: how many cells we cut belong to a basin we
-    // PRESERVED (kept), and specifically a lake-capable one. Should be ~0 now that
-    // carve_outlet stops at preserved basins.
-    let mut collateral_preserved = 0usize;
-    let mut collateral_lake_capable = 0usize;
-    for &cell in &lowered {
-        if let Some(bid) = basin_id[cell] {
-            if keep[bid] {
-                collateral_preserved += 1;
-            }
-            if lake_capable[bid] && keep[bid] {
-                collateral_lake_capable += 1;
-            }
-        }
-    }
-    let n_lake_capable = lake_capable.iter().filter(|&&x| x).count();
+    // PRESERVED (kept). Should be ~0 now that carve_outlet stops at preserved basins.
+    let collateral_preserved = lowered
+        .iter()
+        .filter(|&&c| basin_id[c].is_some_and(|b| keep[b]))
+        .count();
+    let n_kept = keep.iter().filter(|&&x| x).count();
     log::info!(
-        "hydrology: drainage integration breached {}/{} basins | {} lake-capable basins (depth>={:.3}) | carved {} cells, {} in preserved basins ({} in lake-capable)",
+        "hydrology: drainage integration breached {}/{} basins | {} kept (sill≥{:.3} & area≥{:.4}) | carved {} cells, {} in preserved basins",
         breached,
         basins.len(),
-        n_lake_capable,
-        MIN_LAKE_DEPTH,
+        n_kept,
+        MIN_INTEGRATION_SILL_RELIEF,
+        TINY_SPIKE_AREA,
         lowered.len(),
         collateral_preserved,
-        collateral_lake_capable
     );
-    working
+    (working, breached_cell)
 }
 
 /// For each cell, the basin that CAPTURES its runoff: the first basin reached by
