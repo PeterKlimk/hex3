@@ -162,7 +162,7 @@ const MIN_OCEAN_AREA_FRACTION: f32 = 0.001;
 /// Values > 1.0 = wet climate (more lakes)
 /// Values < 1.0 = arid climate (fewer lakes)
 /// At equilibrium: lake_surface_area = catchment_area × climate_ratio
-pub const DEFAULT_CLIMATE_RATIO: f32 = 0.15;
+pub const DEFAULT_CLIMATE_RATIO: f32 = 0.3;
 
 // --- Drainage integration (docs/specs/drainage-integration.md) ---
 // Real drainage networks INTEGRATE over geologic time: rivers breach divides and basins

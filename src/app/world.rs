@@ -134,6 +134,9 @@ pub struct ErosionOverrides {
     pub orographic_precip_strength: Option<f32>,
     pub downwind_shadow_strength: Option<f32>,
     pub lake_evap_strength: Option<f32>,
+    /// Climate ratio (precip/evaporation). NOTE: consumed post-generation by the sweep
+    /// (`set_active_climate_ratio`), not in `apply` — adjusts lake levels on the drainage.
+    pub climate_ratio: Option<f32>,
     pub glacial_k: Option<f32>,
     // Fine-base structural-relief knobs (P1a): these target `fine_structure_params`,
     // NOT `erosion_params` — they shape the pre-erosion base, so `apply` must run

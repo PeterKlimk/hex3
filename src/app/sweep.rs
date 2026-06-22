@@ -50,6 +50,7 @@ pub const SWEEP_KNOBS: &[&str] = &[
     "orographic",
     "downwind_shadow",
     "lake_evap",
+    "climate",
     "glacial_k",
     "fault_scarp",
     "interior_relief",
@@ -119,6 +120,7 @@ fn apply_knob(ov: &mut ErosionOverrides, name: &str, v: f64) -> Result<(), Strin
         "orographic" => ov.orographic_precip_strength = Some(f),
         "downwind_shadow" => ov.downwind_shadow_strength = Some(f),
         "lake_evap" => ov.lake_evap_strength = Some(f),
+        "climate" => ov.climate_ratio = Some(f),
         "glacial_k" => ov.glacial_k = Some(f),
         "fault_scarp" => ov.fault_scarp_height = Some(f),
         "interior_relief" => ov.interior_relief = Some(f),
@@ -158,6 +160,10 @@ fn generate_tile_world(opts: &SweepOptions, overrides: &ErosionOverrides) -> Wor
     }
     if opts.target_stage >= 4 {
         advance_to_stage_4(&mut world);
+    }
+    // Climate-ratio sweep: adjust lake levels on the (already-integrated) drainage post-gen.
+    if let Some(c) = overrides.climate_ratio {
+        world.set_active_climate_ratio(c);
     }
     world
 }
