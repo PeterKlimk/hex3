@@ -170,12 +170,15 @@ pub const DEFAULT_CLIMATE_RATIO: f32 = 0.15;
 // climates. The generator only does depression FILLING, leaving ~30-50% of land endorheic.
 // This carves outlet channels (along the priority-flood spill path) for basins that geologic
 // time would have integrated, BEFORE the present-climate hydrology runs.
-/// Basins with surface area below this (steradians) are micro-pit artifacts (mostly from
-/// fine relief/erosion) — breached aggressively. ~0.001 sr ≈ a handful of fine cells.
-const MICRO_BASIN_AREA: f32 = 0.0015;
-/// Basins shallower than this (spill − bottom, elevation units) are breached regardless of
-/// area — shallow noise depressions that would integrate trivially.
-const MICRO_BASIN_DEPTH: f32 = 0.012;
+/// Lake-capable basins (depth ≥ `MIN_LAKE_DEPTH`) are KEPT by integration — they can pond a
+/// real lake and overflow with an outlet. Only basins TOO SHALLOW to hold a lake are breached
+/// (drainage artifacts / noise pits that integrate trivially). A deep basin that is genuinely
+/// negligible in footprint (a 1–2 fine-cell erosion spike) is still breached via the strict
+/// `TINY_SPIKE_AREA` floor below, so deep speckle doesn't survive as a pin-prick lake.
+/// (Previously a `depth < 0.012` + `OR`-area gate breached the [0.01,0.012) lake band and small
+/// deep basins, which — together with collateral carving — destroyed lake geometry. See
+/// docs/specs/drainage-integration.md.)
+const TINY_SPIKE_AREA: f32 = 0.0002;
 /// Per-cell descent enforced when carving an outlet channel (elevation units). Small so the
 /// breach is a thin notch, not a canyon.
 const CARVE_SLOPE: f32 = 0.0002;
@@ -779,10 +782,18 @@ fn priority_flood_with_basins(
 /// to the ocean, following the priority-flood `flood_parent` tree (which points oceanward).
 /// Lowers only the barrier (the spill saddle + any rise above the running target); once the
 /// path drops below the target it follows the natural descent. Edits `elevation` in place.
+/// Carve a breached basin's outlet along the oceanward flood-parent path.
+///
+/// Basin-aware: if the path reaches a PRESERVED basin (`keep_basin[b]`), we stop there — the
+/// breached pit now drains INTO that lake basin, which handles its own fill/overflow, rather
+/// than the notch slicing straight through the lake to the sea (the collateral-carving bug:
+/// 100% of cells cut through preserved basins were lake-capable). Edits `elevation` in place.
 fn carve_outlet(
     elevation: &mut [f32],
     flood_parent: &[Option<usize>],
     is_ocean: &[bool],
+    basin_id: &[Option<usize>],
+    keep_basin: &[bool],
     start: usize,
     lowered: &mut Vec<usize>,
 ) {
@@ -793,6 +804,12 @@ fn carve_outlet(
     while !is_ocean[c] && guard < n {
         guard += 1;
         let Some(p) = flood_parent[c] else { break };
+        // Reached a preserved (lake-capable) basin: route INTO it, don't carve through.
+        if let Some(b) = basin_id[p] {
+            if keep_basin[b] {
+                break;
+            }
+        }
         target -= CARVE_SLOPE;
         if elevation[p] > target {
             elevation[p] = target; // carve the barrier down
@@ -805,9 +822,11 @@ fn carve_outlet(
 }
 
 /// Drainage integration: carve outlet channels for basins that geologic time would have
-/// breached, so they drain to the sea instead of ponding endorheically. v1 breaches the
-/// micro-pit artifacts (small or shallow basins); the macro/pluvial criterion is layered on
-/// next. Returns a carved copy of `elevation`. Gated by HEX3_NO_DRAINAGE_INTEGRATION (A/B).
+/// breached, so they drain to the sea instead of ponding endorheically. KEEPS lake-capable
+/// basins (depth ≥ `MIN_LAKE_DEPTH`) so they pond + overflow as lakes-with-outlets; breaches
+/// only basins too shallow to hold a lake (drainage artifacts) plus genuinely negligible deep
+/// spikes (`TINY_SPIKE_AREA`). The carve is basin-aware (routes into, not through, preserved
+/// basins). Returns a carved copy of `elevation`. Gated by HEX3_NO_DRAINAGE_INTEGRATION (A/B).
 fn integrate_basins(
     tessellation: &Tessellation,
     elevation: &[f32],
@@ -821,24 +840,22 @@ fn integrate_basins(
     let (_filled, basin_id, basins, flood_parent) =
         priority_flood_with_basins(tessellation, elevation, areas, is_ocean);
 
-    // Which basins are micro (selected for breaching) vs preserved.
-    let is_micro: Vec<bool> = basins
-        .iter()
-        .map(|b| {
-            let depth = b.spill_elevation - b.bottom_elevation;
-            b.total_area < MICRO_BASIN_AREA || depth < MICRO_BASIN_DEPTH
-        })
-        .collect();
-    // Lake-capable basins (deep enough to pond a real lake) we'd like to keep.
+    // Lake-capable basins (deep enough to pond a real lake) — KEPT, unless a genuinely
+    // negligible deep spike. Everything else (too shallow to be a lake) is breached.
     let lake_capable: Vec<bool> = basins
         .iter()
         .map(|b| (b.spill_elevation - b.bottom_elevation) >= MIN_LAKE_DEPTH)
+        .collect();
+    let keep: Vec<bool> = basins
+        .iter()
+        .zip(&lake_capable)
+        .map(|(b, &lc)| lc && b.total_area >= TINY_SPIKE_AREA)
         .collect();
 
     let mut breached = 0;
     let mut lowered: Vec<usize> = Vec::new();
     for (bi, basin) in basins.iter().enumerate() {
-        if !is_micro[bi] {
+        if keep[bi] {
             continue;
         }
         // The basin's lowest cell (start of the outlet channel).
@@ -848,21 +865,29 @@ fn integrate_basins(
             .copied()
             .min_by(|&a, &b| elevation[a].total_cmp(&elevation[b]))
             .unwrap_or(basin.cells[0]);
-        carve_outlet(&mut working, &flood_parent, is_ocean, bottom_cell, &mut lowered);
+        carve_outlet(
+            &mut working,
+            &flood_parent,
+            is_ocean,
+            &basin_id,
+            &keep,
+            bottom_cell,
+            &mut lowered,
+        );
         breached += 1;
     }
 
     // Collateral-carving diagnostic: how many cells we cut belong to a basin we
-    // would otherwise have PRESERVED (non-micro), and specifically a lake-capable
-    // one. High counts mean micro-basin outlets are cutting THROUGH real basins.
+    // PRESERVED (kept), and specifically a lake-capable one. Should be ~0 now that
+    // carve_outlet stops at preserved basins.
     let mut collateral_preserved = 0usize;
     let mut collateral_lake_capable = 0usize;
     for &cell in &lowered {
         if let Some(bid) = basin_id[cell] {
-            if !is_micro[bid] {
+            if keep[bid] {
                 collateral_preserved += 1;
             }
-            if lake_capable[bid] && !is_micro[bid] {
+            if lake_capable[bid] && keep[bid] {
                 collateral_lake_capable += 1;
             }
         }

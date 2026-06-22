@@ -54,6 +54,25 @@ flag was a FALSE ALARM. Seed 12345, 40k, fine eroded surface:
   lake-capable count + collateral carving; `--drainage-audit` prints a lake-capability
   breakdown (lake-capable basins, has-water/overflowing, `is_lake` bodies).
 
+**FIX (2026-06-22): lake-aware breaching — lakes restored, climate dial live again.** Two
+changes to `integrate_basins`/`carve_outlet`:
+1. **Predicate (keep lake-capable basins):** breach a basin only if it's too shallow to hold a
+   lake (`depth < MIN_LAKE_DEPTH`) OR a genuinely negligible deep spike (`area <
+   TINY_SPIKE_AREA = 0.0002`). The old `depth < 0.012` + `OR`-area gate (which breached the
+   `[0.01,0.012)` lake band and small deep basins) is gone. `MICRO_BASIN_AREA/DEPTH` removed.
+2. **Carve-aware routing:** `carve_outlet` takes `basin_id` + `keep[]` and STOPS when its
+   oceanward path reaches a preserved basin — the breached pit drains INTO that lake (which
+   handles its own overflow) instead of slicing through it.
+
+**Measured (seed 12345, 40k, fine eroded):** collateral cells through preserved basins
+**4048 → 0**; lake-capable basins surviving **4 → 26**; `is_lake` bodies **3 → 17**;
+lake_fraction **0.01% → 0.41%** (~40×); endorheic land **16.7% → 13.7%** (breached pits now
+route into kept basins that overflow seaward). Climate is no longer inert: of 26 lake-capable
+basins, 17 overflow at the arid 0.15 and 9 pond below spill, so a wetter climate has basins to
+fill. (NOTE: this CHANGES the rendered fine terrain — carved water gaps differ — so it needs a
+visual sweep before merge. Climate-sweep confirmation of the live dial is the next check.)
+49 tests pass.
+
 **LAKES are now a separate follow-up — not a climate dial.** The integration traded lakes for
 sea-reaching drainage. To get lakes back without re-breaking drainage, the lever is the
 breach/keep BALANCE: breach only tiny noise pits, KEEP real basins, and let them fill to spill
