@@ -53,7 +53,9 @@ pub use fine::{
     OrogenFronts,
 };
 pub use fine_cache::FineCacheMode;
-pub use hydrology::{Basin, CellWaterState, Hydrology, WaterBody, DEFAULT_CLIMATE_RATIO};
+pub use hydrology::{
+    Basin, CellWaterState, Hydrology, WaterBody, DEFAULT_CLIMATE_RATIO, MIN_LAKE_DEPTH,
+};
 pub use plates::Plates;
 pub use tessellation::{CellAdjacency, Tessellation};
 

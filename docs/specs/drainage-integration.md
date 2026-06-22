@@ -31,9 +31,28 @@ defensible, so it's the shipped criterion. (Code path left available for future 
 NOT work.** Measured: climate `0.15` vs `1.5` give IDENTICAL lake_fraction (~0%) AND endorheic
 land (17.2%) — climate is inert here. Root cause: **the integration breached the lake-holding
 basins** (lakes ~0.8% pre-integration → ~0% after). A drained basin can't pond, and climate
-can't refill a basin that's been carved open. (Also flagged: climate appears not to move
-endorheic at all post-integration — possible deeper issue in `calculate_water_levels` worth a
-look.) A `"climate"` sweep knob was added as tooling (`set_active_climate_ratio` post-gen).
+can't refill a basin that's been carved open. A `"climate"` sweep knob was added as tooling
+(`set_active_climate_ratio` post-gen).
+
+**PROBE (2026-06-22, Codex-recommended, measured via `--drainage-audit` + integration log).**
+Confirms breaching is the lake killer; the earlier "possible `calculate_water_levels` bug"
+flag was a FALSE ALARM. Seed 12345, 40k, fine eroded surface:
+- Lake-capable basins (depth ≥ `MIN_LAKE_DEPTH`) collapse **61 → 4** through integration.
+  The 4 survivors DO pond (3/4 `is_lake` even at arid 0.15) — fill + extraction work; the
+  geometry is simply gone. This is Codex's candidate (d).
+- **Two mechanisms, both significant.** (1) Direct over-selection: `MICRO_BASIN_DEPTH=0.012 >
+  MIN_LAKE_DEPTH=0.01` + the `OR` area gate breach lake-capable basins on their own clause.
+  (2) Collateral carving: **2,449 carved cells landed in PRESERVED basins, 100% of them
+  lake-capable** — a micro-pit's `carve_outlet` walks the global `flood_parent` tree to the
+  sea and slices open deep basins en route. → Fixing the predicate alone is NOT enough; the
+  carve must be made basin-aware (stop at / route into a preserved basin).
+- **Climate is by-design inert, not buggy.** Endorheic-land is a `basin_id` topology metric
+  (fixed at gen time); `set_climate_ratio` only moves water levels/bodies. And at 0.15 the few
+  surviving lake-capable basins already overflow, so a wetter climate has no unfilled reserve
+  to act on.
+- Instrumentation kept: `carve_outlet` records lowered cells; `integrate_basins` logs
+  lake-capable count + collateral carving; `--drainage-audit` prints a lake-capability
+  breakdown (lake-capable basins, has-water/overflowing, `is_lake` bodies).
 
 **LAKES are now a separate follow-up — not a climate dial.** The integration traded lakes for
 sea-reaching drainage. To get lakes back without re-breaking drainage, the lever is the

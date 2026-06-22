@@ -784,6 +784,7 @@ fn carve_outlet(
     flood_parent: &[Option<usize>],
     is_ocean: &[bool],
     start: usize,
+    lowered: &mut Vec<usize>,
 ) {
     let n = elevation.len();
     let mut target = elevation[start];
@@ -795,6 +796,7 @@ fn carve_outlet(
         target -= CARVE_SLOPE;
         if elevation[p] > target {
             elevation[p] = target; // carve the barrier down
+            lowered.push(p); // record the cell we actually cut (for diagnostics)
         } else {
             target = elevation[p]; // already below target → follow the natural descent
         }
@@ -816,13 +818,27 @@ fn integrate_basins(
     if std::env::var("HEX3_NO_DRAINAGE_INTEGRATION").is_ok() {
         return working;
     }
-    let (_filled, _basin_id, basins, flood_parent) =
+    let (_filled, basin_id, basins, flood_parent) =
         priority_flood_with_basins(tessellation, elevation, areas, is_ocean);
+
+    // Which basins are micro (selected for breaching) vs preserved.
+    let is_micro: Vec<bool> = basins
+        .iter()
+        .map(|b| {
+            let depth = b.spill_elevation - b.bottom_elevation;
+            b.total_area < MICRO_BASIN_AREA || depth < MICRO_BASIN_DEPTH
+        })
+        .collect();
+    // Lake-capable basins (deep enough to pond a real lake) we'd like to keep.
+    let lake_capable: Vec<bool> = basins
+        .iter()
+        .map(|b| (b.spill_elevation - b.bottom_elevation) >= MIN_LAKE_DEPTH)
+        .collect();
+
     let mut breached = 0;
-    for basin in &basins {
-        let depth = basin.spill_elevation - basin.bottom_elevation;
-        let is_micro = basin.total_area < MICRO_BASIN_AREA || depth < MICRO_BASIN_DEPTH;
-        if !is_micro {
+    let mut lowered: Vec<usize> = Vec::new();
+    for (bi, basin) in basins.iter().enumerate() {
+        if !is_micro[bi] {
             continue;
         }
         // The basin's lowest cell (start of the outlet channel).
@@ -832,13 +848,35 @@ fn integrate_basins(
             .copied()
             .min_by(|&a, &b| elevation[a].total_cmp(&elevation[b]))
             .unwrap_or(basin.cells[0]);
-        carve_outlet(&mut working, &flood_parent, is_ocean, bottom_cell);
+        carve_outlet(&mut working, &flood_parent, is_ocean, bottom_cell, &mut lowered);
         breached += 1;
     }
+
+    // Collateral-carving diagnostic: how many cells we cut belong to a basin we
+    // would otherwise have PRESERVED (non-micro), and specifically a lake-capable
+    // one. High counts mean micro-basin outlets are cutting THROUGH real basins.
+    let mut collateral_preserved = 0usize;
+    let mut collateral_lake_capable = 0usize;
+    for &cell in &lowered {
+        if let Some(bid) = basin_id[cell] {
+            if !is_micro[bid] {
+                collateral_preserved += 1;
+            }
+            if lake_capable[bid] && !is_micro[bid] {
+                collateral_lake_capable += 1;
+            }
+        }
+    }
+    let n_lake_capable = lake_capable.iter().filter(|&&x| x).count();
     log::info!(
-        "hydrology: drainage integration breached {}/{} basins",
+        "hydrology: drainage integration breached {}/{} basins | {} lake-capable basins (depth>={:.3}) | carved {} cells, {} in preserved basins ({} in lake-capable)",
         breached,
-        basins.len()
+        basins.len(),
+        n_lake_capable,
+        MIN_LAKE_DEPTH,
+        lowered.len(),
+        collateral_preserved,
+        collateral_lake_capable
     );
     working
 }

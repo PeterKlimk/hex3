@@ -1391,6 +1391,12 @@ struct DrainageAudit {
     lake_area: f64,
     num_basins: usize,
     num_endorheic_basins: usize,
+    // Lake-capability breakdown (static / climate-independent unless noted):
+    lake_capable_basins: usize, // spill - bottom >= MIN_LAKE_DEPTH
+    lake_capable_area: f64,     // sum of those basins' total_area (steradians)
+    has_water_basins: usize,    // water_level > bottom (at current climate)
+    overflowing_basins: usize,  // water_level >= spill (at current climate)
+    is_lake_bodies: usize,      // water_bodies with is_lake == true
 }
 
 /// Classify a basin chain as sea-reaching or endorheic by walking the
@@ -1485,6 +1491,27 @@ fn audit_hydrology(
 
     let num_endorheic_basins = hydro.basins.iter().filter(|b| !b.is_overflowing()).count();
 
+    // Lake-capability breakdown. lake_capable is static topology (independent of
+    // climate); has_water/overflowing/is_lake reflect the CURRENT climate ratio.
+    let min_lake_depth = hex3::world::MIN_LAKE_DEPTH;
+    let mut lake_capable_basins = 0usize;
+    let mut lake_capable_area = 0.0f64;
+    let mut has_water_basins = 0usize;
+    let mut overflowing_basins = 0usize;
+    for b in &hydro.basins {
+        if (b.spill_elevation - b.bottom_elevation) >= min_lake_depth {
+            lake_capable_basins += 1;
+            lake_capable_area += b.total_area as f64;
+        }
+        if b.has_water() {
+            has_water_basins += 1;
+        }
+        if b.is_overflowing() {
+            overflowing_basins += 1;
+        }
+    }
+    let is_lake_bodies = hydro.water_bodies.iter().filter(|w| w.is_lake).count();
+
     DrainageAudit {
         label: label.to_string(),
         num_cells: n,
@@ -1494,6 +1521,11 @@ fn audit_hydrology(
         lake_area,
         num_basins: hydro.basins.len(),
         num_endorheic_basins,
+        lake_capable_basins,
+        lake_capable_area,
+        has_water_basins,
+        overflowing_basins,
+        is_lake_bodies,
     }
 }
 
@@ -1514,6 +1546,14 @@ fn print_audit(a: &DrainageAudit) {
         } else {
             0.0
         },
+    );
+    println!(
+        "     lake-capable basins (depth>=MIN_LAKE_DEPTH): {} ({:.2}% of land area)\n     of those, currently: {} have water, {} overflowing | {} water-bodies classified is_lake",
+        a.lake_capable_basins,
+        100.0 * a.lake_capable_area / land,
+        a.has_water_basins,
+        a.overflowing_basins,
+        a.is_lake_bodies,
     );
 }
 
