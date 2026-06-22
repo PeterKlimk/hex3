@@ -344,6 +344,7 @@ fn main() {
         downwind_shadow_strength: (cli.erosion_downwind_shadow >= 0.0)
             .then_some(cli.erosion_downwind_shadow),
         lake_evap_strength: (cli.erosion_lake_evap >= 0.0).then_some(cli.erosion_lake_evap),
+        climate_ratio: None, // CLI doesn't expose climate (runtime Up/Down + sweep knob only)
         glacial_k: (cli.glacial_k >= 0.0).then_some(cli.glacial_k),
         fault_scarp_height: (cli.fault_scarp >= 0.0).then_some(cli.fault_scarp),
         interior_relief: (cli.interior_relief >= 0.0).then_some(cli.interior_relief),
