@@ -95,11 +95,23 @@ Round-2 convergence + what we did about it:
   and counts kept basins that flip overflowing→not. **Result: 0/17 (0.0%)** on the fine eroded
   surface (0/1 pre-erosion, 0/2 coarse) — the cascade is NOT manufacturing connectivity; the
   16.7%→13.7% improvement is real. `integrate_basins` now returns the breached-cell mask.
-- **Still open (roadmap):** `TINY_SPIKE_AREA` is a scale-coupled magic number doing the dominant
-  keep/breach work (~37 of 61 lake-capable basins, ≈8100 km² Earth-equiv) — replace with a
-  coherence/resolution-aware spike test (cell count, rim coherence). Resolution-scale
-  `CARVE_SLOPE` (per-cell gradient). Explicit basin spill-hierarchy receiver (medium). Storage-
-  aware surplus-transfer water budget (the principled long-term model).
+- **DONE — `TINY_SPIKE_AREA` → `MIN_DEEP_CELLS` (deep-cell spike filter).** Replaced the
+  scale-coupled absolute-area cutoff with a resolution-aware one-cell-spike test: a basin resists
+  integration iff its DEEP body (cells submerged > `MIN_LAKE_DEPTH` at spill-full) spans
+  ≥ `MIN_DEEP_CELLS` (=2) cells — i.e. its sill relief isn't carried by a single anomalous cell.
+  Histogram-driven (`HEX3_SPIKE_HISTO` dumps sill-resisting basins bucketed by total/deep cells):
+  on the fine eroded surface the deep-cell distribution is `deep=1: 18 spikes` then a coherent
+  tail `deep≥2: 43`, so 2 is the natural knee. Resolution-robust (a real depression gains deep
+  cells as the mesh refines; a true spike stays at 1). **Measured vs the area cutoff (fine eroded,
+  seed 12345 40k):** kept basins 24→**43**, `is_lake` 17→**33** (lake_fraction 0.41%→**0.44%** —
+  the recovered basins are small), endorheic land 13.7%→**16.7%** (back INTO the 15–25% target,
+  ≈Earth 18% — the area cutoff had been over-breaching real small deep basins), collateral 0,
+  over-connection **0/32 (0%)**. `MIN_DEEP_CELLS` is the tunable (raise to 3–4 for a stricter
+  "minimum coherent lake" if speckle persists visually). 49 tests pass. CHANGES rendered terrain
+  → still needs the visual sweep before merge.
+- **Still open (roadmap):** resolution-scale `CARVE_SLOPE` (per-cell gradient). Explicit basin
+  spill-hierarchy receiver (medium). Storage-aware surplus-transfer water budget (the principled
+  long-term model that would revive the water-budget keep criterion).
 
 **LAKES are now a separate follow-up — not a climate dial.** The integration traded lakes for
 sea-reaching drainage. To get lakes back without re-breaking drainage, the lever is the
