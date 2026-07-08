@@ -488,6 +488,18 @@ impl Hydrology {
         self.flow_accumulation[cell_idx] / self.mean_cell_discharge.max(1e-12)
     }
 
+    /// Flow-accumulation threshold equivalent to a physical catchment area
+    /// (km²) at land-mean wetness. `flow_accumulation` is precip×steradian
+    /// with land precipitation normalized to mean ~1, so a catchment of `km2`
+    /// carries a discharge of ~`km2 / R²` — resolution- and mesh-adaptivity-
+    /// independent. (Count-equivalent thresholds scale with the precip-weighted
+    /// MEAN cell area instead, which the adaptive fine mesh's huge ocean cells
+    /// inflate enormously — the root cause of the stub rendered river network;
+    /// see `diagnose --river-audit`.)
+    pub fn flow_for_catchment_km2(km2: f32) -> f32 {
+        km2 / (super::constants::PLANET_RADIUS_KM * super::constants::PLANET_RADIUS_KM)
+    }
+
     /// Get river cells (land cells with flow above threshold). `threshold` is a
     /// count-equivalent (≈ upstream cells); it is converted to the physical
     /// discharge scale via `mean_cell_discharge` so it means the same on any mesh.

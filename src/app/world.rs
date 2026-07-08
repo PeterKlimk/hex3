@@ -444,18 +444,57 @@ impl RiverRenderData {
     }
 }
 
+/// River render threshold calibration. `Catchment` (the default) thresholds on
+/// PHYSICAL catchment area (km² at land-mean wetness) — resolution- and
+/// adaptive-mesh-independent. `Legacy` is the old count-equivalent scheme,
+/// kept for A/B: it was tuned on the coarse mesh, and on the adaptive fine
+/// mesh its effective catchment is enormous (the "stub rivers" defect measured
+/// by `diagnose --river-audit`). Select with `--river-legacy` /
+/// `--river-min-catchment-km2`.
+#[derive(Clone, Copy, Debug)]
+pub enum RiverThresholdMode {
+    Legacy,
+    /// Minimum catchment (km²) for the 'All' network; Major outlet/branch
+    /// scale with it (75× / 12.5×).
+    CatchmentKm2(f32),
+}
+
+/// Default minimum catchment (km²) that renders as a river. Earth topographic
+/// maps at global scale show perennial rivers from roughly 1-5k km² catchments.
+pub const RIVER_DEFAULT_MIN_CATCHMENT_KM2: f32 = 2000.0;
+
+static RIVER_THRESHOLD_MODE: std::sync::OnceLock<RiverThresholdMode> = std::sync::OnceLock::new();
+
+/// Set once at startup (before any world buffers are built).
+pub fn set_river_threshold_mode(mode: RiverThresholdMode) {
+    let _ = RIVER_THRESHOLD_MODE.set(mode);
+}
+
+fn river_threshold_mode() -> RiverThresholdMode {
+    *RIVER_THRESHOLD_MODE
+        .get()
+        .unwrap_or(&RiverThresholdMode::CatchmentKm2(
+            RIVER_DEFAULT_MIN_CATCHMENT_KM2,
+        ))
+}
+
 /// Per-cell mask of which cells emit a river segment for the given set.
 fn river_cell_mask(
     hydrology: &hex3::world::Hydrology,
     num_cells: usize,
     set: RiverSet,
 ) -> Vec<bool> {
+    use hex3::world::Hydrology;
+    let mode = river_threshold_mode();
     match set {
         RiverSet::All => {
-            // `river_cells` converts the count-based threshold to the physical
-            // discharge scale (mean_cell_discharge) internally.
-            let (min_flow, _, _) = river_thresholds(num_cells);
-            let flow_threshold = min_flow * hydrology.mean_cell_discharge;
+            let flow_threshold = match mode {
+                RiverThresholdMode::Legacy => {
+                    let (min_flow, _, _) = river_thresholds(num_cells);
+                    min_flow * hydrology.mean_cell_discharge
+                }
+                RiverThresholdMode::CatchmentKm2(min) => Hydrology::flow_for_catchment_km2(min),
+            };
             (0..num_cells)
                 .map(|i| {
                     hydrology.flow_accumulation[i] >= flow_threshold && !hydrology.is_submerged(i)
@@ -463,7 +502,21 @@ fn river_cell_mask(
                 .collect()
         }
         RiverSet::Major => {
-            let (_, outlet_threshold, branch_threshold) = river_thresholds(num_cells);
+            // `compute_major_river_cells` takes count-equivalents (it scales by
+            // mean_cell_discharge internally), so convert physical -> count.
+            let (outlet_threshold, branch_threshold) = match mode {
+                RiverThresholdMode::Legacy => {
+                    let (_, o, b) = river_thresholds(num_cells);
+                    (o, b)
+                }
+                RiverThresholdMode::CatchmentKm2(min) => {
+                    let per_count = hydrology.mean_cell_discharge.max(1e-12);
+                    (
+                        Hydrology::flow_for_catchment_km2(75.0 * min) / per_count,
+                        Hydrology::flow_for_catchment_km2(12.5 * min) / per_count,
+                    )
+                }
+            };
             hydrology.compute_major_river_cells(outlet_threshold, branch_threshold)
         }
     }

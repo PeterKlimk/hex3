@@ -64,6 +64,19 @@ struct Cli {
     #[arg(long, value_name = "FILE")]
     river_texture: Option<PathBuf>,
 
+    /// River render density: minimum catchment area (km²) that renders as a
+    /// river in 'All' mode (Major outlet/branch scale with it, 75×/12.5×).
+    /// Physical and resolution-independent. Earth-ish map density ~1000-4000;
+    /// higher = sparser rivers.
+    #[arg(long, default_value_t = app::world::RIVER_DEFAULT_MIN_CATCHMENT_KM2)]
+    river_min_catchment_km2: f32,
+
+    /// A/B: use the LEGACY count-equivalent river render thresholds (tuned on
+    /// the coarse mesh; on the fine mesh they render only the largest trunk
+    /// stubs — see diagnose --river-audit).
+    #[arg(long, default_value_t = false)]
+    river_legacy: bool,
+
     /// Voronoi backend to use (convex-hull or knn-clipping)
     #[arg(long, value_enum, default_value_t = CliVoronoiBackend::ConvexHull)]
     voronoi_backend: CliVoronoiBackend,
@@ -315,6 +328,14 @@ fn main() {
     };
 
     let backend = VoronoiBackend::from(cli.voronoi_backend);
+
+    // River render calibration (A/B: --river-legacy vs physical catchment km²).
+    app::world::set_river_threshold_mode(if cli.river_legacy {
+        app::world::RiverThresholdMode::Legacy
+    } else {
+        app::world::RiverThresholdMode::CatchmentKm2(cli.river_min_catchment_km2)
+    });
+
     let erosion = app::world::ErosionOverrides {
         mfd_exponent: (cli.erosion_mfd_exponent >= 0.0).then_some(cli.erosion_mfd_exponent),
         flat_resolution: (cli.erosion_flat_resolution >= 0)

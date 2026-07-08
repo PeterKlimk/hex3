@@ -2284,6 +2284,7 @@ fn run_mountain_audit(world: &World, seed: u64, top: usize) {
 // (length, sinuosity, long-profile shape). Earth refs inline.
 
 fn run_river_audit(world: &World, seed: u64, top: usize) {
+    use hex3::world::Hydrology;
     let Some(fine) = world.fine.as_ref() else {
         println!("\n[RIVER AUDIT] no fine surface present");
         return;
@@ -2297,23 +2298,80 @@ fn run_river_audit(world: &World, seed: u64, top: usize) {
     let r_km = EARTH_RADIUS_KM;
 
     println!(
-        "\n================ RIVER AUDIT seed={} (fine eroded, renderer thresholds) ================",
+        "\n================ RIVER AUDIT seed={} (fine eroded) ================",
         seed
     );
 
-    // Renderer-identical thresholds (see src/app/world.rs river_thresholds).
-    let thr_all = (n as f32 * 0.00005).max(1.0) * hydro.mean_cell_discharge;
-    let is_channel: Vec<bool> = (0..n)
-        .map(|i| hydro.flow_accumulation[i] >= thr_all && !hydro.is_submerged(i))
-        .collect();
-    let is_major = hydro.compute_major_river_cells(
-        (n as f32 * 0.004).max(1.0),
-        (n as f32 * 0.0006).max(1.0),
-    );
     let land_km2: f64 = (0..n)
         .filter(|&i| !hydro.is_submerged(i) && elev[i] >= 0.0)
         .map(|i| (areas[i] * r_km * r_km) as f64)
         .sum();
+    // Continent scale reference for river lengths (computed once).
+    let land_mask: Vec<bool> = (0..n)
+        .map(|i| !hydro.is_submerged(i) && elev[i] >= 0.0)
+        .collect();
+    let continents = measure_components(tess, &land_mask);
+    let cont_len = continents.first().map(|c| c.length_km).unwrap_or(0.0);
+
+    // A/B the two renderer calibrations: LEGACY count-equivalent thresholds
+    // (coarse-tuned; stub network on the adaptive fine mesh) vs the PHYSICAL
+    // catchment-area thresholds (--river-min-catchment-km2, default 2000).
+    let min_catchment = 2000.0f32;
+    let legacy_all = (n as f32 * 0.00005).max(1.0) * hydro.mean_cell_discharge;
+    let per_count = hydro.mean_cell_discharge.max(1e-12);
+    let modes = [
+        (
+            "LEGACY (count-equivalent)".to_string(),
+            legacy_all,
+            (n as f32 * 0.004).max(1.0),
+            (n as f32 * 0.0006).max(1.0),
+        ),
+        (
+            format!("CATCHMENT ({min_catchment:.0} km² min)"),
+            Hydrology::flow_for_catchment_km2(min_catchment),
+            Hydrology::flow_for_catchment_km2(75.0 * min_catchment) / per_count,
+            Hydrology::flow_for_catchment_km2(12.5 * min_catchment) / per_count,
+        ),
+    ];
+    for (label, thr_all, outlet_count, branch_count) in modes {
+        river_mode_panel(
+            &label,
+            tess,
+            hydro,
+            elev,
+            &areas,
+            land_km2,
+            cont_len,
+            thr_all,
+            outlet_count,
+            branch_count,
+            top,
+        );
+    }
+}
+
+/// One river-network panel (density, Strahler/Horton, mouths, top trunks) for
+/// a given 'All' flow threshold + Major outlet/branch count-equivalents.
+#[allow(clippy::too_many_arguments)]
+fn river_mode_panel(
+    label: &str,
+    tess: &hex3::world::Tessellation,
+    hydro: &hex3::world::Hydrology,
+    elev: &[f32],
+    areas: &[f32],
+    land_km2: f64,
+    cont_len: f32,
+    thr_all: f32,
+    outlet_count: f32,
+    branch_count: f32,
+    top: usize,
+) {
+    let n = tess.num_cells();
+    let r_km = EARTH_RADIUS_KM;
+    let is_channel: Vec<bool> = (0..n)
+        .map(|i| hydro.flow_accumulation[i] >= thr_all && !hydro.is_submerged(i))
+        .collect();
+    let is_major = hydro.compute_major_river_cells(outlet_count, branch_count);
     let net_len = |m: &dyn Fn(usize) -> bool| -> f64 {
         (0..n)
             .filter(|&i| m(i))
@@ -2322,14 +2380,15 @@ fn run_river_audit(world: &World, seed: u64, top: usize) {
     };
     let all_len = net_len(&|i| is_channel[i]);
     let major_len = net_len(&|i| is_major[i]);
+    println!("\n  [{label}]");
     println!(
-        "  network ('All'):   {:>7} cells, ~{:>6.0} km total, Dd {:.4} km/km²   [rendered density; Earth perennial-river Dd at map scale ~0.01-0.1]",
+        "    network ('All'):   {:>7} cells, ~{:>7.0} km total, Dd {:.4} km/km²   [Earth perennial-river Dd at map scale ~0.01-0.1]",
         is_channel.iter().filter(|&&c| c).count(),
         all_len,
         all_len / land_km2.max(1e-30)
     );
     println!(
-        "  network ('Major'): {:>7} cells, ~{:>6.0} km total, Dd {:.4} km/km²",
+        "    network ('Major'): {:>7} cells, ~{:>7.0} km total, Dd {:.4} km/km²",
         is_major.iter().filter(|&&c| c).count(),
         major_len,
         major_len / land_km2.max(1e-30)
@@ -2400,7 +2459,7 @@ fn run_river_audit(world: &World, seed: u64, top: usize) {
         .map(|o| format!("N{}={}", o, streams[o]))
         .collect();
     println!(
-        "  Strahler: max order {} | {} | Horton Rb = {:.1}   [Earth Rb 3-5; <3 = under-branched (parallel gutters), >5 = over-convergent]",
+        "    Strahler: max order {} | {} | Horton Rb = {:.1}   [Earth Rb 3-5]",
         max_order,
         stream_counts.join(" "),
         rb
@@ -2428,26 +2487,19 @@ fn run_river_audit(world: &World, seed: u64, top: usize) {
         }
     }
     println!(
-        "  mouths: {} to ocean, {} to lakes, {} inland dead-ends   [post-integration a major river should NOT dead-end inland]",
+        "    mouths: {} to ocean, {} to lakes, {} inland dead-ends   [post-integration a major river should NOT dead-end inland]",
         ocean_m, lake_m, inland_m
     );
-
-    // Continent scale reference for river lengths.
-    let land_mask: Vec<bool> = (0..n)
-        .map(|i| !hydro.is_submerged(i) && elev[i] >= 0.0)
-        .collect();
-    let continents = measure_components(tess, &land_mask);
-    let cont_len = continents.first().map(|c| c.length_km).unwrap_or(0.0);
 
     // Top trunks by mouth discharge: walk upstream along the max-flow child.
     mouths.sort_by(|&a, &b| {
         hydro.flow_accumulation[b as usize].total_cmp(&hydro.flow_accumulation[a as usize])
     });
     println!(
-        "  top rivers:    len_km  straight  sinuos  basin_km²  src_m  %drop-upper-half  mouth"
+        "    top rivers:    len_km  straight  sinuos  basin_km²  src_m  %drop-upper-half  mouth"
     );
     println!(
-        "                 [largest continent extent {:.0} km; Earth: longest river ~0.5-0.9x its continent; sinuosity >1.2 at this scale is meandery; graded profile drops 60-85% in the upper half]",
+        "                   [largest continent extent {:.0} km; Earth: longest ~0.5-0.9x continent; graded profile drops 60-85% in the upper half]",
         cont_len
     );
     for (k, &mouth) in mouths.iter().take(top).enumerate() {
@@ -2456,13 +2508,9 @@ fn run_river_audit(world: &World, seed: u64, top: usize) {
         let mut path = vec![mouth];
         let mut cur = mouth;
         loop {
-            let next = ups[cur]
-                .iter()
-                .copied()
-                .max_by(|&a, &b| {
-                    hydro.flow_accumulation[a as usize]
-                        .total_cmp(&hydro.flow_accumulation[b as usize])
-                });
+            let next = ups[cur].iter().copied().max_by(|&a, &b| {
+                hydro.flow_accumulation[a as usize].total_cmp(&hydro.flow_accumulation[b as usize])
+            });
             match next {
                 Some(u) => {
                     cur = u as usize;
@@ -2474,8 +2522,7 @@ fn run_river_audit(world: &World, seed: u64, top: usize) {
         // Chord-sum length (arc ≈ chord at cell scale; f32 acos is unusable here).
         let mut len_km = 0.0f64;
         for w in path.windows(2) {
-            len_km +=
-                ((tess.cell_center(w[0]) - tess.cell_center(w[1])).length() * r_km) as f64;
+            len_km += ((tess.cell_center(w[0]) - tess.cell_center(w[1])).length() * r_km) as f64;
         }
         let straight_km =
             (tess.cell_center(mouth) - tess.cell_center(*path.last().unwrap())).length() * r_km;
@@ -2486,7 +2533,6 @@ fn run_river_audit(world: &World, seed: u64, top: usize) {
             let mut stack = vec![mouth as u32];
             let mut seen = std::collections::HashSet::new();
             seen.insert(mouth as u32);
-            // full upstream adjacency on demand (channel ups + non-channel feeders)
             while let Some(c) = stack.pop() {
                 let c = c as usize;
                 basin_km2 += (areas[c] * r_km * r_km) as f64;
@@ -2526,7 +2572,7 @@ fn run_river_audit(world: &World, seed: u64, top: usize) {
             format!("{upper_frac:>5.0}%")
         };
         println!(
-            "    {:>2}. {:>10.0}  {:>8.0}  {:>6.2}  {:>9.0}  {:>5.0}  {:>16}  {}",
+            "      {:>2}. {:>8.0}  {:>8.0}  {:>6.2}  {:>9.0}  {:>5.0}  {:>16}  {}",
             k + 1,
             len_km,
             straight_km,
