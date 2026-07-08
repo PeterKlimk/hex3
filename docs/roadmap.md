@@ -33,6 +33,15 @@ probe into `diagnose` before the next mountain ADD.
    benches / cuestas / cap-rock. Erosion TEXTURE; speculative; hot-path cost. Lower priority.
 
 ## Mountain-quality open issues
+- ⬜ **25-km local-relief gap — KNOBS FALSIFIED (2026-07-09 sweep)**: baseline p50/p90 =
+  224/914 m vs Earth alpine 1500-3000. Best knob (K×4) reaches only 251/1259 while
+  fragmenting mountain land 8.5→7.2%; steps×2 makes it WORSE (smoother); uplift_scale is
+  a NO-OP by design in the O0/emergent path (self-calibrating builder — hygiene: dead
+  knob); interior_relief×3 inert (cell-scale grain, wrong wavelength). The deficit is a
+  missing 10-50 km MESO wavelength (ridge/valley rhythm) between the O0 envelope (100s km)
+  and the P1 grain (1-5 km). Fix = seed meso-structure in the O0 uplift shape (along-strike
+  passes/water-gaps + cross-strike spur/valley rhythm) and let erosion organize it —
+  same principle as v4 (structure seeds, erosion dissects). Instrument: --mountain-audit.
 - ⬜ **Wide-mountain residual spikiness** — root-caused to the FINE-BASE synthesis (pre-erosion,
   cell-scale), not erosion. Fix = flat/coherent broad-massif macro shape + better fine-base noise.
 - ⬜ **Coarse-asymmetry single-owner redesign** (C/A hybrid) — for atmosphere rain-shadow
