@@ -54,7 +54,11 @@ probe into `diagnose` before the next mountain ADD.
   now reach the sea. The "pluvial overflow" criterion was tested and rejected (step function,
   over-integrates); climate left at 0.15 (a user dial). Possible follow-ups: lakes too sparse
   (climate), and a targeted high-discharge criterion if a major river still ends inland.
-- ⬜ **Lakes** — the drainage integration traded lakes for sea-reaching rivers (lakes ~0.8% →
+- ✅ **Lakes** — DONE (merged 2026-07-08): lake-aware breaching (split MIN_INTEGRATION_SILL_RELIEF
+  from MIN_LAKE_DEPTH + basin-aware carve) restores lakes with outlets; climate dial revived
+  (smooth + monotonic, verified by `--lake-audit`). Original diagnosis kept below for the record.
+  **NEW follow-up → see "Mega-sea problem".**
+  ORIGINAL: the drainage integration traded lakes for sea-reaching rivers (lakes ~0.8% →
   ~0%; breached basins can't pond). **DIAGNOSED (2026-06-22 probe + Codex):** lake-capable
   basins collapse **61 → 4** through integration via TWO mechanisms — (1) direct over-selection
   (`MICRO_BASIN_DEPTH 0.012 > MIN_LAKE_DEPTH 0.01` + `OR` area gate breach lake-capable basins),
@@ -66,6 +70,19 @@ probe into `diagnose` before the next mountain ADD.
   (b) make `carve_outlet` basin-aware — stop at / route into a preserved basin rather than
   slicing through it. Then fill-to-overflow → lakes WITH outlets. See
   `docs/specs/drainage-integration.md`.
+- ⬜ **Mega-sea problem** (found by `--lake-audit`, 2026-07-08): lake area is dominated by ~6
+  ROUND Caspian-to-4×Caspian inland seas (largest 1.45M km²; total lake cover 3.5% of land vs
+  Earth ≈1.8% at default dial 0.15; Earth-like at ≈0.05). Catchment/lake ratios 3–6× (Earth
+  10–100×) = the depression is its own watershed. Present in COARSE hydrology → inherited from
+  coarse ELEVATION (deep closed tectonic depressions), NOT a hydrology bug. Levers: coarse
+  closed-basin depth/size, terminal-sea evaporative equilibrium (sit well below spill), dial
+  default; aesthetic: elongated rift lakes (elong 6–7 tail lakes look right) over round blobs.
+- ⬜ **Feature scorecard** (2026-07-08, user mandate): object-level feature audits with Earth
+  refs + distributions + dial-response curves as the primary quality instrument for ALL systems
+  (Claude judges numbers, user judges images). `--lake-audit` is the template; NEXT: mountain
+  panel (range objects: elongation, crest-gap spectrum, front asymmetry, valley spacing) and
+  river panel (Horton bifurcation ≈3–5, trunk concavity θ≈0.45, drainage density, sinuosity),
+  then a `--scorecard` umbrella. Earth values are references, NOT targets (Goodhart guard).
 - ⬜ **Perf** — default gen ~3× slower (n=2 Newton + 200 erosion steps); `EROSION_STEPS` is the
   quality↔speed dial. Revisit if iteration speed bites.
 
