@@ -85,8 +85,15 @@ pub struct ErosionParams {
     /// incision is full; gentler channels fade toward alluvial (deposition-graded
     /// floodplains). 0 = off. See `EROSION_CONFINEMENT_SLOPE`.
     pub confinement_slope: f32,
-    /// Tectonic uplift source scale (thickness units).
+    /// Tectonic uplift source scale (thickness units). NOTE: ignored by the
+    /// default EMERGENT path (self-calibrating builder); live only in the
+    /// painted path.
     pub uplift_scale: f32,
+    /// Emergent builder over-rebuild gain (see `EMERGENT_REBUILD_GAIN`). >1
+    /// builds more volume than the coarse target so erosion carves the excess
+    /// into relief; the joint high-relief regime dial (relief-spectrum spec,
+    /// candidate B).
+    pub rebuild_gain: f32,
     /// Forcing-smoothing length (km) for the uplift SOURCE, applied once before the
     /// step loop (conservative land-masked diffusion of `u_thick`). 0 = off. See
     /// `EROSION_UPLIFT_SMOOTH_KM` / docs/specs/erosion-uplift-smoothing.md.
@@ -149,6 +156,7 @@ impl Default for ErosionParams {
             mfd_exponent: EROSION_MFD_EXPONENT,
             confinement_slope: EROSION_CONFINEMENT_SLOPE,
             uplift_scale: EROSION_UPLIFT_SCALE,
+            rebuild_gain: EMERGENT_REBUILD_GAIN,
             uplift_smooth_km: EROSION_UPLIFT_SMOOTH_KM,
             deposit_fill_fraction: EROSION_DEPOSIT_FILL_FRACTION,
             deposition_slope: EROSION_DEPOSITION_SLOPE,
@@ -477,7 +485,7 @@ impl ErosionState {
                         fvol += floor(i) as f64 * ai;
                     }
                 }
-                let excess_vol = (EMERGENT_REBUILD_GAIN as f64 * dvol - fvol).max(0.0);
+                let excess_vol = (params.rebuild_gain as f64 * dvol - fvol).max(0.0);
                 Some(if svol > 0.0 {
                     (excess_vol / svol) as f32
                 } else {
@@ -505,7 +513,7 @@ impl ErosionState {
                     } else {
                         // Uniform v3 rebuild: per-cell exact (height tracks target).
                         let demoted = (target[i] - base[i]).max(0.0);
-                        EMERGENT_REBUILD_GAIN * demoted * inv_slope / epoch
+                        params.rebuild_gain * demoted * inv_slope / epoch
                     }
                 } else {
                     // Painted path (hold & carve): ongoing tectonic uplift from the

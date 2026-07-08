@@ -167,9 +167,15 @@ struct Cli {
     erosion_precip_iters: usize,
 
     /// Tectonic uplift scale ("Hold & carve"). <0 = EROSION_UPLIFT_SCALE default;
-    /// 0 = relaxation only.
+    /// 0 = relaxation only. NOTE: ignored by the default emergent path.
     #[arg(long, default_value_t = -1.0)]
     erosion_uplift_scale: f32,
+
+    /// Emergent builder over-rebuild gain (relief-spectrum candidate B). >1 builds
+    /// more orogen volume than the coarse target so erosion carves the excess into
+    /// relief. <0 = EMERGENT_REBUILD_GAIN default (1.2).
+    #[arg(long, default_value_t = -1.0)]
+    erosion_rebuild_gain: f32,
 
     /// Depositional repose slope (fans/floodplains/deltas). <0 = default; 0 =
     /// sink-fill only.
@@ -356,6 +362,7 @@ fn main() {
         steps: (cli.erosion_steps > 0).then_some(cli.erosion_steps),
         precip_outer_iters: (cli.erosion_precip_iters > 0).then_some(cli.erosion_precip_iters),
         uplift_scale: (cli.erosion_uplift_scale >= 0.0).then_some(cli.erosion_uplift_scale),
+        rebuild_gain: (cli.erosion_rebuild_gain >= 0.0).then_some(cli.erosion_rebuild_gain),
         deposition_slope: (cli.erosion_deposition_slope >= 0.0)
             .then_some(cli.erosion_deposition_slope),
         litho_sigma: (cli.erosion_litho_sigma >= 0.0).then_some(cli.erosion_litho_sigma),

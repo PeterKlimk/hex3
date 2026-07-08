@@ -102,6 +102,12 @@ struct Cli {
     /// default; 0 = relaxation only (no uplift).
     #[arg(long, default_value_t = -1.0)]
     erosion_uplift_scale: f32,
+    /// Emergent builder over-rebuild gain (relief-spectrum candidate B): >1 builds
+    /// more orogen volume than the coarse target so erosion carves the excess into
+    /// relief. <0 = EMERGENT_REBUILD_GAIN default (1.2). Pair with --erosion-k /
+    /// --erosion-hillslope-crit for the joint high-relief regime.
+    #[arg(long, default_value_t = -1.0)]
+    rebuild_gain: f32,
     /// Override uplift-FORCING smoothing length (km). Escalation #1: smooths the
     /// per-step uplift source over a sub-grid orogenic width to kill mountain-top
     /// cell-scale chatter without flattening orogens. <0 = use
@@ -257,6 +263,9 @@ fn main() {
     }
     if cli.erosion_uplift_scale >= 0.0 {
         world.erosion_params.uplift_scale = cli.erosion_uplift_scale;
+    }
+    if cli.rebuild_gain >= 0.0 {
+        world.erosion_params.rebuild_gain = cli.rebuild_gain;
     }
     if cli.erosion_uplift_smooth >= 0.0 {
         world.erosion_params.uplift_smooth_km = cli.erosion_uplift_smooth;
@@ -2248,26 +2257,21 @@ fn run_mountain_audit(world: &World, seed: u64, top: usize) {
         .iter()
         .map(|w| w * 0.5 / EARTH_RADIUS_KM)
         .collect();
-    // reliefs[surface][window] -> samples
-    let mut reliefs = vec![vec![Vec::<f32>::new(); WINDOWS_KM.len()]; 2];
+    // reliefs[metric][surface][window] -> samples. metric 0 = max-min (reference),
+    // metric 1 = p95-p05 within the window (robust: one spike/pit can't inflate it
+    // — the B-regime GATE metric per the relief-spectrum spec).
+    let mut reliefs = vec![vec![vec![Vec::<f32>::new(); WINDOWS_KM.len()]; 2]; 2];
     let mut visited_mark = vec![u32::MAX; n];
+    let mut window_cells: Vec<(f32, f32, f32)> = Vec::new(); // (dist, pre, eroded)
     for (si, &start) in mtn_cells.iter().step_by(stride).enumerate() {
         let mark = si as u32;
         let c0 = tess.cell_center(start);
-        let mut lo = [[f32::INFINITY; WINDOWS_KM.len()]; 2];
-        let mut hi = [[f32::NEG_INFINITY; WINDOWS_KM.len()]; 2];
+        window_cells.clear();
         let mut queue = std::collections::VecDeque::new();
         visited_mark[start] = mark;
         queue.push_back((start, 0.0f32));
         while let Some((cell, dist)) = queue.pop_front() {
-            for (w, &r) in radii.iter().enumerate() {
-                if dist <= r {
-                    for (s, e) in [(0usize, pre_elev), (1usize, elev)] {
-                        lo[s][w] = lo[s][w].min(e[cell]);
-                        hi[s][w] = hi[s][w].max(e[cell]);
-                    }
-                }
-            }
+            window_cells.push((dist, pre_elev[cell], elev[cell]));
             for &nb in tess.neighbors(cell) {
                 if visited_mark[nb] != mark {
                     let d = (tess.cell_center(nb) - c0).length();
@@ -2278,33 +2282,47 @@ fn run_mountain_audit(world: &World, seed: u64, top: usize) {
                 }
             }
         }
-        for s in 0..2 {
-            for w in 0..WINDOWS_KM.len() {
-                if hi[s][w].is_finite() {
-                    reliefs[s][w].push((hi[s][w] - lo[s][w]) * AUDIT_M_PER_UNIT);
+        for (w, &r) in radii.iter().enumerate() {
+            for s in 0..2 {
+                let mut vals: Vec<f32> = window_cells
+                    .iter()
+                    .filter(|&&(d, _, _)| d <= r)
+                    .map(|&(_, pre, ero)| if s == 0 { pre } else { ero })
+                    .collect();
+                if vals.is_empty() {
+                    continue;
                 }
+                vals.sort_by(f32::total_cmp);
+                let q = |f: f32| vals[(((vals.len() - 1) as f32) * f) as usize];
+                reliefs[0][s][w].push((q(1.0) - q(0.0)) * AUDIT_M_PER_UNIT);
+                reliefs[1][s][w].push((q(0.95) - q(0.05)) * AUDIT_M_PER_UNIT);
             }
         }
     }
-    if !reliefs[1][0].is_empty() {
+    if !reliefs[0][1][0].is_empty() {
         println!(
-            "  relief spectrum ({} samples; p50 m, [p90]):  [Earth alpine ballpark: 5 km ~700-1200, 10 km ~1000-1800, 25 km ~1500-3000, 50 km ~2000-3500, then saturates]",
-            reliefs[1][0].len()
+            "  relief spectrum ({} samples; p50 m, [p90]):  [Earth alpine ballpark: 10 km ~1000-1800, 25 km ~1500-3000, 50 km ~2000-3500, then saturates. p95-p05 is the GATE metric; max-min is reference]",
+            reliefs[0][1][0].len()
         );
-        for (label, s) in [("pre-erosion", 0usize), ("eroded", 1usize)] {
-            let mut line = format!("    {label:<12}");
-            for (w, wkm) in WINDOWS_KM.iter().enumerate() {
-                let v = &mut reliefs[s][w];
-                v.sort_by(f32::total_cmp);
-                let q = |f: f32| v[(((v.len() - 1) as f32) * f) as usize];
-                line.push_str(&format!(
-                    "  {:>3.0}km {:>4.0} [{:>4.0}]",
-                    wkm,
-                    q(0.5),
-                    q(0.9)
-                ));
+        for (mlabel, m) in [("max-min", 0usize), ("p95-p05", 1usize)] {
+            for (label, s) in [("pre", 0usize), ("eroded", 1usize)] {
+                let mut line = format!("    {mlabel:<8} {label:<7}");
+                for (w, wkm) in WINDOWS_KM.iter().enumerate() {
+                    let v = &mut reliefs[m][s][w];
+                    if v.is_empty() {
+                        continue;
+                    }
+                    v.sort_by(f32::total_cmp);
+                    let q = |f: f32| v[(((v.len() - 1) as f32) * f) as usize];
+                    line.push_str(&format!(
+                        "  {:>3.0}km {:>4.0} [{:>4.0}]",
+                        wkm,
+                        q(0.5),
+                        q(0.9)
+                    ));
+                }
+                println!("{line}");
             }
-            println!("{line}");
         }
     }
 }

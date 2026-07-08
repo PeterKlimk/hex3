@@ -128,6 +128,7 @@ pub struct ErosionOverrides {
     pub steps: Option<usize>,
     pub precip_outer_iters: Option<usize>,
     pub uplift_scale: Option<f32>,
+    pub rebuild_gain: Option<f32>,
     pub deposition_slope: Option<f32>,
     pub litho_sigma: Option<f32>,
     pub litho_grain_strength: Option<f32>,
@@ -192,6 +193,9 @@ impl ErosionOverrides {
         }
         if let Some(u) = self.uplift_scale {
             world.erosion_params.uplift_scale = u;
+        }
+        if let Some(g) = self.rebuild_gain {
+            world.erosion_params.rebuild_gain = g;
         }
         if let Some(d) = self.deposition_slope {
             world.erosion_params.deposition_slope = d;
