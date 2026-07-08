@@ -2499,7 +2499,7 @@ fn run_river_audit(world: &World, seed: u64, top: usize) {
         }
         // Long-profile shape: % of total drop achieved in the upper half of length.
         let src = *path.last().unwrap();
-        let drop = (elev[src] - elev[mouth]).max(1e-9);
+        let drop = elev[src] - elev[mouth];
         let mut acc = 0.0f64;
         let mut mid_elev = elev[mouth];
         for w in path.windows(2) {
@@ -2509,21 +2509,31 @@ fn run_river_audit(world: &World, seed: u64, top: usize) {
                 break;
             }
         }
-        let upper_frac = 100.0 * (elev[src] - mid_elev) / drop;
+        // Meaningless on stub trunks (<2 cells) or near-zero total drop (<50 m).
+        let upper_frac = if path.len() < 3 || drop < 0.005 {
+            f32::NAN
+        } else {
+            100.0 * (elev[src] - mid_elev) / drop
+        };
         let mouth_kind = match hydro.downstream(mouth) {
             Some(d) if hydro.is_ocean(d) => "ocean",
             Some(_) => "lake",
             None => "INLAND",
         };
+        let upper_str = if upper_frac.is_nan() {
+            "     -".to_string()
+        } else {
+            format!("{upper_frac:>5.0}%")
+        };
         println!(
-            "    {:>2}. {:>10.0}  {:>8.0}  {:>6.2}  {:>9.0}  {:>5.0}  {:>16.0}%  {}",
+            "    {:>2}. {:>10.0}  {:>8.0}  {:>6.2}  {:>9.0}  {:>5.0}  {:>16}  {}",
             k + 1,
             len_km,
             straight_km,
             sinuosity,
             basin_km2,
             elev[src] * AUDIT_M_PER_UNIT,
-            upper_frac,
+            upper_str,
             mouth_kind
         );
     }
