@@ -2233,45 +2233,79 @@ fn run_mountain_audit(world: &World, seed: u64, top: usize) {
         );
     }
 
-    // Sampled LOCAL RELIEF (max-min elevation within a 12.5 km radius) over
-    // mountain cells — the "does it read as alpine" number. Chord distances
-    // (f32 acos collapses below ~3 km on the fine mesh).
+    // RELIEF SPECTRUM: local relief (max-min elevation) at nested window sizes
+    // over mountain cells, on the PRE-erosion base and the ERODED surface. This
+    // is the wavelength-ownership instrument: which synthesis layer produces
+    // relief at which scale, and what erosion adds/removes per band. Chord
+    // distances (f32 acos collapses below ~3 km on the fine mesh). One BFS per
+    // sample at the largest radius; inner windows read from the same expansion.
+    const WINDOWS_KM: [f32; 5] = [5.0, 10.0, 25.0, 50.0, 100.0]; // diameters
+    let pre_elev = &fine.surface_for(3).elevation.values;
     let mtn_cells: Vec<usize> = (0..n).filter(|&i| mask[i]).collect();
-    let stride = (mtn_cells.len() / 20_000).max(1);
-    let radius_chord = 12.5 / EARTH_RADIUS_KM; // small angle: chord ≈ arc
-    let mut reliefs: Vec<f32> = Vec::new();
+    let stride = (mtn_cells.len() / 4_000).max(1);
+    let max_radius = WINDOWS_KM[WINDOWS_KM.len() - 1] * 0.5 / EARTH_RADIUS_KM;
+    let radii: Vec<f32> = WINDOWS_KM
+        .iter()
+        .map(|w| w * 0.5 / EARTH_RADIUS_KM)
+        .collect();
+    // reliefs[surface][window] -> samples
+    let mut reliefs = vec![vec![Vec::<f32>::new(); WINDOWS_KM.len()]; 2];
     let mut visited_mark = vec![u32::MAX; n];
     for (si, &start) in mtn_cells.iter().step_by(stride).enumerate() {
         let mark = si as u32;
         let c0 = tess.cell_center(start);
-        let (mut lo, mut hi) = (elev[start], elev[start]);
+        let mut lo = [[f32::INFINITY; WINDOWS_KM.len()]; 2];
+        let mut hi = [[f32::NEG_INFINITY; WINDOWS_KM.len()]; 2];
         let mut queue = std::collections::VecDeque::new();
         visited_mark[start] = mark;
-        queue.push_back(start);
-        while let Some(cell) = queue.pop_front() {
-            lo = lo.min(elev[cell]);
-            hi = hi.max(elev[cell]);
+        queue.push_back((start, 0.0f32));
+        while let Some((cell, dist)) = queue.pop_front() {
+            for (w, &r) in radii.iter().enumerate() {
+                if dist <= r {
+                    for (s, e) in [(0usize, pre_elev), (1usize, elev)] {
+                        lo[s][w] = lo[s][w].min(e[cell]);
+                        hi[s][w] = hi[s][w].max(e[cell]);
+                    }
+                }
+            }
             for &nb in tess.neighbors(cell) {
-                if visited_mark[nb] != mark
-                    && (tess.cell_center(nb) - c0).length() <= radius_chord
-                {
-                    visited_mark[nb] = mark;
-                    queue.push_back(nb);
+                if visited_mark[nb] != mark {
+                    let d = (tess.cell_center(nb) - c0).length();
+                    if d <= max_radius {
+                        visited_mark[nb] = mark;
+                        queue.push_back((nb, d));
+                    }
                 }
             }
         }
-        reliefs.push((hi - lo) * AUDIT_M_PER_UNIT);
+        for s in 0..2 {
+            for w in 0..WINDOWS_KM.len() {
+                if hi[s][w].is_finite() {
+                    reliefs[s][w].push((hi[s][w] - lo[s][w]) * AUDIT_M_PER_UNIT);
+                }
+            }
+        }
     }
-    reliefs.sort_by(f32::total_cmp);
-    if !reliefs.is_empty() {
-        let rq = |q: f32| reliefs[(((reliefs.len() - 1) as f32) * q) as usize];
+    if !reliefs[1][0].is_empty() {
         println!(
-            "  local relief (25 km window, {} samples): p10/p50/p90 = {:.0}/{:.0}/{:.0} m  [Earth alpine cores 1500-3000 m; dissected uplands 500-1000; <300 reads as hills]",
-            reliefs.len(),
-            rq(0.1),
-            rq(0.5),
-            rq(0.9)
+            "  relief spectrum ({} samples; p50 m, [p90]):  [Earth alpine ballpark: 5 km ~700-1200, 10 km ~1000-1800, 25 km ~1500-3000, 50 km ~2000-3500, then saturates]",
+            reliefs[1][0].len()
         );
+        for (label, s) in [("pre-erosion", 0usize), ("eroded", 1usize)] {
+            let mut line = format!("    {label:<12}");
+            for (w, wkm) in WINDOWS_KM.iter().enumerate() {
+                let v = &mut reliefs[s][w];
+                v.sort_by(f32::total_cmp);
+                let q = |f: f32| v[(((v.len() - 1) as f32) * f) as usize];
+                line.push_str(&format!(
+                    "  {:>3.0}km {:>4.0} [{:>4.0}]",
+                    wkm,
+                    q(0.5),
+                    q(0.9)
+                ));
+            }
+            println!("{line}");
+        }
     }
 }
 
