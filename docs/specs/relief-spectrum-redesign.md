@@ -95,8 +95,17 @@ current default regime produces or preserves near-threshold slopes.
 
 ## 5. Candidate mechanisms (replace-vs-add is OPEN)
 
-**B. Joint high-relief regime test (FIRST — cheap, pure parameters, now correctly
-specified).** Vary together: coarse target amplitude and/or `EMERGENT_REBUILD_GAIN`
+**B. Joint high-relief regime test — RUN 2026-07-09, VERDICT: amplitude-only, spectral
+shape invariant. FALSIFIED as the relief owner; gain retained as a secondary dial.**
+8-run sweep (seed 12345, p95-p05 25-km p50, baseline 191 m): gain 2 → 301; gain 3 →
+454; gain 3 + K×4 + S_c → 542 (bar was ≥600). BUT relief scaled with PEAK HEIGHT
+(10 → 21.7 km peaks at gain 3): relief/peak stayed ~3-4% at every setting — the solver
+scales terrain self-similarly, it cannot flatten the spectrum (10-km band stayed ~100 m
+even with 21-km peaks). Reaching 1000 m at 25 km by pure gain needs ~40-km peaks.
+Also: S_c 200 = the DEFAULT already (constants.rs:788 — the "Roering default-off"
+memory is stale); sweeping it produced no useful differentiation. K×4 fragments
+(228 components). CONCLUSION: spectral shape must come from structure → candidate A;
+gain ~1.5-2 available as an amplitude trim afterward. Original design below. Vary together: coarse target amplitude and/or `EMERGENT_REBUILD_GAIN`
 (more mountain volume to carve), K (keep pace), Roering `S_c` ON (~150–300) to hold
 walls near threshold, `steps` as build-vs-carve balance. The solver is numerically
 bounded throughout (Newton clamps to receiver, Roering caps S/S_c at 0.95 with an
