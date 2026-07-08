@@ -249,3 +249,38 @@ prior feed-forward is out of scope).
 `diagnose --seed 12345 --mountain-audit --rebuild-gain -1 --meso-relief {0.3,0.6,0.9}`
 → p95-p05 spectrum vs baseline; check components/mountain-land/peaks in the same
 output; then seed 777 for the best; then `--fine-scale {0.7,1.5}` on the best.
+
+---
+
+## 10. A′ — meso relief in the BASE elevation (hand-off #2)
+
+**Why (measured, 2026-07-09).** The uplift-redistribution variant of A was implemented
+correctly (identity-verified, monotonic dial) but the solver attenuates 25-km uplift-
+RATE structure ~100×: meso_relief 0.9 (valleys 0.1×, ridges 1.9× uplift) moved 25-km
+p95-p05 p50 only 191→218 m. Cranking the EXISTING erodibility fields (litho grain ×4,
+sigma ×2) is also flat (≤+3%) — they are incoherent at meso wavelength. Conclusion:
+at 10-50 km the solver flattens rate/volume anomalies; the only channel it demonstrably
+respects is relief ALREADY IN the elevation it dissects (the v4 finding). So: paint the
+meso band into `base_elevation`, at a wavelength (25 km) far above P1b's corduroy
+failure regime (1-5 km), with the same anti-corduroy defenses.
+
+**Implementation.**
+- Factor the meso field out of `compute_emergent_uplift_shape` into ONE shared helper
+  (fold-train in front (u,v) coordinates + phase warp + wavelength jitter + spur
+  gating + isotropic blend — keep constants/behavior identical so the uplift variant
+  stays available for A/B). No duplicate implementations.
+- Apply it in the base-synthesis path next to `add_interior_structural_relief`
+  (fine.rs ~:676): `base_elevation[i] += meso_base_relief * envelope(i) * meso(i)`,
+  where `envelope` reuses the SAME orogen gating the interior grain uses
+  (arc+collision-scaled, so plains stay clean) and the result is approximately
+  zero-mean like the interior grain (the existing area-weighted datum drift check
+  must stay quiet).
+- New param `meso_base_relief: f32` in `FineStructureParams` — ELEVATION units
+  (0.01 ≈ 100 m), default 0.0 (off). Shares `meso_wavelength_km`. Plumb exactly like
+  `meso_relief`: diagnose `--meso-base-relief`, main.rs flag, `ErosionOverrides`,
+  sweep knob, AND the fine-base cache hash.
+- Validation ladder: identity at 0.0 (bit-identical spectrum), then
+  `--meso-base-relief {0.02, 0.05, 0.10}` (≈200/500/1000 m seed amplitude) on seed
+  12345 — expect the PRE-erosion 25-km band to rise to ≈ the seeded amplitude and the
+  ERODED band to retain a large fraction; gates: components/mountain-land stable,
+  summit probe clean.
