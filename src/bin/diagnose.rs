@@ -8,7 +8,9 @@
 //!     cargo run --release --bin diagnose -- --seed 12345 --cells 40000
 
 use clap::Parser;
-use hex3::world::diagnostics::{distance_from_mask, measure_components, EARTH_RADIUS_KM};
+use hex3::world::diagnostics::{
+    distance_from_mask, measure_components, ComponentStats, EARTH_RADIUS_KM,
+};
 use hex3::world::{CellWaterState, World};
 
 #[derive(Parser, Debug)]
@@ -32,6 +34,16 @@ struct Cli {
     /// A/B against the pre-integration world with HEX3_NO_DRAINAGE_INTEGRATION=1.
     #[arg(long, default_value_t = false)]
     lake_audit: bool,
+    /// Run the per-range MOUNTAIN audit and exit: range objects on the fine
+    /// eroded surface (size/elongation, crest-pass spectrum, cross-strike
+    /// asymmetry, sampled local relief) with Earth references.
+    #[arg(long, default_value_t = false)]
+    mountain_audit: bool,
+    /// Run the RIVER NETWORK audit and exit: the rendered river network's
+    /// Strahler/Horton structure, drainage density, mouths, and per-trunk
+    /// length/sinuosity/profile table with Earth references.
+    #[arg(long, default_value_t = false)]
+    river_audit: bool,
     /// Fine-mesh cell cap (the emergent count is coarsened to fit). Lower it to
     /// iterate faster on erosion/roughness probes. 0 = use the FINE_MAX_CELLS default.
     #[arg(long, default_value_t = 0)]
@@ -336,13 +348,25 @@ fn main() {
         world.generate_hydrology();
     }
 
+    // Feature audits are combinable (one world generation, several panels).
+    let mut audited = false;
     if cli.drainage_audit {
         run_drainage_audit(&world, cli.seed);
-        return;
+        audited = true;
     }
-
     if cli.lake_audit {
         run_lake_audit(&mut world, cli.seed, cli.top);
+        audited = true;
+    }
+    if cli.mountain_audit {
+        run_mountain_audit(&world, cli.seed, cli.top);
+        audited = true;
+    }
+    if cli.river_audit {
+        run_river_audit(&world, cli.seed, cli.top);
+        audited = true;
+    }
+    if audited {
         return;
     }
 
@@ -1972,5 +1996,535 @@ fn run_lake_audit(world: &mut World, seed: u64, top: usize) {
     // a later consumer would see).
     if let (Some(fine), Some(orig)) = (world.fine.as_mut(), fine_orig) {
         fine.set_climate_ratio(4, orig);
+    }
+}
+
+// ======================== MOUNTAIN AUDIT ========================
+//
+// Object-level RANGE statistics on the fine eroded surface. Each range is a
+// connected component of high land, measured as a feature: size/shape, crest
+// continuity (the pass/gap spectrum along strike), cross-strike asymmetry,
+// and sampled local relief. This is where "the mountains look wrong" gets
+// localized: blob-shaped ranges (low elongation), unbroken walls (no passes),
+// symmetric profiles (lost O0 asymmetry), or low local relief all have
+// distinct signatures here. Earth refs inline.
+
+const AUDIT_RANGE_ELEV: f32 = 0.15;
+const AUDIT_M_PER_UNIT: f32 = 10_000.0; // ~10 km vertical per elevation unit
+
+/// The (sampled) farthest-apart pair of cells in a component — the range's
+/// principal axis endpoints.
+fn audit_extremal_pair(tess: &hex3::world::Tessellation, cells: &[usize]) -> (usize, usize) {
+    const MAX_SAMPLE: usize = 200;
+    let stride = (cells.len() / MAX_SAMPLE).max(1);
+    let sample: Vec<usize> = cells.iter().step_by(stride).copied().collect();
+    let (mut best, mut pair) = (-1.0f32, (cells[0], cells[0]));
+    for (i, &a) in sample.iter().enumerate() {
+        let pa = tess.cell_center(a);
+        for &b in &sample[i + 1..] {
+            let d = (pa - tess.cell_center(b)).length_squared();
+            if d > best {
+                best = d;
+                pair = (a, b);
+            }
+        }
+    }
+    pair
+}
+
+struct RangeAudit {
+    area_km2: f32,
+    length_km: f32,
+    width_km: f32,
+    peak_m: f32,
+    /// Crest bins along the principal axis that contain range cells.
+    crest_bins: usize,
+    /// Distinct passes: contiguous crest-profile lows ≥100 m below both
+    /// flanking crest maxima.
+    passes: usize,
+    /// Median pass depth (m below the lower flanking crest max).
+    median_pass_depth_m: f32,
+    /// Lowest crest-profile point (m) — the range's deepest through-gap.
+    crest_floor_m: f32,
+    /// Crest offset across strike: 0 = crest centered, ±1 = crest hugs an
+    /// edge (asymmetric range profile, the O0 signature).
+    crest_offset: f32,
+}
+
+fn audit_range(
+    tess: &hex3::world::Tessellation,
+    comp: &ComponentStats,
+    elev: &[f32],
+) -> RangeAudit {
+    let (pa, pb) = audit_extremal_pair(tess, &comp.cells);
+    let a = tess.cell_center(pa);
+    let b = tess.cell_center(pb);
+    let nrm = a.cross(b).normalize_or_zero();
+    let c_axis = nrm.cross(a).normalize_or_zero();
+    let arc = a.dot(b).clamp(-1.0, 1.0).acos();
+
+    // Along-strike parameter t (radians along the great-circle axis) and
+    // signed cross-strike parameter s (radians off the axis) per cell.
+    let param = |i: usize| -> (f32, f32) {
+        let p = tess.cell_center(i);
+        let t = p.dot(c_axis).atan2(p.dot(a));
+        let s = p.dot(nrm).clamp(-1.0, 1.0).asin();
+        (t, s)
+    };
+
+    // Crest profile: max elevation per ~50 km bin along strike.
+    let bin_w = 50.0 / EARTH_RADIUS_KM;
+    let nbins = ((arc / bin_w).ceil() as usize).clamp(1, 4096);
+    let mut crest = vec![f32::NEG_INFINITY; nbins];
+    let mut ss: Vec<f32> = Vec::with_capacity(comp.cells.len());
+    let mut peak = f32::NEG_INFINITY;
+    for &i in &comp.cells {
+        let (t, s) = param(i);
+        let bin = ((t / arc.max(1e-9)) * nbins as f32) as usize;
+        let bin = bin.min(nbins - 1);
+        crest[bin] = crest[bin].max(elev[i]);
+        ss.push(s);
+        peak = peak.max(elev[i]);
+    }
+    let filled: Vec<(usize, f32)> = crest
+        .iter()
+        .enumerate()
+        .filter(|(_, &e)| e.is_finite())
+        .map(|(b, &e)| (b, e))
+        .collect();
+
+    // Pass detection on the filled crest profile: prefix/suffix maxima.
+    let m = filled.len();
+    let mut passes = 0usize;
+    let mut pass_depths: Vec<f32> = Vec::new();
+    let mut crest_floor = peak;
+    if m >= 3 {
+        let mut pre = vec![f32::NEG_INFINITY; m];
+        let mut suf = vec![f32::NEG_INFINITY; m];
+        for k in 1..m {
+            pre[k] = pre[k - 1].max(filled[k - 1].1);
+        }
+        for k in (0..m - 1).rev() {
+            suf[k] = suf[k + 1].max(filled[k + 1].1);
+        }
+        const PASS_MIN_DEPTH: f32 = 0.01; // 100 m
+        let mut in_pass = false;
+        let mut cur_depth = 0.0f32;
+        for k in 1..m - 1 {
+            let depth = pre[k].min(suf[k]) - filled[k].1;
+            crest_floor = crest_floor.min(filled[k].1);
+            if depth >= PASS_MIN_DEPTH {
+                in_pass = true;
+                cur_depth = cur_depth.max(depth);
+            } else if in_pass {
+                passes += 1;
+                pass_depths.push(cur_depth);
+                in_pass = false;
+                cur_depth = 0.0;
+            }
+        }
+        if in_pass {
+            passes += 1;
+            pass_depths.push(cur_depth);
+        }
+    }
+    pass_depths.sort_by(f32::total_cmp);
+    let median_pass_depth = pass_depths
+        .get(pass_depths.len() / 2)
+        .copied()
+        .unwrap_or(0.0);
+
+    // Cross-strike asymmetry: where does the crest sit inside the range's
+    // s-envelope? Crest cells = top 20% of the elevation band.
+    ss.sort_by(f32::total_cmp);
+    let sq = |q: f32| ss[(((ss.len() - 1) as f32) * q) as usize];
+    let (s_lo, s_hi) = (sq(0.05), sq(0.95));
+    let half = ((s_hi - s_lo) * 0.5).max(1e-9);
+    let center = (s_hi + s_lo) * 0.5;
+    let crest_thr = peak - 0.2 * (peak - AUDIT_RANGE_ELEV);
+    let mut s_crest: Vec<f32> = comp
+        .cells
+        .iter()
+        .filter(|&&i| elev[i] >= crest_thr)
+        .map(|&i| param(i).1)
+        .collect();
+    s_crest.sort_by(f32::total_cmp);
+    let s_crest_med = s_crest.get(s_crest.len() / 2).copied().unwrap_or(center);
+    let crest_offset = ((s_crest_med - center) / half).clamp(-1.5, 1.5);
+
+    RangeAudit {
+        area_km2: comp.area_km2,
+        length_km: comp.length_km,
+        width_km: comp.width_km,
+        peak_m: peak * AUDIT_M_PER_UNIT,
+        crest_bins: m,
+        passes,
+        median_pass_depth_m: median_pass_depth * AUDIT_M_PER_UNIT,
+        crest_floor_m: crest_floor * AUDIT_M_PER_UNIT,
+        crest_offset,
+    }
+}
+
+fn run_mountain_audit(world: &World, seed: u64, top: usize) {
+    let Some(fine) = world.fine.as_ref() else {
+        println!("\n[MOUNTAIN AUDIT] no fine surface present");
+        return;
+    };
+    let tess = fine.tessellation();
+    let surf = fine.surface_for(u32::MAX);
+    let elev = &surf.elevation.values;
+    let n = tess.num_cells();
+    let areas = tess.cell_areas();
+
+    println!(
+        "\n================ MOUNTAIN AUDIT seed={} (fine eroded, elev>={}) ================",
+        seed, AUDIT_RANGE_ELEV
+    );
+
+    let mask: Vec<bool> = (0..n).map(|i| elev[i] >= AUDIT_RANGE_ELEV).collect();
+    let comps = measure_components(tess, &mask);
+    let land_km2: f64 = (0..n)
+        .filter(|&i| elev[i] >= 0.0)
+        .map(|i| (areas[i] * EARTH_RADIUS_KM * EARTH_RADIUS_KM) as f64)
+        .sum();
+    let mtn_km2: f64 = comps.iter().map(|c| c.area_km2 as f64).sum();
+    let significant: Vec<&ComponentStats> =
+        comps.iter().filter(|c| c.area_km2 >= 20_000.0).collect();
+    println!(
+        "  mountain land: {:.1}% ({} components, {} significant >=20k km²)  [Earth high-mountain land ~10-12%]",
+        100.0 * mtn_km2 / land_km2.max(1e-30),
+        comps.len(),
+        significant.len()
+    );
+    if significant.is_empty() {
+        println!("  NO significant ranges — nothing to audit at this threshold");
+        return;
+    }
+    let mut elong: Vec<f32> = significant.iter().map(|c| c.elongation()).collect();
+    elong.sort_by(f32::total_cmp);
+    let eq = |q: f32| elong[(((elong.len() - 1) as f32) * q) as usize];
+    println!(
+        "  elongation (significant ranges) p10/p50/p90 = {:.1}/{:.1}/{:.1}  [Earth belts 5-20x; <2 = blob]",
+        eq(0.1),
+        eq(0.5),
+        eq(0.9)
+    );
+
+    println!(
+        "  per-range:   area_km²  len×wid km   peak_m  crest: bins passes med_pass_m floor_m  offset"
+    );
+    println!(
+        "               [Andes 7000x300, Himalaya 2400x1000, Alps 1200x200 | passes: real belts are BREACHED — Alps ~10 major; floor<<peak | offset: 0 = symmetric, ±1 = one-sided (O0)]"
+    );
+    for (k, comp) in significant.iter().take(top).enumerate() {
+        let r = audit_range(tess, comp, elev);
+        println!(
+            "    {:>2}. {:>9.0}  {:>5.0}x{:>4.0}  {:>7.0}   {:>4} {:>6} {:>10.0} {:>7.0}  {:>+.2}",
+            k + 1,
+            r.area_km2,
+            r.length_km,
+            r.width_km,
+            r.peak_m,
+            r.crest_bins,
+            r.passes,
+            r.median_pass_depth_m,
+            r.crest_floor_m,
+            r.crest_offset
+        );
+    }
+
+    // Sampled LOCAL RELIEF (max-min elevation within a 12.5 km radius) over
+    // mountain cells — the "does it read as alpine" number. Chord distances
+    // (f32 acos collapses below ~3 km on the fine mesh).
+    let mtn_cells: Vec<usize> = (0..n).filter(|&i| mask[i]).collect();
+    let stride = (mtn_cells.len() / 20_000).max(1);
+    let radius_chord = 12.5 / EARTH_RADIUS_KM; // small angle: chord ≈ arc
+    let mut reliefs: Vec<f32> = Vec::new();
+    let mut visited_mark = vec![u32::MAX; n];
+    for (si, &start) in mtn_cells.iter().step_by(stride).enumerate() {
+        let mark = si as u32;
+        let c0 = tess.cell_center(start);
+        let (mut lo, mut hi) = (elev[start], elev[start]);
+        let mut queue = std::collections::VecDeque::new();
+        visited_mark[start] = mark;
+        queue.push_back(start);
+        while let Some(cell) = queue.pop_front() {
+            lo = lo.min(elev[cell]);
+            hi = hi.max(elev[cell]);
+            for &nb in tess.neighbors(cell) {
+                if visited_mark[nb] != mark
+                    && (tess.cell_center(nb) - c0).length() <= radius_chord
+                {
+                    visited_mark[nb] = mark;
+                    queue.push_back(nb);
+                }
+            }
+        }
+        reliefs.push((hi - lo) * AUDIT_M_PER_UNIT);
+    }
+    reliefs.sort_by(f32::total_cmp);
+    if !reliefs.is_empty() {
+        let rq = |q: f32| reliefs[(((reliefs.len() - 1) as f32) * q) as usize];
+        println!(
+            "  local relief (25 km window, {} samples): p10/p50/p90 = {:.0}/{:.0}/{:.0} m  [Earth alpine cores 1500-3000 m; dissected uplands 500-1000; <300 reads as hills]",
+            reliefs.len(),
+            rq(0.1),
+            rq(0.5),
+            rq(0.9)
+        );
+    }
+}
+
+// ======================== RIVER AUDIT ========================
+//
+// The RENDERED river network as an object: same thresholds as the renderer
+// (All = 0.00005·N count-equivalents; Major = 0.004/0.0006·N outlet/branch),
+// so these numbers describe the rivers the user sees. Structure (Strahler/
+// Horton), coverage (drainage density, mouth census), and the top trunks
+// (length, sinuosity, long-profile shape). Earth refs inline.
+
+fn run_river_audit(world: &World, seed: u64, top: usize) {
+    let Some(fine) = world.fine.as_ref() else {
+        println!("\n[RIVER AUDIT] no fine surface present");
+        return;
+    };
+    let tess = fine.tessellation();
+    let surf = fine.surface_for(u32::MAX);
+    let hydro = &surf.hydrology;
+    let elev = &surf.elevation.values;
+    let n = tess.num_cells();
+    let areas = tess.cell_areas();
+    let r_km = EARTH_RADIUS_KM;
+
+    println!(
+        "\n================ RIVER AUDIT seed={} (fine eroded, renderer thresholds) ================",
+        seed
+    );
+
+    // Renderer-identical thresholds (see src/app/world.rs river_thresholds).
+    let thr_all = (n as f32 * 0.00005).max(1.0) * hydro.mean_cell_discharge;
+    let is_channel: Vec<bool> = (0..n)
+        .map(|i| hydro.flow_accumulation[i] >= thr_all && !hydro.is_submerged(i))
+        .collect();
+    let is_major = hydro.compute_major_river_cells(
+        (n as f32 * 0.004).max(1.0),
+        (n as f32 * 0.0006).max(1.0),
+    );
+    let land_km2: f64 = (0..n)
+        .filter(|&i| !hydro.is_submerged(i) && elev[i] >= 0.0)
+        .map(|i| (areas[i] * r_km * r_km) as f64)
+        .sum();
+    let net_len = |m: &dyn Fn(usize) -> bool| -> f64 {
+        (0..n)
+            .filter(|&i| m(i))
+            .map(|i| (areas[i].sqrt() * r_km) as f64)
+            .sum()
+    };
+    let all_len = net_len(&|i| is_channel[i]);
+    let major_len = net_len(&|i| is_major[i]);
+    println!(
+        "  network ('All'):   {:>7} cells, ~{:>6.0} km total, Dd {:.4} km/km²   [rendered density; Earth perennial-river Dd at map scale ~0.01-0.1]",
+        is_channel.iter().filter(|&&c| c).count(),
+        all_len,
+        all_len / land_km2.max(1e-30)
+    );
+    println!(
+        "  network ('Major'): {:>7} cells, ~{:>6.0} km total, Dd {:.4} km/km²",
+        is_major.iter().filter(|&&c| c).count(),
+        major_len,
+        major_len / land_km2.max(1e-30)
+    );
+
+    // Upstream adjacency over the channel network + a topological order
+    // (ascending flow accumulation is a valid topo order on the SFD tree).
+    let mut ups: Vec<Vec<u32>> = vec![Vec::new(); n];
+    for c in 0..n {
+        if !is_channel[c] {
+            continue;
+        }
+        if let Some(d) = hydro.downstream(c) {
+            if is_channel[d] {
+                ups[d].push(c as u32);
+            }
+        }
+    }
+    let mut chan: Vec<u32> = (0..n as u32).filter(|&i| is_channel[i as usize]).collect();
+    chan.sort_by(|&a, &b| {
+        hydro.flow_accumulation[a as usize].total_cmp(&hydro.flow_accumulation[b as usize])
+    });
+
+    // Strahler orders + Horton bifurcation ratio.
+    let mut order = vec![0u8; n];
+    for &c in &chan {
+        let c = c as usize;
+        let (mut best, mut ties) = (0u8, 0u32);
+        for &u in &ups[c] {
+            let o = order[u as usize];
+            if o > best {
+                best = o;
+                ties = 1;
+            } else if o == best {
+                ties += 1;
+            }
+        }
+        order[c] = if best == 0 {
+            1
+        } else if ties >= 2 {
+            best + 1
+        } else {
+            best
+        };
+    }
+    let max_order = chan.iter().map(|&c| order[c as usize]).max().unwrap_or(0);
+    let mut streams = vec![0u32; max_order as usize + 1];
+    for &c in &chan {
+        let c = c as usize;
+        let o = order[c];
+        // A stream of order o starts where no upstream child has order o.
+        if !ups[c].iter().any(|&u| order[u as usize] == o) {
+            streams[o as usize] += 1;
+        }
+    }
+    let mut rbs: Vec<f64> = Vec::new();
+    for o in 1..max_order as usize {
+        if streams[o + 1] > 0 {
+            rbs.push(streams[o] as f64 / streams[o + 1] as f64);
+        }
+    }
+    let rb = if rbs.is_empty() {
+        0.0
+    } else {
+        (rbs.iter().map(|r| r.ln()).sum::<f64>() / rbs.len() as f64).exp()
+    };
+    let stream_counts: Vec<String> = (1..=max_order as usize)
+        .map(|o| format!("N{}={}", o, streams[o]))
+        .collect();
+    println!(
+        "  Strahler: max order {} | {} | Horton Rb = {:.1}   [Earth Rb 3-5; <3 = under-branched (parallel gutters), >5 = over-convergent]",
+        max_order,
+        stream_counts.join(" "),
+        rb
+    );
+
+    // Mouth census: where do rivers end?
+    let (mut ocean_m, mut lake_m, mut inland_m) = (0u32, 0u32, 0u32);
+    let mut mouths: Vec<u32> = Vec::new();
+    for &c in &chan {
+        let c = c as usize;
+        match hydro.downstream(c) {
+            Some(d) if !is_channel[d] && hydro.is_submerged(d) => {
+                if hydro.is_ocean(d) {
+                    ocean_m += 1;
+                } else {
+                    lake_m += 1;
+                }
+                mouths.push(c as u32);
+            }
+            None => {
+                inland_m += 1;
+                mouths.push(c as u32);
+            }
+            _ => {}
+        }
+    }
+    println!(
+        "  mouths: {} to ocean, {} to lakes, {} inland dead-ends   [post-integration a major river should NOT dead-end inland]",
+        ocean_m, lake_m, inland_m
+    );
+
+    // Continent scale reference for river lengths.
+    let land_mask: Vec<bool> = (0..n)
+        .map(|i| !hydro.is_submerged(i) && elev[i] >= 0.0)
+        .collect();
+    let continents = measure_components(tess, &land_mask);
+    let cont_len = continents.first().map(|c| c.length_km).unwrap_or(0.0);
+
+    // Top trunks by mouth discharge: walk upstream along the max-flow child.
+    mouths.sort_by(|&a, &b| {
+        hydro.flow_accumulation[b as usize].total_cmp(&hydro.flow_accumulation[a as usize])
+    });
+    println!(
+        "  top rivers:    len_km  straight  sinuos  basin_km²  src_m  %drop-upper-half  mouth"
+    );
+    println!(
+        "                 [largest continent extent {:.0} km; Earth: longest river ~0.5-0.9x its continent; sinuosity >1.2 at this scale is meandery; graded profile drops 60-85% in the upper half]",
+        cont_len
+    );
+    for (k, &mouth) in mouths.iter().take(top).enumerate() {
+        let mouth = mouth as usize;
+        // Trace the trunk upstream.
+        let mut path = vec![mouth];
+        let mut cur = mouth;
+        loop {
+            let next = ups[cur]
+                .iter()
+                .copied()
+                .max_by(|&a, &b| {
+                    hydro.flow_accumulation[a as usize]
+                        .total_cmp(&hydro.flow_accumulation[b as usize])
+                });
+            match next {
+                Some(u) => {
+                    cur = u as usize;
+                    path.push(cur);
+                }
+                None => break,
+            }
+        }
+        // Chord-sum length (arc ≈ chord at cell scale; f32 acos is unusable here).
+        let mut len_km = 0.0f64;
+        for w in path.windows(2) {
+            len_km +=
+                ((tess.cell_center(w[0]) - tess.cell_center(w[1])).length() * r_km) as f64;
+        }
+        let straight_km =
+            (tess.cell_center(mouth) - tess.cell_center(*path.last().unwrap())).length() * r_km;
+        let sinuosity = len_km / (straight_km as f64).max(1e-9);
+        // Basin area: BFS the full upstream tree (all cells, not just channels).
+        let mut basin_km2 = 0.0f64;
+        {
+            let mut stack = vec![mouth as u32];
+            let mut seen = std::collections::HashSet::new();
+            seen.insert(mouth as u32);
+            // full upstream adjacency on demand (channel ups + non-channel feeders)
+            while let Some(c) = stack.pop() {
+                let c = c as usize;
+                basin_km2 += (areas[c] * r_km * r_km) as f64;
+                for &nb in tess.neighbors(c) {
+                    if hydro.downstream(nb) == Some(c) && seen.insert(nb as u32) {
+                        stack.push(nb as u32);
+                    }
+                }
+            }
+        }
+        // Long-profile shape: % of total drop achieved in the upper half of length.
+        let src = *path.last().unwrap();
+        let drop = (elev[src] - elev[mouth]).max(1e-9);
+        let mut acc = 0.0f64;
+        let mut mid_elev = elev[mouth];
+        for w in path.windows(2) {
+            acc += ((tess.cell_center(w[0]) - tess.cell_center(w[1])).length() * r_km) as f64;
+            if acc >= len_km * 0.5 {
+                mid_elev = elev[w[1]];
+                break;
+            }
+        }
+        let upper_frac = 100.0 * (elev[src] - mid_elev) / drop;
+        let mouth_kind = match hydro.downstream(mouth) {
+            Some(d) if hydro.is_ocean(d) => "ocean",
+            Some(_) => "lake",
+            None => "INLAND",
+        };
+        println!(
+            "    {:>2}. {:>10.0}  {:>8.0}  {:>6.2}  {:>9.0}  {:>5.0}  {:>16.0}%  {}",
+            k + 1,
+            len_km,
+            straight_km,
+            sinuosity,
+            basin_km2,
+            elev[src] * AUDIT_M_PER_UNIT,
+            upper_frac,
+            mouth_kind
+        );
     }
 }
