@@ -493,7 +493,18 @@ fn river_cell_mask(
                     let (min_flow, _, _) = river_thresholds(num_cells);
                     min_flow * hydrology.mean_cell_discharge
                 }
-                RiverThresholdMode::CatchmentKm2(min) => Hydrology::flow_for_catchment_km2(min),
+                // Floor at ~4 mean cells so a mesh coarser than the physical
+                // threshold (e.g. the 100k coarse mesh, ~5100 km²/cell) doesn't
+                // turn every land cell into a river. No effect on the fine mesh
+                // (4 cells ≈ 800 km² < any sane min). Naive mean area, NOT
+                // mean_cell_discharge — the precip-weighted mean is exactly the
+                // ocean-inflated quantity this mode exists to avoid.
+                RiverThresholdMode::CatchmentKm2(min) => {
+                    let mean_cell_km2 = 4.0 * std::f32::consts::PI
+                        * hex3::world::diagnostics::EARTH_RADIUS_KM.powi(2)
+                        / num_cells.max(1) as f32;
+                    Hydrology::flow_for_catchment_km2(min.max(4.0 * mean_cell_km2))
+                }
             };
             (0..num_cells)
                 .map(|i| {
