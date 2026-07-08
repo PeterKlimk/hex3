@@ -31,9 +31,87 @@ defensible, so it's the shipped criterion. (Code path left available for future 
 NOT work.** Measured: climate `0.15` vs `1.5` give IDENTICAL lake_fraction (~0%) AND endorheic
 land (17.2%) — climate is inert here. Root cause: **the integration breached the lake-holding
 basins** (lakes ~0.8% pre-integration → ~0% after). A drained basin can't pond, and climate
-can't refill a basin that's been carved open. (Also flagged: climate appears not to move
-endorheic at all post-integration — possible deeper issue in `calculate_water_levels` worth a
-look.) A `"climate"` sweep knob was added as tooling (`set_active_climate_ratio` post-gen).
+can't refill a basin that's been carved open. A `"climate"` sweep knob was added as tooling
+(`set_active_climate_ratio` post-gen).
+
+**PROBE (2026-06-22, Codex-recommended, measured via `--drainage-audit` + integration log).**
+Confirms breaching is the lake killer; the earlier "possible `calculate_water_levels` bug"
+flag was a FALSE ALARM. Seed 12345, 40k, fine eroded surface:
+- Lake-capable basins (depth ≥ `MIN_LAKE_DEPTH`) collapse **61 → 4** through integration.
+  The 4 survivors DO pond (3/4 `is_lake` even at arid 0.15) — fill + extraction work; the
+  geometry is simply gone. This is Codex's candidate (d).
+- **Two mechanisms, both significant.** (1) Direct over-selection: `MICRO_BASIN_DEPTH=0.012 >
+  MIN_LAKE_DEPTH=0.01` + the `OR` area gate breach lake-capable basins on their own clause.
+  (2) Collateral carving: **2,449 carved cells landed in PRESERVED basins, 100% of them
+  lake-capable** — a micro-pit's `carve_outlet` walks the global `flood_parent` tree to the
+  sea and slices open deep basins en route. → Fixing the predicate alone is NOT enough; the
+  carve must be made basin-aware (stop at / route into a preserved basin).
+- **Climate is by-design inert, not buggy.** Endorheic-land is a `basin_id` topology metric
+  (fixed at gen time); `set_climate_ratio` only moves water levels/bodies. And at 0.15 the few
+  surviving lake-capable basins already overflow, so a wetter climate has no unfilled reserve
+  to act on.
+- Instrumentation kept: `carve_outlet` records lowered cells; `integrate_basins` logs
+  lake-capable count + collateral carving; `--drainage-audit` prints a lake-capability
+  breakdown (lake-capable basins, has-water/overflowing, `is_lake` bodies).
+
+**FIX (2026-06-22): lake-aware breaching — lakes restored, climate dial live again.** Two
+changes to `integrate_basins`/`carve_outlet`:
+1. **Predicate (keep lake-capable basins):** breach a basin only if it's too shallow to hold a
+   lake (`depth < MIN_LAKE_DEPTH`) OR a genuinely negligible deep spike (`area <
+   TINY_SPIKE_AREA = 0.0002`). The old `depth < 0.012` + `OR`-area gate (which breached the
+   `[0.01,0.012)` lake band and small deep basins) is gone. `MICRO_BASIN_AREA/DEPTH` removed.
+2. **Carve-aware routing:** `carve_outlet` takes `basin_id` + `keep[]` and STOPS when its
+   oceanward path reaches a preserved basin — the breached pit drains INTO that lake (which
+   handles its own overflow) instead of slicing through it.
+
+**Measured (seed 12345, 40k, fine eroded):** collateral cells through preserved basins
+**4048 → 0**; lake-capable basins surviving **4 → 26**; `is_lake` bodies **3 → 17**;
+lake_fraction **0.01% → 0.41%** (~40×); endorheic land **16.7% → 13.7%** (breached pits now
+route into kept basins that overflow seaward). Climate is no longer inert: of 26 lake-capable
+basins, 17 overflow at the arid 0.15 and 9 pond below spill, so a wetter climate has basins to
+fill. (NOTE: this CHANGES the rendered fine terrain — carved water gaps differ — so it needs a
+visual sweep before merge. Climate-sweep confirmation of the live dial is the next check.)
+49 tests pass.
+
+**CODEX PHYSICAL REVIEW (2026-06-22, 2 rounds) + hardening.** Codex endorsed the basin-aware
+carve but rated the depth keep/breach as a *pragmatic heuristic*, not a geomorphic model.
+Round-2 convergence + what we did about it:
+- **Water-budget criterion is degenerate in THIS solver, root cause identified.** We'd already
+  tested the "pluvial overflow" criterion (breach basins that overflow under a wetter paleo-
+  climate) and found it a STEP FUNCTION (off 17% / on 10.6% at any ratio 0.18–0.6). Mechanism:
+  a basin overflows when `catchment·(r/evap) ≥ capacity`, so `r_crit = capacity·evap/catchment`;
+  `catchment` uses **first-basin attribution**, making network position near-BINARY (trunk →
+  `r_crit≪1` always overflows; isolated pit → `r_crit≳1` never overflows). `r_crit` is bimodal
+  with a gap across the usable climate range → a single multiplicative knob can't land in it.
+  Codex agreed and RETRACTED "use paleo-overflow instead of depth"; the real fix is **storage-
+  aware surplus transfer** (fill local basins, evaporate from lake area, pass only excess
+  downstream) to de-bimodalize `r_crit` — deferred as the long-term water-budget model.
+- **Depth accepted as an incision-resistance proxy** (sill height an outlet must cut), not just
+  a ponding/render threshold — and it's *continuous*, which is why it gives a usable dial.
+- **DONE — split thresholds.** `MIN_INTEGRATION_SILL_RELIEF` (integration keep) is now a
+  separate constant from `MIN_LAKE_DEPTH` (lake render), even though both = 0.01 today.
+- **DONE — over-connection audit** (`HEX3_OVERCONNECT_AUDIT`): re-solves water levels with
+  breached-pit precip masked out (≈ pre-integration, water trapped) on the same carved geometry
+  and counts kept basins that flip overflowing→not. **Result: 0/17 (0.0%)** on the fine eroded
+  surface (0/1 pre-erosion, 0/2 coarse) — the cascade is NOT manufacturing connectivity; the
+  16.7%→13.7% improvement is real. `integrate_basins` now returns the breached-cell mask.
+- **DONE — `TINY_SPIKE_AREA` → `MIN_DEEP_CELLS` (deep-cell spike filter).** Replaced the
+  scale-coupled absolute-area cutoff with a resolution-aware one-cell-spike test: a basin resists
+  integration iff its DEEP body (cells submerged > `MIN_LAKE_DEPTH` at spill-full) spans
+  ≥ `MIN_DEEP_CELLS` (=2) cells — i.e. its sill relief isn't carried by a single anomalous cell.
+  Histogram-driven (`HEX3_SPIKE_HISTO` dumps sill-resisting basins bucketed by total/deep cells):
+  on the fine eroded surface the deep-cell distribution is `deep=1: 18 spikes` then a coherent
+  tail `deep≥2: 43`, so 2 is the natural knee. Resolution-robust (a real depression gains deep
+  cells as the mesh refines; a true spike stays at 1). **Measured vs the area cutoff (fine eroded,
+  seed 12345 40k):** kept basins 24→**43**, `is_lake` 17→**33** (lake_fraction 0.41%→**0.44%** —
+  the recovered basins are small), endorheic land 13.7%→**16.7%** (back INTO the 15–25% target,
+  ≈Earth 18% — the area cutoff had been over-breaching real small deep basins), collateral 0,
+  over-connection **0/32 (0%)**. `MIN_DEEP_CELLS` is the tunable (raise to 3–4 for a stricter
+  "minimum coherent lake" if speckle persists visually). 49 tests pass. CHANGES rendered terrain
+  → still needs the visual sweep before merge.
+- **Still open (roadmap):** resolution-scale `CARVE_SLOPE` (per-cell gradient). Explicit basin
+  spill-hierarchy receiver (medium). Storage-aware surplus-transfer water budget (the principled
+  long-term model that would revive the water-budget keep criterion).
 
 **LAKES are now a separate follow-up — not a climate dial.** The integration traded lakes for
 sea-reaching drainage. To get lakes back without re-breaking drainage, the lever is the

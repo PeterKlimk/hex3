@@ -26,6 +26,12 @@ struct Cli {
     /// hydrology against the fine (eroded stage-4) hydrology.
     #[arg(long, default_value_t = false)]
     drainage_audit: bool,
+    /// Run the per-lake FEATURE audit and exit: object-level lake statistics
+    /// (size spectrum, shape, placement, outlet plumbing) with Earth references,
+    /// plus the climate-dial response curve, for coarse + fine hydrology.
+    /// A/B against the pre-integration world with HEX3_NO_DRAINAGE_INTEGRATION=1.
+    #[arg(long, default_value_t = false)]
+    lake_audit: bool,
     /// Fine-mesh cell cap (the emergent count is coarsened to fit). Lower it to
     /// iterate faster on erosion/roughness probes. 0 = use the FINE_MAX_CELLS default.
     #[arg(long, default_value_t = 0)]
@@ -332,6 +338,11 @@ fn main() {
 
     if cli.drainage_audit {
         run_drainage_audit(&world, cli.seed);
+        return;
+    }
+
+    if cli.lake_audit {
+        run_lake_audit(&mut world, cli.seed, cli.top);
         return;
     }
 
@@ -1391,6 +1402,12 @@ struct DrainageAudit {
     lake_area: f64,
     num_basins: usize,
     num_endorheic_basins: usize,
+    // Lake-capability breakdown (static / climate-independent unless noted):
+    lake_capable_basins: usize, // spill - bottom >= MIN_LAKE_DEPTH
+    lake_capable_area: f64,     // sum of those basins' total_area (steradians)
+    has_water_basins: usize,    // water_level > bottom (at current climate)
+    overflowing_basins: usize,  // water_level >= spill (at current climate)
+    is_lake_bodies: usize,      // water_bodies with is_lake == true
 }
 
 /// Classify a basin chain as sea-reaching or endorheic by walking the
@@ -1485,6 +1502,27 @@ fn audit_hydrology(
 
     let num_endorheic_basins = hydro.basins.iter().filter(|b| !b.is_overflowing()).count();
 
+    // Lake-capability breakdown. lake_capable is static topology (independent of
+    // climate); has_water/overflowing/is_lake reflect the CURRENT climate ratio.
+    let min_lake_depth = hex3::world::MIN_LAKE_DEPTH;
+    let mut lake_capable_basins = 0usize;
+    let mut lake_capable_area = 0.0f64;
+    let mut has_water_basins = 0usize;
+    let mut overflowing_basins = 0usize;
+    for b in &hydro.basins {
+        if (b.spill_elevation - b.bottom_elevation) >= min_lake_depth {
+            lake_capable_basins += 1;
+            lake_capable_area += b.total_area as f64;
+        }
+        if b.has_water() {
+            has_water_basins += 1;
+        }
+        if b.is_overflowing() {
+            overflowing_basins += 1;
+        }
+    }
+    let is_lake_bodies = hydro.water_bodies.iter().filter(|w| w.is_lake).count();
+
     DrainageAudit {
         label: label.to_string(),
         num_cells: n,
@@ -1494,6 +1532,11 @@ fn audit_hydrology(
         lake_area,
         num_basins: hydro.basins.len(),
         num_endorheic_basins,
+        lake_capable_basins,
+        lake_capable_area,
+        has_water_basins,
+        overflowing_basins,
+        is_lake_bodies,
     }
 }
 
@@ -1514,6 +1557,14 @@ fn print_audit(a: &DrainageAudit) {
         } else {
             0.0
         },
+    );
+    println!(
+        "     lake-capable basins (depth>=MIN_LAKE_DEPTH): {} ({:.2}% of land area)\n     of those, currently: {} have water, {} overflowing | {} water-bodies classified is_lake",
+        a.lake_capable_basins,
+        100.0 * a.lake_capable_area / land,
+        a.has_water_basins,
+        a.overflowing_basins,
+        a.is_lake_bodies,
     );
 }
 
@@ -1577,4 +1628,349 @@ fn run_drainage_audit(world: &World, seed: u64) {
             ))
             .unwrap_or_else(|| "n/a".into())
     );
+}
+
+// ======================== LAKE AUDIT ========================
+//
+// Object-level lake statistics: each lake is measured as a FEATURE (size,
+// shape, depth, placement, plumbing) rather than a per-cell fraction. This is
+// the instrument for judging lake QUALITY numerically — aggregate fractions
+// and rendered images both miss the failure modes that read as "not great"
+// (speckle-sized lakes, perched lakes, lakes without catchments, a dead
+// climate dial).
+
+/// One lake (an `is_lake` water body) with object-level measurements.
+struct LakeRecord {
+    area_km2: f32,
+    cells: usize,
+    max_depth: f32,
+    length_km: f32,
+    elongation: f32,
+    /// Basin overflows: the lake has an outlet river (exorheic).
+    has_outlet: bool,
+    /// Direct (first-capture) catchment area / lake area. Earth: ~10-100.
+    catchment_ratio: f32,
+    /// Area-weighted mean precipitation over the direct catchment.
+    mean_catchment_precip: f32,
+    /// Land-hypsometry percentile of the lake surface (0 = lowest land).
+    hypsometric_pct: f32,
+}
+
+struct LakePanel {
+    label: String,
+    land_area_km2: f64,
+    /// Lakes, sorted largest first.
+    records: Vec<LakeRecord>,
+    /// Water bodies below the lake depth threshold (not counted as lakes).
+    ponds: usize,
+    climate_ratio: f32,
+}
+
+/// Attribute every land cell to the FIRST basin its drainage path enters
+/// (path-compressed walk). Cells already inside a depression belong to that
+/// basin directly (handled by the caller via `basin_id`); cells whose path
+/// reaches the ocean, dead-ends, or cycles off-basin belong to none.
+fn first_capture_basin(hydro: &hex3::world::Hydrology, n: usize) -> Vec<Option<usize>> {
+    let mut capture: Vec<Option<usize>> = vec![None; n];
+    let mut state = vec![0u8; n]; // 0 unvisited, 1 on current path, 2 resolved
+    for start in 0..n {
+        if hydro.is_ocean(start) || hydro.basin_id[start].is_some() || state[start] == 2 {
+            continue;
+        }
+        let mut path = Vec::new();
+        let mut cell = start;
+        let result = loop {
+            if hydro.is_ocean(cell) {
+                break None;
+            }
+            if let Some(b) = hydro.basin_id[cell] {
+                break Some(b);
+            }
+            match state[cell] {
+                2 => break capture[cell],
+                1 => break None, // drainage cycle off-basin: no capture
+                _ => {}
+            }
+            state[cell] = 1;
+            path.push(cell);
+            match hydro.downstream(cell) {
+                Some(next) => cell = next,
+                None => break None,
+            }
+        };
+        for c in path {
+            capture[c] = result;
+            state[c] = 2;
+        }
+    }
+    capture
+}
+
+fn measure_lakes(
+    label: &str,
+    tess: &hex3::world::Tessellation,
+    hydro: &hex3::world::Hydrology,
+    precipitation: &[f32],
+) -> LakePanel {
+    let n = tess.num_cells();
+    let areas = tess.cell_areas();
+    let r2 = EARTH_RADIUS_KM * EARTH_RADIUS_KM;
+
+    // Land hypsometry (sorted elevation + prefix areas) for placement percentiles.
+    let mut land: Vec<(f32, f32)> = (0..n)
+        .filter(|&i| !hydro.is_ocean(i))
+        .map(|i| (hydro.elevation[i], areas[i]))
+        .collect();
+    land.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let land_area_sr: f64 = land.iter().map(|&(_, a)| a as f64).sum();
+    let mut prefix = Vec::with_capacity(land.len());
+    let mut acc = 0.0f64;
+    for &(_, a) in &land {
+        acc += a as f64;
+        prefix.push(acc);
+    }
+    let hyps_pct = |elev: f32| -> f32 {
+        let idx = land.partition_point(|&(e, _)| e < elev);
+        if idx == 0 {
+            0.0
+        } else {
+            (prefix[idx - 1] / land_area_sr.max(1e-30)) as f32 * 100.0
+        }
+    };
+
+    // Direct catchment (first-capture) per basin: area + mean precipitation.
+    let capture = first_capture_basin(hydro, n);
+    let mut catch_area = vec![0.0f64; hydro.basins.len()];
+    let mut catch_precip = vec![0.0f64; hydro.basins.len()];
+    for i in 0..n {
+        if hydro.is_ocean(i) {
+            continue;
+        }
+        if let Some(b) = hydro.basin_id[i].or(capture[i]) {
+            catch_area[b] += areas[i] as f64;
+            catch_precip[b] += (precipitation[i] * areas[i]) as f64;
+        }
+    }
+
+    // Lake objects: connected components of lake water, mapped back to water
+    // bodies for depth + basin plumbing. measure_components sorts largest-first.
+    let mask: Vec<bool> = (0..n).map(|i| hydro.is_lake_water(i)).collect();
+    let comps = measure_components(tess, &mask);
+    let mut records = Vec::with_capacity(comps.len());
+    for comp in &comps {
+        let Some(wb_id) = comp.cells.iter().find_map(|&c| hydro.cell_water_body[c]) else {
+            continue;
+        };
+        let wb = &hydro.water_bodies[wb_id];
+        let basin = &hydro.basins[wb.basin_id];
+        let lake_area_sr = (comp.area_km2 / r2) as f64;
+        records.push(LakeRecord {
+            area_km2: comp.area_km2,
+            cells: comp.cells.len(),
+            max_depth: wb.max_depth,
+            length_km: comp.length_km,
+            elongation: comp.elongation(),
+            has_outlet: basin.is_overflowing(),
+            catchment_ratio: (catch_area[wb.basin_id] / lake_area_sr.max(1e-30)) as f32,
+            mean_catchment_precip: (catch_precip[wb.basin_id]
+                / catch_area[wb.basin_id].max(1e-30)) as f32,
+            hypsometric_pct: hyps_pct(basin.water_level),
+        });
+    }
+    let ponds = hydro.water_bodies.iter().filter(|w| !w.is_lake).count();
+
+    LakePanel {
+        label: label.to_string(),
+        land_area_km2: land_area_sr * r2 as f64,
+        records,
+        ponds,
+        climate_ratio: hydro.climate_ratio(),
+    }
+}
+
+fn print_lake_panel(p: &LakePanel, top: usize) {
+    println!("\n  [{}] climate_ratio={:.2}", p.label, p.climate_ratio);
+    if p.records.is_empty() {
+        println!(
+            "     NO LAKES ({} sub-threshold ponds). Earth ref: lakes ≈ 1.8% of land.",
+            p.ponds
+        );
+        return;
+    }
+    let total_km2: f64 = p.records.iter().map(|r| r.area_km2 as f64).sum();
+    let land_pct = 100.0 * total_km2 / p.land_area_km2.max(1e-30);
+
+    // Size spectrum (records are sorted largest-first).
+    let largest = &p.records[0];
+    let largest_share = 100.0 * largest.area_km2 as f64 / total_km2.max(1e-30);
+    let area_at = |q: f64| -> f32 {
+        // records sorted DESC; take from the ascending view
+        let k = ((p.records.len() - 1) as f64 * (1.0 - q)) as usize;
+        p.records[k].area_km2
+    };
+    let speckle: Vec<&LakeRecord> = p.records.iter().filter(|r| r.cells <= 2).collect();
+    let speckle_area: f64 = speckle.iter().map(|r| r.area_km2 as f64).sum();
+
+    println!(
+        "     lakes: {} (+{} sub-threshold ponds)   total {:.0} km² = {:.2}% of land (Earth ≈ 1.8%)",
+        p.records.len(),
+        p.ponds,
+        total_km2,
+        land_pct
+    );
+    println!(
+        "     size spectrum: largest {:.0} km² = {:.0}% of all lake area (Earth: Caspian ≈ 30%) | p50 {:.0} km², p90 {:.0} km² (Earth is HEAVY-tailed: many small, area in the few big)",
+        largest.area_km2,
+        largest_share,
+        area_at(0.5),
+        area_at(0.9)
+    );
+    println!(
+        "     speckle: {} lakes ≤2 cells = {:.0}% of count, {:.1}% of lake area (high count-share + low area-share is fine; high AREA-share reads as noise)",
+        speckle.len(),
+        100.0 * speckle.len() as f64 / p.records.len() as f64,
+        100.0 * speckle_area / total_km2.max(1e-30)
+    );
+
+    // Plumbing + placement.
+    let outlets = p.records.iter().filter(|r| r.has_outlet).count();
+    let mean_precip = |sel: &dyn Fn(&&LakeRecord) -> bool| -> Option<f32> {
+        let v: Vec<f32> = p
+            .records
+            .iter()
+            .filter(sel)
+            .map(|r| r.mean_catchment_precip)
+            .collect();
+        if v.is_empty() {
+            None
+        } else {
+            Some(v.iter().sum::<f32>() / v.len() as f32)
+        }
+    };
+    let fmt_opt = |o: Option<f32>| o.map(|v| format!("{v:.2}")).unwrap_or_else(|| "-".into());
+    println!(
+        "     outlets: {}/{} lakes overflow (have an outlet river) | catchment precip: outlet-lakes {} vs terminal {} (Earth: terminal lakes sit in DRY basins)",
+        outlets,
+        p.records.len(),
+        fmt_opt(mean_precip(&|r| r.has_outlet)),
+        fmt_opt(mean_precip(&|r| !r.has_outlet))
+    );
+    let mut hyps: Vec<f32> = p.records.iter().map(|r| r.hypsometric_pct).collect();
+    hyps.sort_by(f32::total_cmp);
+    let mut catch: Vec<f32> = p.records.iter().map(|r| r.catchment_ratio).collect();
+    catch.sort_by(f32::total_cmp);
+    let q = |v: &[f32], f: f64| v[((v.len() - 1) as f64 * f) as usize];
+    println!(
+        "     placement: lake-surface land-hypsometry pct p10/p50/p90 = {:.0}/{:.0}/{:.0} (Earth: most lake AREA sits low) | catchment/lake ratio p10/p50/p90 = {:.0}/{:.0}/{:.0}× (Earth ≈ 10-100×; ~1× = a puddle with no watershed)",
+        q(&hyps, 0.1), q(&hyps, 0.5), q(&hyps, 0.9),
+        q(&catch, 0.1), q(&catch, 0.5), q(&catch, 0.9)
+    );
+
+    println!("     top lakes:   area_km²  cells  depth  len_km  elong  outlet  catch×  precip  hyps%");
+    for (i, r) in p.records.iter().take(top).enumerate() {
+        println!(
+            "       {:>2}. {:>10.0}  {:>5}  {:>5.3}  {:>6.0}  {:>5.1}  {:>6} {:>6.0}×  {:>6.2}  {:>4.0}",
+            i + 1,
+            r.area_km2,
+            r.cells,
+            r.max_depth,
+            r.length_km,
+            r.elongation,
+            if r.has_outlet { "yes" } else { "TERM" },
+            r.catchment_ratio,
+            r.mean_catchment_precip,
+            r.hypsometric_pct
+        );
+    }
+}
+
+/// Lake count + lake fraction of land at the CURRENT climate ratio.
+fn lake_dial_point(tess: &hex3::world::Tessellation, hydro: &hex3::world::Hydrology) -> (usize, f64) {
+    let areas = tess.cell_areas();
+    let n = tess.num_cells();
+    let mut land = 0.0f64;
+    let mut lake = 0.0f64;
+    for i in 0..n {
+        if hydro.is_ocean(i) {
+            continue;
+        }
+        land += areas[i] as f64;
+        if hydro.is_lake_water(i) {
+            lake += areas[i] as f64;
+        }
+    }
+    let n_lakes = hydro.water_bodies.iter().filter(|w| w.is_lake).count();
+    (n_lakes, 100.0 * lake / land.max(1e-30))
+}
+
+fn run_lake_audit(world: &mut World, seed: u64, top: usize) {
+    use hex3::world::Hydrology;
+
+    println!("\n================ LAKE AUDIT seed={} ================", seed);
+    println!("(object-level lake features, Earth refs inline; all fractions AREA-weighted)");
+    println!("(pre-integration baseline: rerun with HEX3_NO_DRAINAGE_INTEGRATION=1)");
+
+    // COARSE: freshly generated on the coarse tessellation (same call the fine
+    // preview uses), OWNED so the dial sweep below can mutate it.
+    let crust = world.crust.as_ref().expect("crust");
+    let coarse_elev = world.elevation.as_ref().expect("coarse elevation");
+    let atmos = world.atmosphere.as_ref().expect("atmosphere");
+    let mut coarse_hydro = Hydrology::generate(
+        &world.tessellation,
+        crust,
+        coarse_elev,
+        &atmos.precipitation,
+        &atmos.temperature,
+    );
+    let coarse_panel = measure_lakes(
+        "COARSE",
+        &world.tessellation,
+        &coarse_hydro,
+        &atmos.precipitation,
+    );
+    print_lake_panel(&coarse_panel, top);
+
+    // FINE: the eroded stage-4 surface (falls back to pre-erosion if absent).
+    match world.fine.as_ref() {
+        Some(fine) => {
+            let surf = fine.surface_for(u32::MAX);
+            let panel = measure_lakes(
+                "FINE (eroded)",
+                fine.tessellation(),
+                &surf.hydrology,
+                &surf.precipitation,
+            );
+            print_lake_panel(&panel, top);
+        }
+        None => println!("  [FINE] no fine surface present (run without disabling fine mesh)"),
+    }
+
+    // Climate-dial response: the lake system's transfer function. Healthy =
+    // smooth + monotonic; a step function = degenerate fill criterion.
+    let ratios = [0.05f32, 0.10, 0.15, 0.20, 0.30, 0.50];
+    let fine_orig = world
+        .fine
+        .as_ref()
+        .map(|f| f.surface_for(u32::MAX).hydrology.climate_ratio());
+    println!("\n  CLIMATE-DIAL RESPONSE (lakes | lake%-of-land):");
+    println!("    ratio        COARSE               FINE");
+    for &r in &ratios {
+        coarse_hydro.set_climate_ratio(&world.tessellation, r);
+        let (cn, cf) = lake_dial_point(&world.tessellation, &coarse_hydro);
+        let fine_str = match world.fine.as_mut() {
+            Some(fine) => {
+                fine.set_climate_ratio(4, r);
+                let surf = fine.surface_for(u32::MAX);
+                let (fnum, ff) = lake_dial_point(fine.tessellation(), &surf.hydrology);
+                format!("{fnum:>5} | {ff:5.2}%")
+            }
+            None => "n/a".into(),
+        };
+        println!("    {:>5.2}   {:>5} | {:5.2}%      {}", r, cn, cf, fine_str);
+    }
+    // Restore the world's fine climate ratio (the audit must not mutate state
+    // a later consumer would see).
+    if let (Some(fine), Some(orig)) = (world.fine.as_mut(), fine_orig) {
+        fine.set_climate_ratio(4, orig);
+    }
 }

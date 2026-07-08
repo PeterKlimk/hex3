@@ -55,11 +55,17 @@ probe into `diagnose` before the next mountain ADD.
   over-integrates); climate left at 0.15 (a user dial). Possible follow-ups: lakes too sparse
   (climate), and a targeted high-discharge criterion if a major river still ends inland.
 - ⬜ **Lakes** — the drainage integration traded lakes for sea-reaching rivers (lakes ~0.8% →
-  ~0%; breached basins can't pond). The climate dial is INERT (0.15 vs 1.5 → same ~0% lakes).
-  To restore lakes: rebalance breaching (breach only tiny noise pits, KEEP real basins, fill to
-  overflow → lakes with outlets) — a deliberate breach/keep + climate balance, not a one-knob
-  bump. Also flagged: climate appears not to move endorheic post-integration (possible
-  `calculate_water_levels` issue). See `docs/specs/drainage-integration.md`.
+  ~0%; breached basins can't pond). **DIAGNOSED (2026-06-22 probe + Codex):** lake-capable
+  basins collapse **61 → 4** through integration via TWO mechanisms — (1) direct over-selection
+  (`MICRO_BASIN_DEPTH 0.012 > MIN_LAKE_DEPTH 0.01` + `OR` area gate breach lake-capable basins),
+  (2) collateral carving (a micro-pit's outlet `carve_outlet` walks the global flood-parent tree
+  and cuts THROUGH preserved deep basins — 2,449 carved cells, 100% in lake-capable basins).
+  Climate inertness is by-design (endorheic = topology metric), NOT a `calculate_water_levels`
+  bug. **Fix (both needed):** (a) fix the predicate so lake-capable basins aren't directly
+  breached (lower `MICRO_BASIN_DEPTH` below `MIN_LAKE_DEPTH` / guard `!lake_capable`), AND
+  (b) make `carve_outlet` basin-aware — stop at / route into a preserved basin rather than
+  slicing through it. Then fill-to-overflow → lakes WITH outlets. See
+  `docs/specs/drainage-integration.md`.
 - ⬜ **Perf** — default gen ~3× slower (n=2 Newton + 200 erosion steps); `EROSION_STEPS` is the
   quality↔speed dial. Revisit if iteration speed bites.
 
