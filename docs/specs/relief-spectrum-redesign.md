@@ -188,3 +188,64 @@ Protocol:
 - 10-km band: physical, rendered, or refined-mesh (§2 decision, deferred)?
 - Semivariogram vs windowed detrended std-dev — is the simpler one enough? (Start
   simple; upgrade only if gates disagree with eyes.)
+
+---
+
+## 9. Candidate A — implementation spec (hand-off)
+
+**Goal.** Extend the O0 structured uplift shape with a MESO band (10–50 km
+ridge/valley structure) so erosion organizes pre-seeded relief. Success bar (§2):
+25-km p95-p05 p50 ≥ ~600 m on seed 12345 at a default-candidate amplitude, with peaks
+within ~+20% of baseline, no component explosion (≤ ~2× baseline count), summit/
+roughness gates clean.
+
+**The key mechanism — redistribution, not addition.** `Erosion*::new` volume-
+normalizes the uplift shape (`shape_c`: excess volume / shape volume, erosion.rs
+~:468-488). Therefore meso-structure added INSIDE the shape field redistributes uplift
+from proto-valleys to proto-ridges at constant total volume — relief WITHOUT peak
+inflation (the failure that killed candidate B). Implement A entirely as a modulation
+of the shape returned by `compute_emergent_uplift_shape` (fine.rs:997).
+
+**Where.** In `sample()` (fine.rs ~:1020-1080), after `profile`/`seg` are computed,
+the code already has the orogen-intrinsic coordinate frame: signed cross-strike
+distance `v` (radians), along-strike arc coordinate `u = fronts.arc_u[best_front]`,
+and `chain_id` for phase decorrelation. Build the meso field in (u, v) FRONT
+coordinates (structure aligns with the orogen like real fold trains), not raw 3D
+position — but blend a minority isotropic 3D-noise component for naturalness where
+`best_front` is far/degenerate (fallback path returns `demoted` today; keep that).
+
+**Meso field sketch (Codex may improve within constraints):**
+- Fold-train component: quasi-periodic ridges across strike, wavelength
+  `meso_wavelength_km` (default 25), phase-modulated along strike by 1-D fbm of
+  (u, chain) so ridges are wavy/broken, not corduroy — the P1b "sand dunes" failure
+  was PERIODIC UNMODULATED banding stamped on the base; avoid it via (a) strong phase/
+  amplitude modulation, (b) delivery through uplift (erosion reshapes as it grows).
+- Along-strike spur/gap rhythm: 1-D fbm of u at ~2× the segmentation frequency,
+  multiplying the fold-train amplitude (creates passes/water-gap opportunities).
+- Combine to `meso ∈ [-1, 1]`, then `shaped *= (1 + meso_relief * meso)` clamped ≥ 0,
+  applied BEFORE the `(1-blend)/blend` mix. Valleys must be able to reach near-zero
+  uplift locally (that's where erosion cuts through) but the field must stay
+  non-negative.
+
+**Params (add to `FineStructureParams`, fine.rs:67; Default; and BOTH override plumbs
+— diagnose flags `--meso-relief`, `--meso-wavelength-km`, and `ErosionOverrides` +
+main.rs flags like `interior_relief`):**
+- `meso_relief: f32` — modulation depth 0..1. DEFAULT 0.0 (off) until visual sign-off.
+- `meso_wavelength_km: f32` — default 25.0.
+
+**Cache (MANDATORY).** Both new params + every new shape constant must be mixed into
+the fine-base cache key next to the existing structure knobs (fine_cache.rs ~:106-140,
+see the "shape constants" block). The uplift shape is stored in `FineBase`
+(`emergent_uplift_shape`), so a param change MUST be a cache miss. Bump
+`FINE_BASE_CACHE_VERSION` if anything the hash can't see changes.
+
+**Constraints.** Deterministic (seeded noise only — reuse the `Fbm`/`Perlin` pattern
+with a new seed offset); per-cell cost only (the sample loop is already parallel); no
+new solver passes; do NOT touch the painted path or P1a (their fate is a later
+decision); `--fine-scale` convergence is the mesh-adaptivity proof for v1 (density
+prior feed-forward is out of scope).
+
+**Validation (after build + `cargo test`):**
+`diagnose --seed 12345 --mountain-audit --rebuild-gain -1 --meso-relief {0.3,0.6,0.9}`
+→ p95-p05 spectrum vs baseline; check components/mountain-land/peaks in the same
+output; then seed 777 for the best; then `--fine-scale {0.7,1.5}` on the best.
