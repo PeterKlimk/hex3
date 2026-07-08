@@ -58,6 +58,9 @@ pub const SWEEP_KNOBS: &[&str] = &[
     "margin_contrast",
     "emergent_lambda",
     "emergent_structured",
+    "meso_relief",
+    "meso_base_relief",
+    "meso_wavelength_km",
 ];
 
 /// Options for a sweep run, assembled from the CLI.
@@ -128,6 +131,9 @@ fn apply_knob(ov: &mut ErosionOverrides, name: &str, v: f64) -> Result<(), Strin
         "margin_contrast" => ov.margin_contrast = Some(f),
         "emergent_lambda" => ov.emergent_lambda = Some(f),
         "emergent_structured" => ov.emergent_structured = Some(f),
+        "meso_relief" => ov.meso_relief = Some(f),
+        "meso_base_relief" => ov.meso_base_relief = Some(f),
+        "meso_wavelength_km" => ov.meso_wavelength_km = Some(f),
         other => {
             return Err(format!(
                 "unknown sweep knob '{other}'; valid knobs: {}",

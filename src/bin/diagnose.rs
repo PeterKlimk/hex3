@@ -188,6 +188,18 @@ struct Cli {
     /// Needs --emergent-lambda >0 and (for the decisive test) --erosion-n ~2.
     #[arg(long, default_value_t = -1.0)]
     emergent_structured: f32,
+    /// Candidate A meso uplift-shape modulation depth. <0 = default (0=off);
+    /// 0 = off; 0.3-0.9 = test. Regenerates the fine base.
+    #[arg(long, default_value_t = -1.0)]
+    meso_relief: f32,
+    /// Candidate A' meso base-elevation relief amplitude. <0 = default (0=off);
+    /// elevation units: 0.01 is about 100 m. Regenerates the fine base.
+    #[arg(long, default_value_t = -1.0)]
+    meso_base_relief: f32,
+    /// Candidate A meso fold-train wavelength in km. <0 = default (25 km).
+    /// Regenerates the fine base.
+    #[arg(long, default_value_t = -1.0)]
+    meso_wavelength_km: f32,
     /// Fine-mesh density knobs (cell-size targets in km / blend). <0 = use the
     /// FINE_* default. Setting any forces fine-base regeneration (no cache). Use
     /// to sweep the ocean/plains/mountain budget: e.g. --fine-plains-km 20.
@@ -314,6 +326,15 @@ fn main() {
     }
     if cli.emergent_structured >= 0.0 {
         world.fine_structure_params.emergent_structured = cli.emergent_structured;
+    }
+    if cli.meso_relief >= 0.0 {
+        world.fine_structure_params.meso_relief = cli.meso_relief;
+    }
+    if cli.meso_base_relief >= 0.0 {
+        world.fine_structure_params.meso_base_relief = cli.meso_base_relief;
+    }
+    if cli.meso_wavelength_km >= 0.0 {
+        world.fine_structure_params.meso_wavelength_km = cli.meso_wavelength_km;
     }
     // Fine-mesh density overrides (force regeneration so the cache can't serve a
     // base built with the default knobs).
@@ -1805,8 +1826,8 @@ fn measure_lakes(
             elongation: comp.elongation(),
             has_outlet: basin.is_overflowing(),
             catchment_ratio: (catch_area[wb.basin_id] / lake_area_sr.max(1e-30)) as f32,
-            mean_catchment_precip: (catch_precip[wb.basin_id]
-                / catch_area[wb.basin_id].max(1e-30)) as f32,
+            mean_catchment_precip: (catch_precip[wb.basin_id] / catch_area[wb.basin_id].max(1e-30))
+                as f32,
             hypsometric_pct: hyps_pct(basin.water_level),
         });
     }
@@ -1899,7 +1920,9 @@ fn print_lake_panel(p: &LakePanel, top: usize) {
         q(&catch, 0.1), q(&catch, 0.5), q(&catch, 0.9)
     );
 
-    println!("     top lakes:   area_km²  cells  depth  len_km  elong  outlet  catch×  precip  hyps%");
+    println!(
+        "     top lakes:   area_km²  cells  depth  len_km  elong  outlet  catch×  precip  hyps%"
+    );
     for (i, r) in p.records.iter().take(top).enumerate() {
         println!(
             "       {:>2}. {:>10.0}  {:>5}  {:>5.3}  {:>6.0}  {:>5.1}  {:>6} {:>6.0}×  {:>6.2}  {:>4.0}",
@@ -1918,7 +1941,10 @@ fn print_lake_panel(p: &LakePanel, top: usize) {
 }
 
 /// Lake count + lake fraction of land at the CURRENT climate ratio.
-fn lake_dial_point(tess: &hex3::world::Tessellation, hydro: &hex3::world::Hydrology) -> (usize, f64) {
+fn lake_dial_point(
+    tess: &hex3::world::Tessellation,
+    hydro: &hex3::world::Hydrology,
+) -> (usize, f64) {
     let areas = tess.cell_areas();
     let n = tess.num_cells();
     let mut land = 0.0f64;
@@ -1939,7 +1965,10 @@ fn lake_dial_point(tess: &hex3::world::Tessellation, hydro: &hex3::world::Hydrol
 fn run_lake_audit(world: &mut World, seed: u64, top: usize) {
     use hex3::world::Hydrology;
 
-    println!("\n================ LAKE AUDIT seed={} ================", seed);
+    println!(
+        "\n================ LAKE AUDIT seed={} ================",
+        seed
+    );
     println!("(object-level lake features, Earth refs inline; all fractions AREA-weighted)");
     println!("(pre-integration baseline: rerun with HEX3_NO_DRAINAGE_INTEGRATION=1)");
 

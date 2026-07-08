@@ -238,6 +238,18 @@ struct Cli {
     /// <0 = default (0=off); 1 = fully structured. Needs --emergent-lambda + --erosion-n~2.
     #[arg(long, default_value_t = -1.0)]
     emergent_structured: f32,
+    /// Candidate A meso uplift-shape modulation depth. <0 = default (0=off);
+    /// 0 = off; 0.3-0.9 = test. Regenerates the fine base.
+    #[arg(long, default_value_t = -1.0)]
+    meso_relief: f32,
+    /// Candidate A' meso base-elevation relief amplitude. <0 = default (0=off);
+    /// elevation units: 0.01 is about 100 m. Regenerates the fine base.
+    #[arg(long, default_value_t = -1.0)]
+    meso_base_relief: f32,
+    /// Candidate A meso fold-train wavelength in km. <0 = default (25 km).
+    /// Regenerates the fine base.
+    #[arg(long, default_value_t = -1.0)]
+    meso_wavelength_km: f32,
 
     /// Sweep mode: erosion knob to vary across columns (enables a headless
     /// render-to-PNG sweep). Knobs: k, diffusivity, channel_support,
@@ -380,6 +392,9 @@ fn main() {
         margin_contrast: (cli.margin_contrast >= 0.0).then_some(cli.margin_contrast),
         emergent_lambda: (cli.emergent_lambda >= 0.0).then_some(cli.emergent_lambda),
         emergent_structured: (cli.emergent_structured >= 0.0).then_some(cli.emergent_structured),
+        meso_relief: (cli.meso_relief >= 0.0).then_some(cli.meso_relief),
+        meso_base_relief: (cli.meso_base_relief >= 0.0).then_some(cli.meso_base_relief),
+        meso_wavelength_km: (cli.meso_wavelength_km >= 0.0).then_some(cli.meso_wavelength_km),
     };
     let fine_cache = if cli.no_fine_cache {
         FineCacheMode::Disabled

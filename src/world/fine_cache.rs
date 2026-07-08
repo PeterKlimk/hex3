@@ -115,6 +115,11 @@ pub fn fine_base_key(
     mix_f32(&mut h, structure.emergent_lambda);
     // O0 structured emergent uplift (orogen-structure): the structured-shape blend knob.
     mix_f32(&mut h, structure.emergent_structured);
+    // Candidate A/A' meso relief: these shape `emergent_uplift_shape` and/or the
+    // pre-erosion base elevation.
+    mix_f32(&mut h, structure.meso_relief);
+    mix_f32(&mut h, structure.meso_base_relief);
+    mix_f32(&mut h, structure.meso_wavelength_km);
 
     // Strike-aware fronts (P1b): the knob + the convergent-front primitives the
     // banded grain consumes (arc endpoints, per-front overriding side, coarse plate
@@ -151,6 +156,13 @@ pub fn fine_base_key(
         FINE_MARGIN_WIDTH,
         FINE_MARGIN_ACTIVE_FACTOR,
         FINE_MARGIN_PASSIVE_FACTOR,
+        FINE_MESO_PHASE_FREQUENCY as f32,
+        FINE_MESO_SPUR_FREQUENCY as f32,
+        FINE_MESO_PHASE_WARP,
+        FINE_MESO_WAVELENGTH_JITTER,
+        FINE_MESO_AMP_MIN,
+        FINE_MESO_ISO_WEIGHT,
+        FINE_MESO_ISO_FREQUENCY as f32,
     ] {
         mix_f32(&mut h, f);
     }

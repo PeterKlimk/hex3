@@ -148,6 +148,9 @@ pub struct ErosionOverrides {
     pub margin_contrast: Option<f32>,
     pub emergent_lambda: Option<f32>,
     pub emergent_structured: Option<f32>,
+    pub meso_relief: Option<f32>,
+    pub meso_base_relief: Option<f32>,
+    pub meso_wavelength_km: Option<f32>,
 }
 
 impl ErosionOverrides {
@@ -235,6 +238,15 @@ impl ErosionOverrides {
         }
         if let Some(s) = self.emergent_structured {
             world.fine_structure_params.emergent_structured = s;
+        }
+        if let Some(r) = self.meso_relief {
+            world.fine_structure_params.meso_relief = r;
+        }
+        if let Some(r) = self.meso_base_relief {
+            world.fine_structure_params.meso_base_relief = r;
+        }
+        if let Some(w) = self.meso_wavelength_km {
+            world.fine_structure_params.meso_wavelength_km = w;
         }
     }
 }
@@ -504,7 +516,8 @@ fn river_cell_mask(
                 // mean_cell_discharge — the precip-weighted mean is exactly the
                 // ocean-inflated quantity this mode exists to avoid.
                 RiverThresholdMode::CatchmentKm2(min) => {
-                    let mean_cell_km2 = 4.0 * std::f32::consts::PI
+                    let mean_cell_km2 = 4.0
+                        * std::f32::consts::PI
                         * hex3::world::diagnostics::EARTH_RADIUS_KM.powi(2)
                         / num_cells.max(1) as f32;
                     Hydrology::flow_for_catchment_km2(min.max(4.0 * mean_cell_km2))

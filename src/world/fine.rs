@@ -85,6 +85,12 @@ pub struct FineStructureParams {
     /// O0 (orogen-structure): blend of the structured (asymmetric + segmented) emergent
     /// uplift shape vs the uniform v3 rebuild. 0 = uniform; 1 = fully structured.
     pub emergent_structured: f32,
+    /// Candidate A meso-band modulation depth for the emergent uplift shape. 0 = off.
+    pub meso_relief: f32,
+    /// Candidate A' meso-band relief painted into the base elevation. 0 = off.
+    pub meso_base_relief: f32,
+    /// Candidate A fold-train wavelength in km, converted to front-normal radians.
+    pub meso_wavelength_km: f32,
 }
 
 impl Default for FineStructureParams {
@@ -96,6 +102,9 @@ impl Default for FineStructureParams {
             margin_contrast: FINE_MARGIN_CONTRAST,
             emergent_lambda: FINE_EMERGENT_LAMBDA,
             emergent_structured: FINE_EMERGENT_STRUCTURED,
+            meso_relief: FINE_MESO_RELIEF,
+            meso_base_relief: FINE_MESO_BASE_RELIEF,
+            meso_wavelength_km: FINE_MESO_WAVELENGTH_KM,
         }
     }
 }
@@ -679,6 +688,16 @@ impl FineBase {
             structure_params.front_strike_weight,
             structure_params.margin_contrast,
         );
+        add_meso_base_relief(
+            &tessellation,
+            &coarse_cell,
+            &fields.elevation_fields,
+            fronts,
+            &mut base_elevation,
+            seed,
+            structure_params.meso_base_relief,
+            structure_params.meso_wavelength_km,
+        );
         // Range-front scarps: sharpen active orogen margins (footwall up / basin
         // down). Deliberately ASYMMETRIC (real fronts express footwall uplift far
         // more than basin drop; basins fill), so — unlike the interior grain — they
@@ -716,6 +735,8 @@ impl FineBase {
                     &base_elevation,
                     seed,
                     structure_params.emergent_structured,
+                    structure_params.meso_relief,
+                    structure_params.meso_wavelength_km,
                 )
             });
 
@@ -986,6 +1007,202 @@ fn lithology_erodibility(
     }
 }
 
+struct MesoFieldSampler {
+    wavelength: f32,
+    phase_fbm: Fbm<Perlin>,
+    amp_fbm: Fbm<Perlin>,
+    iso_fbm: Fbm<Perlin>,
+}
+
+impl MesoFieldSampler {
+    fn new(seed: u64, wavelength_km: f32) -> Self {
+        Self {
+            wavelength: (wavelength_km / PLANET_RADIUS_KM).max(1e-6),
+            phase_fbm: Fbm::<Perlin>::new(seed.wrapping_add(72) as u32).set_octaves(3),
+            amp_fbm: Fbm::<Perlin>::new(seed.wrapping_add(73) as u32).set_octaves(3),
+            iso_fbm: Fbm::<Perlin>::new(seed.wrapping_add(74) as u32).set_octaves(3),
+        }
+    }
+
+    fn sample(&self, c: Vec3, u: f32, v: f32, chain_id: u32) -> f32 {
+        let chain = chain_id as f32;
+        let phase_raw = self.phase_fbm.get([
+            (u * FINE_MESO_PHASE_FREQUENCY as f32) as f64 + chain as f64 * 41.71,
+            0.0,
+            0.0,
+        ]) as f32;
+        let amp_raw = self.amp_fbm.get([
+            (u * FINE_MESO_SPUR_FREQUENCY as f32) as f64 + chain as f64 * 67.19,
+            17.0,
+            0.0,
+        ]) as f32;
+        let iso = self.iso_fbm.get([
+            c.x as f64 * FINE_MESO_ISO_FREQUENCY,
+            c.y as f64 * FINE_MESO_ISO_FREQUENCY,
+            c.z as f64 * FINE_MESO_ISO_FREQUENCY,
+        ]) as f32;
+        let phase = phase_raw * FINE_MESO_PHASE_WARP * std::f32::consts::TAU;
+        let wave_jitter = 1.0 + (phase_raw * FINE_MESO_WAVELENGTH_JITTER).clamp(-0.45, 0.45);
+        let fold = ((v / (self.wavelength * wave_jitter)) * std::f32::consts::TAU + phase).sin();
+        let spur = FINE_MESO_AMP_MIN
+            + (1.0 - FINE_MESO_AMP_MIN) * super::features::smoothstep(-0.5, 0.5, amp_raw);
+        let front_meso = fold * spur;
+        (front_meso * (1.0 - FINE_MESO_ISO_WEIGHT) + iso * FINE_MESO_ISO_WEIGHT).clamp(-1.0, 1.0)
+    }
+}
+
+#[derive(Clone, Copy)]
+struct MesoFrontFrame {
+    u: f32,
+    v: f32,
+    chain_id: u32,
+}
+
+fn meso_front_tree(fronts: &OrogenFronts) -> Option<CoarseTree> {
+    (!fronts.points.is_empty()).then(|| {
+        let entries: Vec<[f32; 3]> = fronts.points.iter().map(|p| [p.x, p.y, p.z]).collect();
+        ImmutableKdTree::<f32, 3>::new_from_slice(&entries)
+    })
+}
+
+fn meso_front_gather_r2() -> f32 {
+    let gather_chord =
+        2.0 * ((FINE_OROGEN_HINTERLAND_WIDTH + FINE_FRONT_GATHER_MARGIN) * 0.5).sin();
+    gather_chord * gather_chord
+}
+
+fn nearest_meso_front_frame(
+    c: Vec3,
+    plate: u32,
+    fronts: &OrogenFronts,
+    tree: &CoarseTree,
+    gather_r2: f32,
+) -> Option<MesoFrontFrame> {
+    let mut best_d = f32::INFINITY;
+    let mut best_side = 1.0f32;
+    let mut best_front = usize::MAX;
+    for nn in tree.within_unsorted::<SquaredEuclidean>(&[c.x, c.y, c.z], gather_r2) {
+        let item = nn.item as usize;
+        let side = match fronts.accept_plate[item] {
+            None => 1.0, // collision: treat as overriding (one gentle flank)
+            Some(p) => {
+                if p == plate {
+                    1.0
+                } else {
+                    -1.0
+                }
+            }
+        };
+        let d = point_to_arc_distance(c, fronts.seg_a[item], fronts.seg_b[item]);
+        if d < best_d {
+            best_d = d;
+            best_side = side;
+            best_front = item;
+        }
+    }
+    if !best_d.is_finite() {
+        return None;
+    }
+    Some(MesoFrontFrame {
+        u: fronts.arc_u[best_front],
+        v: best_side * best_d,
+        chain_id: fronts.chain_id[best_front],
+    })
+}
+
+/// Candidate A' base-elevation meso relief: the same front-coordinate meso field used
+/// by the emergent uplift variant, painted into the pre-erosion substrate and
+/// area-zeroed per coarse cell so it does not move the coarse datum.
+fn add_meso_base_relief(
+    tess: &Tessellation,
+    coarse_cell: &[usize],
+    fields: &ElevationFields,
+    fronts: &OrogenFronts,
+    base_elev: &mut [f32],
+    seed: u64,
+    amplitude: f32,
+    wavelength_km: f32,
+) {
+    if amplitude <= 0.0 {
+        return;
+    }
+    let Some(front_tree) = meso_front_tree(fronts) else {
+        return;
+    };
+    let n = tess.num_cells();
+    let sstep = super::features::smoothstep;
+    let meso = MesoFieldSampler::new(seed, wavelength_km);
+    let gather_r2 = meso_front_gather_r2();
+
+    // Same high-orogen gate shape as the interior grain: an elevation ramp keeps
+    // negative excursions well above sea level, and an arc+collision envelope keeps
+    // plains/cratons clean.
+    let forcing: Vec<f32> = (0..n)
+        .map(|i| (fields.arc[i] + fields.collision[i]).max(0.0))
+        .collect();
+    let fmax = (0..n)
+        .filter(|&i| base_elev[i] >= 0.0)
+        .map(|i| forcing[i])
+        .fold(0.0f32, f32::max)
+        .max(1e-6);
+
+    let sample = |i: usize| -> (f32, bool) {
+        let elev_gate = sstep(
+            FINE_INTERIOR_MIN_ELEV,
+            FINE_INTERIOR_MIN_ELEV + FINE_INTERIOR_ELEV_BAND,
+            base_elev[i],
+        );
+        if elev_gate <= 0.0 {
+            return (0.0, false);
+        }
+        let force_gate = sstep(
+            FINE_INTERIOR_FORCING_THRESHOLD,
+            FINE_INTERIOR_FORCING_THRESHOLD + FINE_INTERIOR_FORCING_BAND,
+            forcing[i] / fmax,
+        );
+        let gate = elev_gate * force_gate;
+        if gate <= 0.0 {
+            return (0.0, false);
+        }
+        let c = tess.cell_center(i);
+        let plate = fronts.coarse_cell_plate[coarse_cell[i]];
+        let Some(front) = nearest_meso_front_frame(c, plate, fronts, &front_tree, gather_r2) else {
+            return (0.0, false);
+        };
+        (
+            amplitude * gate * meso.sample(c, front.u, front.v, front.chain_id),
+            true,
+        )
+    };
+    #[cfg(not(feature = "single-threaded"))]
+    let raw: Vec<(f32, bool)> = (0..n).into_par_iter().map(sample).collect();
+    #[cfg(feature = "single-threaded")]
+    let raw: Vec<(f32, bool)> = (0..n).map(sample).collect();
+
+    let areas = tess.cell_areas();
+    let ncoarse = coarse_cell.iter().copied().max().map_or(0, |m| m + 1);
+    let mut sum_wd = vec![0.0f64; ncoarse];
+    let mut sum_w = vec![0.0f64; ncoarse];
+    for i in 0..n {
+        if raw[i].1 {
+            let c = coarse_cell[i];
+            sum_wd[c] += (areas[i] * raw[i].0) as f64;
+            sum_w[c] += areas[i] as f64;
+        }
+    }
+    for i in 0..n {
+        if raw[i].1 {
+            let c = coarse_cell[i];
+            let mean = if sum_w[c] > 0.0 {
+                (sum_wd[c] / sum_w[c]) as f32
+            } else {
+                0.0
+            };
+            base_elev[i] += raw[i].0 - mean;
+        }
+    }
+}
+
 /// O0 structured-emergent uplift SHAPE (orogen-structure.md): per cell, the demoted
 /// orogen forcing (`target − base`) shaped by an ASYMMETRIC front profile (steep narrow
 /// foreland flank → crest at the front → gentle wide hinterland; side from overriding-vs-
@@ -1002,19 +1219,17 @@ fn compute_emergent_uplift_shape(
     base: &[f32],
     seed: u64,
     structured: f32,
+    meso_relief: f32,
+    meso_wavelength_km: f32,
 ) -> Vec<f32> {
     let n = tess.num_cells();
     let blend = structured.clamp(0.0, 1.0);
+    let meso_strength = meso_relief.clamp(0.0, 1.0);
     let sstep = super::features::smoothstep;
     let seg_fbm = Fbm::<Perlin>::new(seed.wrapping_add(71) as u32).set_octaves(2);
-
-    let front_tree = (!fronts.points.is_empty()).then(|| {
-        let entries: Vec<[f32; 3]> = fronts.points.iter().map(|p| [p.x, p.y, p.z]).collect();
-        ImmutableKdTree::<f32, 3>::new_from_slice(&entries)
-    });
-    let gather_chord =
-        2.0 * ((FINE_OROGEN_HINTERLAND_WIDTH + FINE_FRONT_GATHER_MARGIN) * 0.5).sin();
-    let gather_r2 = gather_chord * gather_chord;
+    let meso = MesoFieldSampler::new(seed, meso_wavelength_km);
+    let front_tree = meso_front_tree(fronts);
+    let gather_r2 = meso_front_gather_r2();
 
     let sample = |i: usize| -> f32 {
         let demoted = (target[i] - base[i]).max(0.0);
@@ -1026,34 +1241,10 @@ fn compute_emergent_uplift_shape(
         };
         let c = tess.cell_center(i);
         let plate = fronts.coarse_cell_plate[coarse_cell[i]];
-        // Nearest compatible front: unsigned arc distance + side (overriding vs foreland)
-        // + which front (for its along-strike coordinate).
-        let mut best_d = f32::INFINITY;
-        let mut best_side = 1.0f32;
-        let mut best_front = usize::MAX;
-        for nn in tree.within_unsorted::<SquaredEuclidean>(&[c.x, c.y, c.z], gather_r2) {
-            let item = nn.item as usize;
-            let side = match fronts.accept_plate[item] {
-                None => 1.0, // collision: treat as overriding (one gentle flank)
-                Some(p) => {
-                    if p == plate {
-                        1.0
-                    } else {
-                        -1.0
-                    }
-                }
-            };
-            let d = point_to_arc_distance(c, fronts.seg_a[item], fronts.seg_b[item]);
-            if d < best_d {
-                best_d = d;
-                best_side = side;
-                best_front = item;
-            }
-        }
-        if !best_d.is_finite() {
+        let Some(front) = nearest_meso_front_frame(c, plate, fronts, tree, gather_r2) else {
             return demoted;
-        }
-        let v = best_side * best_d; // signed front-normal distance
+        };
+        let v = front.v; // signed front-normal distance
         let profile = if v < 0.0 {
             sstep(-FINE_OROGEN_FORELAND_WIDTH, 0.0, v) // steep narrow foreland rise
         } else {
@@ -1062,15 +1253,18 @@ fn compute_emergent_uplift_shape(
         // Principled along-strike segmentation: 1-D noise of the nearest front's ARC-LENGTH
         // coordinate (decorrelated per chain), so the range plunges/segments ALONG its
         // length coherently — not the 3D-noise proxy (blobs/seams at kinks).
-        let u = fronts.arc_u[best_front];
-        let chain = fronts.chain_id[best_front] as f32;
+        let u = front.u;
+        let chain = front.chain_id as f32;
         let raw = seg_fbm.get([
             (u * FINE_OROGEN_SEGMENT_FREQUENCY as f32) as f64 + chain as f64 * 53.13,
             0.0,
             0.0,
         ]) as f32;
         let seg = FINE_OROGEN_SEGMENT_MIN + (1.0 - FINE_OROGEN_SEGMENT_MIN) * sstep(-0.4, 0.4, raw);
-        let shaped = demoted * profile * seg;
+        let mut shaped = demoted * profile * seg;
+        if meso_strength > 0.0 {
+            shaped *= (1.0 + meso_strength * meso.sample(c, u, v, front.chain_id)).max(0.0);
+        }
         demoted * (1.0 - blend) + shaped * blend
     };
     #[cfg(not(feature = "single-threaded"))]

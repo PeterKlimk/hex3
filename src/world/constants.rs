@@ -1314,6 +1314,31 @@ pub const FINE_OROGEN_SEGMENT_FREQUENCY: f64 = 14.0;
 /// vanish into disconnected blobs at O0). Segmentation spans [MIN, 1].
 pub const FINE_OROGEN_SEGMENT_MIN: f32 = 0.15;
 
+// --- Candidate A: meso structured emergent uplift (relief-spectrum-redesign.md) ---
+// Modulates the O0 uplift SHAPE before erosion's volume normalization, so it
+// redistributes uplift into 10-50 km proto-ridges/valleys instead of adding height.
+
+/// Master Candidate A knob: modulation depth of the meso uplift-shape field. 0 = off.
+pub const FINE_MESO_RELIEF: f32 = 0.0;
+/// Candidate A' base-elevation meso relief amplitude, in elevation units. 0 = off.
+pub const FINE_MESO_BASE_RELIEF: f32 = 0.0;
+/// Cross-strike fold-train wavelength in km. 25 km sits in the target meso band.
+pub const FINE_MESO_WAVELENGTH_KM: f32 = 25.0;
+/// Along-strike phase modulation frequency (cycles/radian of chained front arc).
+pub const FINE_MESO_PHASE_FREQUENCY: f64 = 18.0;
+/// Along-strike spur/gap frequency, roughly 2x the O0 segmentation frequency.
+pub const FINE_MESO_SPUR_FREQUENCY: f64 = 28.0;
+/// Maximum phase warp, in fold cycles, from the along-strike fBm.
+pub const FINE_MESO_PHASE_WARP: f32 = 1.25;
+/// Local wavelength jitter from the phase fBm. Keeps bands from becoming corduroy.
+pub const FINE_MESO_WAVELENGTH_JITTER: f32 = 0.35;
+/// Minimum fold-train amplitude through along-strike gaps.
+pub const FINE_MESO_AMP_MIN: f32 = 0.10;
+/// Minority isotropic 3D noise blended into the front-coordinate fold field.
+pub const FINE_MESO_ISO_WEIGHT: f32 = 0.20;
+/// Spatial frequency of the isotropic meso component on the unit sphere.
+pub const FINE_MESO_ISO_FREQUENCY: f64 = 170.0;
+
 /// Emergent builder over-rebuild gain. The builder uplift rebuilds the demoted
 /// envelope (`coarse_target − base`) over the erosion epoch; >1 compensates the
 /// material erosion removes WHILE building, so the eroded orogen lands near the coarse
