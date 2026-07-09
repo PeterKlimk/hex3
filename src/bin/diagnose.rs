@@ -2115,6 +2115,159 @@ fn audit_range(
     }
 }
 
+/// Crest-train stats for one range: ridge spacings along cross-strike transects
+/// (does the meso band read as a metronome, a quasi-periodic fold belt, or
+/// drainage-organized?) + flow-orientation split vs strike. Metronomic train:
+/// spacing CV ~0.1-0.2 and longitudinal-dominant flow; natural fold belts are
+/// quasi-periodic (CV ~0.4+); drainage-organized alpine has no dominant spacing
+/// and transverse-dominant flow.
+struct CrestTrainStats {
+    /// Crest-to-crest spacings (km) pooled over transects.
+    spacings_km: Vec<f32>,
+    /// Ridge crests per transect (prominence-filtered).
+    ridges_per_transect: Vec<f32>,
+    /// Mountain cells whose steepest-descent direction is within 30° of strike.
+    longitudinal_cells: usize,
+    /// ... within 30° of the cross-strike normal.
+    transverse_cells: usize,
+    total_cells: usize,
+}
+
+fn crest_train_stats(
+    tess: &hex3::world::Tessellation,
+    comp: &ComponentStats,
+    elev: &[f32],
+) -> CrestTrainStats {
+    let (pa, pb) = audit_extremal_pair(tess, &comp.cells);
+    let a = tess.cell_center(pa);
+    let b = tess.cell_center(pb);
+    let nrm = a.cross(b).normalize_or_zero();
+    let c_axis = nrm.cross(a).normalize_or_zero();
+    let arc = a.dot(b).clamp(-1.0, 1.0).acos().max(1e-9);
+    let param = |i: usize| -> (f32, f32) {
+        let p = tess.cell_center(i);
+        let t = p.dot(c_axis).atan2(p.dot(a));
+        let s = p.dot(nrm).clamp(-1.0, 1.0).asin();
+        (t, s)
+    };
+
+    // Transect slabs along strike; crest profile across strike per slab.
+    const SLAB_KM: f32 = 15.0; // along-strike slab width
+    const SBIN_KM: f32 = 4.0; // cross-strike profile resolution (~mesh scale)
+    const PROMINENCE: f32 = 0.015; // 150 m — a ridge, not surface noise
+    let slab_w = SLAB_KM / EARTH_RADIUS_KM;
+    let sbin_w = SBIN_KM / EARTH_RADIUS_KM;
+    let nslabs = ((arc / slab_w).ceil() as usize).clamp(1, 4096);
+    // (slab, s-bin) -> max elevation. s ranges over +-width; offset bins by s_min.
+    let mut s_min = f32::INFINITY;
+    let mut s_max = f32::NEG_INFINITY;
+    let params: Vec<(usize, f32, f32)> = comp
+        .cells
+        .iter()
+        .map(|&i| {
+            let (t, s) = param(i);
+            s_min = s_min.min(s);
+            s_max = s_max.max(s);
+            (i, t, s)
+        })
+        .collect();
+    let nsbins = (((s_max - s_min) / sbin_w).ceil() as usize).clamp(1, 4096);
+    let mut profiles = vec![f32::NEG_INFINITY; nslabs * nsbins];
+    for &(i, t, s) in &params {
+        let slab = (((t / arc) * nslabs as f32) as usize).min(nslabs - 1);
+        let sb = ((((s - s_min) / sbin_w) as usize).max(0)).min(nsbins - 1);
+        let e = &mut profiles[slab * nsbins + sb];
+        *e = e.max(elev[i]);
+    }
+
+    let mut spacings_km = Vec::new();
+    let mut ridges_per_transect = Vec::new();
+    for slab in 0..nslabs {
+        let prof: Vec<(usize, f32)> = (0..nsbins)
+            .filter(|&sb| profiles[slab * nsbins + sb].is_finite())
+            .map(|sb| (sb, profiles[slab * nsbins + sb]))
+            .collect();
+        if prof.len() < 8 {
+            continue; // too narrow here to read a train
+        }
+        // Local maxima, then prominence filter: drop a peak if the saddle toward
+        // every higher peak is shallower than PROMINENCE (O(n²) on tiny profiles).
+        let mut peaks: Vec<usize> = (1..prof.len() - 1)
+            .filter(|&k| prof[k].1 > prof[k - 1].1 && prof[k].1 >= prof[k + 1].1)
+            .collect();
+        peaks = peaks
+            .iter()
+            .copied()
+            .filter(|&k| {
+                let mut prom = f32::INFINITY;
+                for (dir, range) in [(-1i32, 0..k), (1, k + 1..prof.len())] {
+                    let _ = dir;
+                    let mut saddle = prof[k].1;
+                    let mut bounded = false;
+                    let it: Box<dyn Iterator<Item = usize>> = if range.start == 0 {
+                        Box::new(range.rev())
+                    } else {
+                        Box::new(range)
+                    };
+                    for j in it {
+                        saddle = saddle.min(prof[j].1);
+                        if prof[j].1 > prof[k].1 {
+                            prom = prom.min(prof[k].1 - saddle);
+                            bounded = true;
+                            break;
+                        }
+                    }
+                    if !bounded {
+                        // edge side: prominence vs the profile minimum on that side
+                        prom = prom.min(prof[k].1 - saddle);
+                    }
+                }
+                prom >= PROMINENCE
+            })
+            .collect();
+        ridges_per_transect.push(peaks.len() as f32);
+        for w in peaks.windows(2) {
+            let d_bins = (prof[w[1]].0 - prof[w[0]].0) as f32;
+            spacings_km.push(d_bins * SBIN_KM);
+        }
+    }
+
+    // Flow orientation vs strike: steepest-descent neighbor direction, classified
+    // by angle to the local along-strike tangent.
+    let (mut longitudinal, mut transverse, mut total) = (0usize, 0usize, 0usize);
+    for &(i, _, _) in &params {
+        let p = tess.cell_center(i);
+        let mut best = (elev[i], i);
+        for &nb in tess.neighbors(i) {
+            if elev[nb] < best.0 {
+                best = (elev[nb], nb);
+            }
+        }
+        if best.1 == i {
+            continue; // pit
+        }
+        let e = (tess.cell_center(best.1) - p).normalize_or_zero();
+        let strike_dir = nrm.cross(p).normalize_or_zero();
+        let cross_dir = (nrm - p * nrm.dot(p)).normalize_or_zero();
+        let (cs, cc) = (e.dot(strike_dir).abs(), e.dot(cross_dir).abs());
+        let angle = cc.atan2(cs).to_degrees(); // 0 = along strike, 90 = across
+        total += 1;
+        if angle < 30.0 {
+            longitudinal += 1;
+        } else if angle > 60.0 {
+            transverse += 1;
+        }
+    }
+
+    CrestTrainStats {
+        spacings_km,
+        ridges_per_transect,
+        longitudinal_cells: longitudinal,
+        transverse_cells: transverse,
+        total_cells: total,
+    }
+}
+
 /// Erosion roughness counters + mountain-top plateau probe — the artifact gates
 /// (pit%/checker%/curv-rms + summit cottage-cheese). Shared by the default fine
 /// diagnostics and `--mountain-audit` so gate runs emit them without the full panel.
@@ -2290,6 +2443,48 @@ fn run_mountain_audit(world: &World, seed: u64, top: usize) {
             r.crest_floor_m,
             r.crest_offset
         );
+    }
+
+    // CREST-TRAIN: is the meso band a metronome, a quasi-periodic fold belt, or
+    // drainage-organized? Ridge spacings along cross-strike transects (pooled over
+    // the significant ranges) + flow-orientation split vs strike.
+    {
+        let mut spacings: Vec<f32> = Vec::new();
+        let mut ridges: Vec<f32> = Vec::new();
+        let (mut lon, mut tra, mut tot) = (0usize, 0usize, 0usize);
+        for comp in significant.iter().take(top) {
+            let ct = crest_train_stats(tess, comp, elev);
+            spacings.extend(ct.spacings_km);
+            ridges.extend(ct.ridges_per_transect);
+            lon += ct.longitudinal_cells;
+            tra += ct.transverse_cells;
+            tot += ct.total_cells;
+        }
+        if !spacings.is_empty() && tot > 0 {
+            spacings.sort_by(f32::total_cmp);
+            let sq = |q: f32| spacings[(((spacings.len() - 1) as f32) * q) as usize];
+            let mean: f32 = spacings.iter().sum::<f32>() / spacings.len() as f32;
+            let var: f32 = spacings.iter().map(|s| (s - mean) * (s - mean)).sum::<f32>()
+                / spacings.len() as f32;
+            let cv = var.sqrt() / mean.max(1e-6);
+            ridges.sort_by(f32::total_cmp);
+            let r_med = ridges[ridges.len() / 2];
+            println!(
+                "  crest-train ({} spacings, 150 m prominence): spacing p25/p50/p75 = {:.0}/{:.0}/{:.0} km, CV {:.2}, ridges/transect med {:.0}  [CV: metronome ~0.1-0.2, quasi-periodic fold belt higher, drainage-organized no dominant spacing]",
+                spacings.len(),
+                sq(0.25),
+                sq(0.5),
+                sq(0.75),
+                cv,
+                r_med
+            );
+            println!(
+                "  flow orientation vs strike (mountain cells): longitudinal {:.0}% / oblique {:.0}% / transverse {:.0}%  [fold-train terrain drains ALONG strike valleys; alpine dissection is transverse-dominant]",
+                100.0 * lon as f32 / tot as f32,
+                100.0 * (tot - lon - tra) as f32 / tot as f32,
+                100.0 * tra as f32 / tot as f32
+            );
+        }
     }
 
     // RELIEF SPECTRUM: local relief (max-min elevation) at nested window sizes

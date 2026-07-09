@@ -362,3 +362,49 @@ g2 s50): irregularity 0 is IDENTITY with the 1-D field (spectrum line-identical
 through a full cache-miss regen); 0.7 and 1.0 retain 89% of the 25-km gain
 (648→576 m) and slightly improve components (194→171) / pit% / curv-rms; rivers
 clean. 0.7→1.0 is numerically saturated — the difference is texture, eyes only.
+
+## 12. Crest-train grammar audit + design consultation (2026-07-10)
+
+User verdict #2 (irregularity sweep): "generally similar … not sure what they're
+supposed to look like." Two responses, both landed:
+
+**New instrument** (`--mountain-audit` crest-train block): per significant range,
+cross-strike transect crest detection (150 m prominence) → ridge spacing
+distribution + ridges/transect, and steepest-descent orientation vs strike
+(longitudinal/oblique/transverse). Measured (seed 12345):
+
+| config | spacing p25/p50/p75 km | ridges/transect | flow L/O/T % |
+|---|---|---|---|
+| baseline | 32/68/172 | 2 | 30/33/38 |
+| meso irr 0 | 20/28/40 | 12 | 30/33/37 |
+| meso irr 0.7 | 20/28/48 | 10 | 30/33/36 |
+
+Readings: (1) the train IS in the terrain (median spacing ≈ λ, 12 ridges/transect);
+(2) **drainage ignores it completely** — flow orientation identical to baseline, no
+trellis grammar (real fold belts drain ALONG strike valleys with transverse water
+gaps); (3) the irregularity dial does not change the terrain class (as the user saw).
+Our meso terrain is "stamped ribs + indifferent drainage" — neither fold-belt nor
+alpine grammar. The ridges and valleys must AGREE for terrain to read as real.
+
+**External design consultation** (GPT 5.6 via codex exec, memo verbatim in
+`meso-design-consult-gpt56.md`, refs spot-checked): longitudinal fold train is the
+wrong DEFAULT prior for alpine collision belts (right for a Zagros/V&R foreland
+apron component); a lay eye keys on NEGATIVE space (branching trunk valleys, spurs,
+unequal massifs/saddles/peak groups), not ridge statistics; more irregularity
+polishes the wrong prior. Also: the 0.618λ octave (~15.5 km ≈ 4 cells) is below
+mesh representability; secondary structure belongs at 35-60 km. Amplitude honesty:
+~600 m at 25 km reads Appalachian, not alpine (S. Alps transverse ridges 1000-1500 m).
+
+Recommended successor constructions (all uplift-rate channel, §10-compatible):
+- **A2 massif-and-saddle**: irregular anisotropic Gaussians in (u,v) (u-spacing
+  25-60 km, heavy-tailed amplitudes, flank-offset centers, saddle gaps) — object
+  vocabulary becomes "massifs separated by corridors".
+- **A3 corridor trees**: branching LOW-uplift corridors from front roots (outlet
+  spacing ≈ half divide-front distance, Hovius R≈2; trunks transverse ±20-40°;
+  10-20% cross-belt; widths ≥8-15 km; −10-25% uplift) — seed the negative space,
+  inter-corridor ground becomes spurs/ridges for free.
+- **A4 two-stage drainage-aware pulse** (preferred long-term): low-amplitude
+  burn-in → extract order≥3 drainage/divides → smooth 10-40 km → zero-mean uplift
+  modifier (low on trunks, high on interfluves) → short high-relief epoch. One
+  feedback pass only. Resolves the short-epoch vs drainage-maturity tension.
+- Fold train survives as a FOREland/fold-thrust preset, not the default.
