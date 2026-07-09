@@ -408,3 +408,52 @@ Recommended successor constructions (all uplift-rate channel, §10-compatible):
   modifier (low on trunks, high on interfluves) → short high-relief epoch. One
   feedback pass only. Resolves the short-epoch vs drainage-maturity tension.
 - Fold train survives as a FOREland/fold-thrust preset, not the default.
+
+## 13. A2+A3 — massif-corridor meso field (implementation spec)
+
+**Goal.** Replace the fold train as the DEFAULT meso construction with one field that
+changes the object vocabulary from "parallel ridges" to "massifs separated by
+branching valley corridors" (§12 consult). Delivery is UNCHANGED: same uplift-shape
+modulation point, same `meso_relief` depth dial, same composed-regime dials
+(gain/steps), same cache discipline. The fold train survives behind a style switch
+as the foreland/fold-thrust preset.
+
+**New param** `meso_style` (usize: 0 = fold train, 1 = massif-corridor; DEFAULT 1 —
+safe because `meso_relief` defaults 0 = off). Plumb exactly like `meso_relief`
+(FineStructureParams, cache key, diagnose/main flags, ErosionOverrides, sweep knob).
+Identity requirements: (a) `meso_relief 0` → bit-identical to today at any style;
+(b) `meso_style 0` → bit-identical to the committed fold train at any irregularity.
+
+**Construction (in the existing (u,v) front frame, one sampler struct):**
+All scales derive from `meso_wavelength_km` (λ, default 25) so one dial scales the
+whole construction; W_h = FINE_OROGEN_HINTERLAND_WIDTH, the range's half-width.
+
+- **Massifs (A2):** jittered 1-D lattice along u per chain, period 1.6λ (~40 km);
+  per-site hash (seed, chain, k) drives: u-jitter ±40% of period, center offset
+  v_i ∈ [-0.15·W_f, +0.6·W_h] (flank-offset, not all on the crest), L_u ∈ [0.4, 1.2]λ,
+  L_v ∈ [0.3, 0.8]λ, heavy-tailed amplitude a = 0.35 + 0.65·h³ (h ~ U[0,1] — a few
+  dominant massifs). Sum anisotropic Gaussians from the 2 nearest lattice sites each
+  side. Consult mesh floor: no σ below ~2 cells (clamp L_u, L_v ≥ 8 km).
+- **Corridors (A3):** per hinterland flank, jittered u-lattice period 1.8λ (~45 km,
+  ≈ Hovius outlet spacing at these W_h); each corridor k: root at outer hinterland
+  (v = W_h), path u(v) = u_k + tan(θ_k)·(W_h − v) + fbm wobble (θ_k ∈ ±[20°, 40°],
+  wobble amplitude ~0.3λ, frequency ~1/(2λ)); Gaussian cross-section width
+  w ∈ [0.35, 0.6]λ (≥ 8 km); depth d = full meso amplitude (the corridor is the
+  valley seed — −10..25% uplift arrives via the meso_relief dial). Head gate: 85%
+  of corridors fade out at v ∈ [0.1, 0.3]·W_h (heads interdigitate below the crest);
+  15% (by hash) cross fully through v=0 into the foreland (water gaps / antecedent
+  trunks). No corridors rooted on the narrow foreland flank in v1.
+- **Combine:** M = clamp(massifs − corridors, −1, 1), then the SAME 20% isotropic
+  blend and delivery `shaped *= (1 + meso_relief·M).max(0)` as the fold train.
+  No octave2/sharpening machinery (those are fold-train-specific).
+
+**Determinism:** all randomness from a small splitmix-style hash of
+(seed, chain_id, lattice index, salt) + the existing seeded Fbm for wobble. No
+Date/thread-order dependence (the sample loop stays per-cell parallel).
+
+**Success gates (instruments already exist):** on the composed regime
+(meso 0.9 · gain 2 · steps 50, seed 12345): flow-orientation transverse share
+RISES clearly above the 37% baseline plateau; crest-train spacing loses the λ
+spike (p50 well off 28 km or dispersion up); 25-km p95-p05 p50 stays ≥ ~450 m;
+components/elongation/summit/river gates as §11; `meso_style 0` and
+`meso_relief 0` identities hold. Then a `meso` stack / style A/B for the user.
