@@ -348,3 +348,17 @@ g2-s50; `rebuild_gain` also added as a plain sweep knob). Component counts 132-1
 vs baseline 55 are mostly sub-significant crumbs (significant ranges stable 8-13);
 if they read as scatter in renders, raising the audit mask or a min-area filter is
 cosmetic, not structural.
+
+### §11 addendum — visual verdict → irregularity dial (2026-07-10)
+
+User verdict on `--sweep-stack meso`: mechanism reads (dunes < smooth ramps), gain
+ladder visible as measured, but **"the ridges are too consistent"** — the 1-D fold
+train is phase-locked across strike (every ridge a copy of its neighbor; pure sine
+= the "dune-y" cross-section). Fix: `meso_irregularity` (0..1, default 0.7) scaling
+three metronome-breakers: cross-strike decorrelation of phase/spur (per-ridge
+wobble/termination), a second incommensurate fold octave (0.618λ beats → variable
+prominence/spacing), crest sharpening (|fold|^0.65). Measured (seed 12345, composed
+g2 s50): irregularity 0 is IDENTITY with the 1-D field (spectrum line-identical
+through a full cache-miss regen); 0.7 and 1.0 retain 89% of the 25-km gain
+(648→576 m) and slightly improve components (194→171) / pit% / curv-rms; rivers
+clean. 0.7→1.0 is numerically saturated — the difference is texture, eyes only.

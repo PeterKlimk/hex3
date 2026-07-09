@@ -1338,6 +1338,22 @@ pub const FINE_MESO_AMP_MIN: f32 = 0.10;
 pub const FINE_MESO_ISO_WEIGHT: f32 = 0.20;
 /// Spatial frequency of the isotropic meso component on the unit sphere.
 pub const FINE_MESO_ISO_FREQUENCY: f64 = 170.0;
+/// Master irregularity dial (0..1) for the fold train. 0 reproduces the plain
+/// 1-D field ("ridges too consistent" — the 2026-07-10 visual verdict); >0 scales
+/// three metronome-breakers together: cross-strike decorrelation, a second
+/// incommensurate fold octave, and crest sharpening.
+pub const FINE_MESO_IRREGULARITY: f32 = 0.7;
+/// Cross-strike decorrelation length of the phase/spur modulation, in fold
+/// wavelengths: adjacent ridges stop being phase-locked copies past ~this many λ.
+pub const FINE_MESO_DECOR_WAVELENGTHS: f32 = 2.5;
+/// Second fold octave wavelength ratio (incommensurate — golden ratio — so the
+/// beat pattern against the primary never repeats).
+pub const FINE_MESO_OCTAVE2_RATIO: f32 = 0.618;
+/// Second fold octave amplitude at full irregularity, relative to the primary.
+pub const FINE_MESO_OCTAVE2_AMP: f32 = 0.6;
+/// Crest/valley sharpening at full irregularity: |fold|^(1-this) pulls the
+/// cross-section away from the symmetric-sine "dune" profile.
+pub const FINE_MESO_SHARPEN: f32 = 0.35;
 
 /// Emergent builder over-rebuild gain. The builder uplift rebuilds the demoted
 /// envelope (`coarse_target − base`) over the erosion epoch; >1 compensates the

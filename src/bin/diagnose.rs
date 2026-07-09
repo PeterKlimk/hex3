@@ -192,6 +192,11 @@ struct Cli {
     /// 0 = off; 0.3-0.9 = test. Regenerates the fine base.
     #[arg(long, default_value_t = -1.0)]
     meso_relief: f32,
+    /// Fold-train irregularity 0..1 (cross-strike decorrelation + 2nd octave +
+    /// crest sharpening). <0 = default (0.7); 0 = plain periodic train.
+    #[arg(long, default_value_t = -1.0, allow_hyphen_values = true)]
+    meso_irregularity: f32,
+
     /// Candidate A' meso base-elevation relief amplitude. <0 = default (0=off);
     /// elevation units: 0.01 is about 100 m. Regenerates the fine base.
     #[arg(long, default_value_t = -1.0)]
@@ -329,6 +334,9 @@ fn main() {
     }
     if cli.meso_relief >= 0.0 {
         world.fine_structure_params.meso_relief = cli.meso_relief;
+    }
+    if cli.meso_irregularity >= 0.0 {
+        world.fine_structure_params.meso_irregularity = cli.meso_irregularity;
     }
     if cli.meso_base_relief >= 0.0 {
         world.fine_structure_params.meso_base_relief = cli.meso_base_relief;

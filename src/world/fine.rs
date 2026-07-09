@@ -91,6 +91,9 @@ pub struct FineStructureParams {
     pub meso_base_relief: f32,
     /// Candidate A fold-train wavelength in km, converted to front-normal radians.
     pub meso_wavelength_km: f32,
+    /// Fold-train irregularity 0..1: 0 = plain 1-D train (phase-locked ridges),
+    /// >0 scales cross-strike decorrelation + second octave + crest sharpening.
+    pub meso_irregularity: f32,
 }
 
 impl Default for FineStructureParams {
@@ -105,6 +108,7 @@ impl Default for FineStructureParams {
             meso_relief: FINE_MESO_RELIEF,
             meso_base_relief: FINE_MESO_BASE_RELIEF,
             meso_wavelength_km: FINE_MESO_WAVELENGTH_KM,
+            meso_irregularity: FINE_MESO_IRREGULARITY,
         }
     }
 }
@@ -697,6 +701,7 @@ impl FineBase {
             seed,
             structure_params.meso_base_relief,
             structure_params.meso_wavelength_km,
+            structure_params.meso_irregularity,
         );
         // Range-front scarps: sharpen active orogen margins (footwall up / basin
         // down). Deliberately ASYMMETRIC (real fronts express footwall uplift far
@@ -737,6 +742,7 @@ impl FineBase {
                     structure_params.emergent_structured,
                     structure_params.meso_relief,
                     structure_params.meso_wavelength_km,
+                    structure_params.meso_irregularity,
                 )
             });
 
@@ -1009,15 +1015,17 @@ fn lithology_erodibility(
 
 struct MesoFieldSampler {
     wavelength: f32,
+    irregularity: f32,
     phase_fbm: Fbm<Perlin>,
     amp_fbm: Fbm<Perlin>,
     iso_fbm: Fbm<Perlin>,
 }
 
 impl MesoFieldSampler {
-    fn new(seed: u64, wavelength_km: f32) -> Self {
+    fn new(seed: u64, wavelength_km: f32, irregularity: f32) -> Self {
         Self {
             wavelength: (wavelength_km / PLANET_RADIUS_KM).max(1e-6),
+            irregularity: irregularity.clamp(0.0, 1.0),
             phase_fbm: Fbm::<Perlin>::new(seed.wrapping_add(72) as u32).set_octaves(3),
             amp_fbm: Fbm::<Perlin>::new(seed.wrapping_add(73) as u32).set_octaves(3),
             iso_fbm: Fbm::<Perlin>::new(seed.wrapping_add(74) as u32).set_octaves(3),
@@ -1026,14 +1034,20 @@ impl MesoFieldSampler {
 
     fn sample(&self, c: Vec3, u: f32, v: f32, chain_id: u32) -> f32 {
         let chain = chain_id as f32;
+        let g = self.irregularity;
+        // Cross-strike decorrelation coordinate: at g=0 this is 0 and the field
+        // reduces exactly to the 1-D (u-only) train, where every ridge is a
+        // phase-locked copy of its neighbor; at g>0 the phase/spur modulation
+        // drifts across strike so ridges wobble and terminate individually.
+        let v_dec = (v / (self.wavelength * FINE_MESO_DECOR_WAVELENGTHS)) as f64 * g as f64;
         let phase_raw = self.phase_fbm.get([
             (u * FINE_MESO_PHASE_FREQUENCY as f32) as f64 + chain as f64 * 41.71,
-            0.0,
+            v_dec,
             0.0,
         ]) as f32;
         let amp_raw = self.amp_fbm.get([
             (u * FINE_MESO_SPUR_FREQUENCY as f32) as f64 + chain as f64 * 67.19,
-            17.0,
+            17.0 + v_dec,
             0.0,
         ]) as f32;
         let iso = self.iso_fbm.get([
@@ -1043,7 +1057,29 @@ impl MesoFieldSampler {
         ]) as f32;
         let phase = phase_raw * FINE_MESO_PHASE_WARP * std::f32::consts::TAU;
         let wave_jitter = 1.0 + (phase_raw * FINE_MESO_WAVELENGTH_JITTER).clamp(-0.45, 0.45);
-        let fold = ((v / (self.wavelength * wave_jitter)) * std::f32::consts::TAU + phase).sin();
+        let mut fold =
+            ((v / (self.wavelength * wave_jitter)) * std::f32::consts::TAU + phase).sin();
+        if g > 0.0 {
+            // Second, incommensurate fold octave: the beat against the primary
+            // varies ridge spacing and prominence so the train never reads as a
+            // metronome. Then sharpen crests/valleys away from the pure-sine
+            // "dune" cross-section.
+            let phase2_raw = self.phase_fbm.get([
+                (u * FINE_MESO_PHASE_FREQUENCY as f32) as f64 + chain as f64 * 41.71 + 91.37,
+                v_dec,
+                0.0,
+            ]) as f32;
+            let phase2 = phase2_raw * FINE_MESO_PHASE_WARP * std::f32::consts::TAU;
+            let jitter2 = 1.0 + (phase2_raw * FINE_MESO_WAVELENGTH_JITTER).clamp(-0.45, 0.45);
+            let fold2 = ((v / (self.wavelength * FINE_MESO_OCTAVE2_RATIO * jitter2))
+                * std::f32::consts::TAU
+                + phase2)
+                .sin();
+            let w2 = g * FINE_MESO_OCTAVE2_AMP;
+            fold = (fold + w2 * fold2) / (1.0 + w2);
+            let k = 1.0 - g * FINE_MESO_SHARPEN;
+            fold = fold.signum() * fold.abs().powf(k);
+        }
         let spur = FINE_MESO_AMP_MIN
             + (1.0 - FINE_MESO_AMP_MIN) * super::features::smoothstep(-0.5, 0.5, amp_raw);
         let front_meso = fold * spur;
@@ -1122,6 +1158,7 @@ fn add_meso_base_relief(
     seed: u64,
     amplitude: f32,
     wavelength_km: f32,
+    meso_irregularity: f32,
 ) {
     if amplitude <= 0.0 {
         return;
@@ -1131,7 +1168,7 @@ fn add_meso_base_relief(
     };
     let n = tess.num_cells();
     let sstep = super::features::smoothstep;
-    let meso = MesoFieldSampler::new(seed, wavelength_km);
+    let meso = MesoFieldSampler::new(seed, wavelength_km, meso_irregularity);
     let gather_r2 = meso_front_gather_r2();
 
     // Same high-orogen gate shape as the interior grain: an elevation ramp keeps
@@ -1221,13 +1258,14 @@ fn compute_emergent_uplift_shape(
     structured: f32,
     meso_relief: f32,
     meso_wavelength_km: f32,
+    meso_irregularity: f32,
 ) -> Vec<f32> {
     let n = tess.num_cells();
     let blend = structured.clamp(0.0, 1.0);
     let meso_strength = meso_relief.clamp(0.0, 1.0);
     let sstep = super::features::smoothstep;
     let seg_fbm = Fbm::<Perlin>::new(seed.wrapping_add(71) as u32).set_octaves(2);
-    let meso = MesoFieldSampler::new(seed, meso_wavelength_km);
+    let meso = MesoFieldSampler::new(seed, meso_wavelength_km, meso_irregularity);
     let front_tree = meso_front_tree(fronts);
     let gather_r2 = meso_front_gather_r2();
 

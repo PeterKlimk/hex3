@@ -120,6 +120,7 @@ pub fn fine_base_key(
     mix_f32(&mut h, structure.meso_relief);
     mix_f32(&mut h, structure.meso_base_relief);
     mix_f32(&mut h, structure.meso_wavelength_km);
+    mix_f32(&mut h, structure.meso_irregularity);
 
     // Strike-aware fronts (P1b): the knob + the convergent-front primitives the
     // banded grain consumes (arc endpoints, per-front overriding side, coarse plate
@@ -163,6 +164,10 @@ pub fn fine_base_key(
         FINE_MESO_AMP_MIN,
         FINE_MESO_ISO_WEIGHT,
         FINE_MESO_ISO_FREQUENCY as f32,
+        FINE_MESO_DECOR_WAVELENGTHS,
+        FINE_MESO_OCTAVE2_RATIO,
+        FINE_MESO_OCTAVE2_AMP,
+        FINE_MESO_SHARPEN,
     ] {
         mix_f32(&mut h, f);
     }
