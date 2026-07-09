@@ -58,6 +58,7 @@ pub const SWEEP_KNOBS: &[&str] = &[
     "margin_contrast",
     "emergent_lambda",
     "emergent_structured",
+    "rebuild_gain",
     "meso_relief",
     "meso_base_relief",
     "meso_wavelength_km",
@@ -131,6 +132,7 @@ fn apply_knob(ov: &mut ErosionOverrides, name: &str, v: f64) -> Result<(), Strin
         "margin_contrast" => ov.margin_contrast = Some(f),
         "emergent_lambda" => ov.emergent_lambda = Some(f),
         "emergent_structured" => ov.emergent_structured = Some(f),
+        "rebuild_gain" => ov.rebuild_gain = Some(f),
         "meso_relief" => ov.meso_relief = Some(f),
         "meso_base_relief" => ov.meso_base_relief = Some(f),
         "meso_wavelength_km" => ov.meso_wavelength_km = Some(f),
@@ -480,7 +482,52 @@ fn build_stack_tiles(
             emergent_o0(0.0, "emergent smooth (n=2)", "1_emergent_smooth"),
             emergent_o0(1.0, "emergent STRUCTURED (n=2)", "2_emergent_structured"),
         ],
-        other => panic!("unknown --sweep-stack '{other}'; known: p1, v3, o0"),
+        // Meso structural relief (relief-spectrum candidate A, composed regime):
+        // the gate-battery ladder 2026-07-10 (seed 12345, 25-km p95-p05 p50 / max
+        // range peak): baseline 191 m / 10.0 km; each tile trades peak inflation
+        // and component count against mid-band relief. Rivers + fine-scale
+        // convergence gates pass on all tiles; user judges the trade visually.
+        "meso" => {
+            let meso = |gain: f32, steps: usize, label: &str, fname: &str| {
+                let mut o = *base;
+                o.meso_relief = Some(0.9);
+                o.rebuild_gain = Some(gain);
+                o.steps = Some(steps);
+                (o, label.to_string(), fname.to_string())
+            };
+            vec![
+                (
+                    *base,
+                    "baseline (current default)".to_string(),
+                    "0_baseline".to_string(),
+                ),
+                meso(
+                    1.0,
+                    50,
+                    "meso 0.9, steps 50 (386 m, peaks +10%)",
+                    "1_meso_s50",
+                ),
+                meso(
+                    2.0,
+                    100,
+                    "meso 0.9, gain 2, steps 100 (463 m, peaks ~base)",
+                    "2_meso_g2_s100",
+                ),
+                meso(
+                    1.5,
+                    50,
+                    "meso 0.9, gain 1.5, steps 50 (479 m, peaks +31%)",
+                    "3_meso_g15_s50",
+                ),
+                meso(
+                    2.0,
+                    50,
+                    "meso 0.9, gain 2, steps 50 (648 m, peaks +65%)",
+                    "4_meso_g2_s50",
+                ),
+            ]
+        }
+        other => panic!("unknown --sweep-stack '{other}'; known: p1, v3, o0, meso"),
     }
 }
 

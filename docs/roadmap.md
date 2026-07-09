@@ -42,6 +42,13 @@ probe into `diagnose` before the next mountain ADD.
   and the P1 grain (1-5 km). Fix = seed meso-structure in the O0 uplift shape (along-strike
   passes/water-gaps + cross-strike spur/valley rhythm) and let erosion organize it —
   same principle as v4 (structure seeds, erosion dissects). Instrument: --mountain-audit.
+  **2026-07-10 UPDATE — gates PASS, awaiting visual.** Meso field built (default-off);
+  composed regime (meso 0.9 + rebuild_gain 2 + steps 50) = 648 m at 25 km (3.4×,
+  cross-seed replicated, fine-scale-convergent, rivers clean). Mechanism is SYNERGY
+  (meso alone +27 m, steps 50 alone +29 m, together +195 m at gain 1); all gate costs
+  (peaks +65%, elongation loss, component rise) decompose onto the REGIME dials, not
+  meso. Clean middle candidates: g1+s50 (386 m, peaks +10%) and g2+s100 (463 m, peaks
+  ~base). Visual A/B: `--sweep-stack meso`. Full table: relief-spectrum spec §11.
 - ⬜ **Wide-mountain residual spikiness** — root-caused to the FINE-BASE synthesis (pre-erosion,
   cell-scale), not erosion. Fix = flat/coherent broad-massif macro shape + better fine-base noise.
 - ⬜ **Coarse-asymmetry single-owner redesign** (C/A hybrid) — for atmosphere rain-shadow

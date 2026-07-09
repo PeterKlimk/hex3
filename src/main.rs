@@ -258,9 +258,9 @@ struct Cli {
     #[arg(long)]
     sweep: Option<String>,
 
-    /// Cumulative-stack preset (e.g. "p1"): render a fixed sequence of knob combos
-    /// (each rung layered on the previous) sharing one camera set, instead of a
-    /// single-knob --sweep. Ignores --sweep/--sweep-values.
+    /// Cumulative-stack preset (p1, v3, o0, meso): render a fixed sequence of knob
+    /// combos (each rung layered on the previous) sharing one camera set, instead
+    /// of a single-knob --sweep. Ignores --sweep/--sweep-values.
     #[arg(long)]
     sweep_stack: Option<String>,
 

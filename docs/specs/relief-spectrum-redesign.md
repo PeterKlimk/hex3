@@ -284,3 +284,67 @@ failure regime (1-5 km), with the same anti-corduroy defenses.
   12345 — expect the PRE-erosion 25-km band to rise to ≈ the seeded amplitude and the
   ERODED band to retain a large fraction; gates: components/mountain-land stable,
   summit probe clean.
+
+---
+
+## 11. Composed-regime gate battery (2026-07-10, measured)
+
+Instrument: patched `diagnose` — `--mountain-audit` now also emits the roughness
+counters + summit plateau probe (they were behind the audit early-return).
+Configs are seed 12345 unless noted; "composed" = meso_relief 0.9 + rebuild_gain 2
++ steps 50. All runs: rivers clean (0 inland dead-end mouths, Dd unchanged).
+
+### Attribution ladder (25-km p95-p05 p50 / max range peak / components / elong p50)
+
+| config | relief | peak | comps | elong |
+|---|---:|---:|---:|---:|
+| baseline (s200 g1 m0) | 191 m | 10.0 km | 55 | 5.0 |
+| meso only (s200) | 218 m | ~10 km | 60 | 4.8 |
+| steps 50 only | 220 m | 10.2 km | 132 | 4.9 |
+| meso + s50 (g1) | 386 m | 11.0 km | 193 | 5.1 |
+| meso + s50 + g1.5 | 479 m | 13.1 km | 193 | 4.5 |
+| meso + s50 + g2 (composed) | 648 m | 16.5 km | 194 | 3.2 |
+| meso + s100 + g2 | 463 m | 9.9 km | 138 | 4.0 |
+| meso 0.6 + s50 + g2 | 536 m | — | 186 | 3.3 |
+
+Findings:
+- **Synergy is the mechanism**: meso alone +27 m, short epoch alone +29 m, together
+  +195 m (at g1). The seeded structure needs a short epoch to survive transport;
+  the short epoch needs structure to expose. Consistent with §10's attenuation story.
+- **Every gate cost decomposes onto the regime dials, not meso**: peak inflation
+  (+65% at g2) and elongation loss (5.0→3.2, incl. a merged 7,740-km supergiant)
+  are rebuild_gain's (candidate-B signature); the component rise (55→132) is the
+  short epoch's (small high patches survive above the 0.15 mask). Meso itself is
+  gate-clean at every setting.
+- **Three dials, three axes**: meso_relief = mid-band relief depth (monotone
+  368/536/648 at m 0/0.6/0.9, g2 s50); rebuild_gain = relief↔peak-inflation trade;
+  steps = relief↔cleanliness trade (s100 at g2 returns peaks to baseline and halves
+  the summit-pit rise while keeping 463 m).
+
+### Gates on the composed endpoint
+
+- **Cross-seed**: seed 777 replicates (167→583 m, 3.5×; land 11.6%; elongation
+  HELD at 5.0 — the blob/supergiant effect is seed-12345's geography, not systematic).
+- **Fine-scale convergence (mandatory, §6): PASS** — composed/baseline ratio 3.33 /
+  3.39 / 3.28 at fine-scale 0.7 / 1.0 / 1.5. The 10-km band is mesh-bound as
+  expected (165→263 at fs 0.7) — still the §2 deferred decision.
+- **Roughness**: checker% improves (45.5→42.1); pit% 0.40→0.70 (well under the
+  swiss-cheese regime); curv-rms 2.9e-3→8.3e-3 (~2.9×) tracks the 3.4× relief —
+  amplitude-proportional, not the 8× glacial-artifact signature; most of it is the
+  regime's (regime-only 6.7e-3), meso adds +24%.
+- **Summit probe**: plateaus are gone (summit slope p50 1.4e-3 → 8.8e-3 elev/km) —
+  the intended effect. WATCH-ITEM: summit pit% 2.9→6.6 (s100 variant: 4.8) —
+  numbers can't distinguish artifact ponding from legitimate hanging valleys;
+  visual call.
+
+### Verdict & handoff to visual
+
+Numbers-side: the mechanism is validated; no disqualifying gate. The §2 bar
+(≥600 m) is met only at g2 s50, which buys it with +65% peaks and blobbier belts on
+some seeds; g1 s50 (386 m, peaks +10%, elong intact) and g2 s100 (463 m, peaks ~base)
+are the clean middle candidates. This is now an aesthetic trade — four tiles are in
+the sweep harness: `--sweep-stack meso` (baseline / g1-s50 / g2-s100 / g1.5-s50 /
+g2-s50; `rebuild_gain` also added as a plain sweep knob). Component counts 132-194
+vs baseline 55 are mostly sub-significant crumbs (significant ranges stable 8-13);
+if they read as scatter in renders, raising the audit mask or a min-area filter is
+cosmetic, not structural.

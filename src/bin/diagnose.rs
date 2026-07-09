@@ -390,6 +390,7 @@ fn main() {
     }
     if cli.mountain_audit {
         run_mountain_audit(&world, cli.seed, cli.top);
+        run_roughness_probe(&world);
         audited = true;
     }
     if cli.river_audit {
@@ -469,106 +470,9 @@ fn main() {
             fine.tessellation().num_cells(),
             fine.achieved_density_ratio()
         );
-        // ---- Erosion roughness counters (artifact vs. genuine dissection) ----
-        // pit% is the swiss-cheese meter (a drained surface is ~0); checkerboard%
-        // the SFD-groove banding; aspect R/entropy catch GLOBAL anisotropy / mesh-
-        // axis locking only (a local spiral with balanced azimuths stays hidden —
-        // judge spirals on the map). Pre-erosion (stage 3) vs eroded (stage 4) on
-        // the SAME fine mesh. NOTE: the land mask is recomputed per surface, so the
-        // `land` column shifts if erosion moves cells across sea level — a falling
-        // pit% with a falling `land` may be submergence, not artifact removal.
-        // See docs/specs/erosion.md.
-        let ftess = fine.tessellation();
-        let pre = hex3::world::roughness_counters(ftess, &fine.surface_for(3).elevation.values);
-        let ero = hex3::world::roughness_counters(ftess, &fine.surface_for(4).elevation.values);
-        println!(
-            "\n-- Erosion roughness counters (reroute-interval {})  [pit% is the swiss-cheese meter; lower better] --",
-            world.erosion_params.reroute_interval
-        );
-        println!(
-            "             {:>9} {:>10} {:>10} {:>10} {:>12} {:>9} {:>9}",
-            "land", "pit%", "peak%", "checker%", "curv-rms", "aspectR", "entropy"
-        );
-        let row = |label: &str, c: &hex3::world::RoughnessCounters| {
-            println!(
-                "  {:<8}   {:>9} {:>10.3} {:>10.3} {:>10.2} {:>12.3e} {:>9.3} {:>9.3}",
-                label,
-                c.land,
-                c.pit_pct,
-                c.peak_pct,
-                c.checkerboard_pct,
-                c.curv_rms,
-                c.aspect_r,
-                c.aspect_entropy
-            );
-        };
-        row("pre", &pre);
-        row("eroded", &ero);
-        println!(
-            "  {:<8}   {:>+9} {:>+10.3} {:>+10.3} {:>+10.2} {:>12} {:>+9.3} {:>+9.3}",
-            "delta",
-            ero.land as i64 - pre.land as i64,
-            ero.pit_pct - pre.pit_pct,
-            ero.peak_pct - pre.peak_pct,
-            ero.checkerboard_pct - pre.checkerboard_pct,
-            "",
-            ero.aspect_r - pre.aspect_r,
-            ero.aspect_entropy - pre.aspect_entropy,
-        );
+        run_roughness_probe(&world);
 
-        // ---- Mountain-top plateau probe (the localized "cottage cheese on flat
-        // summits" artifact). Global counters are blind to a summit-only pattern,
-        // so restrict to the highest land (top elevation decile) and compare
-        // pre-erosion vs eroded THERE. Also report summit max-downhill slope: low
-        // slope = genuinely flat-topped (plateau). If the texture is already in
-        // `pre`, it's the fine-base synthesis (interp + noise), not erosion/routing.
-        {
-            let pre_e = &fine.surface_for(3).elevation.values;
-            let ero_e = &fine.surface_for(4).elevation.values;
-            let mut land_el: Vec<f32> = ero_e.iter().copied().filter(|&e| e >= 0.0).collect();
-            land_el.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            let thr = land_el[((land_el.len() as f32 * 0.90) as usize).min(land_el.len() - 1)];
-            let mask = |src: &[f32]| -> Vec<f32> {
-                (0..ftess.num_cells())
-                    .map(|i| if ero_e[i] >= thr { src[i] } else { -1.0 })
-                    .collect()
-            };
-            let pre_top = hex3::world::roughness_counters(ftess, &mask(pre_e));
-            let ero_top = hex3::world::roughness_counters(ftess, &mask(ero_e));
-            // Summit max-downhill slope (elev/km), pre and eroded, for flatness.
-            let summit_slopes = |elev: &[f32]| -> Vec<f32> {
-                let mut s = Vec::new();
-                for i in 0..ftess.num_cells() {
-                    if ero_e[i] < thr {
-                        continue;
-                    }
-                    let ci = ftess.cell_center(i);
-                    let mut g = 0.0f32;
-                    for &nb in ftess.neighbors(i) {
-                        let d = (ci - ftess.cell_center(nb)).length().max(1e-9) * EARTH_RADIUS_KM;
-                        g = g.max((elev[i] - elev[nb]) / d);
-                    }
-                    s.push(g);
-                }
-                s.sort_by(|a, b| a.partial_cmp(b).unwrap());
-                s
-            };
-            let pct = |v: &[f32], p: f32| v[(((v.len() as f32) * p) as usize).min(v.len() - 1)];
-            let (sp, se) = (summit_slopes(pre_e), summit_slopes(ero_e));
-            println!(
-                "\n-- Mountain-top plateau probe (top elev decile, elev>={:.3}) --",
-                thr
-            );
-            row("top pre", &pre_top);
-            row("top eroded", &ero_top);
-            println!(
-                "  summit max-downhill slope (elev/km): pre p50 {:.3e} p90 {:.3e} | eroded p50 {:.3e} p90 {:.3e}  (global land slope p50 ~3.8e-4; << = flat plateau)",
-                pct(&sp, 0.5),
-                pct(&sp, 0.9),
-                pct(&se, 0.5),
-                pct(&se, 0.9),
-            );
-        }
+        let ftess = fine.tessellation();
 
         // ---- Carved dissection density (the "too busy" calibration target) ----
         // Incision = pre-erosion base minus eroded (meters). A "carved" cell is
@@ -2200,6 +2104,115 @@ fn audit_range(
         median_pass_depth_m: median_pass_depth * AUDIT_M_PER_UNIT,
         crest_floor_m: crest_floor * AUDIT_M_PER_UNIT,
         crest_offset,
+    }
+}
+
+/// Erosion roughness counters + mountain-top plateau probe — the artifact gates
+/// (pit%/checker%/curv-rms + summit cottage-cheese). Shared by the default fine
+/// diagnostics and `--mountain-audit` so gate runs emit them without the full panel.
+fn run_roughness_probe(world: &World) {
+    let Some(fine) = world.fine.as_ref() else {
+        return;
+    };
+    // ---- Erosion roughness counters (artifact vs. genuine dissection) ----
+    // pit% is the swiss-cheese meter (a drained surface is ~0); checkerboard%
+    // the SFD-groove banding; aspect R/entropy catch GLOBAL anisotropy / mesh-
+    // axis locking only (a local spiral with balanced azimuths stays hidden —
+    // judge spirals on the map). Pre-erosion (stage 3) vs eroded (stage 4) on
+    // the SAME fine mesh. NOTE: the land mask is recomputed per surface, so the
+    // `land` column shifts if erosion moves cells across sea level — a falling
+    // pit% with a falling `land` may be submergence, not artifact removal.
+    // See docs/specs/erosion.md.
+    let ftess = fine.tessellation();
+    let pre = hex3::world::roughness_counters(ftess, &fine.surface_for(3).elevation.values);
+    let ero = hex3::world::roughness_counters(ftess, &fine.surface_for(4).elevation.values);
+    println!(
+            "\n-- Erosion roughness counters (reroute-interval {})  [pit% is the swiss-cheese meter; lower better] --",
+            world.erosion_params.reroute_interval
+        );
+    println!(
+        "             {:>9} {:>10} {:>10} {:>10} {:>12} {:>9} {:>9}",
+        "land", "pit%", "peak%", "checker%", "curv-rms", "aspectR", "entropy"
+    );
+    let row = |label: &str, c: &hex3::world::RoughnessCounters| {
+        println!(
+            "  {:<8}   {:>9} {:>10.3} {:>10.3} {:>10.2} {:>12.3e} {:>9.3} {:>9.3}",
+            label,
+            c.land,
+            c.pit_pct,
+            c.peak_pct,
+            c.checkerboard_pct,
+            c.curv_rms,
+            c.aspect_r,
+            c.aspect_entropy
+        );
+    };
+    row("pre", &pre);
+    row("eroded", &ero);
+    println!(
+        "  {:<8}   {:>+9} {:>+10.3} {:>+10.3} {:>+10.2} {:>12} {:>+9.3} {:>+9.3}",
+        "delta",
+        ero.land as i64 - pre.land as i64,
+        ero.pit_pct - pre.pit_pct,
+        ero.peak_pct - pre.peak_pct,
+        ero.checkerboard_pct - pre.checkerboard_pct,
+        "",
+        ero.aspect_r - pre.aspect_r,
+        ero.aspect_entropy - pre.aspect_entropy,
+    );
+
+    // ---- Mountain-top plateau probe (the localized "cottage cheese on flat
+    // summits" artifact). Global counters are blind to a summit-only pattern,
+    // so restrict to the highest land (top elevation decile) and compare
+    // pre-erosion vs eroded THERE. Also report summit max-downhill slope: low
+    // slope = genuinely flat-topped (plateau). If the texture is already in
+    // `pre`, it's the fine-base synthesis (interp + noise), not erosion/routing.
+    {
+        let pre_e = &fine.surface_for(3).elevation.values;
+        let ero_e = &fine.surface_for(4).elevation.values;
+        let mut land_el: Vec<f32> = ero_e.iter().copied().filter(|&e| e >= 0.0).collect();
+        land_el.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let thr = land_el[((land_el.len() as f32 * 0.90) as usize).min(land_el.len() - 1)];
+        let mask = |src: &[f32]| -> Vec<f32> {
+            (0..ftess.num_cells())
+                .map(|i| if ero_e[i] >= thr { src[i] } else { -1.0 })
+                .collect()
+        };
+        let pre_top = hex3::world::roughness_counters(ftess, &mask(pre_e));
+        let ero_top = hex3::world::roughness_counters(ftess, &mask(ero_e));
+        // Summit max-downhill slope (elev/km), pre and eroded, for flatness.
+        let summit_slopes = |elev: &[f32]| -> Vec<f32> {
+            let mut s = Vec::new();
+            for i in 0..ftess.num_cells() {
+                if ero_e[i] < thr {
+                    continue;
+                }
+                let ci = ftess.cell_center(i);
+                let mut g = 0.0f32;
+                for &nb in ftess.neighbors(i) {
+                    let d = (ci - ftess.cell_center(nb)).length().max(1e-9) * EARTH_RADIUS_KM;
+                    g = g.max((elev[i] - elev[nb]) / d);
+                }
+                s.push(g);
+            }
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s
+        };
+        let pct = |v: &[f32], p: f32| v[(((v.len() as f32) * p) as usize).min(v.len() - 1)];
+        let (sp, se) = (summit_slopes(pre_e), summit_slopes(ero_e));
+        println!(
+            "\n-- Mountain-top plateau probe (top elev decile, elev>={:.3}) --",
+            thr
+        );
+        row("top pre", &pre_top);
+        row("top eroded", &ero_top);
+        println!(
+                "  summit max-downhill slope (elev/km): pre p50 {:.3e} p90 {:.3e} | eroded p50 {:.3e} p90 {:.3e}  (global land slope p50 ~3.8e-4; << = flat plateau)",
+                pct(&sp, 0.5),
+                pct(&sp, 0.9),
+                pct(&se, 0.5),
+                pct(&se, 0.9),
+            );
     }
 }
 
