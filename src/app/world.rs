@@ -150,6 +150,7 @@ pub struct ErosionOverrides {
     pub emergent_structured: Option<f32>,
     pub meso_relief: Option<f32>,
     pub meso_irregularity: Option<f32>,
+    pub meso_style: Option<usize>,
     pub meso_base_relief: Option<f32>,
     pub meso_wavelength_km: Option<f32>,
 }
@@ -245,6 +246,9 @@ impl ErosionOverrides {
         }
         if let Some(g) = self.meso_irregularity {
             world.fine_structure_params.meso_irregularity = g;
+        }
+        if let Some(st) = self.meso_style {
+            world.fine_structure_params.meso_style = st;
         }
         if let Some(r) = self.meso_base_relief {
             world.fine_structure_params.meso_base_relief = r;

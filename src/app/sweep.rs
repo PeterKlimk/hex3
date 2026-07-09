@@ -61,6 +61,7 @@ pub const SWEEP_KNOBS: &[&str] = &[
     "rebuild_gain",
     "meso_relief",
     "meso_irregularity",
+    "meso_style",
     "meso_base_relief",
     "meso_wavelength_km",
 ];
@@ -136,6 +137,7 @@ fn apply_knob(ov: &mut ErosionOverrides, name: &str, v: f64) -> Result<(), Strin
         "rebuild_gain" => ov.rebuild_gain = Some(f),
         "meso_relief" => ov.meso_relief = Some(f),
         "meso_irregularity" => ov.meso_irregularity = Some(f),
+        "meso_style" => ov.meso_style = Some(v as usize),
         "meso_base_relief" => ov.meso_base_relief = Some(f),
         "meso_wavelength_km" => ov.meso_wavelength_km = Some(f),
         other => {

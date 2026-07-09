@@ -197,6 +197,11 @@ struct Cli {
     #[arg(long, default_value_t = -1.0, allow_hyphen_values = true)]
     meso_irregularity: f32,
 
+    /// Meso construction style: 0 = fold train (foreland preset), 1 =
+    /// massif-corridor (alpine default). <0 = default (1).
+    #[arg(long, default_value_t = -1, allow_hyphen_values = true)]
+    meso_style: i32,
+
     /// Candidate A' meso base-elevation relief amplitude. <0 = default (0=off);
     /// elevation units: 0.01 is about 100 m. Regenerates the fine base.
     #[arg(long, default_value_t = -1.0)]
@@ -337,6 +342,9 @@ fn main() {
     }
     if cli.meso_irregularity >= 0.0 {
         world.fine_structure_params.meso_irregularity = cli.meso_irregularity;
+    }
+    if cli.meso_style >= 0 {
+        world.fine_structure_params.meso_style = cli.meso_style as usize;
     }
     if cli.meso_base_relief >= 0.0 {
         world.fine_structure_params.meso_base_relief = cli.meso_base_relief;
@@ -2131,12 +2139,19 @@ struct CrestTrainStats {
     /// ... within 30° of the cross-strike normal.
     transverse_cells: usize,
     total_cells: usize,
+    /// Same split restricted to TRUNK cells (top-decile flow accumulation within
+    /// the component) — hillslope cells are near-isotropic in every terrain class,
+    /// so the all-cell split can't see drainage grammar; trunks can.
+    trunk_longitudinal: f64,
+    trunk_transverse: f64,
+    trunk_total: f64,
 }
 
 fn crest_train_stats(
     tess: &hex3::world::Tessellation,
     comp: &ComponentStats,
     elev: &[f32],
+    accum: &[f32],
 ) -> CrestTrainStats {
     let (pa, pb) = audit_extremal_pair(tess, &comp.cells);
     let a = tess.cell_center(pa);
@@ -2234,7 +2249,11 @@ fn crest_train_stats(
 
     // Flow orientation vs strike: steepest-descent neighbor direction, classified
     // by angle to the local along-strike tangent.
+    let mut acc_sorted: Vec<f32> = params.iter().map(|&(i, _, _)| accum[i]).collect();
+    acc_sorted.sort_by(f32::total_cmp);
+    let trunk_thr = acc_sorted[(((acc_sorted.len() - 1) as f32) * 0.9) as usize];
     let (mut longitudinal, mut transverse, mut total) = (0usize, 0usize, 0usize);
+    let (mut t_lon, mut t_tra, mut t_tot) = (0f64, 0f64, 0f64);
     for &(i, _, _) in &params {
         let p = tess.cell_center(i);
         let mut best = (elev[i], i);
@@ -2257,6 +2276,14 @@ fn crest_train_stats(
         } else if angle > 60.0 {
             transverse += 1;
         }
+        if accum[i] >= trunk_thr {
+            t_tot += 1.0;
+            if angle < 30.0 {
+                t_lon += 1.0;
+            } else if angle > 60.0 {
+                t_tra += 1.0;
+            }
+        }
     }
 
     CrestTrainStats {
@@ -2265,6 +2292,9 @@ fn crest_train_stats(
         longitudinal_cells: longitudinal,
         transverse_cells: transverse,
         total_cells: total,
+        trunk_longitudinal: t_lon,
+        trunk_transverse: t_tra,
+        trunk_total: t_tot,
     }
 }
 
@@ -2449,22 +2479,45 @@ fn run_mountain_audit(world: &World, seed: u64, top: usize) {
     // drainage-organized? Ridge spacings along cross-strike transects (pooled over
     // the significant ranges) + flow-orientation split vs strike.
     {
+        // SFD accumulation (cell counts) over the whole fine mesh: descending-
+        // elevation order, each cell adds its count to its steepest receiver.
+        let mut accum = vec![1.0f32; n];
+        let mut order: Vec<usize> = (0..n).collect();
+        order.sort_by(|&a, &b| elev[b].total_cmp(&elev[a]));
+        for &i in &order {
+            let mut best = (elev[i], i);
+            for &nb in tess.neighbors(i) {
+                if elev[nb] < best.0 {
+                    best = (elev[nb], nb);
+                }
+            }
+            if best.1 != i {
+                accum[best.1] += accum[i];
+            }
+        }
         let mut spacings: Vec<f32> = Vec::new();
         let mut ridges: Vec<f32> = Vec::new();
         let (mut lon, mut tra, mut tot) = (0usize, 0usize, 0usize);
+        let (mut tl, mut tt, mut ttot) = (0f64, 0f64, 0f64);
         for comp in significant.iter().take(top) {
-            let ct = crest_train_stats(tess, comp, elev);
+            let ct = crest_train_stats(tess, comp, elev, &accum);
             spacings.extend(ct.spacings_km);
             ridges.extend(ct.ridges_per_transect);
             lon += ct.longitudinal_cells;
             tra += ct.transverse_cells;
             tot += ct.total_cells;
+            tl += ct.trunk_longitudinal;
+            tt += ct.trunk_transverse;
+            ttot += ct.trunk_total;
         }
         if !spacings.is_empty() && tot > 0 {
             spacings.sort_by(f32::total_cmp);
             let sq = |q: f32| spacings[(((spacings.len() - 1) as f32) * q) as usize];
             let mean: f32 = spacings.iter().sum::<f32>() / spacings.len() as f32;
-            let var: f32 = spacings.iter().map(|s| (s - mean) * (s - mean)).sum::<f32>()
+            let var: f32 = spacings
+                .iter()
+                .map(|s| (s - mean) * (s - mean))
+                .sum::<f32>()
                 / spacings.len() as f32;
             let cv = var.sqrt() / mean.max(1e-6);
             ridges.sort_by(f32::total_cmp);
@@ -2484,6 +2537,14 @@ fn run_mountain_audit(world: &World, seed: u64, top: usize) {
                 100.0 * (tot - lon - tra) as f32 / tot as f32,
                 100.0 * tra as f32 / tot as f32
             );
+            if ttot > 0.0 {
+                println!(
+                    "  trunk flow orientation (top-decile accumulation): longitudinal {:.0}% / oblique {:.0}% / transverse {:.0}%  [the grammar carrier: trellis = strike-trunks + cross gaps; alpine = transverse/oblique trunks]",
+                    100.0 * tl / ttot,
+                    100.0 * (ttot - tl - tt) / ttot,
+                    100.0 * tt / ttot
+                );
+            }
         }
     }
 

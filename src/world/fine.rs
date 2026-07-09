@@ -94,6 +94,8 @@ pub struct FineStructureParams {
     /// Fold-train irregularity 0..1: 0 = plain 1-D train (phase-locked ridges),
     /// >0 scales cross-strike decorrelation + second octave + crest sharpening.
     pub meso_irregularity: f32,
+    /// Meso construction style: 0 = fold train (foreland preset), 1 = massif-corridor.
+    pub meso_style: usize,
 }
 
 impl Default for FineStructureParams {
@@ -109,6 +111,7 @@ impl Default for FineStructureParams {
             meso_base_relief: FINE_MESO_BASE_RELIEF,
             meso_wavelength_km: FINE_MESO_WAVELENGTH_KM,
             meso_irregularity: FINE_MESO_IRREGULARITY,
+            meso_style: FINE_MESO_STYLE,
         }
     }
 }
@@ -144,6 +147,14 @@ pub struct OrogenFronts {
     pub arc_u: Vec<f32>,
     /// Per-front chain id, so segmentation phase is decorrelated between distinct ranges.
     pub chain_id: Vec<u32>,
+    /// LINEAR along-strike coordinate for the massif-corridor style: endpoint-ordered
+    /// (no mirror fold at the BFS seed like `arc_u`), one direction per chain. `arc_u`
+    /// is kept untouched for the fold-train style (identity).
+    pub u_lin: Vec<f32>,
+    /// Per-front orientation: +1 if seg_a->seg_b points in +u_lin direction, else -1,
+    /// so a query point can be PROJECTED within its segment (arc_u/u_lin are midpoint
+    /// values; without projection u is quantized at coarse-segment ~70 km blocks).
+    pub u_dir: Vec<f32>,
 }
 
 impl OrogenFronts {
@@ -201,7 +212,7 @@ impl OrogenFronts {
             accept_plate.push(accept);
             vids.push((va, vb));
         }
-        let (arc_u, chain_id) = chain_fronts(&seg_a, &seg_b, &vids);
+        let (arc_u, chain_id, u_lin, u_dir) = chain_fronts(&seg_a, &seg_b, &vids);
         Self {
             points,
             seg_a,
@@ -210,6 +221,8 @@ impl OrogenFronts {
             coarse_cell_plate: plates.cell_plate.clone(),
             arc_u,
             chain_id,
+            u_lin,
+            u_dir,
         }
     }
 }
@@ -220,12 +233,16 @@ impl OrogenFronts {
 /// triple junctions split chains rather than merging unrelated ranges. Within a chain,
 /// arc length accumulates from an arbitrary seed front via the front-graph (great-circle
 /// edge lengths). Returns `(arc_u, chain_id)` per front.
-fn chain_fronts(seg_a: &[Vec3], seg_b: &[Vec3], vids: &[(u32, u32)]) -> (Vec<f32>, Vec<u32>) {
+fn chain_fronts(
+    seg_a: &[Vec3],
+    seg_b: &[Vec3],
+    vids: &[(u32, u32)],
+) -> (Vec<f32>, Vec<u32>, Vec<f32>, Vec<f32>) {
     let nf = seg_a.len();
     let mut arc_u = vec![0.0f32; nf];
     let mut chain_id = vec![0u32; nf];
     if nf == 0 {
-        return (arc_u, chain_id);
+        return (arc_u, chain_id, Vec::new(), Vec::new());
     }
     // vertex id -> fronts touching it (skip degenerate u32::MAX endpoints).
     let mut vert_fronts: std::collections::HashMap<u32, Vec<usize>> =
@@ -279,7 +296,63 @@ fn chain_fronts(seg_a: &[Vec3], seg_b: &[Vec3], vids: &[(u32, u32)]) -> (Vec<f32
             }
         }
     }
-    (arc_u, chain_id)
+    // Second pass — LINEAR walk per chain for the massif-corridor style: start at a
+    // chain endpoint (degree-1 front; arbitrary for loops) and accumulate arc length
+    // in ONE direction, recording each front's segment orientation relative to +u.
+    // `arc_u` above is left untouched (fold-train identity): its BFS folds the two
+    // directions from an arbitrary seed onto the same positive coordinate.
+    let shared_vertex = |f: usize, g: usize| -> Option<u32> {
+        for &vf in &[vids[f].0, vids[f].1] {
+            if vf != u32::MAX && (vids[g].0 == vf || vids[g].1 == vf) {
+                return Some(vf);
+            }
+        }
+        None
+    };
+    let mut u_lin = vec![0.0f32; nf];
+    let mut u_dir = vec![1.0f32; nf];
+    let mut chain_members: std::collections::HashMap<u32, Vec<usize>> =
+        std::collections::HashMap::new();
+    for f in 0..nf {
+        chain_members.entry(chain_id[f]).or_default().push(f);
+    }
+    for members in chain_members.values() {
+        let start = members
+            .iter()
+            .copied()
+            .find(|&f| neighbors(f).len() < 2)
+            .unwrap_or(members[0]);
+        let mut prev = usize::MAX;
+        let mut cur = start;
+        let mut u = 0.0f32;
+        loop {
+            u_lin[cur] = u;
+            let next = neighbors(cur).into_iter().find(|&g| g != prev);
+            match next {
+                Some(g) if g != start => {
+                    // Exit vertex of `cur` toward `g` tells its orientation vs +u.
+                    let v_out = shared_vertex(cur, g);
+                    u_dir[cur] = if v_out == Some(vids[cur].1) {
+                        1.0
+                    } else {
+                        -1.0
+                    };
+                    u += 0.5 * (arc_len(cur) + arc_len(g));
+                    prev = cur;
+                    cur = g;
+                }
+                _ => {
+                    // Last front (or closed loop): orient by the ENTRY vertex.
+                    if prev != usize::MAX {
+                        let v_in = shared_vertex(prev, cur);
+                        u_dir[cur] = if v_in == Some(vids[cur].0) { 1.0 } else { -1.0 };
+                    }
+                    break;
+                }
+            }
+        }
+    }
+    (arc_u, chain_id, u_lin, u_dir)
 }
 
 /// Fine Stage-3/4 world state. The expensive [`FineBase`] (mesh + transferred
@@ -702,6 +775,7 @@ impl FineBase {
             structure_params.meso_base_relief,
             structure_params.meso_wavelength_km,
             structure_params.meso_irregularity,
+            structure_params.meso_style,
         );
         // Range-front scarps: sharpen active orogen margins (footwall up / basin
         // down). Deliberately ASYMMETRIC (real fronts express footwall uplift far
@@ -743,6 +817,7 @@ impl FineBase {
                     structure_params.meso_relief,
                     structure_params.meso_wavelength_km,
                     structure_params.meso_irregularity,
+                    structure_params.meso_style,
                 )
             });
 
@@ -1087,11 +1162,202 @@ impl MesoFieldSampler {
     }
 }
 
+/// A2+A3 massif-corridor meso field (relief-spectrum spec §13): irregular
+/// anisotropic uplift massifs on a jittered along-strike lattice, minus branching
+/// low-uplift valley corridors rooted at the outer hinterland — the object
+/// vocabulary is "massifs separated by corridors", so the seeded valleys and the
+/// emergent ridges agree (the fold train's measured grammar failure). Shares the
+/// fold train's delivery, wavelength dial, and isotropic blend.
+struct MassifCorridorSampler {
+    wavelength: f32,
+    iso_frequency: f64,
+    seed: u64,
+    wobble_fbm: Fbm<Perlin>,
+    iso_fbm: Fbm<Perlin>,
+}
+
+/// Deterministic per-site hash -> [0, 1) (splitmix64 finalizer).
+fn meso_site_hash(seed: u64, chain: u32, k: i64, salt: u64) -> f32 {
+    let mut x = seed
+        .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+        .wrapping_add((chain as u64).wrapping_mul(0xBF58_476D_1CE4_E5B9))
+        .wrapping_add((k as u64).wrapping_mul(0x94D0_49BB_1331_11EB))
+        .wrapping_add(salt.wrapping_mul(0xD6E8_FEB8_6659_FD93));
+    x ^= x >> 30;
+    x = x.wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    x ^= x >> 27;
+    x = x.wrapping_mul(0x94D0_49BB_1331_11EB);
+    x ^= x >> 31;
+    (x >> 40) as f32 / (1u64 << 24) as f32
+}
+
+impl MassifCorridorSampler {
+    fn new(seed: u64, wavelength_km: f32) -> Self {
+        // Floor the wavelength well above mesh scale: metre-scale lattice periods
+        // would make the finite site windows meaningless.
+        let wl_km = wavelength_km.max(5.0);
+        Self {
+            wavelength: wl_km / PLANET_RADIUS_KM,
+            // Scale the isotropic blend with the construction (one dial scales all).
+            iso_frequency: FINE_MESO_ISO_FREQUENCY * (FINE_MESO_WAVELENGTH_KM / wl_km) as f64,
+            seed,
+            wobble_fbm: Fbm::<Perlin>::new(seed.wrapping_add(75) as u32).set_octaves(2),
+            iso_fbm: Fbm::<Perlin>::new(seed.wrapping_add(74) as u32).set_octaves(3),
+        }
+    }
+
+    fn sample(&self, c: Vec3, u: f32, v: f32, chain_id: u32) -> f32 {
+        let lam = self.wavelength;
+        let min_sigma = FINE_MESO_MIN_SIGMA_KM / PLANET_RADIUS_KM;
+        let w_h = FINE_OROGEN_HINTERLAND_WIDTH;
+        let w_f = FINE_OROGEN_FORELAND_WIDTH;
+
+        // -- Massifs (A2): jittered u-lattice, anisotropic Gaussians, heavy-tailed
+        // amplitudes, centers offset off the crest toward either flank.
+        let m_period = FINE_MESO_MASSIF_PERIOD * lam;
+        let mk = (u / m_period).floor() as i64;
+        let mut massifs = 0.0f32;
+        for k in (mk - 3)..=(mk + 3) {
+            let h_pos = meso_site_hash(self.seed, chain_id, k, 1);
+            let h_v = meso_site_hash(self.seed, chain_id, k, 2);
+            let h_lu = meso_site_hash(self.seed, chain_id, k, 3);
+            let h_lv = meso_site_hash(self.seed, chain_id, k, 4);
+            let h_a = meso_site_hash(self.seed, chain_id, k, 5);
+            let u_i = (k as f32 + 0.5 + (h_pos - 0.5) * 0.8) * m_period;
+            let v_i = -0.15 * w_f + h_v * (0.6 * w_h + 0.15 * w_f);
+            let l_u = ((0.4 + 0.8 * h_lu) * lam).max(min_sigma);
+            let l_v = ((0.3 + 0.5 * h_lv) * lam).max(min_sigma);
+            let a = 0.35 + 0.65 * h_a * h_a * h_a; // heavy tail: a few dominant
+            let du = (u - u_i) / l_u;
+            let dv = (v - v_i) / l_v;
+            massifs += a * (-0.5 * (du * du + dv * dv)).exp();
+        }
+
+        // -- Corridors (A3): jittered u-lattice of transverse valley paths rooted
+        // at the outer hinterland, drifting obliquely and wobbling as they descend
+        // toward the crest; most fade below the crest (interdigitating heads), a
+        // hashed minority crosses into the foreland (water gaps).
+        let c_period = FINE_MESO_CORRIDOR_PERIOD * lam;
+        // Corridors live on the hinterland flank; distance descended from the root.
+        let descent = w_h - v;
+        let mut corridors = 0.0f32;
+        if v < w_h + 2.0 * lam {
+            // A corridor's path drifts up to tan(40°)·W_h ≈ 6-7 lattice periods off
+            // its root, so a window around the CELL's u misses it near the crest.
+            // Instead, per obliquity sign, invert the mean drift to estimate the
+            // root index and scan around THAT (window covers the 20-40° spread +
+            // jitter + wobble + Gaussian support). Each site contributes only under
+            // its own hashed sign, so overlapping windows cannot double-count.
+            let (th_lo, th_hi) = FINE_MESO_CORRIDOR_OBLIQUITY_DEG;
+            let tan_mid = 0.5 * (th_lo.to_radians().tan() + th_hi.to_radians().tan());
+            for sign in [1.0f32, -1.0] {
+                let root_est = u - sign * tan_mid * descent;
+                let ck = (root_est / c_period).floor() as i64;
+                for k in (ck - 4)..=(ck + 4) {
+                    let site_sign = if meso_site_hash(self.seed, chain_id, k, 16) < 0.5 {
+                        -1.0
+                    } else {
+                        1.0
+                    };
+                    if site_sign != sign {
+                        continue;
+                    }
+                    let h_pos = meso_site_hash(self.seed, chain_id, k, 11);
+                    let h_th = meso_site_hash(self.seed, chain_id, k, 12);
+                    let h_w = meso_site_hash(self.seed, chain_id, k, 13);
+                    let h_cross = meso_site_hash(self.seed, chain_id, k, 14);
+                    let h_head = meso_site_hash(self.seed, chain_id, k, 15);
+                    let u_k = (k as f32 + 0.5 + (h_pos - 0.5) * 0.8) * c_period;
+                    let theta = (th_lo + (th_hi - th_lo) * h_th).to_radians() * site_sign;
+                    let wobble = self.wobble_fbm.get([
+                        (v / (2.0 * lam)) as f64,
+                        (k as f64) * 7.31 + chain_id as f64 * 13.7,
+                        0.0,
+                    ]) as f32
+                        * 0.3
+                        * lam;
+                    let u_path = u_k + theta.tan() * descent + wobble;
+                    let w = ((0.35 + 0.25 * h_w) * lam).max(min_sigma);
+                    // Head gate: crossers run through the crest into the foreland;
+                    // the rest fade out at 0.1-0.3 W_h above the crest.
+                    let v_end = if h_cross < FINE_MESO_CORRIDOR_CROSS_FRACTION {
+                        -0.8 * w_f
+                    } else {
+                        (0.1 + 0.2 * h_head) * w_h
+                    };
+                    let head = super::features::smoothstep(v_end - lam, v_end + lam, v);
+                    let du = (u - u_path) / w;
+                    corridors += head * (-0.5 * du * du).exp();
+                }
+            }
+        }
+
+        let field = (massifs - corridors).clamp(-1.0, 1.0);
+        let iso = self.iso_fbm.get([
+            c.x as f64 * self.iso_frequency,
+            c.y as f64 * self.iso_frequency,
+            c.z as f64 * self.iso_frequency,
+        ]) as f32;
+        (field * (1.0 - FINE_MESO_ISO_WEIGHT) + iso * FINE_MESO_ISO_WEIGHT).clamp(-1.0, 1.0)
+    }
+}
+
+/// Style dispatch shared by the uplift-shape and base-relief delivery paths.
+enum MesoSampler {
+    FoldTrain(MesoFieldSampler),
+    MassifCorridor(MassifCorridorSampler),
+}
+
+impl MesoSampler {
+    fn new(seed: u64, wavelength_km: f32, irregularity: f32, style: usize) -> Self {
+        match style {
+            0 => Self::FoldTrain(MesoFieldSampler::new(seed, wavelength_km, irregularity)),
+            _ => Self::MassifCorridor(MassifCorridorSampler::new(seed, wavelength_km)),
+        }
+    }
+
+    fn sample(&self, c: Vec3, frame: &MesoFrontFrame) -> f32 {
+        match self {
+            Self::FoldTrain(s) => s.sample(c, frame.u, frame.v, frame.chain_id),
+            Self::MassifCorridor(s) => s.sample(c, frame.u_lin, frame.v, frame.chain_id),
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 struct MesoFrontFrame {
     u: f32,
     v: f32,
+    /// Continuous along-strike coordinate (endpoint-ordered chain walk + within-
+    /// segment projection) — the massif-corridor u axis. `u` above is the legacy
+    /// midpoint-quantized fold-train coordinate (kept for identity).
+    u_lin: f32,
     chain_id: u32,
+}
+
+/// Fraction [0, 1] along the great-circle arc a->b of the point closest to `c`
+/// (clamped to the endpoints; 0.5 for degenerate arcs).
+fn point_on_arc_param(c: Vec3, a: Vec3, b: Vec3) -> f32 {
+    let n = a.cross(b);
+    if n.length_squared() < 1e-18 {
+        return 0.5;
+    }
+    let n = n.normalize();
+    let p = c - n * c.dot(n);
+    if p.length_squared() < 1e-12 {
+        return 0.5;
+    }
+    let p = p.normalize();
+    let full = a.dot(b).clamp(-1.0, 1.0).acos();
+    if full < 1e-9 {
+        return 0.5;
+    }
+    let ta = a.dot(p).clamp(-1.0, 1.0).acos();
+    let tb = b.dot(p).clamp(-1.0, 1.0).acos();
+    if ta + tb > full + 1e-6 {
+        return if ta < tb { 0.0 } else { 1.0 };
+    }
+    (ta / full).clamp(0.0, 1.0)
 }
 
 fn meso_front_tree(fronts: &OrogenFronts) -> Option<CoarseTree> {
@@ -1139,9 +1405,13 @@ fn nearest_meso_front_frame(
     if !best_d.is_finite() {
         return None;
     }
+    let (a, b) = (fronts.seg_a[best_front], fronts.seg_b[best_front]);
+    let t = point_on_arc_param(c, a, b);
+    let seg_len = a.dot(b).clamp(-1.0, 1.0).acos();
     Some(MesoFrontFrame {
         u: fronts.arc_u[best_front],
         v: best_side * best_d,
+        u_lin: fronts.u_lin[best_front] + fronts.u_dir[best_front] * (t - 0.5) * seg_len,
         chain_id: fronts.chain_id[best_front],
     })
 }
@@ -1159,6 +1429,7 @@ fn add_meso_base_relief(
     amplitude: f32,
     wavelength_km: f32,
     meso_irregularity: f32,
+    meso_style: usize,
 ) {
     if amplitude <= 0.0 {
         return;
@@ -1168,7 +1439,7 @@ fn add_meso_base_relief(
     };
     let n = tess.num_cells();
     let sstep = super::features::smoothstep;
-    let meso = MesoFieldSampler::new(seed, wavelength_km, meso_irregularity);
+    let meso = MesoSampler::new(seed, wavelength_km, meso_irregularity, meso_style);
     let gather_r2 = meso_front_gather_r2();
 
     // Same high-orogen gate shape as the interior grain: an elevation ramp keeps
@@ -1206,10 +1477,7 @@ fn add_meso_base_relief(
         let Some(front) = nearest_meso_front_frame(c, plate, fronts, &front_tree, gather_r2) else {
             return (0.0, false);
         };
-        (
-            amplitude * gate * meso.sample(c, front.u, front.v, front.chain_id),
-            true,
-        )
+        (amplitude * gate * meso.sample(c, &front), true)
     };
     #[cfg(not(feature = "single-threaded"))]
     let raw: Vec<(f32, bool)> = (0..n).into_par_iter().map(sample).collect();
@@ -1259,13 +1527,14 @@ fn compute_emergent_uplift_shape(
     meso_relief: f32,
     meso_wavelength_km: f32,
     meso_irregularity: f32,
+    meso_style: usize,
 ) -> Vec<f32> {
     let n = tess.num_cells();
     let blend = structured.clamp(0.0, 1.0);
     let meso_strength = meso_relief.clamp(0.0, 1.0);
     let sstep = super::features::smoothstep;
     let seg_fbm = Fbm::<Perlin>::new(seed.wrapping_add(71) as u32).set_octaves(2);
-    let meso = MesoFieldSampler::new(seed, meso_wavelength_km, meso_irregularity);
+    let meso = MesoSampler::new(seed, meso_wavelength_km, meso_irregularity, meso_style);
     let front_tree = meso_front_tree(fronts);
     let gather_r2 = meso_front_gather_r2();
 
@@ -1301,7 +1570,7 @@ fn compute_emergent_uplift_shape(
         let seg = FINE_OROGEN_SEGMENT_MIN + (1.0 - FINE_OROGEN_SEGMENT_MIN) * sstep(-0.4, 0.4, raw);
         let mut shaped = demoted * profile * seg;
         if meso_strength > 0.0 {
-            shaped *= (1.0 + meso_strength * meso.sample(c, u, v, front.chain_id)).max(0.0);
+            shaped *= (1.0 + meso_strength * meso.sample(c, &front)).max(0.0);
         }
         demoted * (1.0 - blend) + shaped * blend
     };

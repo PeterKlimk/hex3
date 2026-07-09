@@ -413,7 +413,8 @@ Recommended successor constructions (all uplift-rate channel, §10-compatible):
 
 **Goal.** Replace the fold train as the DEFAULT meso construction with one field that
 changes the object vocabulary from "parallel ridges" to "massifs separated by
-branching valley corridors" (§12 consult). Delivery is UNCHANGED: same uplift-shape
+transverse valley corridors" (§12 consult; v1 corridors are single wobbled oblique
+trunks — BRANCHING hierarchy is A4's job). Delivery is UNCHANGED: same uplift-shape
 modulation point, same `meso_relief` depth dial, same composed-regime dials
 (gain/steps), same cache discipline. The fold train survives behind a style switch
 as the foreland/fold-thrust preset.
@@ -457,3 +458,29 @@ RISES clearly above the 37% baseline plateau; crest-train spacing loses the λ
 spike (p50 well off 28 km or dispersion up); 25-km p95-p05 p50 stays ≥ ~450 m;
 components/elongation/summit/river gates as §11; `meso_style 0` and
 `meso_relief 0` identities hold. Then a `meso` stack / style A/B for the user.
+
+### §13 addendum — implementation + gate results (2026-07-10)
+
+Implemented (massif-corridor sampler, style switch, full plumbing). Codex diff review
+found 2 fatal geometry bugs, both fixed: corridor site search was windowed on the
+cell's u while oblique paths drift up to ~7 lattice periods (fix: per-sign
+inverted-root windows); u was midpoint-quantized at ~70-km coarse segments AND
+mirror-folded at the BFS seed (fix: new `u_lin`/`u_dir` endpoint-ordered oriented
+chain coordinate + within-segment projection — `arc_u` untouched for fold-train
+identity). Plus: obliquity sign salt, massif window ±3, new constants hashed,
+λ floor, iso-frequency scales with λ. Declined: conditional cache mixing (identity
+proven empirically through regen; collision risk), A′ style-dispatch (shared-field
+design per §10). v1 corridors are single oblique trunks (branching = A4).
+
+Gates (seed 12345 composed g2 s50, vs fold train same regime): identities PASS
+(meso off + style 0 both file-identical through cache-miss regen); 25-km p95-p05
+514 m (fold 648, bar 450); spacing λ-spike GONE (p50 40 km, IQR 20-88, ridges/
+transect 7 vs 12); roughness BETTER (pit 0.54 vs 0.70, summit slope softer);
+rivers clean; seed 777: 440 m, land 11.8%, comps 113. NEW trunk-flow-orientation
+metric (top-decile SFD accumulation; all-cell split is hillslope-dominated and
+class-blind): baseline 24/32/44 L/O/T, fold train 36/33/31 (longitudinal shift =
+half-formed trellis — strike trunks without water gaps: the measured "corduroy"),
+massif-corridor 29/33/38 (transverse-leaning restored). Corridors imprint only
+partially at 50 steps (drainage self-organizes before corridor uplift-deficit
+accumulates) — if visual wants stronger valley grammar, next levers: deeper
+corridor depth via field weighting, s100, or A4. USER VISUAL: style A/B sweep.

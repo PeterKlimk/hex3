@@ -1355,6 +1355,28 @@ pub const FINE_MESO_OCTAVE2_AMP: f32 = 0.6;
 /// cross-section away from the symmetric-sine "dune" profile.
 pub const FINE_MESO_SHARPEN: f32 = 0.35;
 
+// -- Massif-corridor meso style (A2+A3, relief-spectrum spec §13). The alpine
+// default: irregular uplift massifs separated by branching low-uplift valley
+// corridors, so ridges and valleys AGREE (the fold train's measured failure was
+// "stamped ribs + indifferent drainage"). All scales derive from
+// FINE_MESO_WAVELENGTH_KM so one dial scales the construction.
+
+/// Meso construction style: 0 = fold train (foreland/fold-thrust preset),
+/// 1 = massif-corridor (alpine default).
+pub const FINE_MESO_STYLE: usize = 1;
+/// Massif lattice period along strike, in fold wavelengths (~40 km at λ=25).
+pub const FINE_MESO_MASSIF_PERIOD: f32 = 1.6;
+/// Corridor lattice period along strike, in fold wavelengths (~45 km at λ=25;
+/// ≈ Hovius outlet spacing for these hinterland widths).
+pub const FINE_MESO_CORRIDOR_PERIOD: f32 = 1.8;
+/// Fraction of corridors that cross the crest into the foreland (water gaps /
+/// antecedent trunks); the rest fade out below the crest (interdigitation).
+pub const FINE_MESO_CORRIDOR_CROSS_FRACTION: f32 = 0.15;
+/// Corridor obliquity range vs the cross-strike normal, degrees.
+pub const FINE_MESO_CORRIDOR_OBLIQUITY_DEG: (f32, f32) = (20.0, 40.0);
+/// Minimum Gaussian sigma for massifs/corridors, km (mesh floor ~2 cells).
+pub const FINE_MESO_MIN_SIGMA_KM: f32 = 8.0;
+
 /// Emergent builder over-rebuild gain. The builder uplift rebuilds the demoted
 /// envelope (`coarse_target − base`) over the erosion epoch; >1 compensates the
 /// material erosion removes WHILE building, so the eroded orogen lands near the coarse

@@ -247,6 +247,11 @@ struct Cli {
     #[arg(long, default_value_t = -1.0, allow_hyphen_values = true)]
     meso_irregularity: f32,
 
+    /// Meso construction style: 0 = fold train (foreland preset), 1 =
+    /// massif-corridor (alpine default). <0 = default (1).
+    #[arg(long, default_value_t = -1, allow_hyphen_values = true)]
+    meso_style: i32,
+
     /// Candidate A' meso base-elevation relief amplitude. <0 = default (0=off);
     /// elevation units: 0.01 is about 100 m. Regenerates the fine base.
     #[arg(long, default_value_t = -1.0)]
@@ -399,6 +404,7 @@ fn main() {
         emergent_structured: (cli.emergent_structured >= 0.0).then_some(cli.emergent_structured),
         meso_relief: (cli.meso_relief >= 0.0).then_some(cli.meso_relief),
         meso_irregularity: (cli.meso_irregularity >= 0.0).then_some(cli.meso_irregularity),
+        meso_style: (cli.meso_style >= 0).then_some(cli.meso_style as usize),
         meso_base_relief: (cli.meso_base_relief >= 0.0).then_some(cli.meso_base_relief),
         meso_wavelength_km: (cli.meso_wavelength_km >= 0.0).then_some(cli.meso_wavelength_km),
     };
