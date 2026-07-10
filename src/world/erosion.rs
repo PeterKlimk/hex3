@@ -374,6 +374,7 @@ pub(crate) fn glacial_erode(
 /// cell index; component sweep is index-ordered). Returns `None` when no trunk
 /// network exists (no sinks / all-arid / dial misconfiguration) — the caller
 /// falls back to the unmodified shape.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn drainage_pulse_modifier(
     eroded: &[f32],
     precipitation: &[f32],
@@ -381,6 +382,11 @@ pub(crate) fn drainage_pulse_modifier(
     geom: &NeighborGeometry,
     areas: &[f32],
     shape: &[f32],
+    // Coarse-target elevation: the builder only emits uplift where target >= 0
+    // (see `ErosionState::new`), so the per-orogen normalization must sum over
+    // the SAME mask — shape can be positive on target-ocean cells (demotion
+    // applies at subduction margins) and counting them would skew the scale.
+    target: &[f32],
     params: ErosionParams,
 ) -> Option<Vec<f32>> {
     let n = geom.num_cells();
@@ -401,6 +407,12 @@ pub(crate) fn drainage_pulse_modifier(
         }
     }
     let mean_precip = if wa > 0.0 { (wp / wa) as f32 } else { 0.0 };
+    if mean_precip <= 0.0 {
+        // All-arid: a_crit would be 0 and `acc >= a_crit` would paint every land
+        // cell a channel, fabricating trunks out of zero discharge.
+        log::warn!("drainage pulse: zero mean land precipitation; modifier skipped");
+        return None;
+    }
     let support_km2 = params.channel_support_km2.max(1.0);
     let a_crit = support_km2 / (PLANET_RADIUS_KM * PLANET_RADIUS_KM) * mean_precip;
 
@@ -488,21 +500,25 @@ pub(crate) fn drainage_pulse_modifier(
         })
         .collect();
 
-    // Per-orogen mean normalization: over each connected component of shape > 0,
-    // rescale so Σ area·shape·modifier = Σ area·shape (the orogen's shape volume
-    // is untouched; the modifier only REDISTRIBUTES uplift within it).
+    // Per-orogen mean normalization: over each connected component of
+    // builder-active shape (shape > 0 on TARGET land — the mask the builder
+    // actually uplifts), rescale so Σ area·shape·modifier = Σ area·shape (the
+    // orogen's shape volume is untouched; the modifier only REDISTRIBUTES uplift
+    // within it). Cells outside the mask keep modifier 1 (the builder ignores
+    // their shape anyway).
+    let active = |i: usize| shape[i] > 0.0 && target[i] >= 0.0;
     let mut comp = vec![usize::MAX; n];
     let mut ncomp = 0usize;
     let mut queue = VecDeque::new();
     for i in 0..n {
-        if shape[i] <= 0.0 || comp[i] != usize::MAX {
+        if !active(i) || comp[i] != usize::MAX {
             continue;
         }
         comp[i] = ncomp;
         queue.push_back(i);
         while let Some(c) = queue.pop_front() {
             for &nb in geom.tess_neighbors(c) {
-                if shape[nb] > 0.0 && comp[nb] == usize::MAX {
+                if active(nb) && comp[nb] == usize::MAX {
                     comp[nb] = ncomp;
                     queue.push_back(nb);
                 }
@@ -519,13 +535,20 @@ pub(crate) fn drainage_pulse_modifier(
             vol1[comp[i]] += w * modifier[i] as f64;
         }
     }
-    let scale: Vec<f32> = (0..ncomp)
-        .map(|c| if vol1[c] > 0.0 { (vol0[c] / vol1[c]) as f32 } else { 1.0 })
+    // A component whose every cell clamped to 0 (small orogen entirely inside
+    // the trunk suppression at high depth) cannot be rescaled — fall back to
+    // identity so its volume doesn't silently leak to other orogens through the
+    // builder's global normalization.
+    let scale: Vec<Option<f32>> = (0..ncomp)
+        .map(|c| (vol1[c] > 0.0).then(|| (vol0[c] / vol1[c]) as f32))
         .collect();
     let (mut mn, mut mx) = (f32::INFINITY, f32::NEG_INFINITY);
     for i in 0..n {
         if comp[i] != usize::MAX {
-            modifier[i] *= scale[comp[i]];
+            match scale[comp[i]] {
+                Some(s) => modifier[i] *= s,
+                None => modifier[i] = 1.0,
+            }
             mn = mn.min(modifier[i]);
             mx = mx.max(modifier[i]);
         } else {
@@ -2926,9 +2949,10 @@ mod tests {
             drainage_pulse: 1.0,
             ..ErosionParams::default()
         };
-        let modifier =
-            drainage_pulse_modifier(&elev, &precip, &lake_base, &geom, &areas, &shape, params)
-                .expect("tree has an order-3 trunk");
+        let modifier = drainage_pulse_modifier(
+            &elev, &precip, &lake_base, &geom, &areas, &shape, &elev, params,
+        )
+        .expect("tree has an order-3 trunk");
 
         // Trunk (6) is suppressed relative to the leaves (graph distance 1.0 rad
         // >> sigma, so the leaves sit at the full interfluve boost).
@@ -2965,8 +2989,58 @@ mod tests {
             ..ErosionParams::default()
         };
         assert!(drainage_pulse_modifier(
-            &elev, &precip, &lake_base, &geom, &areas, &shape, params
+            &elev, &precip, &lake_base, &geom, &areas, &shape, &elev, params
         )
         .is_none());
+    }
+
+    /// A4: zero precipitation must not fabricate a channel network out of an
+    /// `acc >= a_crit = 0` comparison — the modifier is skipped.
+    #[test]
+    fn drainage_pulse_skips_all_arid() {
+        let geom = tree_geom();
+        let elev = [4.0f32, 4.0, 4.0, 4.0, 3.0, 3.0, 2.0, -1.0];
+        let precip = [0.0f32; 8];
+        let areas = [1.0f32; 8];
+        let lake_base = [f32::NEG_INFINITY; 8];
+        let shape = [1.0f32; 8];
+        let params = ErosionParams {
+            drainage_pulse: 1.0,
+            ..ErosionParams::default()
+        };
+        assert!(drainage_pulse_modifier(
+            &elev, &precip, &lake_base, &geom, &areas, &shape, &elev, params
+        )
+        .is_none());
+    }
+
+    /// A4: a component whose modifier fully clamps to zero (a small orogen
+    /// sitting entirely on a trunk at high depth) falls back to identity rather
+    /// than losing all its uplift volume; ocean-target cells are excluded from
+    /// the normalization even when their shape is positive.
+    #[test]
+    fn drainage_pulse_component_fallback_and_target_mask() {
+        let geom = tree_geom();
+        let elev = [4.0f32, 4.0, 4.0, 4.0, 3.0, 3.0, 2.0, -1.0];
+        let precip = [1.0f32; 8];
+        let areas = [1.0f32; 8];
+        let lake_base = [f32::NEG_INFINITY; 8];
+        // Orogen = only the trunk cell (6); the sink (7) has positive shape but
+        // NEGATIVE target (subduction-margin ocean shape the builder ignores).
+        let shape: [f32; 8] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0];
+        let target = elev; // target<0 exactly at the sink
+        let params = ErosionParams {
+            drainage_pulse: 2.5, // trunk raw modifier 1 - 2.5*0.4 = 0 → clamped
+            ..ErosionParams::default()
+        };
+        let modifier = drainage_pulse_modifier(
+            &elev, &precip, &lake_base, &geom, &areas, &shape, &target, params,
+        )
+        .expect("tree has an order-3 trunk");
+        assert_eq!(
+            modifier[6], 1.0,
+            "fully-suppressed single-cell orogen must fall back to identity"
+        );
+        assert_eq!(modifier[7], 1.0, "ocean-target cell stays identity");
     }
 }

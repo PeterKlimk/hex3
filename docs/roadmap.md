@@ -36,10 +36,11 @@ probe into `diagnose` before the next mountain ADD.
 - 🟨 **A4 two-stage drainage-aware uplift pulse — IMPLEMENTED, gates pass 2 seeds, user
   visual pending** (2026-07-10): burn-in erosion → Strahler-≥3 trunk extraction →
   per-orogen zero-mean uplift modifier → frozen final epoch. Measured: σ8/p3.5 gives
-  272/207 m 25-km relief @ 10.4/9.5 km peaks (vs 193/158 baseline); composed with the
-  meso candidate (m0.7 + σ8/p2.5) = **330/257 m @ 11.6/10.9 — best at the peak budget**,
-  beats meso-alone both seeds at lower peaks. Key finding: volume neutrality ≠ peak
-  neutrality (the interfluve boost sits on massif cores — the residual coupling is boost
+  262/210 m 25-km relief @ 10.9/9.3 km peaks (vs 193/158 baseline); composed with the
+  meso candidate (m0.7 + σ8/p2.0) = **330 m @ 11.8 (12345) — best at the peak budget**,
+  +17 m over meso-alone at the same peak (post Codex-review fixes: target-land
+  normalization mask, all-arid guard, zero-component fallback). Key finding: volume
+  neutrality ≠ peak neutrality (the interfluve boost sits on massif cores — the residual coupling is boost
   ALLOCATION, a design DOF). Knobs `--drainage-pulse/--pulse-smooth-km/--pulse-burnin-steps`;
   pulse-0 byte-identical. Full results: `docs/specs/meso-a4-drainage-pulse.md` §5.
 - ⬜ **25-km local-relief gap — KNOBS FALSIFIED (2026-07-09 sweep)**: baseline p50/p90 =

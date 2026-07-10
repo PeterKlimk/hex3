@@ -122,8 +122,28 @@ Seed 777 @ p3.5σ8: 158 → 207 @ 9.5.
 
 Composition with the meso candidate (m0.7): at σ15/p1.0 SUB-ADDITIVE (295 @
 11.4, below meso-alone 313 @ 11.8 — trunks overlap corridors, renorm washes
-out). At σ8/p2.5 it STACKS: **330 @ 11.6 (12345), 257 @ 10.9 (777)** — beats
-meso-alone on BOTH seeds at LOWER peaks.
+out). At σ8 it STACKS (see post-review finals below).
+
+### Codex review (same day) — 3 confirmed fixes, finals re-measured
+
+1. Per-orogen normalization summed over ALL shape>0 cells, but the builder only
+   uplifts target-land — ocean-side shape (demotion at subduction margins)
+   skewed component scales AND bridged components through the sea (42 → 85
+   components once masked to `target >= 0`).
+2. All-arid worlds: mean_precip 0 ⇒ a_crit 0 ⇒ `acc >= 0` painted every land
+   cell a channel — now returns None (no fabricated trunks).
+3. A small component whose modifier fully clamps to 0 (entirely inside trunk
+   suppression at high depth) kept scale 1.0 and silently leaked its volume to
+   other orogens via the global normalizer — now falls back to identity.
+All three unit-tested (target-mask + fallback + all-arid). Exploration-ladder
+numbers above are PRE-fix (trends unchanged); finalists re-measured post-fix:
+
+- A4-alone σ8/p3.5: 262 @ 10.9 (12345), 210 @ 9.3 (777) — gates pass.
+- Composed m0.7 + σ8/p2.5: 339 @ 12.2 (12345) — the corrected land-only
+  normalization concentrates the boost; peak now over budget. 777: 256 @ 10.6.
+- **Composed m0.7 + σ8/p2.0: 330 @ 11.8 (12345), 249 @ 10.5 (777)** — recovers
+  the relief at meso-alone's exact peak (777: relief wash vs meso-alone 250 but
+  peak −0.5 km). The composed CANDIDATE dial.
 
 ### Gates (every rung, both seeds)
 
@@ -136,9 +156,10 @@ today's default 200×2 budget (burn-in extraction ~8 s at 200k cells).
 
 ### Candidates for user visual (numbers final, eyes decide)
 
-- A4-alone: `--drainage-pulse 3.5 --pulse-smooth-km 8` (+ s50 g1) — 272/207 m,
-  peaks 10.4/9.5, biggest headroom, drainage-consistent grammar by construction.
-- Composed: + `--meso-relief 0.7` — 330/257 m, peaks 11.6/10.9. Best measured
-  25-km relief at the peak budget to date.
+- A4-alone: `--drainage-pulse 3.5 --pulse-smooth-km 8` (+ s50 g1) — 262/210 m,
+  peaks 10.9/9.3, biggest headroom, drainage-consistent grammar by construction.
+- Composed: `--meso-relief 0.7 --drainage-pulse 2.0 --pulse-smooth-km 8` —
+  330/249 m @ 11.8/10.5. Best measured 25-km relief at the peak budget to date
+  (12345: +17 m over meso-alone at the same peak; 777: wash at −0.5 km peak).
 - Sweep: `--sweep drainage_pulse --sweep-values 0,1.5,2.5,3.5` (σ8 via
   `--pulse-smooth-km 8`), or a 3-row stack vs baseline/meso.

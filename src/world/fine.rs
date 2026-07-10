@@ -931,6 +931,7 @@ impl FineSurface {
                     &geom,
                     base.tessellation.cell_areas_ref(),
                     shape,
+                    &base.coarse_base_elevation,
                     params,
                 )
                 .map(|modifier| {
