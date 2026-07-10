@@ -1,3 +1,64 @@
+/// Named presentation choices. World elevations remain physical; these only
+/// control radial displacement in the renderer.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ReliefPreset {
+    Flat,
+    Physical,
+    Authentic,
+    Dramatic,
+    Custom(f32),
+}
+
+impl ReliefPreset {
+    pub const PHYSICAL_SCALE: f32 = 10.0 / hex3::world::PLANET_RADIUS_KM;
+    pub const AUTHENTIC_SCALE: f32 = hex3::world::RELIEF_SCALE;
+    pub const DRAMATIC_SCALE: f32 = 0.08;
+
+    pub fn scale(self) -> f32 {
+        match self {
+            Self::Flat => 0.0,
+            Self::Physical => Self::PHYSICAL_SCALE,
+            Self::Authentic => Self::AUTHENTIC_SCALE,
+            Self::Dramatic => Self::DRAMATIC_SCALE,
+            Self::Custom(scale) => scale.max(0.0),
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Flat => "Flat",
+            Self::Physical => "Physical 1x",
+            Self::Authentic => "Authentic",
+            Self::Dramatic => "Dramatic",
+            Self::Custom(_) => "Custom",
+        }
+    }
+
+    pub fn from_scale(scale: f32) -> Self {
+        let close = |a: f32, b: f32| (a - b).abs() <= 1e-6;
+        if close(scale, 0.0) {
+            Self::Flat
+        } else if close(scale, Self::PHYSICAL_SCALE) {
+            Self::Physical
+        } else if close(scale, Self::AUTHENTIC_SCALE) {
+            Self::Authentic
+        } else if close(scale, Self::DRAMATIC_SCALE) {
+            Self::Dramatic
+        } else {
+            Self::Custom(scale.max(0.0))
+        }
+    }
+
+    pub fn cycle(self) -> Self {
+        match self {
+            Self::Flat => Self::Physical,
+            Self::Physical => Self::Authentic,
+            Self::Authentic => Self::Dramatic,
+            Self::Dramatic | Self::Custom(_) => Self::Flat,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ViewMode {
     Globe,
@@ -180,5 +241,21 @@ impl RenderMode {
     /// Whether this mode uses 3D relief displacement.
     pub fn is_relief(self) -> bool {
         matches!(self, Self::Relief)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ReliefPreset;
+
+    #[test]
+    fn relief_presets_have_stable_scales_and_cycle() {
+        assert!((ReliefPreset::Physical.scale() - 10.0 / 6371.0).abs() < 1e-6);
+        assert_eq!(ReliefPreset::Authentic.scale(), 0.04);
+        assert_eq!(ReliefPreset::Dramatic.cycle(), ReliefPreset::Flat);
+        assert_eq!(
+            ReliefPreset::from_scale(ReliefPreset::PHYSICAL_SCALE),
+            ReliefPreset::Physical
+        );
     }
 }

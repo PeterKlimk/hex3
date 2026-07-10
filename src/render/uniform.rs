@@ -55,8 +55,10 @@ pub struct Uniforms {
     pub rivers_enabled: f32,
     /// River density mode: 1.0 = major rivers only; 0.0 = all rivers.
     pub river_major_only: f32,
+    /// Screen-space width multiplier for cartographic river strokes.
+    pub river_width_scale: f32,
     /// Padding to align to 16 bytes.
-    pub _padding2: [f32; 3],
+    pub _padding2: [f32; 2],
 }
 
 impl Uniforms {
@@ -72,7 +74,8 @@ impl Uniforms {
             slope_shading: 0.0,
             rivers_enabled: 0.0,
             river_major_only: 0.0,
-            _padding2: [0.0; 3],
+            river_width_scale: 1.0,
+            _padding2: [0.0; 2],
         }
     }
 
@@ -85,6 +88,11 @@ impl Uniforms {
     /// River density mode: true = major rivers only; false = all rivers.
     pub fn with_river_major_only(mut self, major_only: bool) -> Self {
         self.river_major_only = if major_only { 1.0 } else { 0.0 };
+        self
+    }
+
+    pub fn with_river_width_scale(mut self, scale: f32) -> Self {
+        self.river_width_scale = scale.max(0.0);
         self
     }
 

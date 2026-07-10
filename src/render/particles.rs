@@ -608,6 +608,24 @@ impl WindParticleSystem {
         }
     }
 
+    /// Keep particle trails attached to terrain when the presentation relief
+    /// preset changes at runtime.
+    pub fn set_relief_scale(&mut self, ctx: &GpuContext, relief_scale: f32) {
+        self.relief_scale = relief_scale.max(0.0);
+        const UPPER_WIND_HEIGHT: f32 = 1.06;
+        let render_uniforms = ParticleRenderUniforms {
+            max_age: self.max_age,
+            relief_scale: self.relief_scale,
+            upper_wind_height: UPPER_WIND_HEIGHT,
+            is_surface_wind: if self.is_surface_wind { 1 } else { 0 },
+        };
+        ctx.queue.write_buffer(
+            &self.render_uniform_buffer,
+            0,
+            bytemuck::cast_slice(&[render_uniforms]),
+        );
+    }
+
     /// Update particles for one frame (dispatch compute shader).
     ///
     /// # Arguments

@@ -31,6 +31,7 @@ use super::world::{
 /// Knobs the sweep can vary, mapped onto [`ErosionOverrides`] fields.
 pub const SWEEP_KNOBS: &[&str] = &[
     "relief_scale",
+    "river_width_scale",
     "k",
     "n",
     "diffusivity",
@@ -113,6 +114,7 @@ fn apply_knob(ov: &mut ErosionOverrides, name: &str, v: f64) -> Result<(), Strin
     let f = v as f32;
     match name {
         "relief_scale" => ov.relief_scale = Some(f.max(0.0)),
+        "river_width_scale" => ov.river_width_scale = Some(f.max(0.0)),
         "k" => ov.k = Some(f),
         "n" => ov.n = Some(f),
         "diffusivity" => ov.diffusivity = Some(f),
@@ -219,6 +221,7 @@ fn render_relief(
     cam_pos: Vec3,
     river_mode: RiverMode,
     relief_scale: f32,
+    river_width_scale: f32,
 ) {
     let light = Vec3::new(0.5, 1.0, 0.3).normalize();
     let uniforms = Uniforms::new(view_proj, cam_pos, light)
@@ -230,7 +233,8 @@ fn render_relief(
         .with_hemisphere_lighting(false)
         .with_map_mode(false)
         .with_rivers(river_mode != RiverMode::Off)
-        .with_river_major_only(river_mode == RiverMode::Major);
+        .with_river_major_only(river_mode == RiverMode::Major)
+        .with_river_width_scale(river_width_scale);
 
     let scene = RenderScene {
         fill_pipeline: FillPipelineKind::UnifiedGlobe,
@@ -640,11 +644,13 @@ pub fn run_sweep(opts: SweepOptions) {
     let mut montage: Vec<u8> = Vec::new();
     let mut montage_w = 0u32;
 
-    // A relief-scale sweep is renderer-only: generate the terrain and GPU
-    // buffers once so every row is guaranteed to differ only in displacement.
-    let render_only_relief =
-        opts.stack.is_none() && opts.knob1 == "relief_scale" && opts.knob2.is_none();
-    let shared_world = render_only_relief.then(|| generate_tile_world(&opts, &opts.base_erosion));
+    // Presentation sweeps are renderer-only: generate the terrain and GPU
+    // buffers once so every row differs only in drawing policy.
+    let render_only_presentation = opts.stack.is_none()
+        && matches!(opts.knob1.as_str(), "relief_scale" | "river_width_scale")
+        && opts.knob2.is_none();
+    let shared_world =
+        render_only_presentation.then(|| generate_tile_world(&opts, &opts.base_erosion));
     let shared_buffers = shared_world
         .as_ref()
         .map(|world| generate_world_buffers(&gpu.device, &gpu.queue, world));
@@ -655,7 +661,8 @@ pub fn run_sweep(opts: SweepOptions) {
         let _ = std::io::stdout().flush();
         let t0 = std::time::Instant::now();
 
-        let owned_world = (!render_only_relief).then(|| generate_tile_world(&opts, overrides));
+        let owned_world =
+            (!render_only_presentation).then(|| generate_tile_world(&opts, overrides));
         let world = shared_world
             .as_ref()
             .or(owned_world.as_ref())
@@ -668,8 +675,8 @@ pub fn run_sweep(opts: SweepOptions) {
             montage = vec![0u8; (montage_w * montage_h * 4) as usize];
         }
 
-        let owned_buffers =
-            (!render_only_relief).then(|| generate_world_buffers(&gpu.device, &gpu.queue, world));
+        let owned_buffers = (!render_only_presentation)
+            .then(|| generate_world_buffers(&gpu.device, &gpu.queue, world));
         let buffers = shared_buffers
             .as_ref()
             .or(owned_buffers.as_ref())
@@ -684,6 +691,7 @@ pub fn run_sweep(opts: SweepOptions) {
                 *eye,
                 opts.river_mode,
                 overrides.relief_scale.unwrap_or(RELIEF_SCALE),
+                overrides.river_width_scale.unwrap_or(1.0),
             );
             let rgba = read_back_rgba(&gpu, &color_tex, opts.width, opts.height);
             let tile_path = opts.out_dir.join(format!("{fname}_{vlabel}.png"));

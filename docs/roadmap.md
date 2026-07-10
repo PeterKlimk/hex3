@@ -58,7 +58,9 @@ probe into `diagnose` before the next mountain ADD.
   `--mountain-audit` now also reports p50/p10 surroundings and an apparent-wall
   render gate. Relief rivers' SDF width was corrected from fixed texture texels
   (~7–21 km full width) to true screen-pixel width. Interactive runs accept
-  `--relief-scale`; use `--relief-scale 0.00157` for approximately physical 1×.
+  named `--relief-preset` values plus raw `--relief-scale`; `X` cycles presets
+  live. River stroke width is independently exposed as `--river-width-scale`.
+  Contract and commands: `docs/presentation.md`.
 - 🟨 **A4 two-stage drainage-aware uplift pulse — IMPLEMENTED, gates pass 2 seeds, user
   visual pending** (2026-07-10): burn-in erosion → Strahler-≥3 trunk extraction →
   per-orogen zero-mean uplift modifier → frozen final epoch. Measured: σ8/p3.5 gives

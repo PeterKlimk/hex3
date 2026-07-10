@@ -33,6 +33,25 @@ enum CliOrogenModel {
     ThinSheet,
 }
 
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum CliReliefPreset {
+    Flat,
+    Physical,
+    Authentic,
+    Dramatic,
+}
+
+impl From<CliReliefPreset> for app::ReliefPreset {
+    fn from(value: CliReliefPreset) -> Self {
+        match value {
+            CliReliefPreset::Flat => Self::Flat,
+            CliReliefPreset::Physical => Self::Physical,
+            CliReliefPreset::Authentic => Self::Authentic,
+            CliReliefPreset::Dramatic => Self::Dramatic,
+        }
+    }
+}
+
 impl From<CliOrogenModel> for OrogenModel {
     fn from(value: CliOrogenModel) -> Self {
         match value {
@@ -84,11 +103,19 @@ struct Cli {
     #[arg(long, default_value_t = 1.0)]
     fine_scale: f32,
 
-    /// Relief-view radial displacement scale. The product default is 0.04
-    /// (~25x physical); 0.00157 is approximately physical 1x on this
-    /// Earth-radius world. Zero disables displacement.
+    /// Named relief presentation. World elevations remain unchanged.
+    #[arg(long, value_enum, default_value_t = CliReliefPreset::Authentic)]
+    relief_preset: CliReliefPreset,
+
+    /// Raw relief displacement override. Takes precedence over
+    /// --relief-preset; 0.00157 is approximately physical 1x.
     #[arg(long, default_value_t = -1.0, allow_hyphen_values = true)]
     relief_scale: f32,
+
+    /// Cartographic river-width multiplier in screen space. River selection
+    /// remains controlled by physical catchment thresholds.
+    #[arg(long, default_value_t = 1.0)]
+    river_width_scale: f32,
 
     /// Fine-mesh cell guardrail for headless diagnostic exports. Zero uses the
     /// normal product default. Ignored by interactive mode.
@@ -322,7 +349,7 @@ struct Cli {
     /// render-to-PNG sweep). Knobs: k, diffusivity, channel_support,
     /// hillslope_crit, confinement_slope, uplift_smooth, mfd_exponent,
     /// diffusion_iters, reroute_interval, steps, precip_iters, flat_resolution,
-    /// relief_scale (renderer-only; reuses one generated world).
+    /// relief_scale and river_width_scale (renderer-only).
     #[arg(long)]
     sweep: Option<String>,
 
@@ -415,6 +442,12 @@ fn main() {
 
     let backend = VoronoiBackend::from(cli.voronoi_backend);
     let orogen_model = OrogenModel::from(cli.orogen_model);
+    let named_relief = app::ReliefPreset::from(cli.relief_preset);
+    let relief_scale = if cli.relief_scale >= 0.0 {
+        cli.relief_scale
+    } else {
+        named_relief.scale()
+    };
 
     // River render calibration (A/B: --river-legacy vs physical catchment km²).
     app::world::set_river_threshold_mode(if cli.river_legacy {
@@ -424,7 +457,8 @@ fn main() {
     });
 
     let erosion = app::world::ErosionOverrides {
-        relief_scale: (cli.relief_scale >= 0.0).then_some(cli.relief_scale),
+        relief_scale: Some(relief_scale),
+        river_width_scale: Some(cli.river_width_scale.max(0.0)),
         mfd_exponent: (cli.erosion_mfd_exponent >= 0.0).then_some(cli.erosion_mfd_exponent),
         flat_resolution: (cli.erosion_flat_resolution >= 0)
             .then_some(cli.erosion_flat_resolution != 0),

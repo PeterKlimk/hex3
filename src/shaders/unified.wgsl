@@ -37,6 +37,7 @@ struct Uniforms {
     slope_shading: f32, // 1.0 = shade from displaced face normal (hillshade)
     rivers_enabled: f32, // 1.0 = blend the baked river texture into the surface
     river_major_only: f32, // 1.0 = major rivers only; 0.0 = all rivers
+    river_width_scale: f32, // cartographic screen-space stroke multiplier
 }
 
 // River SDF: R = distance-to-river over [0, RIVER_SDF_RANGE_PX] px (must match the CPU bake),
@@ -244,7 +245,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // pixels directly with dist_px, making rivers physically 7..21 km wide
         // at this 8192x4096 bake and increasingly fat when zoomed in.
         let texels_per_screen_px = max(fwidth(dist_px), 1.0 / 255.0);
-        let width_screen_px = RIVER_BASE_WIDTH_PX + flow * RIVER_FLOW_WIDTH_PX;
+        let width_screen_px = (RIVER_BASE_WIDTH_PX + flow * RIVER_FLOW_WIDTH_PX)
+            * uniforms.river_width_scale;
         let width = width_screen_px * texels_per_screen_px;
         let aa = 0.75 * texels_per_screen_px;
         let river_a = select(0.0, 1.0 - smoothstep(width - aa, width + aa, dist_px), visible);

@@ -14,7 +14,9 @@ use hex3::render::{
 };
 use hex3::world::{FineCacheMode, OrogenModel, VoronoiBackend, World};
 
-use super::view::{ClimateLayer, FeatureLayer, NoiseLayer, RenderMode, RiverMode, ViewMode};
+use super::view::{
+    ClimateLayer, FeatureLayer, NoiseLayer, ReliefPreset, RenderMode, RiverMode, ViewMode,
+};
 use super::world::{
     advance_to_stage_2, advance_to_stage_3, advance_to_stage_4, create_world_with_orogen_model,
     generate_colored_mesh, generate_elevation_mesh_buffers, generate_relief_edge_buffers,
@@ -39,6 +41,9 @@ pub struct AppState {
     pub orogen_model: OrogenModel,
     /// Runtime relief displacement from `--relief-scale` (or product default).
     pub relief_scale: f32,
+    pub relief_preset: ReliefPreset,
+    /// Screen-space multiplier for cartographic river strokes.
+    pub river_width_scale: f32,
     /// CLI erosion-knob overrides, re-applied to each (re)generated world.
     erosion_overrides: ErosionOverrides,
     /// Stage currently being rendered (<= computed stage). Lets Space/Backspace
@@ -100,6 +105,8 @@ impl AppState {
         let relief_scale = erosion_overrides
             .relief_scale
             .unwrap_or(hex3::world::RELIEF_SCALE);
+        let relief_preset = ReliefPreset::from_scale(relief_scale);
+        let river_width_scale = erosion_overrides.river_width_scale.unwrap_or(1.0);
         let initial_viewed_stage = world_data.current_stage();
         let world_buffers = generate_world_buffers(&gpu.device, &gpu.queue, &world_data);
 
@@ -129,6 +136,7 @@ impl AppState {
         println!("  Tab: toggle map view");
         println!("  1-8: Relief/Terrain/Elevation/Plates/Noise/Hydrology/Features/Climate");
         println!("  E: toggle edges | V: cycle rivers (Off/Major/All)");
+        println!("  X: cycle relief (Flat/Physical/Authentic/Dramatic)");
         println!("  H: toggle hemisphere lighting | D: export data");
         println!("  R: regenerate | Space: advance stage");
         println!("  Up/Down: adjust climate (wetter/drier) [Stage 3]");
@@ -148,6 +156,8 @@ impl AppState {
             fine_cache,
             orogen_model,
             relief_scale,
+            relief_preset,
+            river_width_scale,
             erosion_overrides,
             viewed_stage: initial_viewed_stage,
             inactive_buffers: std::collections::HashMap::new(),
@@ -174,6 +184,26 @@ impl AppState {
         self.camera.set_aspect(self.gpu.aspect());
         self.renderer
             .resize(&self.gpu.device, self.gpu.size.width, self.gpu.size.height);
+    }
+
+    pub fn cycle_relief_preset(&mut self) {
+        self.relief_preset = self.relief_preset.cycle();
+        self.relief_scale = self.relief_preset.scale();
+
+        // Relief edges are CPU-displaced, so lazily rebuild them at the new
+        // scale. Filled terrain updates immediately through its uniform.
+        self.world_buffers.relief_edge = None;
+        for buffers in self.inactive_buffers.values_mut() {
+            buffers.relief_edge = None;
+        }
+        if let Some(particles) = &mut self.gpu_particles {
+            particles.set_relief_scale(&self.gpu, self.relief_scale);
+        }
+        println!(
+            "Relief: {} (scale {:.5})",
+            self.relief_preset.name(),
+            self.relief_scale
+        );
     }
 
     pub fn regenerate_world(&mut self, seed: u64) {
@@ -401,7 +431,8 @@ impl AppState {
             .with_hemisphere_lighting(self.hemisphere_lighting)
             .with_map_mode(map_mode_enabled)
             .with_rivers(self.river_mode != RiverMode::Off)
-            .with_river_major_only(self.river_mode == RiverMode::Major);
+            .with_river_major_only(self.river_mode == RiverMode::Major)
+            .with_river_width_scale(self.river_width_scale);
 
         // Select pipeline and buffers based on render mode
         // Wind layers use unified (relief) mesh so particles align with terrain
@@ -566,9 +597,10 @@ impl AppState {
         };
         let stage = self.viewed_stage;
         self.window.set_title(&format!(
-            "Hex3 - {} | {} | Stage {} | {:.0} FPS",
+            "Hex3 - {} | {} | {} | Stage {} | {:.0} FPS",
             view,
             self.render_mode.name(),
+            self.relief_preset.name(),
             stage,
             self.current_fps
         ));

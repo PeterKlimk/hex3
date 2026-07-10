@@ -116,6 +116,8 @@ impl WorldBuffers {
 pub struct ErosionOverrides {
     /// Renderer-only sweep value. World generation deliberately ignores this.
     pub relief_scale: Option<f32>,
+    /// Renderer-only cartographic river width multiplier.
+    pub river_width_scale: Option<f32>,
     pub mfd_exponent: Option<f32>,
     pub flat_resolution: Option<bool>,
     pub confinement_slope: Option<f32>,
