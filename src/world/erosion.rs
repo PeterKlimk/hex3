@@ -663,7 +663,7 @@ impl ErosionState {
         // EMERGENT (erosion-v3): when Some, the full coarse-target elevation. The
         // builder uplift gates on THIS (not the demoted `base`), so a demoted-below-sea
         // orogen cell still uplifts back, and it EXCLUDES rift_delta (only the demoted
-        // arc+collision orogen term is re-supplied). None = current painted behaviour.
+        // conservative tectonic load is re-supplied). None = current painted behaviour.
         coarse_target: Option<&[f32]>,
         // O0 structured uplift shape (orogen-structure.md). When Some (+ emergent), the
         // builder volume-normalizes this to the demoted volume and uses it as the uplift
@@ -676,14 +676,14 @@ impl ErosionState {
         let inv_slope = 1.0 / slope;
         let thick_init = fields.crust_thickness.clone();
 
-        // Tectonic uplift source, in THICKNESS units per step. arc/collision are
-        // elevation magnitudes (-> thickness via /slope); rift_delta is already a
-        // signed thickness delta (negative in the axial valley). NOT atmospheric
-        // uplift. Scaled by params.uplift_scale.
+        // Tectonic uplift source, in THICKNESS units per step. The static orogen
+        // load is the conservative coarse crust solve; arc/collision remain shape
+        // diagnostics and do not prescribe the volume. Rift delta is already a
+        // signed thickness delta. NOT atmospheric uplift.
         //
         // Gated to land (base >= sea level). Incision and diffusion skip submerged
         // cells, so uplift there would be a one-way thickness addition with nothing
-        // removing it — over many steps it lifts arc/collision-forced ocean cells
+        // removing it — over many steps it lifts tectonically thickened ocean cells
         // (e.g. subduction trench margins) across sea level and manufactures spurious
         // land, breaking the fixed sea-level datum. (Terminal-lake sinks are left
         // uplifting: those are either sub-sea-level — already excluded — or genuinely
@@ -722,7 +722,7 @@ impl ErosionState {
             .map(|i| {
                 if let Some(target) = coarse_target {
                     // EMERGENT (erosion-v3): SELF-CALIBRATING builder. Rebuild the demoted
-                    // envelope (target − base = the removed orogen, ≈ λ·(arc+collision))
+                    // envelope (target − base = the removed tectonic crust load)
                     // over the erosion epoch, ×gain to offset what erosion removes WHILE
                     // building, so the eroded orogen lands near the coarse target. Gated on
                     // the TARGET land mask so demoted-below-sea orogen cells still rebuild.
@@ -741,12 +741,11 @@ impl ErosionState {
                     }
                 } else {
                     // Painted path (hold & carve): ongoing tectonic uplift from the
-                    // arc/collision forcing + rift, gated to land (base ≥ sea level).
+                    // Conservative tectonic crust load + rift, gated to land.
                     if base[i] < 0.0 {
                         return 0.0;
                     }
-                    params.uplift_scale
-                        * ((fields.arc[i] + fields.collision[i]) * inv_slope + fields.rift_delta[i])
+                    params.uplift_scale * (fields.tectonic_thickening[i] + fields.rift_delta[i])
                 }
             })
             .collect();
@@ -2274,7 +2273,7 @@ fn diffuse_land(
 /// (the edge fluxes `w_ij·(u_j − u_i)` are antisymmetric; `w_ij = w_ji`).
 ///
 /// The diffusion is linear, so smoothing the combined source is identical to
-/// smoothing arc/collision/rift_delta separately and recombining — the signed
+/// smoothing tectonic thickening/rift delta separately and recombining — the signed
 /// rift thinning superposes correctly with the positive orogen uplift (no
 /// magnitude blur). `smooth_km` is the Gaussian std-dev of the kernel: for 2-D
 /// isotropic diffusion the per-axis variance after "time" τ is `2·D·τ`, so we

@@ -13,7 +13,7 @@ use rayon::prelude::*;
 use super::boundary::{collect_plate_boundaries, BoundaryKind, SubductionPolarity};
 use super::constants::*;
 use super::dynamics::Dynamics;
-use super::elevation::{coarse_elevation_fields, ElevationFields};
+use super::elevation::{coarse_elevation_fields, isostasy_slope, ElevationFields};
 use super::erosion::ErosionParams;
 use super::features::build_cell_pair_edge_endpoints;
 use super::fine_cache::{self, FineCacheMode};
@@ -78,8 +78,8 @@ pub struct FineStructureParams {
     /// Strength of the active/passive margin contrast: relief is sharpened toward an
     /// active (convergent) coast and damped toward a passive one (P1c). 0 = off (P1b).
     pub margin_contrast: f32,
-    /// Emergent-orogens demotion fraction (erosion-v3): fraction of the orogen peak
-    /// (arc+collision) removed from the static base envelope and rebuilt by active
+    /// Emergent-orogens demotion fraction (erosion-v3): fraction of the solved
+    /// tectonic crust load removed from the static base envelope and rebuilt by active
     /// uplift during erosion. 0 = off (painted/postprocessor path); >0 = emergent.
     pub emergent_lambda: f32,
     /// O0 (orogen-structure): blend of the structured (asymmetric + segmented) emergent
@@ -730,17 +730,21 @@ impl FineBase {
         // real substrate. `coarse_base_elevation` is kept as the lapse baseline.
         let t0 = Instant::now();
         let mut base_elevation = coarse_base_elevation.clone();
-        // Emergent orogens (erosion-v3): DEMOTE the orogen peak from the static base
-        // envelope by λ·(arc+collision) — the exactly-separable orogen elevation term
-        // (isostasy is linear, so the peak's elevation contribution IS arc+collision).
+        // Emergent orogens (erosion-v3): DEMOTE a fraction of the conservative
+        // tectonic crust load from the static envelope. Erosion rebuilds exactly
+        // this solved volume as active uplift; legacy arc/collision response fields
+        // may shape that work but no longer determine how much mountain exists.
         // Erosion then rebuilds it as active uplift, carving dissected ranges instead
         // of dissecting a flat plateau. `coarse_base_elevation` is kept as the rebuild
         // TARGET and the coarse-target land mask. See erosion-v3-emergent-orogens.md.
         if structure_params.emergent_lambda > 0.0 {
             let lambda = structure_params.emergent_lambda;
             let ef = &fields.elevation_fields;
-            for i in 0..base_elevation.len() {
-                base_elevation[i] -= lambda * (ef.arc[i] + ef.collision[i]).max(0.0);
+            for (elevation, &tectonic) in base_elevation
+                .iter_mut()
+                .zip(ef.tectonic_thickening.iter())
+            {
+                *elevation -= lambda * isostasy_slope() * tectonic.max(0.0);
             }
             report_envelope_land_flips(&tessellation, &coarse_base_elevation, &base_elevation);
         }
@@ -2805,6 +2809,7 @@ fn transfer_fields(
     let _ = coarse_elevation;
     let mut elevation_fields = ElevationFields {
         crust_thickness: Vec::with_capacity(n),
+        tectonic_thickening: Vec::with_capacity(n),
         continentality: Vec::with_capacity(n),
         ridge_age_distance: Vec::with_capacity(n),
         trench: Vec::with_capacity(n),
@@ -2823,6 +2828,9 @@ fn transfer_fields(
 
     for cell in transferred {
         elevation_fields.crust_thickness.push(cell.crust_thickness);
+        elevation_fields
+            .tectonic_thickening
+            .push(cell.tectonic_thickening);
         elevation_fields.continentality.push(cell.continentality);
         elevation_fields
             .ridge_age_distance
@@ -2854,6 +2862,7 @@ fn transfer_fields(
 
 struct TransferredCell {
     crust_thickness: f32,
+    tectonic_thickening: f32,
     continentality: f32,
     ridge_age_distance: f32,
     trench: f32,
@@ -2888,6 +2897,7 @@ fn transfer_cell(
     let continentality = support.interpolate(&coarse_fields.continentality, 0.0);
     TransferredCell {
         crust_thickness: support.interpolate(&coarse_fields.crust_thickness, 0.0),
+        tectonic_thickening: support.interpolate(&coarse_fields.tectonic_thickening, 0.0),
         continentality,
         ridge_age_distance: support.interpolate(&coarse_fields.ridge_age_distance, f32::INFINITY),
         trench: support.interpolate(&coarse_fields.trench, 0.0),

@@ -8,8 +8,11 @@
 //!
 //! Thickness = margin ramp (continental thick, oceanic thin) + macro-scale
 //! craton-structure thickness (thick shield interiors tapering to margins,
-//! with intracratonic basins) + tectonic thickening
-//! (collision, arcs) - rift thinning. The Airy relation (linear in
+//! with intracratonic basins) + conserved tectonic thickening
+//! (collision shortening and arc accretion, gravitationally spread)
+//! - rift thinning.
+//!
+//! The Airy relation (linear in
 //! thickness for uniform densities) converts thickness to base elevation,
 //! so plateaus, rift subsidence, and margin profiles all follow from one
 //! principle. Thermal subsidence stays separate (young ocean floor is high
@@ -62,6 +65,9 @@ pub struct NoiseLayerData {
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct ElevationFields {
     pub crust_thickness: Vec<f32>,
+    /// Conserved tectonic excess thickness after gravitational spreading.
+    /// This, rather than `arc + collision`, is the static orogenic crust load.
+    pub tectonic_thickening: Vec<f32>,
     pub continentality: Vec<f32>,
     pub ridge_age_distance: Vec<f32>,
     pub trench: Vec<f32>,
@@ -69,11 +75,10 @@ pub struct ElevationFields {
     pub convergent: Vec<f32>,
     pub divergent: Vec<f32>,
     pub is_continental: Vec<bool>,
-    /// Volcanic-arc uplift forcing (elevation magnitude). Carried so the fine
-    /// mesh can drive erosion uplift from the same feature machinery elevation
-    /// uses; already folded into `crust_thickness` for the static surface.
+    /// Legacy volcanic-arc response magnitude. Carried as a spatial/process
+    /// diagnostic for fine structure; it no longer prescribes static height.
     pub arc: Vec<f32>,
-    /// Continental-collision uplift forcing (elevation magnitude). See `arc`.
+    /// Legacy continental-collision response magnitude. See `arc`.
     pub collision: Vec<f32>,
     /// Signed continental-rift thickness delta (thickness units, not elevation):
     /// negative in the axial valley, positive on the shoulders.
@@ -288,13 +293,181 @@ fn continentality(signed_margin_distance: f32, convergent_influence: f32) -> f32
     smoothstep((signed_margin_distance + ocean_width) / (ocean_width + land_width))
 }
 
+#[derive(Clone, Copy)]
+struct RelaxationEdge {
+    a: usize,
+    b: usize,
+    conductance: f32,
+}
+
+/// Turn extensive convergent crust flux into a conservative thickness field.
+///
+/// The implicit finite-volume diffusion equation
+///
+/// ```text
+/// (I - D t ∇²) H = H_source
+/// ```
+///
+/// represents gravitational spreading over the same episode that accumulated
+/// the shortening. No-flux boundaries follow crust-type boundaries. The solve
+/// conserves `sum(area * H)`; its natural length is sqrt(D*t), so changing mesh
+/// resolution does not change the physical footprint.
+fn solve_tectonic_thickening(
+    tessellation: &Tessellation,
+    crust: &Crust,
+    volume_flux: &[f32],
+) -> Vec<f32> {
+    let n = tessellation.num_cells();
+    assert_eq!(volume_flux.len(), n);
+    let areas = tessellation.cell_areas();
+    let duration = TECTONIC_ACCUMULATION_TIME.max(0.0);
+    let source: Vec<f32> = volume_flux
+        .iter()
+        .zip(areas.iter())
+        .map(|(&flux, &area)| flux.max(0.0) * duration / area.max(1e-12))
+        .collect();
+
+    let tau = CRUST_GRAVITATIONAL_DIFFUSIVITY.max(0.0) * duration;
+    if tau <= 0.0 || !source.iter().any(|&x| x > 0.0) {
+        return source;
+    }
+
+    let mut edges = Vec::with_capacity(tessellation.adjacency.total_neighbor_entries() / 2);
+    for i in 0..n {
+        for &j in tessellation.neighbors(i) {
+            if j <= i || crust.crust_type(i) != crust.crust_type(j) {
+                continue;
+            }
+            let center_distance =
+                (tessellation.cell_center(i) - tessellation.cell_center(j)).length();
+            if center_distance <= 1e-8 {
+                continue;
+            }
+            let face_length = tessellation.shared_edge_length(i, j);
+            if face_length > 0.0 {
+                edges.push(RelaxationEdge {
+                    a: i,
+                    b: j,
+                    conductance: face_length / center_distance,
+                });
+            }
+        }
+    }
+
+    let relaxed = solve_screened_conservative(&areas, &edges, &source, tau);
+    if log::log_enabled!(log::Level::Debug) {
+        let source_max = source.iter().copied().fold(0.0f32, f32::max);
+        let relaxed_max = relaxed.iter().copied().fold(0.0f32, f32::max);
+        let volume: f64 = relaxed
+            .iter()
+            .zip(areas.iter())
+            .map(|(&h, &a)| h as f64 * a as f64)
+            .sum();
+        log::debug!(
+            "tectonic crust: volume={:.6}, local max={:.3}, relaxed max={:.3}, length={:.4} rad",
+            volume,
+            source_max,
+            relaxed_max,
+            tau.sqrt(),
+        );
+    }
+    relaxed
+}
+
+/// Conjugate-gradient solve for `(A + tau*L) x = A*source`, where A is cell
+/// area and L is the symmetric finite-volume graph Laplacian.
+fn solve_screened_conservative(
+    areas: &[f32],
+    edges: &[RelaxationEdge],
+    source: &[f32],
+    tau: f32,
+) -> Vec<f32> {
+    let n = source.len();
+    let apply = |x: &[f32], out: &mut [f32]| {
+        for i in 0..n {
+            out[i] = areas[i] * x[i];
+        }
+        for edge in edges {
+            let flux = tau * edge.conductance * (x[edge.a] - x[edge.b]);
+            out[edge.a] += flux;
+            out[edge.b] -= flux;
+        }
+    };
+    let dot = |a: &[f32], b: &[f32]| -> f64 {
+        a.iter()
+            .zip(b.iter())
+            .map(|(&x, &y)| x as f64 * y as f64)
+            .sum()
+    };
+
+    let rhs: Vec<f32> = areas
+        .iter()
+        .zip(source.iter())
+        .map(|(&area, &height)| area * height)
+        .collect();
+    let mut x = source.to_vec();
+    let mut ax = vec![0.0f32; n];
+    apply(&x, &mut ax);
+    let mut residual: Vec<f32> = rhs.iter().zip(ax.iter()).map(|(&b, &a)| b - a).collect();
+    let mut direction = residual.clone();
+    let mut residual_sq = dot(&residual, &residual);
+    let rhs_norm = dot(&rhs, &rhs).sqrt().max(1e-20);
+    let tolerance = 1e-6 * rhs_norm;
+    let mut applied = vec![0.0f32; n];
+
+    // Numerical bound only; it is not a worldbuilding parameter.
+    for _ in 0..256 {
+        if residual_sq.sqrt() <= tolerance {
+            break;
+        }
+        apply(&direction, &mut applied);
+        let denom = dot(&direction, &applied);
+        if denom <= 1e-30 {
+            break;
+        }
+        let alpha = residual_sq / denom;
+        for i in 0..n {
+            x[i] += (alpha * direction[i] as f64) as f32;
+            residual[i] -= (alpha * applied[i] as f64) as f32;
+        }
+        let next_residual_sq = dot(&residual, &residual);
+        let beta = next_residual_sq / residual_sq.max(1e-30);
+        for i in 0..n {
+            direction[i] = residual[i] + (beta * direction[i] as f64) as f32;
+        }
+        residual_sq = next_residual_sq;
+    }
+
+    // The exact M-matrix solution is non-negative. Remove floating-point CG
+    // undershoot, then restore the volume invariant exactly after roundoff.
+    for value in &mut x {
+        *value = value.max(0.0);
+    }
+    let source_volume: f64 = source
+        .iter()
+        .zip(areas.iter())
+        .map(|(&h, &a)| h as f64 * a as f64)
+        .sum();
+    let solved_volume: f64 = x
+        .iter()
+        .zip(areas.iter())
+        .map(|(&h, &a)| h as f64 * a as f64)
+        .sum();
+    if solved_volume > 0.0 {
+        let scale = (source_volume / solved_volume) as f32;
+        for value in &mut x {
+            *value *= scale;
+        }
+    }
+    x
+}
+
 pub(crate) fn coarse_elevation_fields(
     tessellation: &Tessellation,
     crust: &Crust,
     features: &FeatureFields,
 ) -> ElevationFields {
     let num_cells = tessellation.num_cells();
-    let slope = isostasy_slope();
 
     let mut crust_thickness = Vec::with_capacity(num_cells);
     let mut continentality_field = Vec::with_capacity(num_cells);
@@ -308,19 +481,25 @@ pub(crate) fn coarse_elevation_fields(
         let cont = continentality(crust.signed_margin_distance[i], convergent);
         let base_thickness = CRUST_THICKNESS_OCEANIC
             + cont * (CRUST_THICKNESS_CONTINENTAL - CRUST_THICKNESS_OCEANIC);
-        let thickening = (features.arc[i] + features.collision[i]) / slope;
         let rift = features.rift_delta[i] * cont;
         // Macro craton-thickness is added later, in assembly (it needs craton
         // structure + per-craton RNG), so it stays out of this transferred field.
-        let thickness = (base_thickness + thickening + rift).max(0.05);
+        let thickness = (base_thickness + rift).max(0.05);
 
         crust_thickness.push(thickness);
         continentality_field.push(cont);
         is_continental.push(continental);
     }
 
+    let tectonic_thickening =
+        solve_tectonic_thickening(tessellation, crust, &features.tectonic_crust_flux);
+    for (thickness, &tectonic) in crust_thickness.iter_mut().zip(tectonic_thickening.iter()) {
+        *thickness += tectonic;
+    }
+
     ElevationFields {
         crust_thickness,
+        tectonic_thickening,
         continentality: continentality_field,
         ridge_age_distance: features.ridge_age_distance.clone(),
         trench: features.trench.clone(),
@@ -458,5 +637,61 @@ fn assemble_elevation_cell(
         elevation: structural_elevation,
         noise_contribution: macro_c,
         macro_layer: macro_c,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn crust_relaxation_conserves_volume_and_spreads_load() {
+        let areas = vec![1.0, 1.0, 1.0];
+        let edges = vec![
+            RelaxationEdge {
+                a: 0,
+                b: 1,
+                conductance: 1.0,
+            },
+            RelaxationEdge {
+                a: 1,
+                b: 2,
+                conductance: 1.0,
+            },
+        ];
+        let source = vec![1.0, 0.0, 0.0];
+        let solved = solve_screened_conservative(&areas, &edges, &source, 1.0);
+
+        let volume: f32 = solved.iter().zip(&areas).map(|(h, a)| h * a).sum();
+        assert!((volume - 1.0).abs() < 1e-5);
+        assert!(solved[0] < source[0]);
+        assert!(solved[1] > 0.0 && solved[2] > 0.0);
+        assert!(solved[0] > solved[1] && solved[1] > solved[2]);
+    }
+
+    #[test]
+    fn zero_mobility_preserves_local_thickening() {
+        let areas = vec![0.5, 1.5];
+        let edges = vec![RelaxationEdge {
+            a: 0,
+            b: 1,
+            conductance: 2.0,
+        }];
+        let source = vec![0.75, 0.1];
+        let solved = solve_screened_conservative(&areas, &edges, &source, 0.0);
+        assert_eq!(solved, source);
+    }
+
+    #[test]
+    fn no_flux_boundary_keeps_disconnected_domain_empty() {
+        let areas = vec![1.0, 1.0, 1.0];
+        let edges = vec![RelaxationEdge {
+            a: 0,
+            b: 1,
+            conductance: 1.0,
+        }];
+        let source = vec![1.0, 0.0, 0.0];
+        let solved = solve_screened_conservative(&areas, &edges, &source, 1.0);
+        assert_eq!(solved[2], 0.0);
     }
 }

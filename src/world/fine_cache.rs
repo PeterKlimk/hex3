@@ -51,7 +51,9 @@ use super::{Atmosphere, Crust, Elevation, FeatureFields, Tessellation};
 /// v9: O0 segmentation now uses real arc-length CHAINING of the fronts (not 3D-noise
 /// proxy) + the structured builder gained a per-cell land floor — generation-logic
 /// changes the content hash can't observe.
-const FINE_BASE_CACHE_VERSION: u32 = 9;
+/// v10: static orogen volume comes from the conservative tectonic-thickening
+/// solve, and that solved field is transferred to the fine base.
+const FINE_BASE_CACHE_VERSION: u32 = 10;
 
 /// How the fine-mesh base should use the on-disk cache.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -110,8 +112,8 @@ pub fn fine_base_key(
     // Active/passive margin contrast (P1c): the knob (the margin SOURCE,
     // crust.signed_margin_distance, is already hashed above). Shape constants below.
     mix_f32(&mut h, structure.margin_contrast);
-    // Emergent orogens (erosion-v3): the demotion fraction (the arc+collision source is
-    // already hashed via features). Changes the base envelope, so it's a fine-base input.
+    // Emergent orogens (erosion-v3): the demotion fraction. The solved load moves
+    // coarse elevation and its boundary source is hashed below.
     mix_f32(&mut h, structure.emergent_lambda);
     // O0 structured emergent uplift (orogen-structure): the structured-shape blend knob.
     mix_f32(&mut h, structure.emergent_structured);
@@ -218,6 +220,7 @@ pub fn fine_base_key(
         &features.arc_distance,
         &features.arc_shape_noise,
         &features.rift_delta,
+        &features.tectonic_crust_flux,
     ] {
         mix_f32s(&mut h, field);
     }

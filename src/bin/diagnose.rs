@@ -2519,6 +2519,113 @@ fn run_mountain_audit(world: &World, seed: u64, top: usize) {
         );
     }
 
+    // SPIRE / ISOLATION PROBE (2026-07-10 "pillar" verdict): peak HEIGHT alone
+    // passes needles that are cliffs on all sides. Earth summits connect to
+    // massifs — the HIGHEST terrain in a ring around a big peak sits close below
+    // it (Everest→Lhotse −0.3 km at 3 km; even the most isolated volcanoes:
+    // Kilimanjaro ring-10 max drop ~1.4 km, ring-25 ~2.5 with Mawenzi). The
+    // drop from summit to ring-MAX measures how alone a summit stands; a needle
+    // drops many km in EVERY direction (the gentlest exit is still a cliff).
+    {
+        let mut by_elev: Vec<usize> = (0..n).filter(|&i| mask[i]).collect();
+        by_elev.sort_by(|&a, &b| elev[b].total_cmp(&elev[a]));
+        let mut summits: Vec<usize> = Vec::new();
+        for &i in &by_elev {
+            if summits.len() >= 3 {
+                break;
+            }
+            let pos = tess.cell_center(i);
+            let min_sep = 50.0 / EARTH_RADIUS_KM;
+            if summits
+                .iter()
+                .all(|&s| (tess.cell_center(s) - pos).length() > min_sep)
+            {
+                summits.push(i);
+            }
+        }
+        // Two scales of aloneness. SUMMIT scale (needle): rings ≤50 km — Earth
+        // connected 8-km peaks drop ≲1 km to ring-10 max, isolated volcanoes ≲2.
+        // RANGE scale (island block / "pillar"): rings 50-250 km — Earth belts
+        // continue along strike, so ring-250 max around ANY big summit stays
+        // within ~2-3 km even for Kilimanjaro (Meru) / Denali (Alaska Range). A
+        // 9-km summit whose 100-250 km surroundings are lowland is a freestanding
+        // pillar no vertical-exaggeration excuse survives.
+        println!("  spire probe (summit drop to HIGHEST terrain per ring; Earth: ring-10 ≲1-2, ring-25 ≲3, ring-100 ≲3, ring-250 ≲3 km):");
+        let rings_km = [
+            (2.0f32, 5.0f32),
+            (5.0, 10.0),
+            (10.0, 25.0),
+            (25.0, 50.0),
+            (50.0, 100.0),
+            (100.0, 250.0),
+        ];
+        // ring-MAX asks "does ANY comparable terrain exist in the ring" (the
+        // Himalaya scores ~0 out to 250 km — Kangchenjunga). The pillar signature
+        // is the TYPICAL surrounding height: ring-p90 drop. Everest's 10-25 km
+        // annulus is dense 5-7 km terrain (p90 drop ~2 km); Kilimanjaro — Earth's
+        // most pillar-like big mountain — drops ~2 at ring-10 p90, ~4.4 at
+        // ring-25. A summit whose ring-10 p90 drop exceeds ~5 km is a cliff on
+        // (nearly) all sides at a scale Earth does not produce.
+        let (mut worst10, mut worst25) = (0.0f32, 0.0f32);
+        let mut worst_block = 0.0f32;
+        for &s in &summits {
+            let sp = tess.cell_center(s);
+            let mut ring_vals: [Vec<f32>; 6] = Default::default();
+            for i in 0..n {
+                let d_km = (tess.cell_center(i) - sp).length() * EARTH_RADIUS_KM;
+                for (k, &(lo, hi)) in rings_km.iter().enumerate() {
+                    if d_km >= lo && d_km < hi {
+                        ring_vals[k].push(elev[i].max(0.0));
+                    }
+                }
+            }
+            let stat = |k: usize, q: f32| -> f32 {
+                let v = &mut ring_vals[k].clone();
+                if v.is_empty() {
+                    return f32::NAN;
+                }
+                v.sort_by(f32::total_cmp);
+                let x = v[(((v.len() - 1) as f32) * q) as usize];
+                (elev[s] - x).max(0.0) * AUDIT_M_PER_UNIT / 1000.0
+            };
+            worst10 = worst10.max(stat(1, 0.9));
+            worst25 = worst25.max(stat(2, 0.9));
+            worst_block = worst_block.max(stat(5, 0.9));
+            println!(
+                "    summit {:>5.1} km: drop to ring-p90 (max)  5-10km {:>4.1} ({:>4.1}) | 10-25 {:>4.1} ({:>4.1}) | 25-50 {:>4.1} ({:>4.1}) | 50-100 {:>4.1} ({:>4.1}) | 100-250 {:>4.1} ({:>4.1}) km",
+                elev[s] * AUDIT_M_PER_UNIT / 1000.0,
+                stat(1, 0.9),
+                stat(1, 1.0),
+                stat(2, 0.9),
+                stat(2, 1.0),
+                stat(3, 0.9),
+                stat(3, 1.0),
+                stat(4, 0.9),
+                stat(4, 1.0),
+                stat(5, 0.9),
+                stat(5, 1.0),
+            );
+        }
+        // Two failure shapes. NEEDLE (summit scale): big p90 drops at 10-25 km.
+        // MESA/PILLAR (range scale, the 2026-07-10 verdict): flat top out to
+        // ~100 km then a multi-km cliff to the typical 100-250 km surroundings —
+        // an isolated orogen block with no foothill taper. Earth's ceiling at the
+        // 100-250 ring is ~4 km (Everest over the Gangetic plain, WITH a
+        // monotonic taper through the intermediate rings; our mesa is flat-then-
+        // cliff). Baseline inherits this from the coarse macro envelope; meso/
+        // pulse raise the top and texture it but do not create the cliff.
+        let verdict = if worst10 > 5.0 || worst25 > 6.5 || worst_block > 6.0 {
+            "FLAG-PILLAR-ABSURD (do not send to visual)"
+        } else if worst10 > 3.5 || worst25 > 5.0 || worst_block > 4.5 {
+            "FLAG-pillar"
+        } else {
+            "ok"
+        };
+        println!(
+            "    spire gate [{verdict}]  (p90 drop: flag ring-10 >3.5 | ring-25 >5 | ring-250 >4.5 km; absurd >5 / >6.5 / >6. Earth: Everest ~2/2.3/~4-taper, Kilimanjaro ~2/4.4)"
+        );
+    }
+
     // CREST-TRAIN: is the meso band a metronome, a quasi-periodic fold belt, or
     // drainage-organized? Ridge spacings along cross-strike transects (pooled over
     // the significant ranges) + flow-orientation split vs strike.

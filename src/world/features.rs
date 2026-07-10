@@ -1,8 +1,10 @@
 //! Tectonic feature fields derived from plate boundaries.
 //!
 //! This module computes canonical per-cell fields (trench, arc, ridge, collision, activity, regime)
-//! from plate boundary edges. These fields are resolution-independent (distances in radians)
-//! and serve as the primary drivers of terrain elevation.
+//! from plate boundary edges. Dynamic trench/ridge fields still contribute
+//! elevation directly; convergent boundaries additionally emit a conserved
+//! crust-volume flux that elevation redistributes before isostasy. Arc and
+//! collision response fields remain diagnostics and fine-structure guides.
 
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
@@ -38,6 +40,12 @@ pub struct FeatureFields {
     /// Continental collision uplift (cont-cont convergent).
     /// Stores the computed uplift magnitude.
     pub collision: Vec<f32>,
+
+    /// Crustal volume added per unit tectonic time at each cell by convergent
+    /// boundary kinematics. Units are thickness × unit-sphere area / time.
+    /// Elevation conservatively redistributes this source before applying
+    /// isostasy; it is deliberately not a prescribed height field.
+    pub tectonic_crust_flux: Vec<f32>,
 
     /// Tectonic activity scalar (0-1).
     /// High near active boundaries, decays into plate interiors.
@@ -137,6 +145,11 @@ impl FeatureFields {
         let mut collision_seed_strength = vec![0.0f32; num_cells];
         let mut collision_seed_dist0 = vec![f32::INFINITY; num_cells];
 
+        // Extensive crust-volume flux. Unlike the legacy feature magnitudes,
+        // this is never normalized to an intensive per-cell response: summing
+        // it over cells recovers the volume supplied by all boundary segments.
+        let mut tectonic_crust_flux = vec![0.0f32; num_cells];
+
         let mut rift_seed_strength = vec![0.0f32; num_cells];
         let mut rift_seed_dist0 = vec![f32::INFINITY; num_cells];
 
@@ -232,6 +245,13 @@ impl FeatureFields {
                     if let Some(polarity) = b.subduction {
                         match polarity {
                             SubductionPolarity::ASubducts => {
+                                add_subduction_crust_flux(
+                                    &mut tectonic_crust_flux,
+                                    b.cell_b,
+                                    b.type_b,
+                                    closing,
+                                    b.edge_length,
+                                );
                                 // A subducts: trench on A if oceanic; arc on B (overriding)
                                 if b.type_a == CrustType::Oceanic {
                                     add_force_seed(
@@ -279,6 +299,13 @@ impl FeatureFields {
                                 }
                             }
                             SubductionPolarity::BSubducts => {
+                                add_subduction_crust_flux(
+                                    &mut tectonic_crust_flux,
+                                    b.cell_a,
+                                    b.type_a,
+                                    closing,
+                                    b.edge_length,
+                                );
                                 if b.type_b == CrustType::Oceanic {
                                     add_force_seed(
                                         &mut trench_seed_strength,
@@ -329,6 +356,12 @@ impl FeatureFields {
                         // No subduction polarity = continent-continent collision
                         if b.type_a == CrustType::Continental && b.type_b == CrustType::Continental
                         {
+                            // Relative closing consumes a strip of continental
+                            // area. Its crustal volume is shared between the two
+                            // deforming sides; no empirical uplift multiplier.
+                            let volume_rate = closing * b.edge_length * CRUST_THICKNESS_CONTINENTAL;
+                            tectonic_crust_flux[b.cell_a] += 0.5 * volume_rate;
+                            tectonic_crust_flux[b.cell_b] += 0.5 * volume_rate;
                             add_force_seed(
                                 &mut collision_seed_strength,
                                 &mut collision_seed_weight,
@@ -775,6 +808,7 @@ impl FeatureFields {
             arc,
             ridge,
             collision,
+            tectonic_crust_flux,
             rift_delta,
             activity,
             convergent,
@@ -787,6 +821,26 @@ impl FeatureFields {
             arc_shape_noise,
         }
     }
+}
+
+/// Add overriding-plate crust production from a subduction segment.
+/// Continental overriding crust can shorten as coupling transmits compression;
+/// both continental and oceanic arcs retain some subducted material as magma.
+fn add_subduction_crust_flux(
+    flux: &mut [f32],
+    overriding_cell: usize,
+    overriding_type: CrustType,
+    closing: f32,
+    edge_length: f32,
+) {
+    let shortening_thickness = if overriding_type == CrustType::Continental {
+        SUBDUCTION_COMPRESSION_COUPLING * CRUST_THICKNESS_CONTINENTAL
+    } else {
+        0.0
+    };
+    let magmatic_thickness = SUBDUCTION_MAGMATIC_ACCRETION * CRUST_THICKNESS_OCEANIC;
+    flux[overriding_cell] +=
+        closing.max(0.0) * edge_length * (shortening_thickness + magmatic_thickness);
 }
 
 fn distance_and_value_field_from_edge_seed_cells(
@@ -1483,6 +1537,32 @@ mod tests {
     use super::*;
 
     const EPS: f32 = 1e-6;
+
+    #[test]
+    fn subduction_crust_flux_separates_shortening_from_magmatism() {
+        let closing = 0.4;
+        let edge_length = 0.02;
+        let mut continental = vec![0.0];
+        add_subduction_crust_flux(
+            &mut continental,
+            0,
+            CrustType::Continental,
+            closing,
+            edge_length,
+        );
+        let expected_cont = closing
+            * edge_length
+            * (SUBDUCTION_COMPRESSION_COUPLING * CRUST_THICKNESS_CONTINENTAL
+                + SUBDUCTION_MAGMATIC_ACCRETION * CRUST_THICKNESS_OCEANIC);
+        assert!((continental[0] - expected_cont).abs() < EPS);
+
+        let mut oceanic = vec![0.0];
+        add_subduction_crust_flux(&mut oceanic, 0, CrustType::Oceanic, closing, edge_length);
+        let expected_ocean =
+            closing * edge_length * SUBDUCTION_MAGMATIC_ACCRETION * CRUST_THICKNESS_OCEANIC;
+        assert!((oceanic[0] - expected_ocean).abs() < EPS);
+        assert!(continental[0] > oceanic[0]);
+    }
 
     #[test]
     fn broken_flexure_matches_key_points() {

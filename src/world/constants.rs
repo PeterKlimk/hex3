@@ -74,6 +74,37 @@ pub const CRUST_THICKNESS_CONTINENTAL: f32 = 1.0;
 /// Reference thickness of oceanic crust.
 pub const CRUST_THICKNESS_OCEANIC: f32 = 0.25;
 
+// Conservative tectonic crust evolution
+//
+// Convergent boundaries contribute crust VOLUME, not prescribed elevation.
+// `TECTONIC_ACCUMULATION_TIME` converts the dimensionless Euler-pole velocities
+// into accumulated shortening; gravitational spreading then redistributes that
+// volume before isostasy turns thickness into elevation. Together, duration and
+// diffusivity define the natural relaxation distance sqrt(D*t), rather than a
+// separately painted mountain width.
+
+/// Duration of the represented tectonic episode, in the same time units as the
+/// generated Euler-pole angular velocities. With `MAX_ANGULAR_VELOCITY = 1`,
+/// 0.05 corresponds to at most 0.05 radians (~320 km on an Earth-radius world)
+/// of accumulated plate motion.
+pub const TECTONIC_ACCUMULATION_TIME: f32 = 0.05;
+
+/// Fraction of subduction-zone closing accommodated by shortening/thickening
+/// of continental overriding crust. 0 gives freely retreating subduction;
+/// values above 1 deliberately permit unusually strongly coupled alien worlds.
+pub const SUBDUCTION_COMPRESSION_COUPLING: f32 = 0.25;
+
+/// Fraction of the subducting oceanic crustal volume retained as new arc crust.
+/// This is magmatic addition, distinct from shortening of the overriding plate.
+pub const SUBDUCTION_MAGMATIC_ACCRETION: f32 = 0.15;
+
+/// Mobility of tectonically thickened crust under its own gravitational
+/// potential, in radians squared per tectonic time unit. The Earth-like default
+/// with `TECTONIC_ACCUMULATION_TIME` gives a relaxation length of ~0.035 rad
+/// (~220 km). Zero preserves boundary-localized thickening; large values create
+/// broad, low orogenic plateaus.
+pub const CRUST_GRAVITATIONAL_DIFFUSIVITY: f32 = 0.024;
+
 /// Elevation of reference continental crust (~800m above sea level, at 10 km/unit).
 /// Isostasy anchor point.
 pub const CONTINENTAL_BASE: f32 = 0.08;
@@ -269,10 +300,10 @@ pub const CONTINENTALITY_AMP: f32 = 0.35;
 /// A basin at global mean temperature keeps the global climate ratio unchanged.
 pub const EVAP_TEMP_SENSITIVITY: f32 = 1.0;
 
-// Boundary-anchored elevation features (minimal bathymetry/orogeny model)
-//
-// These are applied as additive terms during elevation generation, using
-// distance-to-boundary fields derived from plate kinematics.
+// Boundary-anchored feature responses (minimal bathymetry/orogeny model).
+// Trench and ridge remain dynamic/additive elevation terms. Arc and collision
+// responses describe process location/intensity for visualization and fine
+// structure; static orogen volume comes from conservative crust evolution.
 
 /// Trench depth sensitivity (uses sqrt response of boundary forcing).
 pub const TRENCH_SENSITIVITY: f32 = 0.06;
@@ -852,10 +883,8 @@ pub const EROSION_MFD_EXPONENT: f32 = 0.0;
 pub const EROSION_CONFINEMENT_SLOPE: f32 = 0.0;
 
 /// Scales tectonic uplift added to crust thickness each step. Source is the
-/// transferred feature forcing: (arc + collision) are elevation magnitudes
-/// (converted to thickness by dividing the Airy slope) and rift_delta is
-/// already a signed thickness delta. U_thickness = SCALE * ((arc+collision)/slope
-/// + rift_delta).
+/// transferred conservative tectonic-thickening field plus signed rift delta:
+/// `U_thickness = SCALE * (tectonic_thickening + rift_delta)`.
 ///
 /// Phase 3 "Hold & carve" (erosion-v2): uplift is ON, calibrated so it roughly
 /// BALANCES erosion — divides are held (peaks ~preserved) while channels carve
@@ -880,7 +909,7 @@ pub const EROSION_UPLIFT_SCALE: f32 = 0.003;
 /// Forcing-smoothing length (km) for the tectonic uplift SOURCE, applied once in
 /// `ErosionState::new` before the step loop. Escalation #1
 /// (docs/specs/erosion-uplift-smoothing.md): the per-step uplift source
-/// `u_thick = SCALE·((arc+collision)/slope + rift_delta)` is built from coarse
+/// `u_thick = SCALE·(tectonic_thickening + rift_delta)` is built from coarse
 /// feature fields interpolated onto the fine mesh; if that handoff carries
 /// wavelengths below the landform scale, erosion re-injects high-frequency
 /// tectonic "work" every step and the orogens equilibrate with cell-scale chatter
@@ -893,7 +922,7 @@ pub const EROSION_UPLIFT_SCALE: f32 = 0.003;
 /// the LAND mask (no-flux at the coastline, so uplift never bleeds onto submerged
 /// cells and the integrated area-weighted uplift is preserved exactly). Because
 /// the diffusion is linear, smoothing the combined source is identical to
-/// smoothing arc/collision/rift_delta separately and recombining — the signed
+/// smoothing tectonic thickening and rift delta separately and recombining — the signed
 /// rift thinning superposes correctly with the positive orogen uplift (no
 /// magnitude blur, so the trap of rift thinning bleeding into orogen uplift does
 /// not arise). The length is the kernel's Gaussian std-dev (variance 2·D·τ per
@@ -1277,8 +1306,8 @@ pub const FINE_MARGIN_PASSIVE_FACTOR: f32 = 0.5;
 // --- Emergent orogens (erosion-v3 prototype) ---
 // Demote the orogen peak from the static fine base and re-supply it as active uplift, so
 // fine erosion BUILDS dissected ranges instead of dissecting a pre-baked flat plateau.
-// See docs/specs/erosion-v3-emergent-orogens.md. `lambda` = fraction of the orogen peak
-// (arc+collision elevation) removed from the base envelope and rebuilt by uplift over the
+// See docs/specs/erosion-v3-emergent-orogens.md. `lambda` = fraction of the solved
+// tectonic crust load removed from the base envelope and rebuilt by uplift over the
 // erosion epoch. 0 = off (current painted/postprocessor behaviour); 0.25-0.5 = the
 // prototype's hedge; 1.0 = build the orogen entirely from uplift (riskiest).
 // Rebuild calibration: uplift_scale * steps * dt ~= lambda (today 0.18); raise
