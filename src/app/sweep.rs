@@ -486,15 +486,17 @@ fn build_stack_tiles(
             emergent_o0(0.0, "emergent smooth (n=2)", "1_emergent_smooth"),
             emergent_o0(1.0, "emergent STRUCTURED (n=2)", "2_emergent_structured"),
         ],
-        // Meso structural relief (relief-spectrum candidate A, composed regime):
-        // the gate-battery ladder 2026-07-10 (seed 12345, 25-km p95-p05 p50 / max
-        // range peak): baseline 191 m / 10.0 km; each tile trades peak inflation
-        // and component count against mid-band relief. Rivers + fine-scale
-        // convergence gates pass on all tiles; user judges the trade visually.
+        // Meso structural relief — massif-corridor default-flip bracket (spec §13
+        // addendum, measured 2026-07-10 seed 12345): each tile = 25-km p95-p05 p50
+        // relief / max range peak. Baseline: 191 m / 10.0 km. The fold train
+        // (meso_style 0) lost the style A/B visually ("dune-y"); these tiles pick
+        // the massif-corridor REGIME. Peaks persist under longer epochs here
+        // (massifs concentrate uplift), unlike the fold train.
         "meso" => {
             let meso = |gain: f32, steps: usize, label: &str, fname: &str| {
                 let mut o = *base;
                 o.meso_relief = Some(0.9);
+                o.meso_style = Some(1);
                 o.rebuild_gain = Some(gain);
                 o.steps = Some(steps);
                 (o, label.to_string(), fname.to_string())
@@ -508,26 +510,26 @@ fn build_stack_tiles(
                 meso(
                     1.0,
                     50,
-                    "meso 0.9, steps 50 (386 m, peaks +10%)",
-                    "1_meso_s50",
-                ),
-                meso(
-                    2.0,
-                    100,
-                    "meso 0.9, gain 2, steps 100 (463 m, peaks ~base)",
-                    "2_meso_g2_s100",
+                    "massif g1 s50 (320 m, peaks 12.0 km)",
+                    "1_mc_g1_s50",
                 ),
                 meso(
                     1.5,
                     50,
-                    "meso 0.9, gain 1.5, steps 50 (479 m, peaks +31%)",
-                    "3_meso_g15_s50",
+                    "massif g1.5 s50 (394 m, peaks 14.4 km)",
+                    "2_mc_g15_s50",
+                ),
+                meso(
+                    2.0,
+                    100,
+                    "massif g2 s100 (455 m, peaks 17.5 km)",
+                    "3_mc_g2_s100",
                 ),
                 meso(
                     2.0,
                     50,
-                    "meso 0.9, gain 2, steps 50 (648 m, peaks +65%)",
-                    "4_meso_g2_s50",
+                    "massif g2 s50 (514 m, peaks 18.3 km)",
+                    "4_mc_g2_s50",
                 ),
             ]
         }
