@@ -315,8 +315,12 @@ pub const TARGET_SIZE_MAX_RATIO: f32 = 4.0;
 
 // Relief rendering
 
-/// Scale factor for elevation displacement in relief view.
-pub const RELIEF_SCALE: f32 = 0.2;
+/// Scale factor for elevation displacement in relief view. Elevation unit 1 is
+/// approximately 10 km, so 0.04 is still about 25× physical exaggeration on an
+/// Earth-radius globe. The previous 0.20 (~127×) turned the seed-12345 broad
+/// massif into a near-vertical 1000-km tower; a renderer-only 0.20/0.08/0.04/0.02
+/// Windows montage kept mountains clearly legible at 0.04 without the monolith.
+pub const RELIEF_SCALE: f32 = 0.04;
 
 /// Weight of noise vs distance in cell priority.
 pub const NOISE_WEIGHT: f32 = 1.0;

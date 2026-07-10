@@ -239,12 +239,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let visible = uniforms.river_major_only < 0.5 || s.b > 0.5;
         let dist_px = s.r * RIVER_SDF_RANGE_PX; // 0 = on centerline
         let flow = s.g;
-        // Screen-space AA from the SDF gradient → crisp at any zoom.
-        let aa = max(fwidth(dist_px), 0.4);
-        // Thin, flow-tapered width — with a screen-space floor (~1px) so rivers stay visible
-        // when zoomed out without fattening when zoomed in. Never exaggerated.
-        let world_width = RIVER_BASE_WIDTH_PX + flow * RIVER_FLOW_WIDTH_PX;
-        let width = max(world_width, aa);
+        // Convert the desired SCREEN-pixel width into SDF-texture pixels using
+        // the local derivative. The old code compared a fixed 0.7..2.1 texture
+        // pixels directly with dist_px, making rivers physically 7..21 km wide
+        // at this 8192x4096 bake and increasingly fat when zoomed in.
+        let texels_per_screen_px = max(fwidth(dist_px), 1.0 / 255.0);
+        let width_screen_px = RIVER_BASE_WIDTH_PX + flow * RIVER_FLOW_WIDTH_PX;
+        let width = width_screen_px * texels_per_screen_px;
+        let aa = 0.75 * texels_per_screen_px;
         let river_a = select(0.0, 1.0 - smoothstep(width - aa, width + aa, dist_px), visible);
         if (river_a > 0.001) {
             // Water look: sky-reflective (fresnel) deep blue + a sun glint, distinct from

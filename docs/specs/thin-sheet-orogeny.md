@@ -18,15 +18,17 @@ dials retained.
 
 Corrected residual diagnosis: the coarse dome is Tibet-class and arguably
 legitimate; the pathology is FINE-side — the emergent builder inflates the
-dome top +3.7-4.3 km over its (yield-capped) coarse target into a tight summit
-cluster (global `shape_c` lets broad belts donate rebuilt volume to compact
-high-shape regions, and concentration is strongest there). Next candidates:
-per-orogen builder normalization (behind a flag — it changes the DEFAULT
-path, so identity-gated A/B), a rebuild-fidelity audit (fine peak vs coarse
-target per orogen), and — separately — the render's ~125× vertical
-exaggeration, which turns ANY 8-km summit into a 1100-km tower (Everest would
-render identically; a visualization-side relief-scale experiment may be part
-of the answer).
+dome top over its (yield-capped) coarse target into a tight summit cluster.
+The standing `--rebuild-fidelity-audit` measured +3.35 km at 600k fine cells.
+The structured-vs-uniform builder A/B proves the shaped allocation is causal
+(7.62 vs 4.85 km peak), but DISPROVES the proposed cross-orogen-donation fix:
+the pillar is taxed 11.7% by global `shape_c` (local c=2.991 vs global 2.619),
+so per-orogen normalization would increase its uplift. The remaining target is
+within-orogen peak concentration, not normalization between belts. Separately,
+the old render's ~127× vertical exaggeration turned any 8-km summit into an
+approximately 1000-km tower. A Windows renderer-only sweep on identical terrain
+(`relief_scale` 0.20/0.08/0.04/0.02) selected 0.04 (~25×): other ranges remain
+clearly visible while the monolith disappears. The product default is now 0.04.
 
 ## Problem
 
@@ -71,11 +73,12 @@ identity claims are verified by export diff, never by reading the code.
 
 ### legacy-yield — the candidate middle rung (2026-07-11)
 
-Root cause of the seed-12345 mesa/pillar (measured): a MICROPLATE with
-convergence on all sides carries arc≈0.27 AND collision≈0.26 simultaneously
-(the legacy response stacks them, no strength limit) → compact cliff-edged 6-km
-coarse block → the fine emergent shape stack concentrates the rebuilt volume
-into its peaks (8.9 km at baseline, 11.8 composed). Spire-probe signature:
+Original diagnosis (later corrected after fixing an export-analysis radians
+bug): the feature was misclassified as a microplate. It is actually a broad
+double-forcing dome carrying arc≈0.27 AND collision≈0.26 simultaneously. The
+legacy response stacks them with no shared strength limit, and the fine
+emergent shape stack concentrates the rebuilt volume into its peaks (8.9 km at
+baseline, 11.8 composed). Spire-probe signature:
 ring-p90 drop flat out to ~100 km then 3-6 km cliff at 100-250 km (Earth tapers
 monotonically; Everest ≈ 2→4 km across the same rings).
 

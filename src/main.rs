@@ -84,6 +84,12 @@ struct Cli {
     #[arg(long, default_value_t = 1.0)]
     fine_scale: f32,
 
+    /// Relief-view radial displacement scale. The product default is 0.04
+    /// (~25x physical); 0.00157 is approximately physical 1x on this
+    /// Earth-radius world. Zero disables displacement.
+    #[arg(long, default_value_t = -1.0, allow_hyphen_values = true)]
+    relief_scale: f32,
+
     /// Fine-mesh cell guardrail for headless diagnostic exports. Zero uses the
     /// normal product default. Ignored by interactive mode.
     #[arg(long, default_value_t = 0)]
@@ -315,7 +321,8 @@ struct Cli {
     /// Sweep mode: erosion knob to vary across columns (enables a headless
     /// render-to-PNG sweep). Knobs: k, diffusivity, channel_support,
     /// hillslope_crit, confinement_slope, uplift_smooth, mfd_exponent,
-    /// diffusion_iters, reroute_interval, steps, precip_iters, flat_resolution.
+    /// diffusion_iters, reroute_interval, steps, precip_iters, flat_resolution,
+    /// relief_scale (renderer-only; reuses one generated world).
     #[arg(long)]
     sweep: Option<String>,
 
@@ -417,6 +424,7 @@ fn main() {
     });
 
     let erosion = app::world::ErosionOverrides {
+        relief_scale: (cli.relief_scale >= 0.0).then_some(cli.relief_scale),
         mfd_exponent: (cli.erosion_mfd_exponent >= 0.0).then_some(cli.erosion_mfd_exponent),
         flat_resolution: (cli.erosion_flat_resolution >= 0)
             .then_some(cli.erosion_flat_resolution != 0),

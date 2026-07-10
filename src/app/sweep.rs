@@ -20,7 +20,7 @@ use glam::{Mat4, Vec3};
 use hex3::render::{
     FillPipelineKind, GpuContext, IndexedDraw, OrbitCamera, RenderScene, Renderer, Uniforms,
 };
-use hex3::world::{FineCacheMode, OrogenModel, VoronoiBackend, World};
+use hex3::world::{FineCacheMode, OrogenModel, VoronoiBackend, World, RELIEF_SCALE};
 
 use super::view::RiverMode;
 use super::world::{
@@ -30,6 +30,7 @@ use super::world::{
 
 /// Knobs the sweep can vary, mapped onto [`ErosionOverrides`] fields.
 pub const SWEEP_KNOBS: &[&str] = &[
+    "relief_scale",
     "k",
     "n",
     "diffusivity",
@@ -111,6 +112,7 @@ pub struct SweepOptions {
 fn apply_knob(ov: &mut ErosionOverrides, name: &str, v: f64) -> Result<(), String> {
     let f = v as f32;
     match name {
+        "relief_scale" => ov.relief_scale = Some(f.max(0.0)),
         "k" => ov.k = Some(f),
         "n" => ov.n = Some(f),
         "diffusivity" => ov.diffusivity = Some(f),
@@ -154,7 +156,11 @@ fn apply_knob(ov: &mut ErosionOverrides, name: &str, v: f64) -> Result<(), Strin
             ov.orogen_model = Some(match v as usize {
                 0 => hex3::world::OrogenModel::Legacy,
                 1 => hex3::world::OrogenModel::LegacyYield,
-                other => return Err(format!("orogen_model sweep value {other} (0=legacy, 1=legacy-yield)")),
+                other => {
+                    return Err(format!(
+                        "orogen_model sweep value {other} (0=legacy, 1=legacy-yield)"
+                    ))
+                }
             })
         }
         other => {
@@ -212,10 +218,11 @@ fn render_relief(
     view_proj: Mat4,
     cam_pos: Vec3,
     river_mode: RiverMode,
+    relief_scale: f32,
 ) {
     let light = Vec3::new(0.5, 1.0, 0.3).normalize();
     let uniforms = Uniforms::new(view_proj, cam_pos, light)
-        .with_relief(true)
+        .with_relief_scale(relief_scale)
         // Hillshade from the displaced face normal + simple directional light, so
         // terrain SLOPES are legible (the relief-judging view): hemisphere lighting +
         // sphere-normal shading washed peaks out to flat white. See unified.wgsl.
@@ -633,13 +640,26 @@ pub fn run_sweep(opts: SweepOptions) {
     let mut montage: Vec<u8> = Vec::new();
     let mut montage_w = 0u32;
 
+    // A relief-scale sweep is renderer-only: generate the terrain and GPU
+    // buffers once so every row is guaranteed to differ only in displacement.
+    let render_only_relief =
+        opts.stack.is_none() && opts.knob1 == "relief_scale" && opts.knob2.is_none();
+    let shared_world = render_only_relief.then(|| generate_tile_world(&opts, &opts.base_erosion));
+    let shared_buffers = shared_world
+        .as_ref()
+        .map(|world| generate_world_buffers(&gpu.device, &gpu.queue, world));
+
     for (ti, (overrides, label, fname)) in tiles.iter().enumerate() {
         print!("[{}/{}] {label} ... ", ti + 1, n_tiles);
         use std::io::Write;
         let _ = std::io::stdout().flush();
         let t0 = std::time::Instant::now();
 
-        let world = generate_tile_world(&opts, overrides);
+        let owned_world = (!render_only_relief).then(|| generate_tile_world(&opts, overrides));
+        let world = shared_world
+            .as_ref()
+            .or(owned_world.as_ref())
+            .expect("sweep world");
 
         if views.is_empty() {
             views = build_views(&world, &opts);
@@ -648,7 +668,12 @@ pub fn run_sweep(opts: SweepOptions) {
             montage = vec![0u8; (montage_w * montage_h * 4) as usize];
         }
 
-        let buffers = generate_world_buffers(&gpu.device, &gpu.queue, &world);
+        let owned_buffers =
+            (!render_only_relief).then(|| generate_world_buffers(&gpu.device, &gpu.queue, world));
+        let buffers = shared_buffers
+            .as_ref()
+            .or(owned_buffers.as_ref())
+            .expect("sweep buffers");
         for (vi, (view_proj, eye, vlabel)) in views.iter().enumerate() {
             render_relief(
                 &gpu,
@@ -658,6 +683,7 @@ pub fn run_sweep(opts: SweepOptions) {
                 *view_proj,
                 *eye,
                 opts.river_mode,
+                overrides.relief_scale.unwrap_or(RELIEF_SCALE),
             );
             let rgba = read_back_rgba(&gpu, &color_tex, opts.width, opts.height);
             let tile_path = opts.out_dir.join(format!("{fname}_{vlabel}.png"));

@@ -94,6 +94,13 @@ impl Uniforms {
         self
     }
 
+    /// Set an explicit relief displacement scale. Used by renderer-only A/B
+    /// sweeps; zero produces a flat globe.
+    pub fn with_relief_scale(mut self, scale: f32) -> Self {
+        self.relief_scale = scale.max(0.0);
+        self
+    }
+
     /// Set whether hemisphere lighting is enabled.
     pub fn with_hemisphere_lighting(mut self, enabled: bool) -> Self {
         self.hemisphere_lighting = if enabled { 1.0 } else { 0.0 };

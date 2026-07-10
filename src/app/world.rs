@@ -114,6 +114,8 @@ impl WorldBuffers {
 /// Windows without a recompile. See docs/specs/erosion-routing-ladder.md.
 #[derive(Clone, Copy, Default)]
 pub struct ErosionOverrides {
+    /// Renderer-only sweep value. World generation deliberately ignores this.
+    pub relief_scale: Option<f32>,
     pub mfd_exponent: Option<f32>,
     pub flat_resolution: Option<bool>,
     pub confinement_slope: Option<f32>,
@@ -962,7 +964,11 @@ pub fn generate_world_buffers(
 /// overlaps the fill-mesh rebuild. Building both at once exhausts memory; the
 /// crash repro was "advance to the fine mesh with edges already on", whereas
 /// "advance, then toggle edges" worked because the wireframe was built alone.
-pub fn generate_relief_edge_buffers(device: &wgpu::Device, world: &World) -> ReliefEdgeBuffers {
+pub fn generate_relief_edge_buffers(
+    device: &wgpu::Device,
+    world: &World,
+    relief_scale: f32,
+) -> ReliefEdgeBuffers {
     let voronoi = &world.active_tessellation().voronoi;
     let elevation = world.active_elevation().unwrap();
     let edge_color = Vec3::new(0.35, 0.35, 0.35);
@@ -984,6 +990,7 @@ pub fn generate_relief_edge_buffers(device: &wgpu::Device, world: &World) -> Rel
         edge_color,
         elevation_for_cell,
         |i| cell_material(world, i),
+        relief_scale,
     );
 
     if world.fine.is_some() {

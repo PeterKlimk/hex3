@@ -57,6 +57,11 @@ struct Cli {
     /// asymmetry, sampled local relief) with Earth references.
     #[arg(long, default_value_t = false)]
     mountain_audit: bool,
+    /// Audit the emergent builder per connected orogen: coarse target versus
+    /// final peak, plus whether the planet-wide shape normalizer subsidizes or
+    /// taxes each component. This is the standing coarse→fine rebuild gate.
+    #[arg(long, default_value_t = false)]
+    rebuild_fidelity_audit: bool,
     /// Audit how much tectonic support/detail survives each coarse→fine→erosion
     /// stage over the complete process footprint (not only surviving mountains).
     #[arg(long, default_value_t = false)]
@@ -457,6 +462,10 @@ fn main() {
     if cli.mountain_audit {
         run_mountain_audit(&world, cli.seed, cli.top);
         run_roughness_probe(&world);
+        audited = true;
+    }
+    if cli.rebuild_fidelity_audit {
+        run_rebuild_fidelity_audit(&world, cli.seed, cli.top);
         audited = true;
     }
     if cli.detail_survival_audit {
@@ -1417,6 +1426,211 @@ fn main() {
                 q(0.99)
             );
         }
+    }
+}
+
+// ===================== REBUILD-FIDELITY AUDIT =====================
+
+/// Standing audit for the structured emergent builder. Components use the
+/// exact builder-active mask (`shape > 0 && target >= 0`) and fine-mesh graph,
+/// matching the normalization domain in `erosion.rs`.
+fn run_rebuild_fidelity_audit(world: &World, seed: u64, top: usize) {
+    let Some(fine) = world.fine.as_ref() else {
+        println!("rebuild-fidelity audit requires a generated fine world");
+        return;
+    };
+    let Some(shape) = fine.base.emergent_uplift_shape.as_deref() else {
+        println!(
+            "\n================ REBUILD FIDELITY seed={} model={} ================",
+            seed, world.orogen_model
+        );
+        println!("  no structured emergent uplift shape is active");
+        return;
+    };
+
+    let tess = fine.tessellation();
+    let target = &fine.base.coarse_base_elevation;
+    let base = &fine.base.base_elevation;
+    let final_elev = &fine.surface_for(u32::MAX).elevation.values;
+    let areas = tess.cell_areas();
+    let n = tess.num_cells();
+    let gain = world.erosion_params.rebuild_gain as f64;
+    let floor = |i: usize| (hex3::world::EMERGENT_LAND_FLOOR_MARGIN - base[i]).max(0.0);
+    let active = |i: usize| shape[i] > 0.0 && target[i] >= 0.0;
+
+    let mut component = vec![usize::MAX; n];
+    let mut components: Vec<Vec<usize>> = Vec::new();
+    let mut queue = std::collections::VecDeque::new();
+    for i in 0..n {
+        if !active(i) || component[i] != usize::MAX {
+            continue;
+        }
+        let id = components.len();
+        component[i] = id;
+        queue.push_back(i);
+        let mut cells = Vec::new();
+        while let Some(c) = queue.pop_front() {
+            cells.push(c);
+            for &nb in tess.neighbors(c) {
+                if active(nb) && component[nb] == usize::MAX {
+                    component[nb] = id;
+                    queue.push_back(nb);
+                }
+            }
+        }
+        components.push(cells);
+    }
+
+    #[derive(Debug)]
+    struct Row {
+        id: usize,
+        cells: usize,
+        area_km2: f64,
+        dvol: f64,
+        svol: f64,
+        fvol: f64,
+        local_c: f64,
+        transfer_mean_km: f64,
+        transfer_pct: f64,
+        target_peak_km: f32,
+        final_peak_km: f32,
+        peak_target_km: f32,
+        peak_overshoot_km: f32,
+        max_overshoot_km: f32,
+    }
+
+    let mut global_dvol = 0.0f64;
+    let mut global_svol = 0.0f64;
+    let mut global_fvol = 0.0f64;
+    for i in 0..n {
+        if active(i) {
+            let a = areas[i] as f64;
+            global_dvol += (target[i] - base[i]).max(0.0) as f64 * a;
+            global_svol += shape[i].max(0.0) as f64 * a;
+            global_fvol += floor(i) as f64 * a;
+        }
+    }
+    let global_excess = (gain * global_dvol - global_fvol).max(0.0);
+    let global_c = if global_svol > 0.0 {
+        global_excess / global_svol
+    } else {
+        0.0
+    };
+
+    let radius2 = (EARTH_RADIUS_KM * EARTH_RADIUS_KM) as f64;
+    let mut rows = Vec::with_capacity(components.len());
+    for (id, cells) in components.iter().enumerate() {
+        let mut area = 0.0f64;
+        let mut dvol = 0.0f64;
+        let mut svol = 0.0f64;
+        let mut fvol = 0.0f64;
+        let mut target_peak = f32::NEG_INFINITY;
+        let mut final_peak = f32::NEG_INFINITY;
+        let mut peak_target = 0.0f32;
+        let mut max_overshoot = f32::NEG_INFINITY;
+        for &i in cells {
+            let a = areas[i] as f64;
+            area += a;
+            dvol += (target[i] - base[i]).max(0.0) as f64 * a;
+            svol += shape[i].max(0.0) as f64 * a;
+            fvol += floor(i) as f64 * a;
+            target_peak = target_peak.max(target[i]);
+            max_overshoot = max_overshoot.max(final_elev[i] - target[i]);
+            if final_elev[i] > final_peak {
+                final_peak = final_elev[i];
+                peak_target = target[i];
+            }
+        }
+        let local_excess = (gain * dvol - fvol).max(0.0);
+        let local_c = if svol > 0.0 { local_excess / svol } else { 0.0 };
+        // Positive means the planet-wide scalar gives this component more
+        // rebuild volume than its own demoted-volume budget; negative = tax.
+        let transfer = fvol + global_c * svol - gain * dvol;
+        let transfer_mean_km = if area > 0.0 {
+            10.0 * transfer / area
+        } else {
+            0.0
+        };
+        let transfer_pct = if gain * dvol > 0.0 {
+            100.0 * transfer / (gain * dvol)
+        } else {
+            0.0
+        };
+        rows.push(Row {
+            id,
+            cells: cells.len(),
+            area_km2: area * radius2,
+            dvol,
+            svol,
+            fvol,
+            local_c,
+            transfer_mean_km,
+            transfer_pct,
+            target_peak_km: 10.0 * target_peak,
+            final_peak_km: 10.0 * final_peak,
+            peak_target_km: 10.0 * peak_target,
+            peak_overshoot_km: 10.0 * (final_peak - peak_target),
+            max_overshoot_km: 10.0 * max_overshoot,
+        });
+    }
+    rows.sort_by(|a, b| b.final_peak_km.total_cmp(&a.final_peak_km));
+
+    let transfer_sum: f64 = rows
+        .iter()
+        .map(|r| r.fvol + global_c * r.svol - gain * r.dvol)
+        .sum();
+    let worst = rows
+        .iter()
+        .map(|r| r.max_overshoot_km)
+        .fold(f32::NEG_INFINITY, f32::max);
+    let verdict = if worst > 4.0 {
+        "FAIL"
+    } else if worst > 2.0 {
+        "WARN"
+    } else {
+        "ok"
+    };
+
+    println!(
+        "\n================ REBUILD FIDELITY seed={} model={} ================",
+        seed, world.orogen_model
+    );
+    println!(
+        "  {} active orogens | gain {:.2} | global shape_c {:.5} | transfer ledger {:.3e}",
+        rows.len(),
+        gain,
+        global_c,
+        transfer_sum
+    );
+    println!("  gate [{verdict}]: max(final−target) {worst:.2} km  (warn >2 km, fail >4 km)");
+    println!(
+        "  transfer: + = globally subsidized, − = globally taxed; mean km is equivalent uplift over component area"
+    );
+    println!(
+        "  id    cells   area_km²   shape_c local/global   transfer km(%)   target→final peak   peak Δ   max Δ"
+    );
+    for r in rows.iter().take(top) {
+        let ratio = if r.local_c > 0.0 {
+            global_c / r.local_c
+        } else {
+            f64::INFINITY
+        };
+        println!(
+            " {:>3}  {:>7}  {:>9.0}   {:>7.4}/{:>7.4} ({:>5.2}x)  {:+6.2} ({:+6.1}%)   {:>5.2}→{:>5.2} ({:>5.2})  {:+5.2}  {:+5.2}",
+            r.id,
+            r.cells,
+            r.area_km2,
+            r.local_c,
+            global_c,
+            ratio,
+            r.transfer_mean_km,
+            r.transfer_pct,
+            r.target_peak_km,
+            r.final_peak_km,
+            r.peak_target_km,
+            r.peak_overshoot_km,
+            r.max_overshoot_km,
+        );
     }
 }
 
@@ -2806,6 +3020,7 @@ fn run_mountain_audit(world: &World, seed: u64, top: usize) {
         // (nearly) all sides at a scale Earth does not produce.
         let (mut worst10, mut worst25) = (0.0f32, 0.0f32);
         let mut worst_block = 0.0f32;
+        let mut worst_render_wall_deg = 0.0f32;
         for &s in &summits {
             let sp = tess.cell_center(s);
             let mut ring_vals: [Vec<f32>; 6] = Default::default();
@@ -2829,6 +3044,15 @@ fn run_mountain_audit(world: &World, seed: u64, top: usize) {
             worst10 = worst10.max(stat(1, 0.9));
             worst25 = worst25.max(stat(2, 0.9));
             worst_block = worst_block.max(stat(5, 0.9));
+            let block_p50 = stat(5, 0.5);
+            let block_p10 = stat(5, 0.1);
+            // What the current relief renderer does to the TYPICAL outer
+            // flank. Elevation units are 10 km; compare displayed radial rise
+            // with the midpoint radius of the 100..250 km annulus.
+            let displayed_rise = (block_p50 / 10.0) * hex3::world::RELIEF_SCALE;
+            let horizontal = 175.0 / EARTH_RADIUS_KM;
+            let render_wall_deg = displayed_rise.atan2(horizontal).to_degrees();
+            worst_render_wall_deg = worst_render_wall_deg.max(render_wall_deg);
             println!(
                 "    summit {:>5.1} km: drop to ring-p90 (max)  5-10km {:>4.1} ({:>4.1}) | 10-25 {:>4.1} ({:>4.1}) | 25-50 {:>4.1} ({:>4.1}) | 50-100 {:>4.1} ({:>4.1}) | 100-250 {:>4.1} ({:>4.1}) km",
                 elev[s] * AUDIT_M_PER_UNIT / 1000.0,
@@ -2842,6 +3066,13 @@ fn run_mountain_audit(world: &World, seed: u64, top: usize) {
                 stat(4, 1.0),
                 stat(5, 0.9),
                 stat(5, 1.0),
+            );
+            println!(
+                "      visual surround: 100-250km drop p50/p10 {:>4.1}/{:>4.1} km | apparent median wall @ relief {:.2}: {:>4.0}°",
+                block_p50,
+                block_p10,
+                hex3::world::RELIEF_SCALE,
+                render_wall_deg,
             );
         }
         // Two failure shapes. NEEDLE (summit scale): big p90 drops at 10-25 km.
@@ -2861,6 +3092,17 @@ fn run_mountain_audit(world: &World, seed: u64, top: usize) {
         };
         println!(
             "    spire gate [{verdict}]  (p90 drop: flag ring-10 >3.5 | ring-25 >5 | ring-250 >4.5 km; absurd >5 / >6.5 / >6. Earth: Everest ~2/2.3/~4-taper, Kilimanjaro ~2/4.4)"
+        );
+        let render_verdict = if worst_render_wall_deg > 60.0 {
+            "FLAG-TOWER"
+        } else if worst_render_wall_deg > 45.0 {
+            "FLAG-steep"
+        } else {
+            "ok"
+        };
+        println!(
+            "    render-tower gate [{render_verdict}]  (worst median outer-flank apparent angle {:.0}°; flag >45°, tower >60°)",
+            worst_render_wall_deg
         );
     }
 

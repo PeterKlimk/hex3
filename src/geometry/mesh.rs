@@ -1254,13 +1254,12 @@ impl VoronoiMesh {
         color: Vec3,
         elevation_fn: E,
         material_fn: M,
+        relief_scale: f32,
     ) -> (Vec<MeshVertex>, Vec<u32>)
     where
         E: Fn(usize) -> f32,
         M: Fn(usize) -> Material,
     {
-        use crate::world::RELIEF_SCALE;
-
         let vertex_elevations = water_aware_vertex_elevations(voronoi, elevation_fn, material_fn);
 
         // One shared, displaced vertex per Voronoi vertex (slight radial lift to
@@ -1270,7 +1269,7 @@ impl VoronoiMesh {
             .iter()
             .zip(vertex_elevations.iter())
             .map(|(&v, &elevation)| {
-                let displacement = (1.0 + elevation * RELIEF_SCALE) * 1.001;
+                let displacement = (1.0 + elevation * relief_scale) * 1.001;
                 MeshVertex::new(v * displacement, v, color)
             })
             .collect();

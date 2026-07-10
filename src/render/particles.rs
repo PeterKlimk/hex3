@@ -112,6 +112,7 @@ pub struct WindParticleSystem {
     time: f32,
     max_age: f32,
     is_surface_wind: bool,
+    relief_scale: f32,
 }
 
 impl WindParticleSystem {
@@ -124,6 +125,7 @@ impl WindParticleSystem {
     /// * `num_particles` - Number of particles to simulate
     /// * `main_bind_group_layout` - The main uniform bind group layout (for camera/view uniforms)
     /// * `elevation_map` - Elevation map texture for terrain height sampling
+    /// * `relief_scale` - Radial displacement scale, matching the terrain uniform
     /// * `rng` - Random number generator for initial positions
     pub fn new<R: Rng>(
         ctx: &GpuContext,
@@ -132,6 +134,7 @@ impl WindParticleSystem {
         num_particles: u32,
         main_bind_group_layout: &wgpu::BindGroupLayout,
         elevation_map: &super::ElevationMap,
+        relief_scale: f32,
         rng: &mut R,
     ) -> Self {
         let num_cells = tessellation.num_cells() as u32;
@@ -452,13 +455,12 @@ impl WindParticleSystem {
                     ],
                 });
 
-        // RELIEF_SCALE from constants - particles need same displacement as terrain
-        const RELIEF_SCALE: f32 = 0.2;
+        // Particles must use the same displacement as terrain.
         const UPPER_WIND_HEIGHT: f32 = 1.06; // Slightly above sea level
 
         let render_uniforms = ParticleRenderUniforms {
             max_age,
-            relief_scale: RELIEF_SCALE,
+            relief_scale,
             upper_wind_height: UPPER_WIND_HEIGHT,
             is_surface_wind: 1, // Default to surface wind
         };
@@ -568,6 +570,7 @@ impl WindParticleSystem {
             time: 0.0,
             max_age,
             is_surface_wind: true,
+            relief_scale,
         }
     }
 
@@ -589,13 +592,11 @@ impl WindParticleSystem {
         if self.is_surface_wind != is_surface {
             self.is_surface_wind = is_surface;
 
-            // RELIEF_SCALE from constants
-            const RELIEF_SCALE: f32 = 0.2;
             const UPPER_WIND_HEIGHT: f32 = 1.06;
 
             let render_uniforms = ParticleRenderUniforms {
                 max_age: self.max_age,
-                relief_scale: RELIEF_SCALE,
+                relief_scale: self.relief_scale,
                 upper_wind_height: UPPER_WIND_HEIGHT,
                 is_surface_wind: if is_surface { 1 } else { 0 },
             };

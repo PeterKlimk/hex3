@@ -37,6 +37,8 @@ pub struct AppState {
     pub voronoi_backend: VoronoiBackend,
     pub fine_cache: FineCacheMode,
     pub orogen_model: OrogenModel,
+    /// Runtime relief displacement from `--relief-scale` (or product default).
+    pub relief_scale: f32,
     /// CLI erosion-knob overrides, re-applied to each (re)generated world.
     erosion_overrides: ErosionOverrides,
     /// Stage currently being rendered (<= computed stage). Lets Space/Backspace
@@ -95,6 +97,9 @@ impl AppState {
             orogen_model,
         );
         erosion_overrides.apply(&mut world_data);
+        let relief_scale = erosion_overrides
+            .relief_scale
+            .unwrap_or(hex3::world::RELIEF_SCALE);
         let initial_viewed_stage = world_data.current_stage();
         let world_buffers = generate_world_buffers(&gpu.device, &gpu.queue, &world_data);
 
@@ -142,6 +147,7 @@ impl AppState {
             voronoi_backend,
             fine_cache,
             orogen_model,
+            relief_scale,
             erosion_overrides,
             viewed_stage: initial_viewed_stage,
             inactive_buffers: std::collections::HashMap::new(),
@@ -246,6 +252,7 @@ impl AppState {
                         DEFAULT_NUM_PARTICLES,
                         self.renderer.bind_group_layout(),
                         &self.elevation_map,
+                        self.relief_scale,
                         &mut self.rng,
                     ));
                 }
@@ -386,7 +393,11 @@ impl AppState {
         let map_mode_enabled = self.view_mode == ViewMode::Map;
 
         let uniforms = Uniforms::new(view_proj, camera_pos, light_dir)
-            .with_relief(relief_enabled)
+            .with_relief_scale(if relief_enabled {
+                self.relief_scale
+            } else {
+                0.0
+            })
             .with_hemisphere_lighting(self.hemisphere_lighting)
             .with_map_mode(map_mode_enabled)
             .with_rivers(self.river_mode != RiverMode::Off)
@@ -408,7 +419,8 @@ impl AppState {
         // allocation never coincides with the fill-mesh rebuild (which together
         // exhaust memory at fine-mesh densities). Done before the fill borrow.
         if self.show_edges && use_unified && self.world_buffers.relief_edge.is_none() {
-            let relief_edge = generate_relief_edge_buffers(&self.gpu.device, &self.world_data);
+            let relief_edge =
+                generate_relief_edge_buffers(&self.gpu.device, &self.world_data, self.relief_scale);
             self.world_buffers.relief_edge = Some(relief_edge);
         }
 

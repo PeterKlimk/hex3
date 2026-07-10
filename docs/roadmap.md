@@ -35,8 +35,9 @@ probe into `diagnose` before the next mountain ADD.
 ## Mountain-quality open issues
 - 🟨 **Mesa/pillar + legacy-yield orogen rung — IMPLEMENTED, gates pass 2 seeds, user
   visual pending** (2026-07-11): the user's "Everest but a cliff on all sides" pillar =
-  a MICROPLATE with all-sides convergence (arc+collision stack, no strength limit) →
-  cliff-edged 6-km coarse block → fine shape stack amplifies to 9-12 km. Detected by the
+  a broad double-forcing dome (arc+collision stack, no shared strength limit) →
+  6-km coarse load → fine shape stack amplifies to 9-12 km. The earlier "microplate"
+  diagnosis was an export-analysis radians bug. Detected by the
   new spire probe in `--mountain-audit` (ring-p90 drop; mesa = flat-then-cliff, Earth
   tapers). Fix = `--orogen-model legacy-yield`: exact legacy source + gravitational
   yield relaxation of only over-strength thickening (`OROGEN_YIELD_ELEV` dial); sub-yield
@@ -44,7 +45,20 @@ probe into `diagnose` before the next mountain ADD.
   candidate keeps 315/247 m relief at 8.7/8.7 km peaks (was 330/249 @ 11.8/10.5).
   Also: legacy default restored BYTE-IDENTICAL after the model-ladder walk-back (float
   round-trips had invalidated all baselines ±2.6 km); thin-sheet T0 stays an explicit
-  experiment. Full spec: `docs/specs/thin-sheet-orogeny.md`.
+  experiment. `--rebuild-fidelity-audit` is now the standing coarse→fine gate. It
+  independently falsified per-orogen normalization as the pillar fix: the global
+  normalizer TAXES this dome 11.7% (local c 2.991 > global 2.619), while the
+  structured-vs-uniform A/B changes its peak 7.62→4.85 km. Fix the within-orogen
+  shaped allocation, not cross-orogen volume transfer. Full spec:
+  `docs/specs/thin-sheet-orogeny.md`.
+  **Renderer follow-up (2026-07-11):** a Windows renderer-only sweep at identical
+  terrain/camera (`relief_scale` 0.20/0.08/0.04/0.02) proved the photographed tower
+  was dominated by 0.20's ~127× vertical exaggeration. Default is now **0.04**
+  (~25×): other ranges remain plainly visible while the monolith disappears.
+  `--mountain-audit` now also reports p50/p10 surroundings and an apparent-wall
+  render gate. Relief rivers' SDF width was corrected from fixed texture texels
+  (~7–21 km full width) to true screen-pixel width. Interactive runs accept
+  `--relief-scale`; use `--relief-scale 0.00157` for approximately physical 1×.
 - 🟨 **A4 two-stage drainage-aware uplift pulse — IMPLEMENTED, gates pass 2 seeds, user
   visual pending** (2026-07-10): burn-in erosion → Strahler-≥3 trunk extraction →
   per-orogen zero-mean uplift modifier → frozen final epoch. Measured: σ8/p3.5 gives
