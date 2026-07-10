@@ -44,12 +44,21 @@ struct SheetEdge {
 pub(crate) fn yield_relax(
     tess: &Tessellation,
     field: &[f32],
-    yield_value: f32,
+    // Per-cell strength threshold (width-aware yield: wide belts support taller
+    // loads — Earth's peak-vs-belt-width curve; a uniform slice reproduces the
+    // scalar rung).
+    yield_value: &[f32],
     tau: f32,
     picard_steps: usize,
 ) -> Vec<f32> {
     let n = tess.num_cells();
-    if tau <= 0.0 || picard_steps == 0 || !field.iter().any(|&h| h > yield_value) {
+    if tau <= 0.0
+        || picard_steps == 0
+        || !field
+            .iter()
+            .zip(yield_value.iter())
+            .any(|(&h, &y)| h > y)
+    {
         return field.to_vec();
     }
     let areas = tess.cell_areas();
@@ -85,7 +94,7 @@ fn yield_relax_on_edges(
     areas: &[f32],
     edges: &[SheetEdge],
     field: &[f32],
-    yield_value: f32,
+    yield_value: &[f32],
     tau: f32,
     picard_steps: usize,
 ) -> Vec<f32> {
@@ -94,7 +103,8 @@ fn yield_relax_on_edges(
     for _ in 0..picard_steps {
         let mobile: Vec<f32> = thickness
             .iter()
-            .map(|&h| (h - yield_value).max(0.0))
+            .zip(yield_value.iter())
+            .map(|(&h, &y)| (h - y).max(0.0))
             .collect();
         if !mobile.iter().any(|&v| v > 0.0) {
             break;
@@ -572,8 +582,8 @@ mod tests {
         ];
         // cell 0 far over yield; cells 1-2 comfortably below.
         let field = [2.0f32, 0.3, 0.1];
-        let yield_value = 0.5;
-        let relaxed = yield_relax_on_edges(&areas, &edges, &field, yield_value, 2.0, 4);
+        let yield_value = [0.5f32; 3];
+        let relaxed = yield_relax_on_edges(&areas, &edges, &field, &yield_value, 2.0, 4);
         let before: f32 = field.iter().zip(areas).map(|(h, a)| h * a).sum();
         let after: f32 = relaxed.iter().zip(areas).map(|(h, a)| h * a).sum();
         assert!(
@@ -590,7 +600,17 @@ mod tests {
 
         // an all-subyield field is returned bit-identical
         let quiet = [0.4f32, 0.3, 0.1];
-        let untouched = yield_relax_on_edges(&areas, &edges, &quiet, yield_value, 2.0, 4);
+        let untouched = yield_relax_on_edges(&areas, &edges, &quiet, &yield_value, 2.0, 4);
         assert_eq!(untouched, quiet);
+
+        // width-aware: a lower per-cell threshold on cell 0 sheds more from it
+        let tight = [0.2f32, 0.5, 0.5];
+        let relaxed_tight = yield_relax_on_edges(&areas, &edges, &field, &tight, 2.0, 4);
+        assert!(
+            relaxed_tight[0] < relaxed[0],
+            "tighter local yield must shed more: {} !< {}",
+            relaxed_tight[0],
+            relaxed[0]
+        );
     }
 }

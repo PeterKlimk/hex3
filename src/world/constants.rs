@@ -141,14 +141,36 @@ pub const THIN_SHEET_YIELD_EXCESS: f32 = 0.20;
 // Sub-yield belts are untouched by construction (this rung cannot lose detail
 // — the failure mode of the conserved/isotropic experiments).
 
-/// Max tectonic-thickening contribution the crust statically supports, in
-/// ELEVATION units (0.35 ≈ 3.5 km of orogenic uplift on top of the continental
-/// base; converted to thickness via the isostasy slope). Only forcing above
-/// this yields and spreads. Seed-12345 calibration: the pillar carries ~0.53;
-/// ordinary large belts stay ≤~0.35. Playground dial: raise it (with lower
-/// gravity in mind) for Olympus-Mons worlds, lower it for subdued shield
-/// worlds.
+/// Max tectonic-thickening contribution the crust statically supports at the
+/// REFERENCE belt width, in ELEVATION units (0.35 ≈ 3.5 km of orogenic uplift
+/// on top of the continental base; converted to thickness via the isostasy
+/// slope). Only forcing above the LOCAL (width-aware) threshold yields and
+/// spreads. Playground dial: raise it (think lower gravity) for Olympus-Mons
+/// worlds, lower it for subdued shield worlds.
 pub const OROGEN_YIELD_ELEV: f32 = 0.35;
+/// WIDTH-AWARE yield: local threshold =
+/// `OROGEN_YIELD_ELEV · sqrt(local_belt_width / OROGEN_YIELD_WIDTH_REF_KM)`,
+/// clamped to the FACTOR bounds below. Wide belts support taller loads —
+/// Earth's peak-vs-belt-width curve is ≈ sqrt: Taiwan (~150 km) 4 km, Alps
+/// (~200) 4.8, Andes (400-700) 7, Himalaya (1000+) 8.8. A narrow salient
+/// caught in all-sides convergence caps Taiwan-class instead of re-taking the
+/// planetary maximum (the seed-12345 pillar residual: uniform yield capped the
+/// coarse block, the fine rebuild re-inflated it to the world max). Width =
+/// 2× graph distance from the cell to the footprint edge.
+pub const OROGEN_YIELD_WIDTH_REF_KM: f32 = 300.0;
+/// Orogen-footprint membership: thickening above this fraction of the
+/// reference yield thickness. Low enough to count foothills (width measures
+/// the whole belt), high enough to exclude background.
+pub const OROGEN_YIELD_FOOTPRINT_FRAC: f32 = 0.15;
+/// Clamp on the sqrt width factor. PARKED NEUTRAL (min=max=1 ⇒ exactly the
+/// uniform rung): measured 2026-07-11, the seed-12345 pillar is the planet's
+/// WIDEST orogen (641-km double-forcing dome vs 217-km reference belt), so
+/// width-awareness correctly RAISES its ceiling and un-caps it (peaks 12 km,
+/// spire gate ABSURD both seeds). The pillar residual is fine-builder peak
+/// concentration, not coarse support scaling. Dials kept for worlds where
+/// narrow slivers genuinely over-build.
+pub const OROGEN_YIELD_WIDTH_FACTOR_MIN: f32 = 1.0;
+pub const OROGEN_YIELD_WIDTH_FACTOR_MAX: f32 = 1.0;
 /// Gravitational spreading length of over-yield material, km (Gaussian-like
 /// screened-diffusion scale). Sets how wide the shed foothill apron builds.
 pub const OROGEN_YIELD_SPREAD_KM: f32 = 250.0;

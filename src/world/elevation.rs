@@ -28,6 +28,7 @@
 
 use glam::Vec3;
 use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
+use ordered_float::OrderedFloat;
 use rand::Rng;
 #[cfg(not(feature = "single-threaded"))]
 use rayon::prelude::*;
@@ -359,6 +360,49 @@ struct RelaxationEdge {
 /// the shortening. No-flux boundaries follow crust-type boundaries. The solve
 /// conserves `sum(area * H)`; its natural length is sqrt(D*t), so changing mesh
 /// resolution does not change the physical footprint.
+///
+/// Local orogen belt width (radians): 2× the graph distance from each
+/// footprint cell (thickening > threshold) to the nearest non-footprint cell —
+/// the distance transform of the footprint. A 700-km-wide belt's crest reads
+/// ~700 km; a 150-km salient reads ~150. Deterministic (index-tied Dijkstra);
+/// non-footprint cells get 0 (their yield clamps to the minimum factor, which
+/// never binds below the footprint threshold anyway).
+fn orogen_width_field(tess: &Tessellation, thickening: &[f32], threshold: f32) -> Vec<f32> {
+    let n = tess.num_cells();
+    let in_footprint: Vec<bool> = thickening.iter().map(|&t| t > threshold).collect();
+    let mut dist = vec![f32::INFINITY; n];
+    let mut heap: std::collections::BinaryHeap<std::cmp::Reverse<(OrderedFloat<f32>, usize)>> =
+        std::collections::BinaryHeap::new();
+    for i in 0..n {
+        if !in_footprint[i] {
+            dist[i] = 0.0;
+            heap.push(std::cmp::Reverse((OrderedFloat(0.0), i)));
+        }
+    }
+    while let Some(std::cmp::Reverse((d, i))) = heap.pop() {
+        if d.0 > dist[i] {
+            continue;
+        }
+        let ci = tess.cell_center(i);
+        for &nb in tess.neighbors(i) {
+            let nd = d.0 + (tess.cell_center(nb) - ci).length();
+            if nd < dist[nb] {
+                dist[nb] = nd;
+                heap.push(std::cmp::Reverse((OrderedFloat(nd), nb)));
+            }
+        }
+    }
+    (0..n)
+        .map(|i| {
+            if in_footprint[i] && dist[i].is_finite() {
+                2.0 * dist[i]
+            } else {
+                0.0
+            }
+        })
+        .collect()
+}
+
 fn solve_tectonic_thickening(
     tessellation: &Tessellation,
     crust: &Crust,
@@ -537,8 +581,10 @@ pub(crate) fn coarse_elevation_fields(
             // Same source as legacy, then strength-limited gravitational
             // spreading of ONLY the over-yield excess (see constants.rs,
             // "legacy-yield orogen rung"). Sub-yield cells keep their exact
-            // legacy thickening; over-strength compact loads (the microplate
-            // pillar) cap out and build a conserved foothill apron.
+            // legacy thickening; over-strength compact loads (the all-sides-
+            // convergent salient) cap out and build a conserved foothill apron.
+            // The threshold is WIDTH-AWARE: wide belts support taller loads,
+            // narrow slivers cap Taiwan-class (Earth's peak-vs-width ≈ sqrt).
             let slope = isostasy_slope();
             let legacy: Vec<f32> = features
                 .arc
@@ -546,11 +592,28 @@ pub(crate) fn coarse_elevation_fields(
                 .zip(features.collision.iter())
                 .map(|(&arc, &collision)| (arc + collision) / slope)
                 .collect();
+            let yield_ref = OROGEN_YIELD_ELEV / slope;
+            let widths = orogen_width_field(
+                tessellation,
+                &legacy,
+                OROGEN_YIELD_FOOTPRINT_FRAC * yield_ref,
+            );
+            let yields: Vec<f32> = widths
+                .iter()
+                .map(|&w_rad| {
+                    let w_km = w_rad * PLANET_RADIUS_KM;
+                    let factor = (w_km / OROGEN_YIELD_WIDTH_REF_KM).sqrt().clamp(
+                        OROGEN_YIELD_WIDTH_FACTOR_MIN,
+                        OROGEN_YIELD_WIDTH_FACTOR_MAX,
+                    );
+                    yield_ref * factor
+                })
+                .collect();
             let spread = OROGEN_YIELD_SPREAD_KM / PLANET_RADIUS_KM;
             super::deformation::yield_relax(
                 tessellation,
                 &legacy,
-                OROGEN_YIELD_ELEV / slope,
+                &yields,
                 0.5 * spread * spread,
                 OROGEN_YIELD_PICARD_STEPS,
             )

@@ -2,6 +2,32 @@
 
 Status: T0 research prototype implemented, not a product replacement, 2026-07-11.
 
+### Width-aware yield — TESTED AND PARKED (2026-07-11)
+
+Hypothesis: yield ceiling ∝ sqrt(local belt width) (Earth's peak-vs-width
+curve) so narrow slivers cap Taiwan-class. Implemented (per-cell threshold in
+`yield_relax`, `orogen_width_field` distance transform, OROGEN_YIELD_WIDTH_*
+dials) and FALSIFIED for the seed-12345 pillar: corrected measurement (a
+python lat/lon unit bug had shrunk all my export-side distances 57×) shows the
+pillar is the planet's WIDEST orogen — a 641-km double-forcing dome with a
+normal coarse taper (6.0→5.8→4.1→2.0 km p50 over 0-500 km) — vs 217 km for the
+reference belt. Width-awareness therefore RAISES its ceiling (0.51 vs 0.30)
+and un-caps it: peaks 12.0/11.3 km, spire gate FLAG/ABSURD both seeds. Parked
+neutral (FACTOR_MIN=MAX=1.0 ⇒ bit-equal to the uniform rung); machinery and
+dials retained.
+
+Corrected residual diagnosis: the coarse dome is Tibet-class and arguably
+legitimate; the pathology is FINE-side — the emergent builder inflates the
+dome top +3.7-4.3 km over its (yield-capped) coarse target into a tight summit
+cluster (global `shape_c` lets broad belts donate rebuilt volume to compact
+high-shape regions, and concentration is strongest there). Next candidates:
+per-orogen builder normalization (behind a flag — it changes the DEFAULT
+path, so identity-gated A/B), a rebuild-fidelity audit (fine peak vs coarse
+target per orogen), and — separately — the render's ~125× vertical
+exaggeration, which turns ANY 8-km summit into a 1100-km tower (Everest would
+render identically; a visualization-side relief-scale experiment may be part
+of the answer).
+
 ## Problem
 
 The legacy coarse model projects independently capped arc and collision response
