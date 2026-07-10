@@ -20,11 +20,11 @@ use glam::{Mat4, Vec3};
 use hex3::render::{
     FillPipelineKind, GpuContext, IndexedDraw, OrbitCamera, RenderScene, Renderer, Uniforms,
 };
-use hex3::world::{FineCacheMode, VoronoiBackend, World};
+use hex3::world::{FineCacheMode, OrogenModel, VoronoiBackend, World};
 
 use super::view::RiverMode;
 use super::world::{
-    advance_to_stage_2, advance_to_stage_3, advance_to_stage_4, create_world_with_options,
+    advance_to_stage_2, advance_to_stage_3, advance_to_stage_4, create_world_with_orogen_model,
     generate_world_buffers, ErosionOverrides,
 };
 
@@ -67,6 +67,7 @@ pub const SWEEP_KNOBS: &[&str] = &[
     "drainage_pulse",
     "pulse_burnin_steps",
     "pulse_smooth_km",
+    "orogen_model",
 ];
 
 /// Options for a sweep run, assembled from the CLI.
@@ -76,6 +77,7 @@ pub struct SweepOptions {
     pub fine_scale: f32,
     pub target_stage: u32,
     pub voronoi_backend: VoronoiBackend,
+    pub orogen_model: OrogenModel,
     pub fine_cache: FineCacheMode,
     /// Baseline overrides applied to every tile (the non-swept knobs).
     pub base_erosion: ErosionOverrides,
@@ -146,6 +148,15 @@ fn apply_knob(ov: &mut ErosionOverrides, name: &str, v: f64) -> Result<(), Strin
         "drainage_pulse" => ov.drainage_pulse = Some(f),
         "pulse_burnin_steps" => ov.pulse_burnin_steps = Some(v as usize),
         "pulse_smooth_km" => ov.pulse_smooth_km = Some(f),
+        // Categorical: 0 = legacy, 1 = legacy-yield (the pillar A/B). The
+        // experimental conserved/thin-sheet rungs are diagnose-only.
+        "orogen_model" => {
+            ov.orogen_model = Some(match v as usize {
+                0 => hex3::world::OrogenModel::Legacy,
+                1 => hex3::world::OrogenModel::LegacyYield,
+                other => return Err(format!("orogen_model sweep value {other} (0=legacy, 1=legacy-yield)")),
+            })
+        }
         other => {
             return Err(format!(
                 "unknown sweep knob '{other}'; valid knobs: {}",
@@ -158,8 +169,13 @@ fn apply_knob(ov: &mut ErosionOverrides, name: &str, v: f64) -> Result<(), Strin
 
 /// Generate a fully-staged world for one tile's knob values.
 fn generate_tile_world(opts: &SweepOptions, overrides: &ErosionOverrides) -> World {
-    let mut world =
-        create_world_with_options(opts.seed, opts.cells, opts.voronoi_backend, opts.fine_cache);
+    let mut world = create_world_with_orogen_model(
+        opts.seed,
+        opts.cells,
+        opts.voronoi_backend,
+        opts.fine_cache,
+        opts.orogen_model,
+    );
     overrides.apply(&mut world);
 
     if (opts.fine_scale - 1.0).abs() > f32::EPSILON {

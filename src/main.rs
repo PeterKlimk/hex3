@@ -6,9 +6,9 @@ use clap::{Parser, ValueEnum};
 use winit::event_loop::{ControlFlow, EventLoop};
 
 use app::world::{
-    advance_to_stage_2, advance_to_stage_3, advance_to_stage_4, create_world_with_options,
+    advance_to_stage_2, advance_to_stage_3, advance_to_stage_3_with_cap, advance_to_stage_4,
 };
-use hex3::world::{FineCacheMode, VoronoiBackend};
+use hex3::world::{FineCacheMode, OrogenModel, VoronoiBackend};
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
 enum CliVoronoiBackend {
@@ -16,6 +16,34 @@ enum CliVoronoiBackend {
     ConvexHull,
     #[value(name = "knn-clipping")]
     KnnClipping,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum CliOrogenModel {
+    Legacy,
+    #[value(name = "legacy-yield")]
+    LegacyYield,
+    #[value(name = "conserved-local")]
+    ConservedLocal,
+    #[value(name = "conserved-feature-footprint")]
+    ConservedFeatureFootprint,
+    #[value(name = "conserved-isotropic")]
+    ConservedIsotropic,
+    #[value(name = "thin-sheet")]
+    ThinSheet,
+}
+
+impl From<CliOrogenModel> for OrogenModel {
+    fn from(value: CliOrogenModel) -> Self {
+        match value {
+            CliOrogenModel::Legacy => OrogenModel::Legacy,
+            CliOrogenModel::LegacyYield => OrogenModel::LegacyYield,
+            CliOrogenModel::ConservedLocal => OrogenModel::ConservedLocal,
+            CliOrogenModel::ConservedFeatureFootprint => OrogenModel::ConservedFeatureFootprint,
+            CliOrogenModel::ConservedIsotropic => OrogenModel::ConservedIsotropic,
+            CliOrogenModel::ThinSheet => OrogenModel::ThinSheet,
+        }
+    }
 }
 
 impl From<CliVoronoiBackend> for VoronoiBackend {
@@ -56,6 +84,11 @@ struct Cli {
     #[arg(long, default_value_t = 1.0)]
     fine_scale: f32,
 
+    /// Fine-mesh cell guardrail for headless diagnostic exports. Zero uses the
+    /// normal product default. Ignored by interactive mode.
+    #[arg(long, default_value_t = 0)]
+    fine_max: usize,
+
     /// Export world data to file (supports .json and .json.gz)
     #[arg(long, value_name = "FILE")]
     export: Option<PathBuf>,
@@ -80,6 +113,11 @@ struct Cli {
     /// Voronoi backend to use (convex-hull or knn-clipping)
     #[arg(long, value_enum, default_value_t = CliVoronoiBackend::ConvexHull)]
     voronoi_backend: CliVoronoiBackend,
+
+    /// Convergent-orogen model. Legacy remains the visual baseline; the
+    /// conserved isotropic model is retained for explicit A/B evaluation.
+    #[arg(long, value_enum, default_value_t = CliOrogenModel::Legacy)]
+    orogen_model: CliOrogenModel,
 
     /// Disable the fine-mesh base disk cache (always regenerate stage 3a)
     #[arg(long)]
@@ -369,6 +407,7 @@ fn main() {
     };
 
     let backend = VoronoiBackend::from(cli.voronoi_backend);
+    let orogen_model = OrogenModel::from(cli.orogen_model);
 
     // River render calibration (A/B: --river-legacy vs physical catchment km²).
     app::world::set_river_threshold_mode(if cli.river_legacy {
@@ -412,6 +451,7 @@ fn main() {
         drainage_pulse: (cli.drainage_pulse >= 0.0).then_some(cli.drainage_pulse),
         pulse_burnin_steps: (cli.pulse_burnin_steps > 0).then_some(cli.pulse_burnin_steps),
         pulse_smooth_km: (cli.pulse_smooth_km >= 0.0).then_some(cli.pulse_smooth_km),
+        orogen_model: Some(orogen_model),
         fault_scarp_height: (cli.fault_scarp >= 0.0).then_some(cli.fault_scarp),
         interior_relief: (cli.interior_relief >= 0.0).then_some(cli.interior_relief),
         front_strike_weight: (cli.front_strike_weight >= 0.0).then_some(cli.front_strike_weight),
@@ -450,6 +490,7 @@ fn main() {
             // Sweeps are about erosion, so default to the erosion stage.
             target_stage: cli.stage.unwrap_or(4),
             voronoi_backend: backend,
+            orogen_model,
             fine_cache,
             base_erosion: erosion,
             stack: cli.sweep_stack.clone(),
@@ -473,11 +514,13 @@ fn main() {
             cli.seed,
             cli.cells,
             cli.fine_scale,
+            cli.fine_max,
             target_stage,
             cli.export,
             cli.river_texture,
             backend,
             fine_cache,
+            orogen_model,
             erosion,
         );
     } else {
@@ -487,6 +530,7 @@ fn main() {
             cli.export,
             backend,
             fine_cache,
+            orogen_model,
             erosion,
         );
     }
@@ -497,23 +541,31 @@ fn run_headless(
     seed: Option<u64>,
     num_cells: usize,
     fine_scale: f32,
+    fine_max: usize,
     target_stage: u32,
     export_path: Option<PathBuf>,
     river_texture_path: Option<PathBuf>,
     voronoi_backend: VoronoiBackend,
     fine_cache: FineCacheMode,
+    orogen_model: OrogenModel,
     erosion: app::world::ErosionOverrides,
 ) {
     let seed = seed.unwrap_or_else(rand::random);
     println!(
-        "Headless mode: seed={}, cells={}, fine_scale={}, target_stage={}, voronoi_backend={}",
-        seed, num_cells, fine_scale, target_stage, voronoi_backend
+        "Headless mode: seed={}, cells={}, fine_scale={}, target_stage={}, voronoi_backend={}, orogen_model={}",
+        seed, num_cells, fine_scale, target_stage, voronoi_backend, orogen_model
     );
 
     // Generate world
     print!("Generating world... ");
     let start = std::time::Instant::now();
-    let mut world = create_world_with_options(seed, num_cells, voronoi_backend, fine_cache);
+    let mut world = app::world::create_world_with_orogen_model(
+        seed,
+        num_cells,
+        voronoi_backend,
+        fine_cache,
+        orogen_model,
+    );
     erosion.apply(&mut world);
     // Apply the fine-mesh resolution multiplier. A non-default scale changes the
     // sampled mesh, so the disk cache (keyed on the density params) would miss
@@ -537,7 +589,11 @@ fn run_headless(
     if target_stage >= 3 {
         print!("Advancing to stage 3 (Hydrosphere, pre-erosion)... ");
         let start = std::time::Instant::now();
-        advance_to_stage_3(&mut world);
+        if fine_max > 0 {
+            advance_to_stage_3_with_cap(&mut world, fine_max);
+        } else {
+            advance_to_stage_3(&mut world);
+        }
         println!("{:.1}ms", start.elapsed().as_secs_f64() * 1000.0);
     }
     if target_stage >= 4 {
@@ -581,6 +637,7 @@ fn run_interactive(
     export_path: Option<PathBuf>,
     voronoi_backend: VoronoiBackend,
     fine_cache: FineCacheMode,
+    orogen_model: OrogenModel,
     erosion: app::world::ErosionOverrides,
 ) {
     let event_loop = EventLoop::new().expect("Failed to create event loop");
@@ -595,6 +652,7 @@ fn run_interactive(
         target_stage,
         voronoi_backend,
         fine_cache,
+        orogen_model,
         erosion,
     };
 

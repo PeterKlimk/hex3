@@ -13,7 +13,7 @@ use rayon::prelude::*;
 use super::boundary::{collect_plate_boundaries, BoundaryKind, SubductionPolarity};
 use super::constants::*;
 use super::dynamics::Dynamics;
-use super::elevation::{coarse_elevation_fields, isostasy_slope, ElevationFields};
+use super::elevation::{coarse_elevation_fields, isostasy_slope, ElevationFields, OrogenModel};
 use super::erosion::ErosionParams;
 use super::features::build_cell_pair_edge_endpoints;
 use super::fine_cache::{self, FineCacheMode};
@@ -453,10 +453,44 @@ impl FineWorld {
         structure_params: FineStructureParams,
         fronts: &OrogenFronts,
     ) -> Self {
+        Self::generate_pre_with_model(
+            seed,
+            OrogenModel::Legacy,
+            coarse_tessellation,
+            crust,
+            features,
+            coarse_elevation,
+            atmosphere,
+            max_cells,
+            cache,
+            density_params,
+            structure_params,
+            fronts,
+        )
+    }
+
+    /// Model-aware variant of [`Self::generate_pre`]. Experimental callers must
+    /// opt in explicitly; the stable constructor keeps legacy product behavior.
+    #[allow(clippy::too_many_arguments)]
+    pub fn generate_pre_with_model(
+        seed: u64,
+        orogen_model: OrogenModel,
+        coarse_tessellation: &Tessellation,
+        crust: &Crust,
+        features: &FeatureFields,
+        coarse_elevation: &Elevation,
+        atmosphere: &Atmosphere,
+        max_cells: usize,
+        cache: FineCacheMode,
+        density_params: FineDensityParams,
+        structure_params: FineStructureParams,
+        fronts: &OrogenFronts,
+    ) -> Self {
         let total = Instant::now();
         let base = FineBase::load_or_generate(
             cache,
             seed,
+            orogen_model,
             coarse_tessellation,
             crust,
             features,
@@ -563,6 +597,7 @@ impl FineBase {
     pub fn load_or_generate(
         cache: FineCacheMode,
         seed: u64,
+        orogen_model: OrogenModel,
         coarse_tessellation: &Tessellation,
         crust: &Crust,
         features: &FeatureFields,
@@ -575,6 +610,7 @@ impl FineBase {
     ) -> Self {
         let key = fine_cache::fine_base_key(
             seed,
+            orogen_model,
             coarse_tessellation,
             crust,
             features,
@@ -592,6 +628,7 @@ impl FineBase {
         }
         let base = Self::generate_with_target(
             seed,
+            orogen_model,
             coarse_tessellation,
             crust,
             features,
@@ -613,6 +650,7 @@ impl FineBase {
     #[allow(clippy::too_many_arguments)]
     pub fn generate_with_target(
         seed: u64,
+        orogen_model: OrogenModel,
         coarse_tessellation: &Tessellation,
         crust: &Crust,
         features: &FeatureFields,
@@ -702,6 +740,7 @@ impl FineBase {
             &coarse_cell,
             crust,
             features,
+            orogen_model,
             coarse_elevation,
             atmosphere,
         );
@@ -730,21 +769,30 @@ impl FineBase {
         // real substrate. `coarse_base_elevation` is kept as the lapse baseline.
         let t0 = Instant::now();
         let mut base_elevation = coarse_base_elevation.clone();
-        // Emergent orogens (erosion-v3): DEMOTE a fraction of the conservative
-        // tectonic crust load from the static envelope. Erosion rebuilds exactly
-        // this solved volume as active uplift; legacy arc/collision response fields
-        // may shape that work but no longer determine how much mountain exists.
+        // Emergent orogens (erosion-v3): DEMOTE a fraction of the model-selected
+        // tectonic load from the static envelope. Erosion rebuilds exactly this
+        // load as active uplift. In the product baseline the load reproduces the
+        // historical arc/collision response; experiments can supply conserved
+        // crust evolution instead.
         // Erosion then rebuilds it as active uplift, carving dissected ranges instead
         // of dissecting a flat plateau. `coarse_base_elevation` is kept as the rebuild
         // TARGET and the coarse-target land mask. See erosion-v3-emergent-orogens.md.
         if structure_params.emergent_lambda > 0.0 {
             let lambda = structure_params.emergent_lambda;
             let ef = &fields.elevation_fields;
-            for (elevation, &tectonic) in base_elevation
-                .iter_mut()
-                .zip(ef.tectonic_thickening.iter())
-            {
-                *elevation -= lambda * isostasy_slope() * tectonic.max(0.0);
+            if orogen_model == OrogenModel::Legacy {
+                // BIT-EXACT historical demotion: λ·(arc+col) on the fine-interpolated
+                // response fields — NOT λ·slope·thickening, whose slope round-trip
+                // reseeds the erosion chaos cascade and breaks default identity.
+                for (i, elevation) in base_elevation.iter_mut().enumerate() {
+                    *elevation -= lambda * (ef.arc[i] + ef.collision[i]).max(0.0);
+                }
+            } else {
+                for (elevation, &tectonic) in
+                    base_elevation.iter_mut().zip(ef.tectonic_thickening.iter())
+                {
+                    *elevation -= lambda * isostasy_slope() * tectonic.max(0.0);
+                }
             }
             report_envelope_land_flips(&tessellation, &coarse_base_elevation, &base_elevation);
         }
@@ -938,13 +986,7 @@ impl FineSurface {
                     &base.coarse_base_elevation,
                     params,
                 )
-                .map(|modifier| {
-                    shape
-                        .iter()
-                        .zip(&modifier)
-                        .map(|(&s, &m)| s * m)
-                        .collect()
-                });
+                .map(|modifier| shape.iter().zip(&modifier).map(|(&s, &m)| s * m).collect());
                 log::info!(
                     "fine mesh: drainage-pulse burn-in ({} steps) + extraction {:.2?}",
                     params.pulse_burnin_steps,
@@ -1719,14 +1761,23 @@ fn add_interior_structural_relief(
     }
     let n = tess.num_cells();
 
-    // Land-normalized orogen forcing (collision + convergent + arc): high in
-    // convergence belts, ~0 in cratons. The same signals the elevation/scarp
-    // machinery keys on, so the grain follows the world's orogens, not free fBm.
-    let forcing: Vec<f32> = (0..n)
-        .map(|i| (fields.collision[i] + fields.convergent[i] + fields.arc[i]).max(0.0))
-        .collect();
+    // A deformation model supplies accumulated strain directly. Legacy models
+    // retain their historical arc+collision+influence eligibility field.
+    let strain_driven = fields
+        .tectonic_strain
+        .iter()
+        .copied()
+        .fold(0.0f32, f32::max)
+        > 1e-6;
+    let forcing: Vec<f32> = if strain_driven {
+        fields.tectonic_strain.clone()
+    } else {
+        (0..n)
+            .map(|i| (fields.collision[i] + fields.convergent[i] + fields.arc[i]).max(0.0))
+            .collect()
+    };
     let fmax = (0..n)
-        .filter(|&i| base_elev[i] >= 0.0)
+        .filter(|&i| strain_driven || base_elev[i] >= 0.0)
         .map(|i| forcing[i])
         .fold(0.0f32, f32::max)
         .max(1e-6);
@@ -1794,11 +1845,18 @@ fn add_interior_structural_relief(
     // (so cratons stay quiet). `in_gate` records membership in the zero-mean set
     // independently of whether the noise sample happens to be exactly 0.
     let sample = |i: usize| -> (f32, bool) {
-        let elev_gate = sstep(
-            FINE_INTERIOR_MIN_ELEV,
-            FINE_INTERIOR_MIN_ELEV + FINE_INTERIOR_ELEV_BAND,
-            base_elev[i],
-        );
+        // Strain is physical eligibility and remains valid for low/submarine
+        // active structures. Legacy has no strain state, so preserve its land-
+        // safety elevation ramp exactly.
+        let elev_gate = if strain_driven {
+            1.0
+        } else {
+            sstep(
+                FINE_INTERIOR_MIN_ELEV,
+                FINE_INTERIOR_MIN_ELEV + FINE_INTERIOR_ELEV_BAND,
+                base_elev[i],
+            )
+        };
         if elev_gate <= 0.0 {
             return (0.0, false);
         }
@@ -2388,6 +2446,12 @@ fn compute_areal_density(
         .map(|i| preview_hydrology.flow_count_equiv(i).max(1.0).ln())
         .fold(0.0_f32, f32::max)
         .max(1e-6);
+    let max_strain = features
+        .thin_sheet_strain
+        .iter()
+        .copied()
+        .fold(0.0f32, f32::max)
+        .max(1e-6);
 
     let g_plains = cell_size_km_to_density(params.plains_km);
     let g_mountain = cell_size_km_to_density(params.mountain_km);
@@ -2407,7 +2471,8 @@ fn compute_areal_density(
         // relative importances; absolute scale comes from the cell-size scales.
         let slope = (elevation.slope(tessellation, i) / max_slope).powf(e);
         let flow = (preview_hydrology.flow_count_equiv(i).max(1.0).ln() / max_flow_ln).powf(e);
-        let activity = features.activity[i].clamp(0.0, 1.0).powf(e);
+        let strain = (features.thin_sheet_strain[i] / max_strain).clamp(0.0, 1.0);
+        let activity = features.activity[i].clamp(0.0, 1.0).max(strain).powf(e);
         let demand = (params.slope_weight * slope
             + params.flow_weight * flow
             + params.activity_weight * activity)
@@ -2767,16 +2832,18 @@ fn interpolate_coarse_elevation(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn transfer_fields(
     coarse: &Tessellation,
     fine: &Tessellation,
     coarse_cell: &[usize],
     crust: &Crust,
     features: &FeatureFields,
+    orogen_model: OrogenModel,
     coarse_elevation: &Elevation,
     atmosphere: &Atmosphere,
 ) -> FineFields {
-    let coarse_fields = coarse_elevation_fields(coarse, crust, features);
+    let coarse_fields = coarse_elevation_fields(coarse, crust, features, orogen_model);
     let n = fine.num_cells();
 
     #[cfg(not(feature = "single-threaded"))]
@@ -2810,6 +2877,8 @@ fn transfer_fields(
     let mut elevation_fields = ElevationFields {
         crust_thickness: Vec::with_capacity(n),
         tectonic_thickening: Vec::with_capacity(n),
+        tectonic_strain: Vec::with_capacity(n),
+        compression_axis: Vec::with_capacity(n),
         continentality: Vec::with_capacity(n),
         ridge_age_distance: Vec::with_capacity(n),
         trench: Vec::with_capacity(n),
@@ -2831,6 +2900,10 @@ fn transfer_fields(
         elevation_fields
             .tectonic_thickening
             .push(cell.tectonic_thickening);
+        elevation_fields.tectonic_strain.push(cell.tectonic_strain);
+        elevation_fields
+            .compression_axis
+            .push(cell.compression_axis);
         elevation_fields.continentality.push(cell.continentality);
         elevation_fields
             .ridge_age_distance
@@ -2863,6 +2936,8 @@ fn transfer_fields(
 struct TransferredCell {
     crust_thickness: f32,
     tectonic_thickening: f32,
+    tectonic_strain: f32,
+    compression_axis: Vec3,
     continentality: f32,
     ridge_age_distance: f32,
     trench: f32,
@@ -2898,6 +2973,10 @@ fn transfer_cell(
     TransferredCell {
         crust_thickness: support.interpolate(&coarse_fields.crust_thickness, 0.0),
         tectonic_thickening: support.interpolate(&coarse_fields.tectonic_thickening, 0.0),
+        tectonic_strain: support.interpolate(&coarse_fields.tectonic_strain, 0.0),
+        compression_axis: support
+            .interpolate_vec3(&coarse_fields.compression_axis)
+            .normalize_or_zero(),
         continentality,
         ridge_age_distance: support.interpolate(&coarse_fields.ridge_age_distance, f32::INFINITY),
         trench: support.interpolate(&coarse_fields.trench, 0.0),

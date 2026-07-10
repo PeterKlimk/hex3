@@ -19,7 +19,7 @@ use glam::Vec3;
 
 use super::constants::*;
 use super::fine::{FineBase, FineDensityParams, FineStructureParams, OrogenFronts};
-use super::{Atmosphere, Crust, Elevation, FeatureFields, Tessellation};
+use super::{Atmosphere, Crust, Elevation, FeatureFields, OrogenModel, Tessellation};
 
 /// Bump when fine-mesh GENERATION CODE changes (sampling / relaxation / field
 /// transfer / density logic) in a way the content hash below can't observe.
@@ -53,7 +53,9 @@ use super::{Atmosphere, Crust, Elevation, FeatureFields, Tessellation};
 /// changes the content hash can't observe.
 /// v10: static orogen volume comes from the conservative tectonic-thickening
 /// solve, and that solved field is transferred to the fine base.
-const FINE_BASE_CACHE_VERSION: u32 = 10;
+/// v11: runtime orogen-model selection is part of the key.
+/// v12: thin-sheet strain and compression-axis fields are transferred.
+const FINE_BASE_CACHE_VERSION: u32 = 12;
 
 /// How the fine-mesh base should use the on-disk cache.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -74,6 +76,7 @@ pub enum FineCacheMode {
 #[allow(clippy::too_many_arguments)]
 pub fn fine_base_key(
     seed: u64,
+    orogen_model: OrogenModel,
     coarse: &Tessellation,
     crust: &Crust,
     features: &FeatureFields,
@@ -87,6 +90,17 @@ pub fn fine_base_key(
     let mut h = 0xcbf2_9ce4_8422_2325u64; // FNV-1a offset basis
     mix_u64(&mut h, FINE_BASE_CACHE_VERSION as u64);
     mix_u64(&mut h, seed);
+    mix_u64(
+        &mut h,
+        match orogen_model {
+            OrogenModel::Legacy => 0,
+            OrogenModel::ConservedLocal => 1,
+            OrogenModel::ConservedFeatureFootprint => 2,
+            OrogenModel::ConservedIsotropic => 3,
+            OrogenModel::ThinSheet => 4,
+            OrogenModel::LegacyYield => 5,
+        },
+    );
     mix_u64(&mut h, max_cells as u64);
 
     // Fine density / sampling knobs that shape the mesh (defaults from the FINE_*
@@ -221,9 +235,12 @@ pub fn fine_base_key(
         &features.arc_shape_noise,
         &features.rift_delta,
         &features.tectonic_crust_flux,
+        &features.thin_sheet_thickness_delta,
+        &features.thin_sheet_strain,
     ] {
         mix_f32s(&mut h, field);
     }
+    mix_vec3s(&mut h, &features.thin_sheet_compression_axis);
     h
 }
 

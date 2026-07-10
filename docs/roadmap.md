@@ -33,6 +33,18 @@ probe into `diagnose` before the next mountain ADD.
    benches / cuestas / cap-rock. Erosion TEXTURE; speculative; hot-path cost. Lower priority.
 
 ## Mountain-quality open issues
+- 🟨 **Mesa/pillar + legacy-yield orogen rung — IMPLEMENTED, gates pass 2 seeds, user
+  visual pending** (2026-07-11): the user's "Everest but a cliff on all sides" pillar =
+  a MICROPLATE with all-sides convergence (arc+collision stack, no strength limit) →
+  cliff-edged 6-km coarse block → fine shape stack amplifies to 9-12 km. Detected by the
+  new spire probe in `--mountain-audit` (ring-p90 drop; mesa = flat-then-cliff, Earth
+  tapers). Fix = `--orogen-model legacy-yield`: exact legacy source + gravitational
+  yield relaxation of only over-strength thickening (`OROGEN_YIELD_ELEV` dial); sub-yield
+  belts bit-untouched. Measured: cliff 3.6→1.3 km [ok], structure unchanged, composed A4
+  candidate keeps 315/247 m relief at 8.7/8.7 km peaks (was 330/249 @ 11.8/10.5).
+  Also: legacy default restored BYTE-IDENTICAL after the model-ladder walk-back (float
+  round-trips had invalidated all baselines ±2.6 km); thin-sheet T0 stays an explicit
+  experiment. Full spec: `docs/specs/thin-sheet-orogeny.md`.
 - 🟨 **A4 two-stage drainage-aware uplift pulse — IMPLEMENTED, gates pass 2 seeds, user
   visual pending** (2026-07-10): burn-in erosion → Strahler-≥3 trunk extraction →
   per-orogen zero-mean uplift modifier → frozen final epoch. Measured: σ8/p3.5 gives

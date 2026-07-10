@@ -12,11 +12,11 @@ use hex3::render::{
     OrbitCamera, RenderScene, Renderer, SurfaceLineDraw, Uniforms, WindParticleSystem,
     DEFAULT_NUM_PARTICLES,
 };
-use hex3::world::{FineCacheMode, VoronoiBackend, World};
+use hex3::world::{FineCacheMode, OrogenModel, VoronoiBackend, World};
 
 use super::view::{ClimateLayer, FeatureLayer, NoiseLayer, RenderMode, RiverMode, ViewMode};
 use super::world::{
-    advance_to_stage_2, advance_to_stage_3, advance_to_stage_4, create_world_with_options,
+    advance_to_stage_2, advance_to_stage_3, advance_to_stage_4, create_world_with_orogen_model,
     generate_colored_mesh, generate_elevation_mesh_buffers, generate_relief_edge_buffers,
     generate_world_buffers, ErosionOverrides, WorldBuffers, NUM_CELLS,
 };
@@ -36,6 +36,7 @@ pub struct AppState {
     pub seed: u64,
     pub voronoi_backend: VoronoiBackend,
     pub fine_cache: FineCacheMode,
+    pub orogen_model: OrogenModel,
     /// CLI erosion-knob overrides, re-applied to each (re)generated world.
     erosion_overrides: ErosionOverrides,
     /// Stage currently being rendered (<= computed stage). Lets Space/Backspace
@@ -76,6 +77,7 @@ impl AppState {
         seed: u64,
         voronoi_backend: VoronoiBackend,
         fine_cache: FineCacheMode,
+        orogen_model: OrogenModel,
         erosion_overrides: ErosionOverrides,
     ) -> Self {
         let total_start = Instant::now();
@@ -85,8 +87,13 @@ impl AppState {
         let gpu = GpuContext::new(window.clone()).await;
         println!("{:.1}ms", start.elapsed().as_secs_f64() * 1000.0);
 
-        let mut world_data =
-            create_world_with_options(seed, NUM_CELLS, voronoi_backend, fine_cache);
+        let mut world_data = create_world_with_orogen_model(
+            seed,
+            NUM_CELLS,
+            voronoi_backend,
+            fine_cache,
+            orogen_model,
+        );
         erosion_overrides.apply(&mut world_data);
         let initial_viewed_stage = world_data.current_stage();
         let world_buffers = generate_world_buffers(&gpu.device, &gpu.queue, &world_data);
@@ -134,6 +141,7 @@ impl AppState {
             seed,
             voronoi_backend,
             fine_cache,
+            orogen_model,
             erosion_overrides,
             viewed_stage: initial_viewed_stage,
             inactive_buffers: std::collections::HashMap::new(),
@@ -163,8 +171,13 @@ impl AppState {
     }
 
     pub fn regenerate_world(&mut self, seed: u64) {
-        self.world_data =
-            create_world_with_options(seed, NUM_CELLS, self.voronoi_backend, self.fine_cache);
+        self.world_data = create_world_with_orogen_model(
+            seed,
+            NUM_CELLS,
+            self.voronoi_backend,
+            self.fine_cache,
+            self.orogen_model,
+        );
         self.erosion_overrides.apply(&mut self.world_data);
         self.viewed_stage = self.world_data.current_stage();
         self.inactive_buffers.clear(); // stale across a new world

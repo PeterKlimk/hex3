@@ -83,10 +83,9 @@ pub const CRUST_THICKNESS_OCEANIC: f32 = 0.25;
 // diffusivity define the natural relaxation distance sqrt(D*t), rather than a
 // separately painted mountain width.
 
-/// Duration of the represented tectonic episode, in the same time units as the
+/// Duration of the scalar conserved experiment, in the same time units as the
 /// generated Euler-pole angular velocities. With `MAX_ANGULAR_VELOCITY = 1`,
-/// 0.05 corresponds to at most 0.05 radians (~320 km on an Earth-radius world)
-/// of accumulated plate motion.
+/// 0.05 corresponds to at most 0.05 radians (~320 km on an Earth-radius world).
 pub const TECTONIC_ACCUMULATION_TIME: f32 = 0.05;
 
 /// Fraction of subduction-zone closing accommodated by shortening/thickening
@@ -104,6 +103,58 @@ pub const SUBDUCTION_MAGMATIC_ACCRETION: f32 = 0.15;
 /// (~220 km). Zero preserves boundary-localized thickening; large values create
 /// broad, low orogenic plateaus.
 pub const CRUST_GRAVITATIONAL_DIFFUSIVITY: f32 = 0.024;
+
+// Thin-sheet deformation (T0)
+
+/// Duration of the thin-sheet deformation episode in Euler-velocity time
+/// units. Separate from the scalar conserved experiment so the two causal
+/// models can be calibrated independently. Plate angular velocities are
+/// procedural/nondimensional, so Earth-like duration is defined by accumulated
+/// strain and shortening diagnostics rather than literal years.
+pub const THIN_SHEET_TECTONIC_TIME: f32 = 0.50;
+
+/// Ratio of horizontal sheet viscosity to basal drag, in radians². Its square
+/// root is the stress-transmission distance (~440 km at the default), but it is
+/// a constitutive ratio—not a prescribed mountain width. Low values keep plates
+/// nearly rigid; high values transmit boundary work deep into connected crust.
+pub const THIN_SHEET_VISCOSITY_DRAG_RATIO: f32 = 0.0048;
+
+/// Gravitational mobility of thickness anomalies after kinematic shortening,
+/// in radians² per tectonic time. This relaxes unsupported overloads while the
+/// velocity solve—not this scalar step—determines deformation orientation.
+pub const THIN_SHEET_GRAVITATIONAL_DIFFUSIVITY: f32 = 0.002;
+
+/// Excess crust thickness supportable before gravitational yielding begins.
+/// This is a strength/gravity ratio: larger values permit narrow high ranges;
+/// zero gives fully viscous spreading. It is not a surface-elevation cap.
+pub const THIN_SHEET_YIELD_EXCESS: f32 = 0.20;
+
+// --- legacy-yield orogen rung (the missing middle of the model ladder) ---
+// The seed-12345 "pillar": a microplate with convergence on all sides gets
+// arc AND collision forcing near max simultaneously, and the legacy response
+// stacks them with no strength limit — a ~6-km, cliff-edged coarse block that
+// the fine shape stack then amplifies to 9-12 km. The physical mechanism Earth
+// uses against this is gravitational potential energy: crust thickened beyond
+// what its strength supports FLOWS, capping compact overloads and building
+// their foothills from the shed material. legacy-yield = the EXACT legacy
+// source, then `deformation::yield_relax` on the tectonic thickening only.
+// Sub-yield belts are untouched by construction (this rung cannot lose detail
+// — the failure mode of the conserved/isotropic experiments).
+
+/// Max tectonic-thickening contribution the crust statically supports, in
+/// ELEVATION units (0.35 ≈ 3.5 km of orogenic uplift on top of the continental
+/// base; converted to thickness via the isostasy slope). Only forcing above
+/// this yields and spreads. Seed-12345 calibration: the pillar carries ~0.53;
+/// ordinary large belts stay ≤~0.35. Playground dial: raise it (with lower
+/// gravity in mind) for Olympus-Mons worlds, lower it for subdued shield
+/// worlds.
+pub const OROGEN_YIELD_ELEV: f32 = 0.35;
+/// Gravitational spreading length of over-yield material, km (Gaussian-like
+/// screened-diffusion scale). Sets how wide the shed foothill apron builds.
+pub const OROGEN_YIELD_SPREAD_KM: f32 = 250.0;
+/// Picard iterations re-deriving the yielded set (spread material can push a
+/// neighbour over yield; a few passes settle it).
+pub const OROGEN_YIELD_PICARD_STEPS: usize = 6;
 
 /// Elevation of reference continental crust (~800m above sea level, at 10 km/unit).
 /// Isostasy anchor point.

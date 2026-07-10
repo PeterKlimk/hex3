@@ -3,8 +3,9 @@
 //! This module computes canonical per-cell fields (trench, arc, ridge, collision, activity, regime)
 //! from plate boundary edges. Dynamic trench/ridge fields still contribute
 //! elevation directly; convergent boundaries additionally emit a conserved
-//! crust-volume flux that elevation redistributes before isostasy. Arc and
-//! collision response fields remain diagnostics and fine-structure guides.
+//! crust-volume flux for conservation experiments. Arc and collision response
+//! fields remain the product baseline as well as diagnostics/fine-structure
+//! guides for experimental models.
 
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
@@ -18,6 +19,7 @@ use super::boundary::{collect_plate_boundaries, BoundaryKind, SubductionPolarity
 use super::constants::*;
 use super::crust::{Crust, CrustType};
 use super::dynamics::Dynamics;
+use super::elevation::OrogenModel;
 use super::{Plates, Tessellation};
 
 /// Tectonic feature fields derived from plate boundaries.
@@ -43,9 +45,19 @@ pub struct FeatureFields {
 
     /// Crustal volume added per unit tectonic time at each cell by convergent
     /// boundary kinematics. Units are thickness × unit-sphere area / time.
-    /// Elevation conservatively redistributes this source before applying
-    /// isostasy; it is deliberately not a prescribed height field.
+    /// Conservation-based elevation models redistribute this source before
+    /// applying isostasy; it is deliberately not a prescribed height field.
     pub tectonic_crust_flux: Vec<f32>,
+
+    /// Signed crust-thickness change from the velocity/continuity thin-sheet
+    /// solve. Nonzero only when that runtime model is selected.
+    pub thin_sheet_thickness_delta: Vec<f32>,
+
+    /// Accumulated normal strain invariant from the thin-sheet solve.
+    pub thin_sheet_strain: Vec<f32>,
+
+    /// Tangent axis of strongest thin-sheet compression.
+    pub thin_sheet_compression_axis: Vec<Vec3>,
 
     /// Tectonic activity scalar (0-1).
     /// High near active boundaries, decays into plate interiors.
@@ -102,6 +114,7 @@ impl FeatureFields {
         plates: &Plates,
         crust: &Crust,
         dynamics: &Dynamics,
+        orogen_model: OrogenModel,
     ) -> Self {
         let boundaries = collect_plate_boundaries(tessellation, plates, crust, dynamics);
         let num_cells = tessellation.num_cells();
@@ -803,12 +816,25 @@ impl FeatureFields {
             );
         }
 
+        let thin_sheet = if orogen_model == OrogenModel::ThinSheet {
+            super::deformation::solve_thin_sheet(tessellation, plates, crust, &boundaries)
+        } else {
+            super::deformation::ThinSheetFields {
+                thickness_delta: vec![0.0; num_cells],
+                strain: vec![0.0; num_cells],
+                compression_axis: vec![Vec3::ZERO; num_cells],
+            }
+        };
+
         Self {
             trench,
             arc,
             ridge,
             collision,
             tectonic_crust_flux,
+            thin_sheet_thickness_delta: thin_sheet.thickness_delta,
+            thin_sheet_strain: thin_sheet.strain,
+            thin_sheet_compression_axis: thin_sheet.compression_axis,
             rift_delta,
             activity,
             convergent,

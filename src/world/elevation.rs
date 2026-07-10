@@ -8,8 +8,8 @@
 //!
 //! Thickness = margin ramp (continental thick, oceanic thin) + macro-scale
 //! craton-structure thickness (thick shield interiors tapering to margins,
-//! with intracratonic basins) + conserved tectonic thickening
-//! (collision shortening and arc accretion, gravitationally spread)
+//! with intracratonic basins) + model-selected tectonic thickening
+//! (the product baseline or an explicitly selected conservation experiment)
 //! - rift thinning.
 //!
 //! The Airy relation (linear in
@@ -36,6 +36,47 @@ use super::constants::*;
 use super::crust::{Crust, CrustType};
 use super::plates::PLATE_NOISE_OFFSET_RANGE;
 use super::{FeatureFields, Tessellation};
+
+/// Coarse convergent-orogen model.
+///
+/// Kept runtime-selectable so physical-model experiments can be evaluated on
+/// identical seeds without silently replacing the product terrain.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub enum OrogenModel {
+    /// Historical additive arc/collision response fields. Product baseline.
+    #[default]
+    Legacy,
+    /// Legacy source + gravitational yield relaxation: tectonic thickening
+    /// above `OROGEN_YIELD_ELEV` spreads (conserved) over
+    /// `OROGEN_YIELD_SPREAD_KM`; sub-yield terrain is bit-untouched. Targets
+    /// the microplate mesa/pillar failure without the detail loss of the
+    /// conserved experiments.
+    LegacyYield,
+    /// Conserved boundary volume left in its receiving boundary cells. Isolates
+    /// source semantics from all lateral relaxation.
+    ConservedLocal,
+    /// Conserved total volume distributed through the historical arc/collision
+    /// footprint. Causal bridge: old geometry, new mass budget.
+    ConservedFeatureFootprint,
+    /// Conserved boundary crust flux redistributed by isotropic thin-sheet
+    /// diffusion. Retained as an explicit experiment, not the default.
+    ConservedIsotropic,
+    /// Velocity/continuity thin-sheet prototype (T0).
+    ThinSheet,
+}
+
+impl std::fmt::Display for OrogenModel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Legacy => write!(f, "legacy"),
+            Self::LegacyYield => write!(f, "legacy-yield"),
+            Self::ConservedLocal => write!(f, "conserved-local"),
+            Self::ConservedFeatureFootprint => write!(f, "conserved-feature-footprint"),
+            Self::ConservedIsotropic => write!(f, "conserved-isotropic"),
+            Self::ThinSheet => write!(f, "thin-sheet"),
+        }
+    }
+}
 
 /// Terrain elevation data.
 pub struct Elevation {
@@ -65,9 +106,14 @@ pub struct NoiseLayerData {
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct ElevationFields {
     pub crust_thickness: Vec<f32>,
-    /// Conserved tectonic excess thickness after gravitational spreading.
-    /// This, rather than `arc + collision`, is the static orogenic crust load.
+    /// Model-selected tectonic excess thickness. In the legacy product model
+    /// this reproduces the historical `arc + collision` elevation response;
+    /// experimental models derive it from conserved crust evolution.
     pub tectonic_thickening: Vec<f32>,
+    /// Accumulated deformational strain; zero for models without a strain solve.
+    pub tectonic_strain: Vec<f32>,
+    /// Tangent principal-compression axis; zero where unresolved.
+    pub compression_axis: Vec<Vec3>,
     pub continentality: Vec<f32>,
     pub ridge_age_distance: Vec<f32>,
     pub trench: Vec<f32>,
@@ -75,10 +121,10 @@ pub struct ElevationFields {
     pub convergent: Vec<f32>,
     pub divergent: Vec<f32>,
     pub is_continental: Vec<bool>,
-    /// Legacy volcanic-arc response magnitude. Carried as a spatial/process
-    /// diagnostic for fine structure; it no longer prescribes static height.
+    /// Volcanic-arc response magnitude. It prescribes height in the legacy
+    /// product model and remains a spatial/process diagnostic in experiments.
     pub arc: Vec<f32>,
-    /// Legacy continental-collision response magnitude. See `arc`.
+    /// Continental-collision response magnitude. See `arc`.
     pub collision: Vec<f32>,
     /// Signed continental-rift thickness delta (thickness units, not elevation):
     /// negative in the axial valley, positive on the shoulders.
@@ -149,12 +195,13 @@ impl Elevation {
         tessellation: &Tessellation,
         crust: &Crust,
         features: &FeatureFields,
+        orogen_model: OrogenModel,
         rng: &mut R,
     ) -> Self {
         let macro_field = macro_craton_thickness(tessellation, crust, rng);
 
         let (values, noise_contribution, noise_layers) =
-            generate_heightmap(tessellation, crust, features, &macro_field);
+            generate_heightmap(tessellation, crust, features, orogen_model, &macro_field);
 
         Self {
             values,
@@ -316,6 +363,7 @@ fn solve_tectonic_thickening(
     tessellation: &Tessellation,
     crust: &Crust,
     volume_flux: &[f32],
+    diffusivity: f32,
 ) -> Vec<f32> {
     let n = tessellation.num_cells();
     assert_eq!(volume_flux.len(), n);
@@ -327,7 +375,7 @@ fn solve_tectonic_thickening(
         .map(|(&flux, &area)| flux.max(0.0) * duration / area.max(1e-12))
         .collect();
 
-    let tau = CRUST_GRAVITATIONAL_DIFFUSIVITY.max(0.0) * duration;
+    let tau = diffusivity.max(0.0) * duration;
     if tau <= 0.0 || !source.iter().any(|&x| x > 0.0) {
         return source;
     }
@@ -466,13 +514,103 @@ pub(crate) fn coarse_elevation_fields(
     tessellation: &Tessellation,
     crust: &Crust,
     features: &FeatureFields,
+    orogen_model: OrogenModel,
 ) -> ElevationFields {
     let num_cells = tessellation.num_cells();
+
+    let tectonic_thickening = match orogen_model {
+        OrogenModel::Legacy => {
+            // BIT-EXACT reproduction of the historical thickening: `(arc+col)/slope`
+            // — division (not `* inv_slope`), no `.max(0.0)` (the fields are
+            // nonnegative by construction). The legacy default must stay
+            // byte-identical through the fine/erosion chaos cascade, so every
+            // float op here matches the pre-model-ladder expression.
+            let slope = isostasy_slope();
+            features
+                .arc
+                .iter()
+                .zip(features.collision.iter())
+                .map(|(&arc, &collision)| (arc + collision) / slope)
+                .collect()
+        }
+        OrogenModel::LegacyYield => {
+            // Same source as legacy, then strength-limited gravitational
+            // spreading of ONLY the over-yield excess (see constants.rs,
+            // "legacy-yield orogen rung"). Sub-yield cells keep their exact
+            // legacy thickening; over-strength compact loads (the microplate
+            // pillar) cap out and build a conserved foothill apron.
+            let slope = isostasy_slope();
+            let legacy: Vec<f32> = features
+                .arc
+                .iter()
+                .zip(features.collision.iter())
+                .map(|(&arc, &collision)| (arc + collision) / slope)
+                .collect();
+            let spread = OROGEN_YIELD_SPREAD_KM / PLANET_RADIUS_KM;
+            super::deformation::yield_relax(
+                tessellation,
+                &legacy,
+                OROGEN_YIELD_ELEV / slope,
+                0.5 * spread * spread,
+                OROGEN_YIELD_PICARD_STEPS,
+            )
+        }
+        OrogenModel::ConservedLocal => {
+            solve_tectonic_thickening(tessellation, crust, &features.tectonic_crust_flux, 0.0)
+        }
+        OrogenModel::ConservedFeatureFootprint => {
+            let inv_slope = 1.0 / isostasy_slope();
+            let mut footprint: Vec<f32> = features
+                .arc
+                .iter()
+                .zip(features.collision.iter())
+                .map(|(&arc, &collision)| (arc + collision).max(0.0) * inv_slope)
+                .collect();
+            let areas = tessellation.cell_areas();
+            let target_volume: f64 = features
+                .tectonic_crust_flux
+                .iter()
+                .map(|&flux| flux.max(0.0) as f64 * TECTONIC_ACCUMULATION_TIME.max(0.0) as f64)
+                .sum();
+            let footprint_volume: f64 = footprint
+                .iter()
+                .zip(areas.iter())
+                .map(|(&height, &area)| height as f64 * area as f64)
+                .sum();
+            let scale = if footprint_volume > 0.0 {
+                (target_volume / footprint_volume) as f32
+            } else {
+                0.0
+            };
+            for height in &mut footprint {
+                *height *= scale;
+            }
+            footprint
+        }
+        OrogenModel::ConservedIsotropic => solve_tectonic_thickening(
+            tessellation,
+            crust,
+            &features.tectonic_crust_flux,
+            CRUST_GRAVITATIONAL_DIFFUSIVITY,
+        ),
+        OrogenModel::ThinSheet => features.thin_sheet_thickness_delta.clone(),
+    };
 
     let mut crust_thickness = Vec::with_capacity(num_cells);
     let mut continentality_field = Vec::with_capacity(num_cells);
     let mut is_continental = Vec::with_capacity(num_cells);
 
+    // Legacy assembles thickness with the HISTORICAL grouping and clamp position
+    // (`(base + thickening + rift).max(0.05)`) for byte-identity; experimental
+    // models clamp the pre-tectonic column and add their (possibly negative)
+    // model delta after, so a conserved model can thin below the legacy floor.
+    // legacy-yield shares the grouping so its sub-yield cells stay bit-equal to
+    // legacy at the coarse level.
+    let legacy_grouping = matches!(
+        orogen_model,
+        OrogenModel::Legacy | OrogenModel::LegacyYield
+    );
+    #[allow(clippy::needless_range_loop)] // indexes 4 parallel sources; zip obscures
     for i in 0..num_cells {
         let crust_type = crust.crust_type(i);
         let continental = crust_type == CrustType::Continental;
@@ -484,22 +622,22 @@ pub(crate) fn coarse_elevation_fields(
         let rift = features.rift_delta[i] * cont;
         // Macro craton-thickness is added later, in assembly (it needs craton
         // structure + per-craton RNG), so it stays out of this transferred field.
-        let thickness = (base_thickness + rift).max(0.05);
+        let thickness = if legacy_grouping {
+            (base_thickness + tectonic_thickening[i] + rift).max(0.05)
+        } else {
+            (base_thickness + rift).max(0.05) + tectonic_thickening[i]
+        };
 
         crust_thickness.push(thickness);
         continentality_field.push(cont);
         is_continental.push(continental);
     }
 
-    let tectonic_thickening =
-        solve_tectonic_thickening(tessellation, crust, &features.tectonic_crust_flux);
-    for (thickness, &tectonic) in crust_thickness.iter_mut().zip(tectonic_thickening.iter()) {
-        *thickness += tectonic;
-    }
-
     ElevationFields {
         crust_thickness,
         tectonic_thickening,
+        tectonic_strain: features.thin_sheet_strain.clone(),
+        compression_axis: features.thin_sheet_compression_axis.clone(),
         continentality: continentality_field,
         ridge_age_distance: features.ridge_age_distance.clone(),
         trench: features.trench.clone(),
@@ -519,9 +657,10 @@ fn generate_heightmap(
     tessellation: &Tessellation,
     crust: &Crust,
     features: &FeatureFields,
+    orogen_model: OrogenModel,
     macro_field: &[f32],
 ) -> (Vec<f32>, Vec<f32>, NoiseLayerData) {
-    let fields = coarse_elevation_fields(tessellation, crust, features);
+    let fields = coarse_elevation_fields(tessellation, crust, features, orogen_model);
     assemble_heightmap(tessellation, &fields, macro_field)
 }
 
@@ -643,6 +782,11 @@ fn assemble_elevation_cell(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_orogeny_remains_the_product_default() {
+        assert_eq!(OrogenModel::default(), OrogenModel::Legacy);
+    }
 
     #[test]
     fn crust_relaxation_conserves_volume_and_spreads_load() {

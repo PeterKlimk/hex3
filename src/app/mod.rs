@@ -8,7 +8,7 @@ pub mod world;
 
 use std::sync::Arc;
 
-use hex3::world::{FineCacheMode, VoronoiBackend};
+use hex3::world::{FineCacheMode, OrogenModel, VoronoiBackend};
 use winit::{
     application::ApplicationHandler,
     dpi::PhysicalSize,
@@ -27,6 +27,7 @@ pub struct AppConfig {
     pub target_stage: u32,
     pub voronoi_backend: VoronoiBackend,
     pub fine_cache: FineCacheMode,
+    pub orogen_model: OrogenModel,
     pub erosion: crate::app::world::ErosionOverrides,
 }
 
@@ -66,6 +67,7 @@ impl ApplicationHandler for App {
             seed,
             self.config.voronoi_backend,
             self.config.fine_cache,
+            self.config.orogen_model,
             self.config.erosion,
         ));
 

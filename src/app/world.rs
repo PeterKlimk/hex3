@@ -4,7 +4,7 @@ use wgpu::util::DeviceExt;
 use hex3::geometry::{MeshVertex, SurfaceVertex, UnifiedMesh, VoronoiMesh};
 use hex3::render::{create_index_buffer, create_vertex_buffer, ElevationVertex};
 use hex3::util::Timed;
-use hex3::world::{FineCacheMode, VoronoiBackend, World};
+use hex3::world::{FineCacheMode, OrogenModel, VoronoiBackend, World, FINE_MAX_CELLS};
 
 use super::coloring::{
     cell_color_climate, cell_color_elevation, cell_color_feature, cell_color_hydrology,
@@ -144,6 +144,9 @@ pub struct ErosionOverrides {
     pub drainage_pulse: Option<f32>,
     pub pulse_burnin_steps: Option<usize>,
     pub pulse_smooth_km: Option<f32>,
+    /// Coarse convergent-orogen model (legacy / legacy-yield / experiments).
+    /// Regenerates the whole world from stage 1.
+    pub orogen_model: Option<hex3::world::OrogenModel>,
     // Fine-base structural-relief knobs (P1a): these target `fine_structure_params`,
     // NOT `erosion_params` — they shape the pre-erosion base, so `apply` must run
     // before stage-3 fine generation (it does in every path here). Decision A.
@@ -237,6 +240,9 @@ impl ErosionOverrides {
         if let Some(s) = self.pulse_smooth_km {
             world.erosion_params.pulse_smooth_km = s;
         }
+        if let Some(m) = self.orogen_model {
+            world.orogen_model = m;
+        }
         if let Some(f) = self.fault_scarp_height {
             world.fine_structure_params.fault_scarp_height = f;
         }
@@ -273,11 +279,12 @@ impl ErosionOverrides {
     }
 }
 
-pub fn create_world_with_options(
+pub fn create_world_with_orogen_model(
     seed: u64,
     num_cells: usize,
     backend: VoronoiBackend,
     fine_cache: FineCacheMode,
+    orogen_model: OrogenModel,
 ) -> World {
     let _total = Timed::info("Stage 1 (Lithosphere)");
     log::info!(
@@ -294,6 +301,7 @@ pub fn create_world_with_options(
         World::new_with_options(seed, num_cells, LLOYD_ITERATIONS, backend)
     };
     world.fine_cache = fine_cache;
+    world.orogen_model = orogen_model;
 
     {
         let _t = Timed::info("Plates");
@@ -371,10 +379,16 @@ pub fn advance_to_stage_2(world: &mut World) {
 /// Advance world to Stage 3 (Hydrosphere): fine mesh + hydrology on the
 /// PRE-erosion terrain. Erosion is stage 4 ([`advance_to_stage_4`]).
 pub fn advance_to_stage_3(world: &mut World) {
+    advance_to_stage_3_with_cap(world, FINE_MAX_CELLS);
+}
+
+/// Stage 3 with an explicit fine-cell guardrail for diagnostic/common-mesh
+/// exports. Interactive generation uses [`advance_to_stage_3`].
+pub fn advance_to_stage_3_with_cap(world: &mut World, fine_max_cells: usize) {
     let _total = Timed::info("Stage 3 (Hydrosphere)");
     {
         let _t = Timed::info("Fine mesh + pre-erosion hydrology");
-        world.generate_fine_pre();
+        world.generate_fine_pre_with_cap(fine_max_cells);
     }
     log_hydrology_stats(world);
 }

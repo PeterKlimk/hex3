@@ -419,8 +419,9 @@ pub(crate) fn drainage_pulse_modifier(
     // Strahler orders over the channel network. `routing.order` is
     // downstream-first (every receiver precedes its donors), so the REVERSED
     // sweep finalizes all donors of a cell before the cell itself.
-    let is_channel: Vec<bool> =
-        (0..n).map(|i| eroded[i] >= 0.0 && !routing.is_sink[i] && acc[i] >= a_crit).collect();
+    let is_channel: Vec<bool> = (0..n)
+        .map(|i| eroded[i] >= 0.0 && !routing.is_sink[i] && acc[i] >= a_crit)
+        .collect();
     let mut order = vec![0u32; n];
     let mut max_up = vec![0u32; n];
     let mut cnt_max = vec![0u32; n];
@@ -448,10 +449,14 @@ pub(crate) fn drainage_pulse_modifier(
             }
         }
     }
-    let is_trunk: Vec<bool> = (0..n).map(|i| order[i] >= EROSION_PULSE_TRUNK_ORDER).collect();
+    let is_trunk: Vec<bool> = (0..n)
+        .map(|i| order[i] >= EROSION_PULSE_TRUNK_ORDER)
+        .collect();
     let trunk_cells = is_trunk.iter().filter(|&&t| t).count();
     if trunk_cells == 0 {
-        log::warn!("drainage pulse: no order-{EROSION_PULSE_TRUNK_ORDER} trunks found; modifier skipped");
+        log::warn!(
+            "drainage pulse: no order-{EROSION_PULSE_TRUNK_ORDER} trunks found; modifier skipped"
+        );
         return None;
     }
 
@@ -663,7 +668,7 @@ impl ErosionState {
         // EMERGENT (erosion-v3): when Some, the full coarse-target elevation. The
         // builder uplift gates on THIS (not the demoted `base`), so a demoted-below-sea
         // orogen cell still uplifts back, and it EXCLUDES rift_delta (only the demoted
-        // conservative tectonic load is re-supplied). None = current painted behaviour.
+        // model-selected tectonic load is re-supplied). None = hold-and-carve behaviour.
         coarse_target: Option<&[f32]>,
         // O0 structured uplift shape (orogen-structure.md). When Some (+ emergent), the
         // builder volume-normalizes this to the demoted volume and uses it as the uplift
@@ -677,9 +682,10 @@ impl ErosionState {
         let thick_init = fields.crust_thickness.clone();
 
         // Tectonic uplift source, in THICKNESS units per step. The static orogen
-        // load is the conservative coarse crust solve; arc/collision remain shape
-        // diagnostics and do not prescribe the volume. Rift delta is already a
-        // signed thickness delta. NOT atmospheric uplift.
+        // load is selected by `OrogenModel`: legacy reproduces the historical
+        // arc/collision response, while experiments can supply a conserved crust
+        // solve. Rift delta is already a signed thickness delta. NOT atmospheric
+        // uplift.
         //
         // Gated to land (base >= sea level). Incision and diffusion skip submerged
         // cells, so uplift there would be a one-way thickness addition with nothing
@@ -741,7 +747,7 @@ impl ErosionState {
                     }
                 } else {
                     // Painted path (hold & carve): ongoing tectonic uplift from the
-                    // Conservative tectonic crust load + rift, gated to land.
+                    // Model-selected tectonic crust load + rift, gated to land.
                     if base[i] < 0.0 {
                         return 0.0;
                     }

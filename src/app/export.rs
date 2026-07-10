@@ -58,6 +58,7 @@ struct Metadata {
     stage: u32,
     mean_neighbor_dist: f32,
     mean_cell_area: f32,
+    orogen_model: String,
 }
 
 #[derive(Serialize)]
@@ -71,6 +72,10 @@ struct CellData {
 
     features: FeatureData,
     noise: NoiseData,
+
+    /// Stage-separated topography for structural survival/A-B analysis.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stages: Option<StageData>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     density: Option<Vec<f32>>,
@@ -106,6 +111,29 @@ struct FeatureData {
     ridge_age_distance: Vec<f32>,
     ridge_spreading_rate: Vec<f32>,
     collision_distance: Vec<f32>,
+    tectonic_crust_flux: Vec<f32>,
+}
+
+#[derive(Serialize)]
+struct StageData {
+    /// Interpolated coarse target on the fine mesh.
+    coarse_envelope: Vec<f32>,
+    /// Fine substrate after demotion and structural synthesis, before erosion.
+    fine_base: Vec<f32>,
+    /// Stage-3 surface used by pre-erosion hydrology.
+    pre_erosion: Vec<f32>,
+    /// Stage-4 surface, when generated.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    eroded: Option<Vec<f32>>,
+    /// Conserved/legacy-equivalent tectonic thickness transferred to fine cells.
+    tectonic_thickening: Vec<f32>,
+    tectonic_strain: Vec<f32>,
+    compression_axis: Vec<Vec3>,
+    /// `fine_base - coarse_envelope`: detail added or demoted before erosion.
+    structural_delta: Vec<f32>,
+    /// `eroded - fine_base`, when stage 4 exists.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    erosion_delta: Option<Vec<f32>>,
 }
 
 #[derive(Serialize)]
@@ -189,6 +217,7 @@ impl WorldExport {
                 ridge_age_distance: fine.fields().elevation_fields.ridge_age_distance.clone(),
                 ridge_spreading_rate: map_feature(&features.ridge_spreading_rate),
                 collision_distance: map_feature(&features.collision_distance),
+                tectonic_crust_flux: map_feature(&features.tectonic_crust_flux),
             }
         } else {
             FeatureData {
@@ -203,8 +232,46 @@ impl WorldExport {
                 ridge_age_distance: features.ridge_age_distance.clone(),
                 ridge_spreading_rate: features.ridge_spreading_rate.clone(),
                 collision_distance: features.collision_distance.clone(),
+                tectonic_crust_flux: features.tectonic_crust_flux.clone(),
             }
         };
+
+        let stages = fine.map(|fine| {
+            let eroded = fine
+                .eroded
+                .as_ref()
+                .map(|surface| surface.elevation.values.clone());
+            let structural_delta = fine
+                .base
+                .base_elevation
+                .iter()
+                .zip(fine.base.coarse_base_elevation.iter())
+                .map(|(&base, &coarse)| base - coarse)
+                .collect();
+            let erosion_delta = eroded.as_ref().map(|values| {
+                values
+                    .iter()
+                    .zip(fine.base.base_elevation.iter())
+                    .map(|(&surface, &base)| surface - base)
+                    .collect()
+            });
+            StageData {
+                coarse_envelope: fine.base.coarse_base_elevation.clone(),
+                fine_base: fine.base.base_elevation.clone(),
+                pre_erosion: fine.pre.elevation.values.clone(),
+                eroded,
+                tectonic_thickening: fine
+                    .base
+                    .fields
+                    .elevation_fields
+                    .tectonic_thickening
+                    .clone(),
+                tectonic_strain: fine.base.fields.elevation_fields.tectonic_strain.clone(),
+                compression_axis: fine.base.fields.elevation_fields.compression_axis.clone(),
+                structural_delta,
+                erosion_delta,
+            }
+        });
 
         // Noise (combined contribution)
         let noise = NoiseData {
@@ -308,6 +375,7 @@ impl WorldExport {
                 stage: world.current_stage(),
                 mean_neighbor_dist,
                 mean_cell_area: mean_area,
+                orogen_model: world.orogen_model.to_string(),
             },
             cells: CellData {
                 elevation: elevation_vec,
@@ -318,6 +386,7 @@ impl WorldExport {
                 longitude,
                 features: features_data,
                 noise,
+                stages,
                 density: fine.map(|f| f.density().to_vec()),
                 atmosphere: atmosphere_data,
                 hydrology: hydrology_data,

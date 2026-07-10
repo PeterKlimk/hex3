@@ -7,11 +7,26 @@
 //!     cargo run --release --bin diagnose -- --seed 12345
 //!     cargo run --release --bin diagnose -- --seed 12345 --cells 40000
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use hex3::world::diagnostics::{
     distance_from_mask, measure_components, ComponentStats, EARTH_RADIUS_KM,
 };
-use hex3::world::{CellWaterState, World};
+use hex3::world::{CellWaterState, OrogenModel, World};
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum CliOrogenModel {
+    Legacy,
+    #[value(name = "legacy-yield")]
+    LegacyYield,
+    #[value(name = "conserved-local")]
+    ConservedLocal,
+    #[value(name = "conserved-feature-footprint")]
+    ConservedFeatureFootprint,
+    #[value(name = "conserved-isotropic")]
+    ConservedIsotropic,
+    #[value(name = "thin-sheet")]
+    ThinSheet,
+}
 
 #[derive(Parser, Debug)]
 #[command(name = "diagnose", about = "Measure generated world features")]
@@ -20,6 +35,9 @@ struct Cli {
     seed: u64,
     #[arg(long, default_value_t = 100_000)]
     cells: usize,
+    /// Convergent-orogen model to diagnose.
+    #[arg(long, value_enum, default_value_t = CliOrogenModel::Legacy)]
+    orogen_model: CliOrogenModel,
     /// Max components listed per section.
     #[arg(long, default_value_t = 8)]
     top: usize,
@@ -39,6 +57,10 @@ struct Cli {
     /// asymmetry, sampled local relief) with Earth references.
     #[arg(long, default_value_t = false)]
     mountain_audit: bool,
+    /// Audit how much tectonic support/detail survives each coarse→fine→erosion
+    /// stage over the complete process footprint (not only surviving mountains).
+    #[arg(long, default_value_t = false)]
+    detail_survival_audit: bool,
     /// Run the RIVER NETWORK audit and exit: the rendered river network's
     /// Strahler/Horton structure, drainage density, mouths, and per-trunk
     /// length/sinuosity/profile table with Earth references.
@@ -251,10 +273,18 @@ fn main() {
     let cli = Cli::parse();
 
     eprintln!(
-        "Generating world (seed={}, cells={})...",
-        cli.seed, cli.cells
+        "Generating world (seed={}, cells={}, orogen={:?})...",
+        cli.seed, cli.cells, cli.orogen_model
     );
     let mut world = World::new(cli.seed, cli.cells, 1);
+    world.orogen_model = match cli.orogen_model {
+        CliOrogenModel::Legacy => OrogenModel::Legacy,
+        CliOrogenModel::LegacyYield => OrogenModel::LegacyYield,
+        CliOrogenModel::ConservedLocal => OrogenModel::ConservedLocal,
+        CliOrogenModel::ConservedFeatureFootprint => OrogenModel::ConservedFeatureFootprint,
+        CliOrogenModel::ConservedIsotropic => OrogenModel::ConservedIsotropic,
+        CliOrogenModel::ThinSheet => OrogenModel::ThinSheet,
+    };
     world.generate_plates(hex3::world::NUM_PLATES_DEFAULT);
     world.generate_crust();
     world.generate_dynamics();
@@ -427,6 +457,10 @@ fn main() {
     if cli.mountain_audit {
         run_mountain_audit(&world, cli.seed, cli.top);
         run_roughness_probe(&world);
+        audited = true;
+    }
+    if cli.detail_survival_audit {
+        run_detail_survival_audit(&world, cli.seed);
         audited = true;
     }
     if cli.river_audit {
@@ -1975,6 +2009,210 @@ fn run_lake_audit(world: &mut World, seed: u64, top: usize) {
     if let (Some(fine), Some(orig)) = (world.fine.as_mut(), fine_orig) {
         fine.set_climate_ratio(4, orig);
     }
+}
+
+// ===================== DETAIL-SURVIVAL AUDIT =====================
+//
+// Unlike the mountain audit, this panel starts from a model-independent
+// tectonic-process footprint and keeps cells in the denominator even when a
+// pipeline version lowers or smooths their terrain out of the mountain mask.
+
+fn run_detail_survival_audit(world: &World, seed: u64) {
+    let Some(fine) = world.fine.as_ref() else {
+        println!("detail-survival audit requires a generated fine world");
+        return;
+    };
+    let tess = fine.tessellation();
+    let fields = &fine.base.fields.elevation_fields;
+    let coarse = &fine.base.coarse_base_elevation;
+    let base = &fine.base.base_elevation;
+    let final_elev = &fine.surface_for(u32::MAX).elevation.values;
+    let n = tess.num_cells();
+    let areas = tess.cell_areas();
+    let r2 = EARTH_RADIUS_KM * EARTH_RADIUS_KM;
+
+    let forcing: Vec<f32> = fields
+        .arc
+        .iter()
+        .zip(fields.collision.iter())
+        .map(|(&arc, &collision)| (arc + collision).max(0.0))
+        .collect();
+    let forcing_max = forcing.iter().copied().fold(0.0f32, f32::max);
+    if forcing_max <= f32::EPSILON {
+        println!(
+            "\n================ DETAIL SURVIVAL seed={} model={} ================",
+            seed, world.orogen_model
+        );
+        println!("  no arc/collision process footprint exists for this world");
+        return;
+    }
+    let forcing_gate = 0.05 * forcing_max;
+    let footprint: Vec<bool> = forcing.iter().map(|&f| f >= forcing_gate).collect();
+
+    let structural: Vec<f32> = base
+        .iter()
+        .zip(coarse.iter())
+        .map(|(&b, &c)| b - c)
+        .collect();
+    let erosion: Vec<f32> = final_elev
+        .iter()
+        .zip(base.iter())
+        .map(|(&e, &b)| e - b)
+        .collect();
+
+    let local_relief = |elevation: &[f32]| -> Vec<f32> {
+        (0..n)
+            .map(|i| {
+                let mut lo = elevation[i];
+                let mut hi = elevation[i];
+                for &nb in tess.neighbors(i) {
+                    lo = lo.min(elevation[nb]);
+                    hi = hi.max(elevation[nb]);
+                }
+                hi - lo
+            })
+            .collect()
+    };
+    let coarse_relief = local_relief(coarse);
+    let base_relief = local_relief(base);
+    let final_relief = local_relief(final_elev);
+
+    let area_where = |pred: &dyn Fn(usize) -> bool| -> f64 {
+        (0..n)
+            .filter(|&i| footprint[i] && pred(i))
+            .map(|i| areas[i] as f64 * r2 as f64)
+            .sum()
+    };
+    let footprint_area = area_where(&|_| true).max(1e-12);
+    let pct = |pred: &dyn Fn(usize) -> bool| 100.0 * area_where(pred) / footprint_area;
+    let rms_m = |values: &[f32]| -> f64 {
+        let (weighted, area): (f64, f64) =
+            (0..n)
+                .filter(|&i| footprint[i])
+                .fold((0.0, 0.0), |(sum, area), i| {
+                    let a = areas[i] as f64;
+                    let v = values[i] as f64 * AUDIT_M_PER_UNIT as f64;
+                    (sum + a * v * v, area + a)
+                });
+        (weighted / area.max(1e-20)).sqrt()
+    };
+
+    let slope = (hex3::world::CONTINENTAL_BASE - hex3::world::ABYSSAL_DEPTH)
+        / (hex3::world::CRUST_THICKNESS_CONTINENTAL - hex3::world::CRUST_THICKNESS_OCEANIC);
+    let load_elev: Vec<f32> = fields
+        .tectonic_thickening
+        .iter()
+        .map(|&h| h * slope)
+        .collect();
+    let load_volume: f64 = fields
+        .tectonic_thickening
+        .iter()
+        .zip(areas.iter())
+        .map(|(&height, &area)| height as f64 * area as f64)
+        .sum();
+    let positive_load_volume: f64 = fields
+        .tectonic_thickening
+        .iter()
+        .zip(areas.iter())
+        .map(|(&height, &area)| height.max(0.0) as f64 * area as f64)
+        .sum();
+    let negative_load_volume: f64 = fields
+        .tectonic_thickening
+        .iter()
+        .zip(areas.iter())
+        .map(|(&height, &area)| (-height).max(0.0) as f64 * area as f64)
+        .sum();
+    let footprint_solid_angle: f64 = (0..n)
+        .filter(|&i| footprint[i])
+        .map(|i| areas[i] as f64)
+        .sum();
+    let mean_spacing_km = tess.mean_cell_area().sqrt() * EARTH_RADIUS_KM;
+
+    println!(
+        "\n================ DETAIL SURVIVAL seed={} model={} ================",
+        seed, world.orogen_model
+    );
+    println!(
+        "  process footprint: {:.2} Mkm² (arc+collision >= 5% of max {:.3}); one-hop scale ~{:.0} km",
+        footprint_area / 1.0e6,
+        forcing_max,
+        mean_spacing_km,
+    );
+    println!(
+        "  tectonic thickness-volume net={:.5}, +{:.5}/-{:.5} (unit-sphere); mean net over footprint={:.3} ({:.2} km isostatic)",
+        load_volume,
+        positive_load_volume,
+        negative_load_volume,
+        load_volume / footprint_solid_angle.max(1e-20),
+        load_volume / footprint_solid_angle.max(1e-20) * slope as f64 * 10.0,
+    );
+    println!("  survival funnel (% of fixed process footprint):");
+    println!(
+        "    tectonic support >=0.2/0.5/1.0 km: {:5.1}% / {:5.1}% / {:5.1}%",
+        pct(&|i| load_elev[i] >= 0.02),
+        pct(&|i| load_elev[i] >= 0.05),
+        pct(&|i| load_elev[i] >= 0.10),
+    );
+    println!(
+        "    coarse land / fine-base land / final land: {:5.1}% / {:5.1}% / {:5.1}%",
+        pct(&|i| coarse[i] >= 0.0),
+        pct(&|i| base[i] >= 0.0),
+        pct(&|i| final_elev[i] >= 0.0),
+    );
+    println!(
+        "    final elevation >=1.5/3/5 km:            {:5.1}% / {:5.1}% / {:5.1}%",
+        pct(&|i| final_elev[i] >= 0.15),
+        pct(&|i| final_elev[i] >= 0.30),
+        pct(&|i| final_elev[i] >= 0.50),
+    );
+
+    println!("  detail support (% footprint with one-hop local relief):");
+    for (label, relief) in [
+        ("coarse envelope", &coarse_relief),
+        ("fine base", &base_relief),
+        ("final eroded", &final_relief),
+    ] {
+        println!(
+            "    {label:<15} >=50/150/300/600m: {:5.1}% / {:5.1}% / {:5.1}% / {:5.1}%   rms={:5.0}m",
+            pct(&|i| relief[i] >= 0.005),
+            pct(&|i| relief[i] >= 0.015),
+            pct(&|i| relief[i] >= 0.030),
+            pct(&|i| relief[i] >= 0.060),
+            rms_m(relief),
+        );
+    }
+    println!(
+        "  stage deltas over footprint: structural rms={:.0}m (|Δ|>=50/100m {:4.1}%/{:4.1}%), erosion rms={:.0}m (|Δ|>=50/100m {:4.1}%/{:4.1}%)",
+        rms_m(&structural),
+        pct(&|i| structural[i].abs() >= 0.005),
+        pct(&|i| structural[i].abs() >= 0.010),
+        rms_m(&erosion),
+        pct(&|i| erosion[i].abs() >= 0.005),
+        pct(&|i| erosion[i].abs() >= 0.010),
+    );
+
+    // A thresholded local-relief network is intentionally footprint-relative:
+    // unlike an absolute mountain mask it retains low-elevation structured belts.
+    let relief_network: Vec<bool> = (0..n)
+        .map(|i| footprint[i] && final_relief[i] >= 0.015)
+        .collect();
+    let components = measure_components(tess, &relief_network);
+    let mut significant_elongation: Vec<f32> = components
+        .iter()
+        .filter(|c| c.area_km2 >= 20_000.0)
+        .map(ComponentStats::elongation)
+        .collect();
+    significant_elongation.sort_by(f32::total_cmp);
+    let median_elongation = significant_elongation
+        .get(significant_elongation.len() / 2)
+        .copied()
+        .unwrap_or(0.0);
+    println!(
+        "  relief-network (>=150m one-hop): {} components, {} >=20k km², median elongation {:.1}",
+        components.len(),
+        significant_elongation.len(),
+        median_elongation,
+    );
 }
 
 // ======================== MOUNTAIN AUDIT ========================

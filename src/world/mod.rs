@@ -25,6 +25,7 @@ mod boundary;
 mod circulation;
 mod constants;
 mod crust;
+mod deformation;
 pub mod diagnostics;
 mod dynamics;
 mod elevation;
@@ -45,7 +46,7 @@ pub use crust::{Crust, CrustType};
 /// Default plate count used by the app and diagnostic tooling.
 pub const NUM_PLATES_DEFAULT: usize = 14;
 pub use dynamics::{Dynamics, EulerPole};
-pub use elevation::{Elevation, NoiseLayerData};
+pub use elevation::{Elevation, NoiseLayerData, OrogenModel};
 pub use erosion::{roughness_counters, ErosionParams, RoughnessCounters};
 pub use features::FeatureFields;
 pub use fine::{
@@ -89,6 +90,10 @@ impl fmt::Display for VoronoiBackend {
 pub struct World {
     /// Random seed used for reproducible generation.
     pub seed: u64,
+
+    /// Runtime-selectable convergent-orogen model. Legacy remains the product
+    /// default until an authentic replacement passes structural/visual gates.
+    pub orogen_model: OrogenModel,
 
     /// Base tessellation - always present after construction.
     pub tessellation: Tessellation,
@@ -178,6 +183,7 @@ impl World {
 
         Self {
             seed,
+            orogen_model: OrogenModel::default(),
             tessellation,
             plates: None,
             crust: None,
@@ -257,6 +263,7 @@ impl World {
             plates,
             crust,
             dynamics,
+            self.orogen_model,
         ));
     }
 
@@ -273,6 +280,7 @@ impl World {
             &self.tessellation,
             crust,
             features,
+            self.orogen_model,
             &mut rng,
         ));
     }
@@ -333,8 +341,9 @@ impl World {
         // Convergent-front primitives for the strike-aware structural relief (P1b);
         // built on the coarse mesh where plates/dynamics live.
         let fronts = OrogenFronts::build(&self.tessellation, plates, crust, dynamics);
-        let fine = FineWorld::generate_pre(
+        let fine = FineWorld::generate_pre_with_model(
             self.seed,
+            self.orogen_model,
             &self.tessellation,
             crust,
             features,
