@@ -33,6 +33,12 @@ probe into `diagnose` before the next mountain ADD.
    benches / cuestas / cap-rock. Erosion TEXTURE; speculative; hot-path cost. Lower priority.
 
 ## Mountain-quality open issues
+- ⬜ **A4 two-stage drainage-aware uplift pulse — THE designated next architecture step**
+  (2026-07-10): burn-in erosion → extract order-≥3 drainage/divides → zero-mean uplift
+  modifier (low on trunks, high on interfluves; servo-NEUTRAL) → short frozen final epoch.
+  Escapes the measured servo ceiling (uplift-shape channel tops out ~1.6× baseline 25-km
+  relief at the ≤12 km peak budget; gain retired). Full hand-off:
+  `docs/specs/meso-a4-drainage-pulse.md`.
 - ⬜ **25-km local-relief gap — KNOBS FALSIFIED (2026-07-09 sweep)**: baseline p50/p90 =
   224/914 m vs Earth alpine 1500-3000. Best knob (K×4) reaches only 251/1259 while
   fragmenting mountain land 8.5→7.2%; steps×2 makes it WORSE (smoother); uplift_scale is
