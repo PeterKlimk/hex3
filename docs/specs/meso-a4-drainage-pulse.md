@@ -1,6 +1,7 @@
 # A4 — two-stage drainage-aware uplift pulse (implementation hand-off)
 
-Status: DESIGNATED NEXT ARCHITECTURE STEP (2026-07-10). Not started.
+Status: IMPLEMENTED + gate-validated 2 seeds (2026-07-10, same day). See §5.
+User visual pending.
 Parent: relief-spectrum-redesign.md (§12 consult, §13 addenda measured facts).
 Consult origin: meso-design-consult-gpt56.md §4.3 (GPT 5.6; its preferred construction).
 
@@ -74,3 +75,70 @@ seeds; user visual A/B pending (`--sweep-stack meso`). A4 proceeds regardless of
 that verdict: the candidate is the floor, A4 is the path to real valley depth.
 Instruments live in `diagnose --mountain-audit`: relief spectrum, crest-train
 spacing, trunk flow orientation, plausibility self-gate, roughness+summit probes.
+
+## 5. Implementation + measured results (2026-07-10)
+
+### What was built (erosion-side only; fine base + cache untouched)
+
+- `erosion::drainage_pulse_modifier`: SFD routing of the burn-in surface →
+  wet-area accumulation → Strahler orders on channel cells (channel-initiation
+  gate = `channel_support_km2` floored at 1 km²) → trunk mask (order ≥
+  `EROSION_PULSE_TRUNK_ORDER` = 3) → multi-source Dijkstra graph distance →
+  Gaussian falloff t (σ = `pulse_smooth_km`, floored at 8 km) → modifier
+  `1 + depth·(0.25·(1−t) − 0.4·t)` clamped ≥ 0, then mean-normalized PER OROGEN
+  (connected component of shape > 0; Σ area·shape·mod = Σ area·shape) so the
+  volume-normalizing builder's between-orogen distribution is untouched.
+  Deterministic (index-ordered traversals). No trunks ⇒ None ⇒ unmodified shape.
+- `FineSurface::generate`: when `drainage_pulse > 0` (+ emergent + shape):
+  burn-in `erode()` at `pulse_burnin_steps` (80) with the unmodified shape,
+  extract modifier, run the normal erode↔precip loop with shape×modifier from a
+  fresh `structured_base`. Modifier FROZEN (one feedback pass, per consult).
+- Knobs: `drainage_pulse` (0 = off), `pulse_burnin_steps`, `pulse_smooth_km` in
+  ErosionParams/constants + full main/diagnose/overrides/sweep plumbing.
+- Tests: tree-graph Strahler trunk suppression + per-orogen volume conservation;
+  chain-graph → None fallback. Identity: pulse-0 export BYTE-IDENTICAL to HEAD
+  (seed 4242, cells 20k, no-fine-cache). Full suite + clippy clean.
+
+### Measured (s50 g1, full res; 25-km p95-p05 p50 @ max range peak)
+
+Seed 12345 depth ladder at σ15, meso 0: 193 @ 8.9 (base) → 210 @ 9.4 (p0.5) →
+226 @ 9.9 (p1.0) → 242 @ 10.4 (p1.5). LINEAR: +32 m and +1.0 km peak per unit.
+Seed 777 replicates (+18% @ +0.9 km at p1.0).
+
+KEY FINDING — volume neutrality ≠ peak neutrality: the servo refund is gone
+(this channel is volume-neutral by construction), but the interfluve BOOST lands
+on massif cores, so peaks still rise. The coupling is via WHERE the boost sits
+(a design DOF), not the normalizer.
+
+σ bracket @ p1.5 (12345): σ8 = 234 @ 9.8 (46 m relief per km-peak, BEST); σ15 =
+242 @ 10.4 (33); σ25 = 257 @ 11.1 (29 — wide Gaussian ⇒ renorm inflates boost
+to 2.4× ⇒ crest inflation). NARROW suppression carves trunk valleys without
+paying peaks ⇒ σ = 8 km (the mesh floor).
+
+Depth ladder @ σ8 (12345): p1.5 234 @ 9.8 → p2.5 252 @ 10.2 → p3.5 272 @ 10.4.
+Suppress side saturates (trunk cores reach zero uplift, modifier 0.00..3.95)
+but peaks nearly STOP rising — the last depth unit costs +0.2 km for +20 m.
+Seed 777 @ p3.5σ8: 158 → 207 @ 9.5.
+
+Composition with the meso candidate (m0.7): at σ15/p1.0 SUB-ADDITIVE (295 @
+11.4, below meso-alone 313 @ 11.8 — trunks overlap corridors, renorm washes
+out). At σ8/p2.5 it STACKS: **330 @ 11.6 (12345), 257 @ 10.9 (777)** — beats
+meso-alone on BOTH seeds at LOWER peaks.
+
+### Gates (every rung, both seeds)
+
+Plausibility ≤ 12 km [ok] everywhere (max 11.6). Trunk grammar stable
+transverse-leaning (23-29 / 32-34 / 37-44). Crest spacing CV 1.6-1.9, no
+lattice spike. Elongation 4.6-5.7 ≈ baseline. Mountain land 8.4% stable.
+Rivers: fine endorheic-land 16.3% (12345 p3.5σ8) / 20.5-22.3% (777; slightly
+above the ~17% norm — watch on visual). Perf: burn-in 80 + final 50×2 ≈
+today's default 200×2 budget (burn-in extraction ~8 s at 200k cells).
+
+### Candidates for user visual (numbers final, eyes decide)
+
+- A4-alone: `--drainage-pulse 3.5 --pulse-smooth-km 8` (+ s50 g1) — 272/207 m,
+  peaks 10.4/9.5, biggest headroom, drainage-consistent grammar by construction.
+- Composed: + `--meso-relief 0.7` — 330/257 m, peaks 11.6/10.9. Best measured
+  25-km relief at the peak budget to date.
+- Sweep: `--sweep drainage_pulse --sweep-values 0,1.5,2.5,3.5` (σ8 via
+  `--pulse-smooth-km 8`), or a 3-row stack vs baseline/meso.

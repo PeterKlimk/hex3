@@ -126,6 +126,16 @@ pub struct ErosionParams {
     pub precip_outer_iters: usize,
     /// Lakes-as-evaporation precip boost strength (local humidity halo). 0 = off.
     pub lake_evap_strength: f32,
+    /// A4 drainage-pulse dial (meso-a4-drainage-pulse.md): depth of the two-stage
+    /// drainage-aware uplift modulation. 0 = off (single-pass pipeline, byte-
+    /// identical). >0 = burn-in erode → extract trunks/interfluves → short final
+    /// epoch with a zero-mean multiplicative uplift-shape modifier (low on trunks,
+    /// high on interfluves). Emergent+structured path only.
+    pub drainage_pulse: f32,
+    /// A4 burn-in epoch steps (drainage topology self-organization).
+    pub pulse_burnin_steps: usize,
+    /// A4 trunk-proximity Gaussian sigma, km (10-40 km meso band).
+    pub pulse_smooth_km: f32,
     /// Glacial abrasion coefficient (ice flux → bed lowering). 0 = no glacial pass.
     pub glacial_k: f32,
     /// Glacial sub-steps (re-route + accumulate + abrade).
@@ -167,6 +177,9 @@ impl Default for ErosionParams {
             downwind_shadow_strength: DOWNWIND_SHADOW_STRENGTH,
             precip_outer_iters: EROSION_PRECIP_OUTER_ITERS,
             lake_evap_strength: LAKE_EVAP_STRENGTH,
+            drainage_pulse: EROSION_DRAINAGE_PULSE,
+            pulse_burnin_steps: EROSION_PULSE_BURNIN_STEPS,
+            pulse_smooth_km: EROSION_PULSE_SMOOTH_KM,
             glacial_k: GLACIAL_K,
             glacial_steps: GLACIAL_STEPS,
             glacial_snowline_equator: GLACIAL_SNOWLINE_EQUATOR,
@@ -342,6 +355,194 @@ pub(crate) fn glacial_erode(
     // Post-glacial relief probe (compare to the "eroded" line for the glacial
     // delta: glaciated valleys deepen, peaks/divides between them stand out).
     roughness_report(tess, elev, "glacial");
+}
+
+/// A4 drainage-pulse uplift-shape modifier (docs/specs/meso-a4-drainage-pulse.md).
+///
+/// From a burn-in eroded surface, extract the self-organized major drainage
+/// (Strahler order ≥ `EROSION_PULSE_TRUNK_ORDER` on the SFD channel network) and
+/// return a per-cell multiplicative modifier for the emergent uplift SHAPE:
+/// suppressed near trunks, boosted on far interfluves, smoothed to the meso band
+/// by a graph-distance Gaussian (`pulse_smooth_km`), and mean-normalized per
+/// orogen (connected component of `shape > 0`) so each orogen's shape volume — and
+/// therefore the builder's volume-normalized uplift distribution BETWEEN orogens —
+/// is unchanged (servo-neutral; valley depth comes from incision along the
+/// organized network in the final epoch, not from an uplift deficit the
+/// normalizer would refund as peak height).
+///
+/// Deterministic: SFD routing + fixed-order traversals (Dijkstra ties break on
+/// cell index; component sweep is index-ordered). Returns `None` when no trunk
+/// network exists (no sinks / all-arid / dial misconfiguration) — the caller
+/// falls back to the unmodified shape.
+pub(crate) fn drainage_pulse_modifier(
+    eroded: &[f32],
+    precipitation: &[f32],
+    lake_base: &[f32],
+    geom: &NeighborGeometry,
+    areas: &[f32],
+    shape: &[f32],
+    params: ErosionParams,
+) -> Option<Vec<f32>> {
+    let n = geom.num_cells();
+    // SFD routing (mfd_exponent 0): Strahler orders need a receiver TREE, not the
+    // MFD DAG, regardless of what the incision itself uses.
+    let routing = Routing::build(eroded, geom, lake_base, params.flat_resolution, 0.0)?;
+    let acc = accumulate_wet_area(&routing, precipitation, areas);
+
+    // Channel-initiation discharge, as in `ErosionState::new`: geometric support
+    // area at mean land wetness. Floor the support at 1 km² so a
+    // channel_support=0 config doesn't make every hillslope cell order-1 (which
+    // would inflate trunk orders and paint the whole orogen as trunk).
+    let (mut wp, mut wa) = (0.0f64, 0.0f64);
+    for i in 0..n {
+        if eroded[i] >= 0.0 {
+            wp += (precipitation[i].max(0.0) * areas[i]) as f64;
+            wa += areas[i] as f64;
+        }
+    }
+    let mean_precip = if wa > 0.0 { (wp / wa) as f32 } else { 0.0 };
+    let support_km2 = params.channel_support_km2.max(1.0);
+    let a_crit = support_km2 / (PLANET_RADIUS_KM * PLANET_RADIUS_KM) * mean_precip;
+
+    // Strahler orders over the channel network. `routing.order` is
+    // downstream-first (every receiver precedes its donors), so the REVERSED
+    // sweep finalizes all donors of a cell before the cell itself.
+    let is_channel: Vec<bool> =
+        (0..n).map(|i| eroded[i] >= 0.0 && !routing.is_sink[i] && acc[i] >= a_crit).collect();
+    let mut order = vec![0u32; n];
+    let mut max_up = vec![0u32; n];
+    let mut cnt_max = vec![0u32; n];
+    for &c in routing.order.iter().rev() {
+        if !is_channel[c] {
+            continue;
+        }
+        let o = if max_up[c] == 0 {
+            1
+        } else if cnt_max[c] > 1 {
+            max_up[c] + 1
+        } else {
+            max_up[c]
+        };
+        order[c] = o;
+        let r = routing.receiver[c];
+        if r != c {
+            match o.cmp(&max_up[r]) {
+                std::cmp::Ordering::Greater => {
+                    max_up[r] = o;
+                    cnt_max[r] = 1;
+                }
+                std::cmp::Ordering::Equal => cnt_max[r] += 1,
+                std::cmp::Ordering::Less => {}
+            }
+        }
+    }
+    let is_trunk: Vec<bool> = (0..n).map(|i| order[i] >= EROSION_PULSE_TRUNK_ORDER).collect();
+    let trunk_cells = is_trunk.iter().filter(|&&t| t).count();
+    if trunk_cells == 0 {
+        log::warn!("drainage pulse: no order-{EROSION_PULSE_TRUNK_ORDER} trunks found; modifier skipped");
+        return None;
+    }
+
+    // Trunk proximity: multi-source Dijkstra over the neighbor graph (arc
+    // distances), cut off at 3σ, then a Gaussian falloff. t=1 on trunks, →0 on
+    // far interfluves.
+    let sigma = (params.pulse_smooth_km.max(FINE_MESO_MIN_SIGMA_KM)) / PLANET_RADIUS_KM;
+    let cutoff = 3.0 * sigma;
+    let mut dist = vec![f32::INFINITY; n];
+    let mut heap: std::collections::BinaryHeap<Reverse<(OrderedFloat<f32>, usize)>> =
+        std::collections::BinaryHeap::new();
+    for i in 0..n {
+        if is_trunk[i] {
+            dist[i] = 0.0;
+            heap.push(Reverse((OrderedFloat(0.0), i)));
+        }
+    }
+    while let Some(Reverse((d, i))) = heap.pop() {
+        if d.0 > dist[i] || d.0 >= cutoff {
+            continue;
+        }
+        let nbrs = geom.tess_neighbors(i);
+        let dists = geom.dists(i);
+        for (k, &nb) in nbrs.iter().enumerate() {
+            let nd = d.0 + dists[k];
+            if nd < dist[nb] {
+                dist[nb] = nd;
+                heap.push(Reverse((OrderedFloat(nd), nb)));
+            }
+        }
+    }
+
+    // Raw modifier: trunk cores ×(1 − depth·SUPPRESS), far interfluves
+    // ×(1 + depth·BOOST), Gaussian-blended between.
+    let depth = params.drainage_pulse;
+    let mut modifier: Vec<f32> = (0..n)
+        .map(|i| {
+            let t = if dist[i].is_finite() {
+                (-0.5 * (dist[i] / sigma) * (dist[i] / sigma)).exp()
+            } else {
+                0.0
+            };
+            (1.0 + depth
+                * (EROSION_PULSE_INTERFLUVE_BOOST * (1.0 - t) - EROSION_PULSE_TRUNK_SUPPRESS * t))
+                .max(0.0)
+        })
+        .collect();
+
+    // Per-orogen mean normalization: over each connected component of shape > 0,
+    // rescale so Σ area·shape·modifier = Σ area·shape (the orogen's shape volume
+    // is untouched; the modifier only REDISTRIBUTES uplift within it).
+    let mut comp = vec![usize::MAX; n];
+    let mut ncomp = 0usize;
+    let mut queue = VecDeque::new();
+    for i in 0..n {
+        if shape[i] <= 0.0 || comp[i] != usize::MAX {
+            continue;
+        }
+        comp[i] = ncomp;
+        queue.push_back(i);
+        while let Some(c) = queue.pop_front() {
+            for &nb in geom.tess_neighbors(c) {
+                if shape[nb] > 0.0 && comp[nb] == usize::MAX {
+                    comp[nb] = ncomp;
+                    queue.push_back(nb);
+                }
+            }
+        }
+        ncomp += 1;
+    }
+    let mut vol0 = vec![0.0f64; ncomp];
+    let mut vol1 = vec![0.0f64; ncomp];
+    for i in 0..n {
+        if comp[i] != usize::MAX {
+            let w = (areas[i] * shape[i]) as f64;
+            vol0[comp[i]] += w;
+            vol1[comp[i]] += w * modifier[i] as f64;
+        }
+    }
+    let scale: Vec<f32> = (0..ncomp)
+        .map(|c| if vol1[c] > 0.0 { (vol0[c] / vol1[c]) as f32 } else { 1.0 })
+        .collect();
+    let (mut mn, mut mx) = (f32::INFINITY, f32::NEG_INFINITY);
+    for i in 0..n {
+        if comp[i] != usize::MAX {
+            modifier[i] *= scale[comp[i]];
+            mn = mn.min(modifier[i]);
+            mx = mx.max(modifier[i]);
+        } else {
+            modifier[i] = 1.0;
+        }
+    }
+    log::info!(
+        "drainage pulse: {} trunk cells (order ≥{}), {} orogen components, modifier {:.3}..{:.3} (σ {:.0} km, depth {:.2})",
+        trunk_cells,
+        EROSION_PULSE_TRUNK_ORDER,
+        ncomp,
+        mn,
+        mx,
+        params.pulse_smooth_km,
+        depth,
+    );
+    Some(modifier)
 }
 
 /// Resumable erosion. `ErosionState::new(..).step(EROSION_STEPS)` reproduces the
@@ -2679,5 +2880,93 @@ mod tests {
         // Sink fill cap = 0.5 * depth(0.05) / slope(0.7) * area(1) = 0.0357.
         assert!((deposited - 0.5 * 0.05 / 0.7).abs() < 1e-6);
         assert!((deposited + lost - 0.05).abs() < 1e-6);
+    }
+
+    /// Geometry for a binary drainage tree: four leaves (0-3) pair into two
+    /// confluences (4, 5) that join at a trunk (6) draining to a sink (7). The
+    /// trunk is the only Strahler order-3 cell.
+    fn tree_geom() -> NeighborGeometry {
+        let adjacency: [&[usize]; 8] = [
+            &[4],
+            &[4],
+            &[5],
+            &[5],
+            &[0, 1, 6],
+            &[2, 3, 6],
+            &[4, 5, 7],
+            &[6],
+        ];
+        let mut offsets = vec![0usize];
+        let mut neighbors = Vec::new();
+        for adj in adjacency {
+            neighbors.extend_from_slice(adj);
+            offsets.push(neighbors.len());
+        }
+        let dist = vec![1.0; neighbors.len()];
+        let weight = vec![1.0; neighbors.len()];
+        NeighborGeometry {
+            offsets,
+            neighbors,
+            dist,
+            weight,
+        }
+    }
+
+    /// A4: the drainage-pulse modifier suppresses uplift on the order-3 trunk,
+    /// boosts the far interfluves, and conserves the orogen's shape volume.
+    #[test]
+    fn drainage_pulse_suppresses_trunk_and_conserves_volume() {
+        let geom = tree_geom();
+        let elev = [4.0f32, 4.0, 4.0, 4.0, 3.0, 3.0, 2.0, -1.0];
+        let precip = [1.0f32; 8];
+        let areas = [1.0f32; 8];
+        let lake_base = [f32::NEG_INFINITY; 8];
+        let shape: [f32; 8] = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0];
+        let params = ErosionParams {
+            drainage_pulse: 1.0,
+            ..ErosionParams::default()
+        };
+        let modifier =
+            drainage_pulse_modifier(&elev, &precip, &lake_base, &geom, &areas, &shape, params)
+                .expect("tree has an order-3 trunk");
+
+        // Trunk (6) is suppressed relative to the leaves (graph distance 1.0 rad
+        // >> sigma, so the leaves sit at the full interfluve boost).
+        assert!(
+            modifier[6] < modifier[0],
+            "trunk {} not below interfluve {}",
+            modifier[6],
+            modifier[0]
+        );
+        // Per-orogen normalization: shape volume unchanged.
+        let vol0: f32 = (0..8).map(|i| areas[i] * shape[i]).sum();
+        let vol1: f32 = (0..8).map(|i| areas[i] * shape[i] * modifier[i]).sum();
+        assert!(
+            (vol1 - vol0).abs() / vol0 < 1e-5,
+            "shape volume changed: {vol0} -> {vol1}"
+        );
+        // Cells outside the orogen (shape = 0) are identity.
+        assert_eq!(modifier[7], 1.0);
+    }
+
+    /// A4: a confluence-free chain never reaches trunk order — the modifier is
+    /// skipped (caller falls back to the unmodified shape).
+    #[test]
+    fn drainage_pulse_skips_without_trunks() {
+        let n = 5;
+        let geom = chain_geom(n);
+        let elev = [3.0f32, 2.5, 2.0, 1.5, -1.0];
+        let precip = [1.0f32; 5];
+        let areas = [1.0f32; 5];
+        let lake_base = [f32::NEG_INFINITY; 5];
+        let shape = [1.0f32; 5];
+        let params = ErosionParams {
+            drainage_pulse: 1.0,
+            ..ErosionParams::default()
+        };
+        assert!(drainage_pulse_modifier(
+            &elev, &precip, &lake_base, &geom, &areas, &shape, params
+        )
+        .is_none());
     }
 }

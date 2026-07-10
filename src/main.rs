@@ -210,6 +210,19 @@ struct Cli {
     #[arg(long, default_value_t = -1.0)]
     glacial_k: f32,
 
+    /// A4 drainage-pulse dial: burn-in erode → trunk/interfluve uplift modifier →
+    /// frozen final epoch (meso-a4-drainage-pulse.md). <0 = default (0=off).
+    #[arg(long, default_value_t = -1.0)]
+    drainage_pulse: f32,
+
+    /// A4 burn-in epoch steps (drainage self-organization). 0 = default (80).
+    #[arg(long, default_value_t = 0)]
+    pulse_burnin_steps: usize,
+
+    /// A4 trunk-proximity Gaussian sigma, km. <0 = default (15).
+    #[arg(long, default_value_t = -1.0)]
+    pulse_smooth_km: f32,
+
     /// Fault range-front scarp relief. <0 = default; 0 = off (smooth fronts).
     #[arg(long, default_value_t = -1.0)]
     fault_scarp: f32,
@@ -396,6 +409,9 @@ fn main() {
         lake_evap_strength: (cli.erosion_lake_evap >= 0.0).then_some(cli.erosion_lake_evap),
         climate_ratio: None, // CLI doesn't expose climate (runtime Up/Down + sweep knob only)
         glacial_k: (cli.glacial_k >= 0.0).then_some(cli.glacial_k),
+        drainage_pulse: (cli.drainage_pulse >= 0.0).then_some(cli.drainage_pulse),
+        pulse_burnin_steps: (cli.pulse_burnin_steps > 0).then_some(cli.pulse_burnin_steps),
+        pulse_smooth_km: (cli.pulse_smooth_km >= 0.0).then_some(cli.pulse_smooth_km),
         fault_scarp_height: (cli.fault_scarp >= 0.0).then_some(cli.fault_scarp),
         interior_relief: (cli.interior_relief >= 0.0).then_some(cli.interior_relief),
         front_strike_weight: (cli.front_strike_weight >= 0.0).then_some(cli.front_strike_weight),

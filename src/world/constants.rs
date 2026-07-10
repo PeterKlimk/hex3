@@ -1397,3 +1397,33 @@ pub const EMERGENT_REBUILD_GAIN: f32 = 1.2;
 /// distributed, so structured (asymmetric/segmented) uplift can't leave demoted-below-sea
 /// cells submerged (no land loss). See erosion.rs structured builder.
 pub const EMERGENT_LAND_FLOOR_MARGIN: f32 = 0.005;
+
+// --- A4: two-stage drainage-aware uplift pulse (meso-a4-drainage-pulse.md) ---
+// The uplift-shape channel's measured ceiling: the volume-conserving builder repays
+// any meso-carved volume as global uplift, so valley depth bought via the shape
+// arrives as peak height. A4 escapes the coupling by removing volume AFTER the
+// height budget is set: a burn-in erosion epoch self-organizes drainage, the stable
+// trunk network is extracted, and a ZERO-MEAN multiplicative uplift modifier (low
+// along trunks, high on interfluves) drives a short frozen final epoch — valleys
+// deepen by incision along the organized network, not by uplift deficit the
+// normalizer refunds. ONE feedback pass only (continuous feedback locks into
+// exaggerated spokes — GPT 5.6 consult §4.3).
+
+/// Master A4 dial: depth of the drainage-aware uplift modulation. 0 = off (the
+/// erosion pipeline is byte-identical to the single-pass path). At 1.0, trunk
+/// cores get ×(1−TRUNK_SUPPRESS) uplift and far interfluves ×(1+INTERFLUVE_BOOST),
+/// before per-orogen mean normalization.
+pub const EROSION_DRAINAGE_PULSE: f32 = 0.0;
+/// Burn-in epoch steps: enough for drainage TOPOLOGY to self-organize (not
+/// landscape maturity — consult: ~60-100).
+pub const EROSION_PULSE_BURNIN_STEPS: usize = 80;
+/// Gaussian falloff sigma (km) of the trunk-proximity field. Keeps the modifier
+/// in the 10-40 km meso band; nothing below ~8 km (mesh floor ~3.9 km cells).
+pub const EROSION_PULSE_SMOOTH_KM: f32 = 15.0;
+/// Minimum Strahler order (on the burn-in SFD channel network) for a cell to
+/// count as a major trunk. Order ≥3 = the stable through-going drainage.
+pub const EROSION_PULSE_TRUNK_ORDER: u32 = 3;
+/// Uplift suppression on trunk cores at dial 1.0 (consult: ~0.5-0.7× on trunks).
+pub const EROSION_PULSE_TRUNK_SUPPRESS: f32 = 0.4;
+/// Uplift boost on far interfluves/massif cores at dial 1.0 (consult: ~1.1-1.3×).
+pub const EROSION_PULSE_INTERFLUVE_BOOST: f32 = 0.25;

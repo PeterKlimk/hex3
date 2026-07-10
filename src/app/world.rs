@@ -139,6 +139,11 @@ pub struct ErosionOverrides {
     /// (`set_active_climate_ratio`), not in `apply` — adjusts lake levels on the drainage.
     pub climate_ratio: Option<f32>,
     pub glacial_k: Option<f32>,
+    // A4 drainage pulse (meso-a4-drainage-pulse.md): erosion-side two-stage
+    // burn-in → trunk/interfluve uplift modifier → frozen final epoch.
+    pub drainage_pulse: Option<f32>,
+    pub pulse_burnin_steps: Option<usize>,
+    pub pulse_smooth_km: Option<f32>,
     // Fine-base structural-relief knobs (P1a): these target `fine_structure_params`,
     // NOT `erosion_params` — they shape the pre-erosion base, so `apply` must run
     // before stage-3 fine generation (it does in every path here). Decision A.
@@ -222,6 +227,15 @@ impl ErosionOverrides {
         }
         if let Some(g) = self.glacial_k {
             world.erosion_params.glacial_k = g;
+        }
+        if let Some(p) = self.drainage_pulse {
+            world.erosion_params.drainage_pulse = p;
+        }
+        if let Some(s) = self.pulse_burnin_steps {
+            world.erosion_params.pulse_burnin_steps = s;
+        }
+        if let Some(s) = self.pulse_smooth_km {
+            world.erosion_params.pulse_smooth_km = s;
         }
         if let Some(f) = self.fault_scarp_height {
             world.fine_structure_params.fault_scarp_height = f;

@@ -157,6 +157,17 @@ struct Cli {
     /// <0 = use EROSION_LITHO_GRAIN_STRENGTH default; 0 = no grain. Experimental.
     #[arg(long, default_value_t = -1.0)]
     litho_grain_strength: f32,
+    /// A4 drainage-pulse dial (meso-a4-drainage-pulse.md): burn-in erode →
+    /// trunk/interfluve zero-mean uplift modifier → frozen final epoch. <0 =
+    /// default (0=off). Erosion-side only (fine base untouched).
+    #[arg(long, default_value_t = -1.0)]
+    drainage_pulse: f32,
+    /// A4 burn-in epoch steps (drainage topology self-organization). 0 = default (80).
+    #[arg(long, default_value_t = 0)]
+    pulse_burnin_steps: usize,
+    /// A4 trunk-proximity Gaussian sigma, km (meso band; floor ~8 km). <0 = default (15).
+    #[arg(long, default_value_t = -1.0)]
+    pulse_smooth_km: f32,
     /// Override fault range-front scarp relief (sharpen active orogen margins).
     /// <0 = use FAULT_SCARP_HEIGHT default; 0 = off (smooth fronts).
     #[arg(long, default_value_t = -1.0)]
@@ -318,6 +329,15 @@ fn main() {
     }
     if cli.litho_grain_strength >= 0.0 {
         world.erosion_params.litho_grain_strength = cli.litho_grain_strength;
+    }
+    if cli.drainage_pulse >= 0.0 {
+        world.erosion_params.drainage_pulse = cli.drainage_pulse;
+    }
+    if cli.pulse_burnin_steps > 0 {
+        world.erosion_params.pulse_burnin_steps = cli.pulse_burnin_steps;
+    }
+    if cli.pulse_smooth_km >= 0.0 {
+        world.erosion_params.pulse_smooth_km = cli.pulse_smooth_km;
     }
     if cli.fault_scarp >= 0.0 {
         world.fine_structure_params.fault_scarp_height = cli.fault_scarp;

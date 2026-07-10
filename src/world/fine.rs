@@ -898,6 +898,60 @@ impl FineSurface {
         // across every erode↔precip pass and the glacial pass instead of
         // rescanning each cell's Voronoi vertices for shared-edge lengths per call.
         let geom = super::erosion::NeighborGeometry::build(&base.tessellation);
+
+        // A4 drainage pulse (meso-a4-drainage-pulse.md): a BURN-IN epoch with the
+        // unmodified shape self-organizes drainage on this base; the extracted
+        // trunk/interfluve modifier then redistributes the uplift shape for the
+        // real (final) epoch below — valleys deepen by incision along the
+        // organized network, servo-neutral per orogen. The modifier is FROZEN:
+        // one feedback pass only (continuous feedback locks into exaggerated
+        // spokes — consult §4.3). Dial 0 skips all of this (path untouched).
+        let mut pulsed_shape: Option<Vec<f32>> = None;
+        if params.drainage_pulse > 0.0 {
+            if let (true, Some(shape)) = (emergent, uplift_shape) {
+                let t0 = Instant::now();
+                let mut burn_params = params;
+                burn_params.steps = params.pulse_burnin_steps;
+                let burn_eroded = super::erosion::erode(
+                    &base.tessellation,
+                    &base.fields.elevation_fields,
+                    structured_base,
+                    &precip,
+                    &erodibility,
+                    &lake_base,
+                    &geom,
+                    burn_params,
+                    coarse_target,
+                    uplift_shape,
+                );
+                pulsed_shape = super::erosion::drainage_pulse_modifier(
+                    &burn_eroded,
+                    &precip,
+                    &lake_base,
+                    &geom,
+                    base.tessellation.cell_areas_ref(),
+                    shape,
+                    params,
+                )
+                .map(|modifier| {
+                    shape
+                        .iter()
+                        .zip(&modifier)
+                        .map(|(&s, &m)| s * m)
+                        .collect()
+                });
+                log::info!(
+                    "fine mesh: drainage-pulse burn-in ({} steps) + extraction {:.2?}",
+                    params.pulse_burnin_steps,
+                    t0.elapsed()
+                );
+            } else {
+                log::warn!(
+                    "drainage pulse requires the emergent structured-uplift path; dial ignored"
+                );
+            }
+        }
+        let uplift_shape = pulsed_shape.as_deref().or(uplift_shape);
         for outer in 0..iters {
             let t0 = Instant::now();
             eroded = super::erosion::erode(

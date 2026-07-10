@@ -64,6 +64,9 @@ pub const SWEEP_KNOBS: &[&str] = &[
     "meso_style",
     "meso_base_relief",
     "meso_wavelength_km",
+    "drainage_pulse",
+    "pulse_burnin_steps",
+    "pulse_smooth_km",
 ];
 
 /// Options for a sweep run, assembled from the CLI.
@@ -140,6 +143,9 @@ fn apply_knob(ov: &mut ErosionOverrides, name: &str, v: f64) -> Result<(), Strin
         "meso_style" => ov.meso_style = Some(v as usize),
         "meso_base_relief" => ov.meso_base_relief = Some(f),
         "meso_wavelength_km" => ov.meso_wavelength_km = Some(f),
+        "drainage_pulse" => ov.drainage_pulse = Some(f),
+        "pulse_burnin_steps" => ov.pulse_burnin_steps = Some(v as usize),
+        "pulse_smooth_km" => ov.pulse_smooth_km = Some(f),
         other => {
             return Err(format!(
                 "unknown sweep knob '{other}'; valid knobs: {}",
