@@ -175,6 +175,8 @@ pub fn fine_base_key(
         FINE_MESO_CORRIDOR_OBLIQUITY_DEG.0,
         FINE_MESO_CORRIDOR_OBLIQUITY_DEG.1,
         FINE_MESO_MIN_SIGMA_KM,
+        FINE_MESO_MASSIF_CAP,
+        FINE_MESO_CORRIDOR_GAIN,
     ] {
         mix_f32(&mut h, f);
     }

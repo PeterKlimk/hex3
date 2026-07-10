@@ -2475,6 +2475,30 @@ fn run_mountain_audit(world: &World, seed: u64, top: usize) {
         );
     }
 
+    // PLAUSIBILITY SELF-GATE (2026-07-10 lesson: 18-km peaks reached the user's
+    // eyes because absolute bounds weren't self-enforced). Numbers Claude checks
+    // BEFORE any visual hand-off; user-calibrated: ~10 km fine, 12 km borderline,
+    // 14+ reads absurd. Earth max 8.8 km.
+    {
+        let max_peak_m = significant
+            .iter()
+            .take(top)
+            .map(|c| audit_range(tess, c, elev).peak_m)
+            .fold(f32::NEG_INFINITY, f32::max);
+        let verdict = if max_peak_m > 14_000.0 {
+            "FLAG-ABSURD (do not send to visual)"
+        } else if max_peak_m > 12_000.0 {
+            "FLAG-borderline"
+        } else {
+            "ok"
+        };
+        println!(
+            "  plausibility: max range peak {:.1} km [{}]  (Earth max 8.8 km; user calibration 2026-07-10: <=~12 ok, 14+ absurd)",
+            max_peak_m / 1000.0,
+            verdict
+        );
+    }
+
     // CREST-TRAIN: is the meso band a metronome, a quasi-periodic fold belt, or
     // drainage-organized? Ridge spacings along cross-strike transects (pooled over
     // the significant ranges) + flow-orientation split vs strike.

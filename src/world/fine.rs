@@ -1292,7 +1292,8 @@ impl MassifCorridorSampler {
             }
         }
 
-        let field = (massifs - corridors).clamp(-1.0, 1.0);
+        let field = (massifs.min(FINE_MESO_MASSIF_CAP) - corridors * FINE_MESO_CORRIDOR_GAIN)
+            .clamp(-1.3, 1.0);
         let iso = self.iso_fbm.get([
             c.x as f64 * self.iso_frequency,
             c.y as f64 * self.iso_frequency,

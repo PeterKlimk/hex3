@@ -486,51 +486,27 @@ fn build_stack_tiles(
             emergent_o0(0.0, "emergent smooth (n=2)", "1_emergent_smooth"),
             emergent_o0(1.0, "emergent STRUCTURED (n=2)", "2_emergent_structured"),
         ],
-        // Meso structural relief — massif-corridor default-flip bracket (spec §13
-        // addendum, measured 2026-07-10 seed 12345): each tile = 25-km p95-p05 p50
-        // relief / max range peak. Baseline: 191 m / 10.0 km. The fold train
-        // (meso_style 0) lost the style A/B visually ("dune-y"); these tiles pick
-        // the massif-corridor REGIME. Peaks persist under longer epochs here
-        // (massifs concentrate uplift), unlike the fold train.
+        // Meso default-flip A/B (spec §13 addenda): the gain dial is retired from
+        // the meso path (peaks "reach the heavens" — user 2026-07-10; plausibility
+        // self-gate now vetoes >12 km before visual). Candidate = corridor-heavy
+        // field at gain 1: relief from valleys down at a fixed peak budget.
+        // Labels = 25-km p95-p05 p50 relief / max range peak / self-gate verdict.
         "meso" => {
-            let meso = |gain: f32, steps: usize, label: &str, fname: &str| {
+            let meso = |relief: f32, label: &str, fname: &str| {
                 let mut o = *base;
-                o.meso_relief = Some(0.9);
+                o.meso_relief = Some(relief);
                 o.meso_style = Some(1);
-                o.rebuild_gain = Some(gain);
-                o.steps = Some(steps);
+                o.steps = Some(50);
                 (o, label.to_string(), fname.to_string())
             };
             vec![
                 (
                     *base,
-                    "baseline (current default)".to_string(),
+                    "baseline (191 m, peaks 10.0 km)".to_string(),
                     "0_baseline".to_string(),
                 ),
-                meso(
-                    1.0,
-                    50,
-                    "massif g1 s50 (320 m, peaks 12.0 km)",
-                    "1_mc_g1_s50",
-                ),
-                meso(
-                    1.5,
-                    50,
-                    "massif g1.5 s50 (394 m, peaks 14.4 km)",
-                    "2_mc_g15_s50",
-                ),
-                meso(
-                    2.0,
-                    100,
-                    "massif g2 s100 (455 m, peaks 17.5 km)",
-                    "3_mc_g2_s100",
-                ),
-                meso(
-                    2.0,
-                    50,
-                    "massif g2 s50 (514 m, peaks 18.3 km)",
-                    "4_mc_g2_s50",
-                ),
+                meso(0.7, "CANDIDATE m0.7 s50 (313 m, 11.8 km, ok)", "1_cand_m07"),
+                meso(0.9, "m0.9 s50 (362 m, 12.4 km, borderline)", "2_max_m09"),
             ]
         }
         other => panic!("unknown --sweep-stack '{other}'; known: p1, v3, o0, meso"),

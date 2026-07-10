@@ -1376,6 +1376,13 @@ pub const FINE_MESO_CORRIDOR_CROSS_FRACTION: f32 = 0.15;
 pub const FINE_MESO_CORRIDOR_OBLIQUITY_DEG: (f32, f32) = (20.0, 40.0);
 /// Minimum Gaussian sigma for massifs/corridors, km (mesh floor ~2 cells).
 pub const FINE_MESO_MIN_SIGMA_KM: f32 = 8.0;
+/// Cap on the POSITIVE (massif) side of the field. Uncapped massifs inflate
+/// peaks (12-18 km, "reach the heavens" — user-rejected 2026-07-10); relief must
+/// come from corridors cutting DOWN at a fixed peak budget, not summits up.
+pub const FINE_MESO_MASSIF_CAP: f32 = 0.2;
+/// Gain on the corridor (negative) side: >1 lets corridor cores drive local
+/// uplift to zero at high meso_relief (deep valley seeds).
+pub const FINE_MESO_CORRIDOR_GAIN: f32 = 1.6;
 
 /// Emergent builder over-rebuild gain. The builder uplift rebuilds the demoted
 /// envelope (`coarse_target − base`) over the erosion epoch; >1 compensates the

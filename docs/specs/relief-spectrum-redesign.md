@@ -484,3 +484,26 @@ massif-corridor 29/33/38 (transverse-leaning restored). Corridors imprint only
 partially at 50 steps (drainage self-organizes before corridor uplift-deficit
 accumulates) — if visual wants stronger valley grammar, next levers: deeper
 corridor depth via field weighting, s100, or A4. USER VISUAL: style A/B sweep.
+
+### §13 second addendum — peak budget closes the gain path; corridor-heavy candidate (2026-07-10)
+
+User verdict on the regime ladder: peaks "reach the heavens" past ~12 km — gain is
+RETIRED from the meso path (candidate-B self-similarity, third confirmation). New
+plausibility SELF-GATE in --mountain-audit (max range peak: <=12 ok / 14+ FLAG-ABSURD,
+vetoed before visual — the 18-km rows should never have reached the user's eyes).
+
+Measured servo coupling: the volume-normalizing builder repays any meso-carved
+volume as global uplift (~peaks +2 km at meso 0.9 g1) — massif caps can't lower
+peaks, only total meso depth can. Corridor-heavy field (MASSIF_CAP 0.2,
+CORRIDOR_GAIN 1.6): relief from valleys down. Depth ladder at g1 s50:
+m0.7 = 313 m @ 11.8 km [ok]; m0.8 = 339 @ 12.1; m0.9 = 362 @ 12.4 [borderline].
+
+**Candidate default: meso_style 1, meso_relief 0.7, steps 50, gain 1.** Full gates
+pass BOTH seeds (777: 250 m @ 11.0 km): elongation fully recovered (5.0/5.3 ≈
+baseline), rivers clean, roughness proportionate, trunk grammar transverse-leaning
+(40/37%). This is the honest ceiling of the uplift-shape channel at the user's peak
+budget (~1.6× baseline relief; the ≥600 m bar is UNREACHABLE in this channel
+without absurd peaks — servo-coupled). Deeper relief at fixed peaks = A4
+(drainage-organized dissection removes volume AFTER the height budget) — the
+designated next architecture step if the candidate still reads too smooth.
+Visual A/B: `--sweep-stack meso` (baseline | candidate | m0.9-borderline).
