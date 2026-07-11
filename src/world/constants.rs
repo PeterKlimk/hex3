@@ -89,8 +89,12 @@ pub const DIFFUSION_TOLERANCE: f32 = 0.001;
 // level = 0); 1 elevation unit ≈ 10 km. This is the single reference for every
 // "≈ N m" annotation below (it is the scale the ocean anchors and the
 // land↔ocean isostasy gap imply). The world is physically inspired, not
-// Earth-accurate, so this is for intuition/tuning only — nothing in the code
-// reads a vertical metres conversion; horizontal distances use PLANET_RADIUS_KM.
+// Earth-accurate. Horizontal distances use PLANET_RADIUS_KM.
+
+/// Physical interpretation of one normalized elevation unit. Same-clock
+/// surface-process experiments use this conversion rather than treating their
+/// geological rates as dimensionless terrain gains.
+pub const ELEVATION_UNIT_KM: f32 = 10.0;
 
 /// Reference thickness of undisturbed continental crust (definition scale).
 pub const CRUST_THICKNESS_CONTINENTAL: f32 = 1.0;

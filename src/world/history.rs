@@ -34,6 +34,9 @@ pub struct TectonicCarrierConfig {
     pub cells: usize,
     pub step_myr: f32,
     pub operator_audit: bool,
+    /// Coarse surface-lowering capacity in km/Myr. Zero is an identity gate;
+    /// positive values enable the experimental same-clock denudation rung.
+    pub denudation_rate_km_per_myr: f32,
 }
 
 impl Default for TectonicCarrierConfig {
@@ -42,6 +45,7 @@ impl Default for TectonicCarrierConfig {
             cells: TECTONIC_CARRIER_CELLS,
             step_myr: TECTONIC_CARRIER_STEP_MYR,
             operator_audit: false,
+            denudation_rate_km_per_myr: 0.0,
         }
     }
 }
@@ -95,6 +99,7 @@ pub struct CarrierReplay {
     pub snapshots: Vec<CarrierSnapshot>,
     pub build_seconds: f32,
     pub operator_audit: bool,
+    pub denudation_rate_km_per_myr: f32,
     pub(crate) mesh: CarrierMesh,
 }
 
@@ -180,6 +185,7 @@ impl TectonicHistory {
                     carrier_config.cells,
                     carrier_config.step_myr,
                     carrier_config.operator_audit,
+                    carrier_config.denudation_rate_km_per_myr,
                 );
                 (ages, Some(replay), HistoryModel::FixedCarrierBackrotation)
             }
@@ -452,6 +458,7 @@ pub(crate) fn replay_fixed_carrier(
     carrier_cells: usize,
     step_myr: f32,
     operator_audit: bool,
+    denudation_rate_km_per_myr: f32,
 ) -> (HashMap<(usize, usize), f32>, CarrierReplay) {
     let started = Instant::now();
     let mut rng = ChaCha8Rng::seed_from_u64(seed.wrapping_add(0x7465_6374_6f6e_6963));
@@ -619,6 +626,7 @@ pub(crate) fn replay_fixed_carrier(
         snapshots,
         build_seconds: started.elapsed().as_secs_f32(),
         operator_audit,
+        denudation_rate_km_per_myr,
         mesh: carrier_mesh,
     };
     (ages, replay)
@@ -873,6 +881,7 @@ mod tests {
         assert_eq!(config.cells, TECTONIC_CARRIER_CELLS);
         assert_eq!(config.step_myr, TECTONIC_CARRIER_STEP_MYR);
         assert!(!config.operator_audit);
+        assert_eq!(config.denudation_rate_km_per_myr, 0.0);
     }
 
     fn carrier_fixture() -> (Tessellation, Plates, Crust, Dynamics) {
@@ -902,6 +911,7 @@ mod tests {
             256,
             2.0,
             false,
+            0.0,
         );
         let (_, b) = replay_fixed_carrier(
             12345,
@@ -913,6 +923,7 @@ mod tests {
             256,
             2.0,
             false,
+            0.0,
         );
         assert_eq!(a.snapshots, b.snapshots);
         for snapshot in &a.snapshots {
@@ -954,6 +965,7 @@ mod tests {
             256,
             2.0,
             false,
+            0.0,
         );
         let (_, coarse) = replay_fixed_carrier(
             777,
@@ -965,6 +977,7 @@ mod tests {
             256,
             4.0,
             false,
+            0.0,
         );
         for (coarse_snapshot, fine_snapshot) in coarse
             .snapshots

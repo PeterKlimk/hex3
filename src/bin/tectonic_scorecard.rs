@@ -43,6 +43,15 @@ struct Cli {
     /// Skip the legacy reset baseline rows.
     #[arg(long, default_value_t = false)]
     no_legacy: bool,
+
+    /// Experimental coarse denudation capacity in km/Myr (numerically equal
+    /// to mm/yr). Zero preserves the tectonic-only carrier exactly.
+    #[arg(long, default_value_t = 0.0)]
+    denudation_rate_km_per_myr: f32,
+
+    /// Skip the expensive frozen/operator attribution ladder.
+    #[arg(long, default_value_t = false)]
+    no_operator_audit: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -73,6 +82,8 @@ struct Metrics {
     gap_pct: f32,
     overlap_pct: f32,
     mass_relative_residual: f64,
+    denudation_rate_km_per_myr: f32,
+    material_removed: f64,
     operator: Option<CarrierOperatorAudit>,
 }
 
@@ -93,7 +104,8 @@ fn main() {
                 Some(TectonicCarrierConfig {
                     cells: carrier_cells,
                     step_myr: cli.carrier_step_myr,
-                    operator_audit: true,
+                    operator_audit: !cli.no_operator_audit,
+                    denudation_rate_km_per_myr: cli.denudation_rate_km_per_myr,
                 }),
             ));
         }
@@ -116,6 +128,7 @@ fn validate(cli: &Cli) {
         "at least one carrier resolution is required"
     );
     assert!(cli.carrier_step_myr > 0.0);
+    assert!(cli.denudation_rate_km_per_myr >= 0.0);
     for &cells in &cli.carrier_cells {
         assert!(
             (64..=u16::MAX as usize).contains(&cells),
@@ -278,7 +291,10 @@ fn measure_world(world: &World, wall_s: f32) -> Metrics {
             )
         })
         .unwrap_or((0, 0.0, 0.0, 0.0));
-    let residual_denominator = features.thin_sheet_material_added.abs().max(1e-30);
+    let residual_denominator = (features.thin_sheet_material_added
+        + features.thin_sheet_material_removed)
+        .abs()
+        .max(1e-30);
 
     Metrics {
         seed: world.seed,
@@ -311,6 +327,13 @@ fn measure_world(world: &World, wall_s: f32) -> Metrics {
         gap_pct,
         overlap_pct,
         mass_relative_residual: features.thin_sheet_material_residual.abs() / residual_denominator,
+        denudation_rate_km_per_myr: world
+            .tectonic_history
+            .as_ref()
+            .and_then(|history| history.carrier_replay.as_ref())
+            .map(|replay| replay.denudation_rate_km_per_myr)
+            .unwrap_or(0.0),
+        material_removed: features.thin_sheet_material_removed,
         operator: features.carrier_operator_audit,
     }
 }
@@ -318,9 +341,10 @@ fn measure_world(world: &World, wall_s: f32) -> Metrics {
 fn print_rows(rows: &[Metrics]) {
     println!("# Tectonic promotion scorecard\n");
     println!("Absolute gates: peak >14 km = FAIL, >12 km = WARN; mass residual >1e-4 = FAIL.");
+    println!("Magma/+work may exceed 100% when denudation leaves net negative inherited work.");
     println!("Active support is the smallest cell set carrying 90% of positive present uplift.\n");
-    println!("| seed | model | carrier | peak km | land % | mountain-land % | land p50/p90/p99 km | ranges | width p50 km | elong p50 | cap500 p50 km² | flat-cap p50 % | +work/-work | arc/+work % | inherited outside active % | inherited·active cos | moved forcing % | gap/overlap % | mass residual | carrier/evolve/wall s | gate |");
-    println!("|---:|:---|---:|---:|---:|---:|:---|---:|---:|---:|---:|---:|:---|---:|---:|---:|---:|:---|---:|:---|:---|");
+    println!("| seed | model | carrier | denude km/Myr | peak km | land % | mountain-land % | land p50/p90/p99 km | ranges | width p50 km | elong p50 | cap500 p50 km² | flat-cap p50 % | +work/-work | removed | magma/+work % | inherited outside active % | inherited·active cos | moved forcing % | gap/overlap % | mass residual | carrier/evolve/wall s | gate |");
+    println!("|---:|:---|---:|---:|---:|---:|---:|:---|---:|---:|---:|---:|---:|:---|---:|---:|---:|---:|---:|:---|---:|:---|:---|");
     for row in rows {
         let gate = if row.mass_relative_residual > 1e-4 || row.peak_km > 14.0 {
             "FAIL"
@@ -330,10 +354,11 @@ fn print_rows(rows: &[Metrics]) {
             "PASS"
         };
         println!(
-            "| {} | {} | {} | {:.2} | {:.1} | {:.1} | {:.2}/{:.2}/{:.2} | {} | {:.0} | {:.1} | {:.0} | {:.1} | {:.3e}/{:.3e} | {:.1} | {:.1} | {:.3} | {:.1} | {:.1}/{:.1} | {:.2e} | {:.2}/{:.2}/{:.2} | {} |",
+            "| {} | {} | {} | {:.3} | {:.2} | {:.1} | {:.1} | {:.2}/{:.2}/{:.2} | {} | {:.0} | {:.1} | {:.0} | {:.1} | {:.3e}/{:.3e} | {:.3e} | {:.1} | {:.1} | {:.3} | {:.1} | {:.1}/{:.1} | {:.2e} | {:.2}/{:.2}/{:.2} | {} |",
             row.seed,
             row.model,
             if row.carrier_cells == 0 { "-".to_string() } else { row.carrier_cells.to_string() },
+            row.denudation_rate_km_per_myr,
             row.peak_km,
             row.land_pct,
             row.mountain_land_pct,
@@ -347,6 +372,7 @@ fn print_rows(rows: &[Metrics]) {
             row.flat_cap_p50_pct,
             row.positive_work,
             row.negative_work,
+            row.material_removed,
             row.arc_share_positive_pct,
             row.inherited_outside_active_pct,
             row.inherited_active_cosine,

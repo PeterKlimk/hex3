@@ -26,7 +26,9 @@ pub(crate) struct ThinSheetFields {
     pub compression_axis: Vec<Vec3>,
     /// Positive material supplied by retained arc magma (thickness × steradian).
     pub material_added: f64,
-    /// Final area-weighted thickness change minus `material_added`.
+    /// Orogenic material transferred into the unresolved sediment reservoir.
+    pub material_removed: f64,
+    /// Final thickness minus initial, addition, and removal ledgers.
     pub material_residual: f64,
     /// Present physical crust-thickness tendency in thickness units/Myr.
     pub present_uplift_rate: Vec<f32>,
@@ -485,6 +487,7 @@ pub(crate) fn solve_thin_sheet(
         strain,
         compression_axis,
         material_added,
+        material_removed: 0.0,
         material_residual,
         present_uplift_rate: vec![0.0; n],
         evolution_seconds: 0.0,
@@ -747,6 +750,7 @@ pub(crate) fn solve_history_thin_sheet(
         strain,
         compression_axis,
         material_added,
+        material_removed: 0.0,
         material_residual,
         present_uplift_rate: vec![0.0; n],
         evolution_seconds: 0.0,
@@ -843,6 +847,7 @@ fn solve_carrier_replay_evolved(
     let mut forcing_events = 0usize;
     let mut moving_forcing_events = 0usize;
     let mut material_added = 0.0f64;
+    let mut material_removed = 0.0f64;
     let mut audit_boundary_length = 0.0f64;
     let mut audit_swept_area = 0.0f64;
     let mut audit_boundary_support = 0.0f64;
@@ -904,6 +909,20 @@ fn solve_carrier_replay_evolved(
             thickness =
                 solve_screened_scalar(&mesh.areas, &step.sheet_edges, &thickness, gravity_tau);
         }
+        if replay.denudation_rate_km_per_myr > 0.0 {
+            let surface_reference: Vec<_> = snapshot
+                .surface_parcel
+                .iter()
+                .map(|&parcel| reference_thickness[parcel as usize])
+                .collect();
+            material_removed += denude_excess_thickness(
+                &mut thickness,
+                &surface_reference,
+                &mesh.areas,
+                replay.denudation_rate_km_per_myr,
+                dt,
+            );
+        }
         gather_visible_parcel_volume(mesh, snapshot, &owned_area, &thickness, &mut parcel_volume);
 
         for cell in 0..n {
@@ -934,7 +953,7 @@ fn solve_carrier_replay_evolved(
         .map(|(&after, &before)| after - before)
         .collect();
     let final_volume: f64 = parcel_volume.iter().map(|&volume| volume as f64).sum();
-    let material_residual = final_volume - initial_volume - material_added;
+    let material_residual = final_volume - initial_volume - material_added + material_removed;
 
     // A final non-integrated solve exports the current physical thickness
     // tendency. This is provenance for future T3 erosion; it is not fed back
@@ -1047,12 +1066,46 @@ fn solve_carrier_replay_evolved(
         strain,
         compression_axis,
         material_added,
+        material_removed,
         material_residual,
         present_uplift_rate,
         evolution_seconds: started.elapsed().as_secs_f32(),
         moving_forcing_fraction,
         operator_audit,
     }
+}
+
+/// Remove only tectonic thickness above the local undeformed column. The rate
+/// is a surface-lowering capacity: Airy isostasy converts it to crust-thickness
+/// loss. Removed material remains explicit in the sediment-export ledger rather
+/// than being silently destroyed or painted into basins that this coarse rung
+/// cannot resolve.
+fn denude_excess_thickness(
+    thickness: &mut [f32],
+    reference: &[f32],
+    areas: &[f32],
+    surface_rate_km_per_myr: f32,
+    dt_myr: f32,
+) -> f64 {
+    debug_assert_eq!(thickness.len(), reference.len());
+    debug_assert_eq!(thickness.len(), areas.len());
+    if surface_rate_km_per_myr <= 0.0 || dt_myr <= 0.0 {
+        return 0.0;
+    }
+    let isostasy_slope = (CONTINENTAL_BASE - ABYSSAL_DEPTH)
+        / (CRUST_THICKNESS_CONTINENTAL - CRUST_THICKNESS_OCEANIC);
+    let thickness_capacity =
+        surface_rate_km_per_myr * dt_myr / (ELEVATION_UNIT_KM * isostasy_slope);
+    thickness
+        .iter_mut()
+        .zip(reference.iter())
+        .zip(areas.iter())
+        .map(|((value, &base), &area)| {
+            let removed = (*value - base).max(0.0).min(thickness_capacity);
+            *value -= removed;
+            removed as f64 * area as f64
+        })
+        .sum()
 }
 
 fn distribute_parcel_volume(
@@ -1718,6 +1771,28 @@ mod tests {
         assert!((solved[1] - source[1]).abs() < 1e-6);
     }
 
+    #[test]
+    fn coarse_denudation_is_rate_limited_and_spares_reference_crust() {
+        let mut thickness = [1.20, 1.00, 0.20];
+        let reference = [1.00, 1.00, 0.25];
+        let areas = [2.0, 3.0, 5.0];
+        let removed = denude_excess_thickness(&mut thickness, &reference, &areas, 0.10, 2.0);
+        let isostasy_slope = (CONTINENTAL_BASE - ABYSSAL_DEPTH)
+            / (CRUST_THICKNESS_CONTINENTAL - CRUST_THICKNESS_OCEANIC);
+        let expected_loss = 0.20 / (ELEVATION_UNIT_KM * isostasy_slope);
+        assert!((thickness[0] - (1.20 - expected_loss)).abs() < 1e-6);
+        assert_eq!(thickness[1], 1.00);
+        assert_eq!(thickness[2], 0.20);
+        assert!((removed - expected_loss as f64 * 2.0).abs() < 1e-6);
+
+        let unchanged = thickness;
+        assert_eq!(
+            denude_excess_thickness(&mut thickness, &reference, &areas, 0.0, 2.0),
+            0.0
+        );
+        assert_eq!(thickness, unchanged);
+    }
+
     /// legacy-yield contract: sub-yield cells are BIT-untouched, over-yield
     /// excess spreads conservatively, and the overload comes down toward yield.
     #[test]
@@ -1796,6 +1871,7 @@ mod tests {
             256,
             step_myr,
             false,
+            0.0,
         );
         (tessellation, dynamics, replay)
     }
@@ -1811,6 +1887,7 @@ mod tests {
         assert_eq!(a.compression_axis, b.compression_axis);
         assert_eq!(a.present_uplift_rate, b.present_uplift_rate);
         assert_eq!(a.material_added, b.material_added);
+        assert_eq!(a.material_removed, b.material_removed);
         assert_eq!(a.material_residual, b.material_residual);
         assert_eq!(a.operator_audit, b.operator_audit);
         assert!(a.operator_audit.is_some());
@@ -1820,6 +1897,23 @@ mod tests {
             "mass residual {} for added {}",
             a.material_residual,
             a.material_added,
+        );
+    }
+
+    #[test]
+    fn carrier_denudation_closes_the_material_ledger() {
+        let (tessellation, dynamics, mut replay) = evolved_fixture(2.0);
+        replay.denudation_rate_km_per_myr = 0.10;
+        let result =
+            solve_carrier_replay_evolved(&tessellation, &dynamics, &replay, Instant::now());
+        assert!(result.material_removed > 0.0);
+        let throughput = result.material_added + result.material_removed;
+        assert!(
+            result.material_residual.abs() < 1e-5
+                || result.material_residual.abs() / throughput.max(1e-30) < 1e-4,
+            "mass residual {} for ledger throughput {}",
+            result.material_residual,
+            throughput,
         );
     }
 

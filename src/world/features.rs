@@ -107,6 +107,7 @@ pub struct FeatureFields {
     /// Continuity-solver mass ledger. Collision transport must integrate to
     /// zero globally; only retained arc magma contributes `material_added`.
     pub thin_sheet_material_added: f64,
+    pub thin_sheet_material_removed: f64,
     pub thin_sheet_material_residual: f64,
     /// Present physical thickness tendency exported by moving-history models.
     pub tectonic_uplift_rate: Vec<f32>,
@@ -956,6 +957,7 @@ impl FeatureFields {
                 strain: vec![0.0; num_cells],
                 compression_axis: vec![Vec3::ZERO; num_cells],
                 material_added: 0.0,
+                material_removed: 0.0,
                 material_residual: 0.0,
                 present_uplift_rate: vec![0.0; num_cells],
                 evolution_seconds: 0.0,
@@ -1003,6 +1005,7 @@ impl FeatureFields {
             thin_sheet_strain: thin_sheet.strain,
             thin_sheet_compression_axis: thin_sheet.compression_axis,
             thin_sheet_material_added: thin_sheet.material_added,
+            thin_sheet_material_removed: thin_sheet.material_removed,
             thin_sheet_material_residual: thin_sheet.material_residual,
             tectonic_uplift_rate: thin_sheet.present_uplift_rate,
             carrier_evolution_seconds: thin_sheet.evolution_seconds,

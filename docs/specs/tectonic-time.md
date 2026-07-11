@@ -269,6 +269,22 @@ surfaces can remain below 250 m/Myr for tens of Myr.
 - https://doi.org/10.1038/379505a0
 - https://doi.org/10.1038/ngeo503
 
+**T3a capacity experiment implemented, identity-gated.** The moving carrier can now
+apply an optional surface-lowering ceiling in km/Myr after each tectonic interval.
+Airy isostasy converts that rate to crust-thickness loss; only thickness above each
+material parcel's undeformed reference column is eligible. Removed volume enters an
+explicit unresolved-sediment ledger. The default rate is zero and preserves the prior
+carrier path exactly. This is intentionally not stream-power erosion: the carrier has
+neither precipitation nor resolved drainage, so the parameter is an upper-bound A/B,
+not a new product constant.
+
+At canonical 8192 cells, ten-seed sweeps at 0/0.05/0.10 km/Myr reduced median peak
+height from 15.98 to 14.53 to 13.14 km, but FAIL counts only moved from 6/10 to 6/10
+to 4/10. Median mountain-land coverage was 40.8/41.0/39.2%, so the broad-load problem
+did not respond materially. The next T3 rung must condition removal on relief/drainage
+and resolve sediment deposition; increasing the uniform ceiling until all peaks pass
+would be target tuning.
+
 ### T4 — plate lifecycle
 
 Only after T1–T3 work should the model add ridge birth, subduction consumption, plate
@@ -296,7 +312,8 @@ independently of the 100k terrain mesh. The first standing audit is recorded in
 carrier rung: peak drift is 4.1–19.4 km across 4k/8k/16k carriers, six of ten 8k
 seeds exceed 14 km, and mountain-land coverage reaches 33–51%. Mass conservation
 passes, isolating the failure to deformation concentration/parcel projection rather
-than leakage. T3 erosion is paused until carrier resolution convergence closes.
+than leakage. The subsequent T3a experiment is retained only as an identity-gated
+capacity diagnostic; it is not a promoted erosion model.
 
 The subsequent five-rung operator ladder localizes the first failure to one 2 Myr
 step from uniform crust. Boundary length grows from 417k to 647k km and the step maximum

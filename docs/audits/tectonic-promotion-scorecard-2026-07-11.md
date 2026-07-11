@@ -168,3 +168,25 @@ barely one carrier edge at 4096 cells. Hex3 does not require a physics-grade con
 limit. The honest near-term choice is to retain the canonical 8192-cell (~250 km)
 carrier, keep its resolution failure visible, and assess whether same-clock denudation
 regulates the otherwise authentic moving history. Do not claim numerical convergence.
+
+### Canonical-8k same-clock denudation: bounded but insufficient
+
+An identity-gated coarse experiment removes only orogenic thickness above each parcel's
+reference crust after every 2 Myr interval. Its CLI input is a physical surface-lowering
+capacity in km/Myr (numerically equal to mm/yr); Airy isostasy supplies the thickness
+conversion and an explicit sediment-export ledger closes mass. Zero is bit-identical to
+the tectonic-only path.
+
+| capacity km/Myr | median peak | peaks FAIL/WARN/PASS | median mountain-land | removed-volume range |
+|---:|---:|:---|---:|---:|
+| 0.00 | 15.98 km | 6/1/3 | 40.8% | 0 |
+| 0.05 | 14.53 km | 6/1/3 | 41.0% | 0.686–0.912 |
+| 0.10 | 13.14 km | 4/2/4 | 39.2% | 0.893–1.183 |
+
+The response is numerically smooth and seed 12345 falls from 13.92 to 12.91/11.72 km,
+but the cross-seed diagnosis is negative: broad mountain coverage barely changes and
+the two largest cases remain 20.06 and 23.43 km even at 0.10 km/Myr. Exported sediment
+also becomes a major part of the tracked material budget. Do not select a higher global
+rate merely to clear the peak gate. Keep this capacity rung experimental; the justified
+next mechanism is relief/drainage-conditioned denudation with resolved coarse sediment
+deposition.
