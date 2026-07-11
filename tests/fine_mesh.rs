@@ -1,6 +1,6 @@
 use hex3::world::{
     ErosionParams, FineCacheMode, FineCacheOutcome, FineDensityParams, FineStructureParams,
-    FineWorld, OrogenFronts, World,
+    FineWorld, OrogenFronts, RiverNetwork, RiverThresholdPolicy, WaterBodySemantics, World,
 };
 
 /// Build a tiny coarse world through stage 2 (atmosphere) — shared setup for the
@@ -93,6 +93,39 @@ fn fine_mesh_pipeline_smoke() {
     );
     assert!(tess.morans_i(&fine.base.fields.temperature) > 0.85);
     assert!(tess.morans_i(&fine.base.fields.precipitation) > 0.55);
+
+    let water = WaterBodySemantics::build(tess, &fine.pre.hydrology);
+    for cell in 0..n {
+        if fine.pre.hydrology.is_submerged(cell) {
+            assert!(water.cell_body[cell].is_some());
+        }
+    }
+    let mut ids: Vec<_> = water.bodies.iter().map(|body| body.id).collect();
+    ids.sort_by_key(|id| (id.basin_id, id.anchor_cell));
+    ids.dedup();
+    assert_eq!(ids.len(), water.bodies.len());
+
+    let rivers = RiverNetwork::build(
+        tess,
+        &fine.pre.hydrology,
+        &water,
+        RiverThresholdPolicy::default(),
+    );
+    assert!(rivers
+        .major_cells
+        .iter()
+        .zip(&rivers.all_cells)
+        .all(|(&major, &all)| !major || all));
+    let mut covered = vec![false; n];
+    for reach in &rivers.reaches {
+        for pair in reach.cells.windows(2) {
+            assert_eq!(fine.pre.hydrology.downstream(pair[0]), Some(pair[1]));
+        }
+        for &cell in &reach.cells {
+            covered[cell] = true;
+        }
+    }
+    assert!((0..n).all(|cell| !rivers.all_cells[cell] || covered[cell]));
 }
 
 /// Stage 4 exercises the whole erosion path: fluvial incision + transport-aware

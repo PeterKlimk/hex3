@@ -1,0 +1,99 @@
+# Hydrology semantic objects
+
+This document describes the first implemented semantic-object slice: water
+bodies and river networks. These objects interpret modeled hydrology without
+changing it and contain no camera, relief, color or stroke settings.
+
+The implementation lives in `src/world/semantics.rs`.
+
+## Water bodies
+
+`WaterBodySemantics` derives connected objects from a tessellation and one
+retained hydrology surface.
+
+Each `SemanticWaterBody` records:
+
+- a per-world-stage identity;
+- ocean, lake or sub-threshold pond classification;
+- member cells;
+- physical area, surface elevation and maximum depth;
+- terminal, ocean or downstream-basin outlet relationship.
+
+Identity is `(basin_id, anchor_cell)`. The anchor is the deterministic deepest
+cell, with cell index as a tie-break. Oceans have no basin ID and are represented
+as connected components. This identity is stable for a retained stage and more
+robust to climate-level changes than the transient `Hydrology.water_bodies`
+vector index, but it is not promised to survive remeshing or terrain changes.
+
+Ponds remain semantic objects even though they do not qualify as hydrologic lake
+sinks. This preserves the distinction between “water exists,” “proper lake,” and
+“should be rendered at this scale.”
+
+## River policy and selection
+
+`RiverThresholdPolicy` owns the definition of a semantically visible network:
+
+- `CatchmentKm2` is the product policy. It uses a physical catchment-area
+  threshold at mean wetness and resolution-aware coarse-mesh floor.
+- `Legacy` preserves historical count-equivalent fractions for controlled A/Bs.
+
+The default minimum catchment is 2000 km². Major rivers are selected from large
+outlets and traced upstream through sufficiently large branches. Major selection
+is intersected with the All network, making it a true subset.
+
+`RiverSelection` computes only:
+
+- All and Major cell masks;
+- maximum physical/count-equivalent flow values;
+- overflowing-lake outlet paths.
+
+Rendering consumes this lightweight object. Screen-space width, opacity, color,
+texture baking and glint remain presentation responsibilities.
+
+## Full river network
+
+`RiverNetwork` extends the same selection with:
+
+- deterministic upstream adjacency;
+- per-cell Strahler order;
+- semantic mouths;
+- source/confluence/mouth-bounded reaches;
+- approximate physical reach length;
+- major-river membership.
+
+Reach cells are ordered upstream to downstream. Confluence cells may belong to
+both incoming and outgoing reaches so topology remains explicit. Reach identity
+is deterministic within the built network but is not yet a persistent identity
+across terrain, climate or policy changes.
+
+The river audit consumes these shared masks, adjacency, Strahler values and
+mouths rather than reconstructing a renderer-like network independently. Lake
+audits consume semantic area, depth, identity and outlet classification.
+
+## Ownership
+
+| Concern | Owner |
+|---|---|
+| Drainage direction, flow and water level | `Hydrology` world state |
+| Water-body identity/type and river hierarchy | Semantic objects |
+| All/Major importance policy | `RiverThresholdPolicy` |
+| Stroke width, color, opacity and antialiasing | Presentation/renderer |
+| Earth-reference comparisons and gates | Diagnostics/validation |
+
+Changing river width must not rebuild semantic topology. Changing a semantic
+threshold may change which reaches are visible but cannot change hydrologic
+flow. Changing climate or terrain invalidates semantic objects because their
+modeled input changed.
+
+## Current limitations
+
+- River reaches use cell-center paths and chord-based approximate lengths.
+- Catchment area and trunk-profile summaries remain diagnostic calculations,
+  not stored reach properties.
+- Names, cross-stage correspondence and cross-resolution identity do not exist.
+- Water-body semantics currently build on demand rather than being cached as a
+  retained stage product.
+- Ponds/wetlands need a more deliberate ecological and presentation policy.
+- River generalization still selects cells; geometry simplification and
+  zoom-dependent reach aggregation remain future cartographic work.
+

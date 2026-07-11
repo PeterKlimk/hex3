@@ -49,6 +49,10 @@ River topology and selection remain physical: catchment area determines which
 channels qualify. Visible width is cartographic and screen-space because even
 the largest real rivers are subpixel in globe views.
 
+All/Major selection is owned by the shared
+[hydrology semantic layer](semantics.md); the renderer consumes those masks and
+owns only their visual treatment.
+
 ```powershell
 cargo run --release --bin hex3 -- --river-width-scale 0.75
 ```

@@ -45,6 +45,7 @@ mod hydrology;
 mod moisture;
 mod plates;
 mod provenance;
+mod semantics;
 mod tessellation;
 mod units;
 
@@ -75,6 +76,11 @@ pub use hydrology::{
 pub use plates::Plates;
 pub use provenance::{
     BuildProvenance, FineCacheOutcome, FineCacheRecord, RunManifest, UnitManifest,
+};
+pub use semantics::{
+    RiverMouth, RiverNetwork, RiverReach, RiverSelection, RiverThresholdPolicy, SemanticWaterBody,
+    SemanticWaterKind, WaterBodyId, WaterBodySemantics, WaterOutlet,
+    DEFAULT_RIVER_MIN_CATCHMENT_KM2,
 };
 pub use tessellation::{CellAdjacency, Tessellation};
 pub use units::{

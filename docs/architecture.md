@@ -141,6 +141,12 @@ across world, app and diagnostic code:
 - diagnostics derive connected objects, ranges and structural measurements;
 - visualization derives arrows, pole markers and boundary colors.
 
+The first extraction is now implemented in `world::semantics`: shared
+[water-body and river objects](semantics.md) define stable per-stage water
+identity, All/Major river selection, hierarchy, reaches and mouths. Rendering
+consumes the lightweight semantic selection; hydrology audits consume the same
+object definitions. Other semantic responsibilities remain distributed.
+
 These operations should be documented as interpretation rather than physical
 state or raw drawing. A future explicit semantic layer can support consistent
 scale-dependent cartography, legends, object inspection and game-facing regions.

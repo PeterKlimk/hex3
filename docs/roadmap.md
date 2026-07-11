@@ -79,8 +79,8 @@ physical and cartographic scales.
 
 ### 1B. First semantic objects
 
-- extract shared water-body and river-network semantics from hydrology/render
-  preparation/diagnostics;
+- **Completed:** extract shared water-body and river-network semantics from
+  hydrology/render preparation/diagnostics;
 - extract range/plateau/pass semantics from existing mountain diagnostics;
 - define stable per-world-stage identities, measurements, provenance and
   importance;

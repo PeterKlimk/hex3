@@ -21,21 +21,6 @@ pub const NUM_CELLS: usize = 100000;
 pub const LLOYD_ITERATIONS: usize = 2;
 pub const NUM_PLATES: usize = hex3::world::NUM_PLATES_DEFAULT;
 
-/// Minimum flow for "all rivers" mode, as fraction of total cells.
-/// E.g., 0.00005 means a cell needs 0.005% of total cells draining through it.
-/// Lowered 0.0003→0.00005 (river-render): the draped texture can afford a much denser,
-/// more dendritic network than the fat quads could; shows tributaries, not just trunks.
-const RIVER_MIN_FLOW_FRACTION: f32 = 0.00005;
-
-/// Minimum flow for a river mouth to be a "major outlet", as fraction of total cells.
-/// Rivers are traced upstream from outlets exceeding this threshold.
-/// E.g., 0.002 means outlet must drain 0.2% of all cells.
-const RIVER_OUTLET_FRACTION: f32 = 0.004;
-
-/// Minimum flow to continue tracing a river branch, as fraction of total cells.
-/// At confluences, branches above this threshold are followed.
-const RIVER_BRANCH_FRACTION: f32 = 0.0006;
-
 fn buffer_bytes<T>(items: &[T]) -> usize {
     items.len() * std::mem::size_of::<T>()
 }
@@ -436,13 +421,13 @@ fn log_hydrology_stats(world: &World) {
         .filter(|&i| hydrology.downstream(i).is_some())
         .count();
 
-    let river_min_flow = (num_cells as f32 * RIVER_MIN_FLOW_FRACTION).max(1.0);
-    let river_cells = hydrology.river_cells(river_min_flow);
-    // Count-equivalent so the logged figure stays comparable to river_min_flow
-    // (both in upstream-cell units) regardless of mesh.
-    let max_flow = (0..num_cells)
-        .map(|i| hydrology.flow_count_equiv(i))
-        .fold(0.0f32, f32::max);
+    let rivers =
+        hex3::world::RiverSelection::build(hydrology, hex3::world::RiverThresholdPolicy::default());
+    let river_cells = rivers
+        .all_cells
+        .iter()
+        .filter(|&&included| included)
+        .count();
 
     log::info!(
         "Hydrology: ocean={}, land={}, lakes={} ({:.1}%), basins={} ({} dry)",
@@ -454,11 +439,11 @@ fn log_hydrology_stats(world: &World) {
         dry_basin_cells
     );
     log::info!(
-        "Rivers: drainage={} cells, rivers={} (flow>={:.0}), max_flow={:.0}",
+        "Rivers: drainage={} cells, semantic rivers={} (catchment>={:.0} km²), max_flow={:.0} count-equiv",
         cells_with_drainage,
-        river_cells.len(),
-        river_min_flow,
-        max_flow
+        river_cells,
+        RIVER_DEFAULT_MIN_CATCHMENT_KM2,
+        rivers.max_flow_count_equivalent
     );
     if let Some(fine) = &world.fine {
         log::info!(
@@ -517,7 +502,7 @@ pub enum RiverThresholdMode {
 
 /// Default minimum catchment (km²) that renders as a river. Earth topographic
 /// maps at global scale show perennial rivers from roughly 1-5k km² catchments.
-pub const RIVER_DEFAULT_MIN_CATCHMENT_KM2: f32 = 2000.0;
+pub const RIVER_DEFAULT_MIN_CATCHMENT_KM2: f32 = hex3::world::DEFAULT_RIVER_MIN_CATCHMENT_KM2;
 
 static RIVER_THRESHOLD_MODE: std::sync::OnceLock<RiverThresholdMode> = std::sync::OnceLock::new();
 
@@ -534,90 +519,22 @@ fn river_threshold_mode() -> RiverThresholdMode {
         ))
 }
 
-/// Per-cell mask of which cells emit a river segment for the given set.
-fn river_cell_mask(
-    hydrology: &hex3::world::Hydrology,
-    num_cells: usize,
-    set: RiverSet,
-) -> Vec<bool> {
-    use hex3::world::Hydrology;
-    let mode = river_threshold_mode();
-    match set {
-        RiverSet::All => {
-            let flow_threshold = match mode {
-                RiverThresholdMode::Legacy => {
-                    let (min_flow, _, _) = river_thresholds(num_cells);
-                    min_flow * hydrology.mean_cell_discharge
-                }
-                // Floor at ~4 mean cells so a mesh coarser than the physical
-                // threshold (e.g. the 100k coarse mesh, ~5100 km²/cell) doesn't
-                // turn every land cell into a river. No effect on the fine mesh
-                // (4 cells ≈ 800 km² < any sane min). Naive mean area, NOT
-                // mean_cell_discharge — the precip-weighted mean is exactly the
-                // ocean-inflated quantity this mode exists to avoid.
-                RiverThresholdMode::CatchmentKm2(min) => {
-                    let mean_cell_km2 = 4.0
-                        * std::f32::consts::PI
-                        * hex3::world::diagnostics::EARTH_RADIUS_KM.powi(2)
-                        / num_cells.max(1) as f32;
-                    Hydrology::flow_for_catchment_km2(min.max(4.0 * mean_cell_km2))
-                }
-            };
-            (0..num_cells)
-                .map(|i| {
-                    hydrology.flow_accumulation[i] >= flow_threshold && !hydrology.is_submerged(i)
-                })
-                .collect()
-        }
-        RiverSet::Major => {
-            // `compute_major_river_cells` takes count-equivalents (it scales by
-            // mean_cell_discharge internally), so convert physical -> count.
-            let (outlet_threshold, branch_threshold) = match mode {
-                RiverThresholdMode::Legacy => {
-                    let (_, o, b) = river_thresholds(num_cells);
-                    (o, b)
-                }
-                RiverThresholdMode::CatchmentKm2(min) => {
-                    let per_count = hydrology.mean_cell_discharge.max(1e-12);
-                    (
-                        Hydrology::flow_for_catchment_km2(75.0 * min) / per_count,
-                        Hydrology::flow_for_catchment_km2(12.5 * min) / per_count,
-                    )
-                }
-            };
-            hydrology.compute_major_river_cells(outlet_threshold, branch_threshold)
-        }
-    }
-}
-
-fn river_thresholds(num_cells: usize) -> (f32, f32, f32) {
-    let min_flow = (num_cells as f32 * RIVER_MIN_FLOW_FRACTION).max(1.0);
-    let outlet_threshold = (num_cells as f32 * RIVER_OUTLET_FRACTION).max(1.0);
-    let branch_threshold = (num_cells as f32 * RIVER_BRANCH_FRACTION).max(1.0);
-    (min_flow, outlet_threshold, branch_threshold)
-}
-
 fn prepare_river_render_data(world: &World) -> Option<RiverRenderData> {
     let hydrology = world.active_hydrology()?;
-    let num_cells = world.active_tessellation().num_cells();
-    let include_all = river_cell_mask(hydrology, num_cells, RiverSet::All);
-    let include_major = river_cell_mask(hydrology, num_cells, RiverSet::Major);
-    let max_flow = hydrology
-        .flow_accumulation
-        .iter()
-        .copied()
-        .fold(0.0f32, f32::max);
-    let max_flow_count = (0..num_cells)
-        .map(|i| hydrology.flow_count_equiv(i))
-        .fold(0.0f32, f32::max);
-    let lake_outflow_paths = hydrology.lake_outflow_paths();
+    let policy = match river_threshold_mode() {
+        RiverThresholdMode::Legacy => hex3::world::RiverThresholdPolicy::legacy(),
+        RiverThresholdMode::CatchmentKm2(minimum) => {
+            hex3::world::RiverThresholdPolicy::catchment(minimum)
+        }
+    };
+    let network = hex3::world::RiverSelection::build(hydrology, policy);
 
     Some(RiverRenderData {
-        include_all,
-        include_major,
-        max_flow,
-        log_max_flow_count: max_flow_count.ln(),
-        lake_outflow_paths,
+        include_all: network.all_cells,
+        include_major: network.major_cells,
+        max_flow: network.max_flow,
+        log_max_flow_count: network.max_flow_count_equivalent.ln(),
+        lake_outflow_paths: network.lake_outflow_paths,
     })
 }
 

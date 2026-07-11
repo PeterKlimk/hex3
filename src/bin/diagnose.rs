@@ -2341,6 +2341,8 @@ fn measure_lakes(
     hydro: &hex3::world::Hydrology,
     precipitation: &[f32],
 ) -> LakePanel {
+    use hex3::world::{SemanticWaterKind, WaterBodySemantics, WaterOutlet};
+
     let n = tess.num_cells();
     let areas = tess.cell_areas();
     let r2 = EARTH_RADIUS_KM * EARTH_RADIUS_KM;
@@ -2381,32 +2383,41 @@ fn measure_lakes(
         }
     }
 
-    // Lake objects: connected components of lake water, mapped back to water
-    // bodies for depth + basin plumbing. measure_components sorts largest-first.
+    // Lake objects: diagnostics consume the same semantic identities, depth and
+    // outlet classification available to rendering/future inspection.
+    let semantics = WaterBodySemantics::build(tess, hydro);
     let mask: Vec<bool> = (0..n).map(|i| hydro.is_lake_water(i)).collect();
     let comps = measure_components(tess, &mask);
     let mut records = Vec::with_capacity(comps.len());
     for comp in &comps {
-        let Some(wb_id) = comp.cells.iter().find_map(|&c| hydro.cell_water_body[c]) else {
+        let Some(body_id) = comp.cells.iter().find_map(|&c| semantics.cell_body[c]) else {
             continue;
         };
-        let wb = &hydro.water_bodies[wb_id];
-        let basin = &hydro.basins[wb.basin_id];
-        let lake_area_sr = (comp.area_km2 / r2) as f64;
+        let body = &semantics.bodies[body_id];
+        if body.kind != SemanticWaterKind::Lake {
+            continue;
+        }
+        let basin_id = body.id.basin_id.expect("semantic lake has basin");
+        let basin = &hydro.basins[basin_id];
+        let lake_area_sr = (body.area_km2 / r2) as f64;
         records.push(LakeRecord {
-            area_km2: comp.area_km2,
-            cells: comp.cells.len(),
-            max_depth: wb.max_depth,
+            area_km2: body.area_km2,
+            cells: body.cells.len(),
+            max_depth: body.max_depth_km,
             length_km: comp.length_km,
             elongation: comp.elongation(),
-            has_outlet: basin.is_overflowing(),
-            catchment_ratio: (catch_area[wb.basin_id] / lake_area_sr.max(1e-30)) as f32,
-            mean_catchment_precip: (catch_precip[wb.basin_id] / catch_area[wb.basin_id].max(1e-30))
+            has_outlet: body.outlet != WaterOutlet::Terminal,
+            catchment_ratio: (catch_area[basin_id] / lake_area_sr.max(1e-30)) as f32,
+            mean_catchment_precip: (catch_precip[basin_id] / catch_area[basin_id].max(1e-30))
                 as f32,
             hypsometric_pct: hyps_pct(basin.water_level),
         });
     }
-    let ponds = hydro.water_bodies.iter().filter(|w| !w.is_lake).count();
+    let ponds = semantics
+        .bodies
+        .iter()
+        .filter(|body| body.kind == SemanticWaterKind::Pond)
+        .count();
 
     LakePanel {
         label: label.to_string(),
@@ -2496,7 +2507,7 @@ fn print_lake_panel(p: &LakePanel, top: usize) {
     );
 
     println!(
-        "     top lakes:   area_km²  cells  depth  len_km  elong  outlet  catch×  precip  hyps%"
+        "     top lakes:   area_km²  cells  depth_km  len_km  elong  outlet  catch×  precip  hyps%"
     );
     for (i, r) in p.records.iter().take(top).enumerate() {
         println!(
@@ -2533,7 +2544,12 @@ fn lake_dial_point(
             lake += areas[i] as f64;
         }
     }
-    let n_lakes = hydro.water_bodies.iter().filter(|w| w.is_lake).count();
+    let semantics = hex3::world::WaterBodySemantics::build(tess, hydro);
+    let n_lakes = semantics
+        .bodies
+        .iter()
+        .filter(|body| body.kind == hex3::world::SemanticWaterKind::Lake)
+        .count();
     (n_lakes, 100.0 * lake / land.max(1e-30))
 }
 
@@ -3723,7 +3739,7 @@ fn run_mountain_audit(world: &World, seed: u64, top: usize) {
 // (length, sinuosity, long-profile shape). Earth refs inline.
 
 fn run_river_audit(world: &World, seed: u64, top: usize) {
-    use hex3::world::Hydrology;
+    use hex3::world::{RiverNetwork, RiverThresholdPolicy, WaterBodySemantics};
     let Some(fine) = world.fine.as_ref() else {
         println!("\n[RIVER AUDIT] no fine surface present");
         return;
@@ -3752,39 +3768,24 @@ fn run_river_audit(world: &World, seed: u64, top: usize) {
     let continents = measure_components(tess, &land_mask);
     let cont_len = continents.first().map(|c| c.length_km).unwrap_or(0.0);
 
-    // A/B the two renderer calibrations: LEGACY count-equivalent thresholds
-    // (coarse-tuned; stub network on the adaptive fine mesh) vs the PHYSICAL
-    // catchment-area thresholds (--river-min-catchment-km2, default 2000).
+    // A/B the two semantic policies. These are the same shared definitions the
+    // renderer consumes; this audit no longer reconstructs its own network.
     let min_catchment = 2000.0f32;
-    let legacy_all = (n as f32 * 0.00005).max(1.0) * hydro.mean_cell_discharge;
-    let per_count = hydro.mean_cell_discharge.max(1e-12);
     let modes = [
         (
             "LEGACY (count-equivalent)".to_string(),
-            legacy_all,
-            (n as f32 * 0.004).max(1.0),
-            (n as f32 * 0.0006).max(1.0),
+            RiverThresholdPolicy::legacy(),
         ),
         (
             format!("CATCHMENT ({min_catchment:.0} km² min)"),
-            Hydrology::flow_for_catchment_km2(min_catchment),
-            Hydrology::flow_for_catchment_km2(75.0 * min_catchment) / per_count,
-            Hydrology::flow_for_catchment_km2(12.5 * min_catchment) / per_count,
+            RiverThresholdPolicy::catchment(min_catchment),
         ),
     ];
-    for (label, thr_all, outlet_count, branch_count) in modes {
+    let water = WaterBodySemantics::build(tess, hydro);
+    for (label, policy) in modes {
+        let network = RiverNetwork::build(tess, hydro, &water, policy);
         river_mode_panel(
-            &label,
-            tess,
-            hydro,
-            elev,
-            &areas,
-            land_km2,
-            cont_len,
-            thr_all,
-            outlet_count,
-            branch_count,
-            top,
+            &label, tess, hydro, &network, elev, &areas, land_km2, cont_len, top,
         );
     }
 }
@@ -3796,21 +3797,17 @@ fn river_mode_panel(
     label: &str,
     tess: &hex3::world::Tessellation,
     hydro: &hex3::world::Hydrology,
+    network: &hex3::world::RiverNetwork,
     elev: &[f32],
     areas: &[f32],
     land_km2: f64,
     cont_len: f32,
-    thr_all: f32,
-    outlet_count: f32,
-    branch_count: f32,
     top: usize,
 ) {
     let n = tess.num_cells();
     let r_km = EARTH_RADIUS_KM;
-    let is_channel: Vec<bool> = (0..n)
-        .map(|i| hydro.flow_accumulation[i] >= thr_all && !hydro.is_submerged(i))
-        .collect();
-    let is_major = hydro.compute_major_river_cells(outlet_count, branch_count);
+    let is_channel = &network.all_cells;
+    let is_major = &network.major_cells;
     let net_len = |m: &dyn Fn(usize) -> bool| -> f64 {
         (0..n)
             .filter(|&i| m(i))
@@ -3833,53 +3830,17 @@ fn river_mode_panel(
         major_len / land_km2.max(1e-30)
     );
 
-    // Upstream adjacency over the channel network + a topological order
-    // (ascending flow accumulation is a valid topo order on the SFD tree).
-    let mut ups: Vec<Vec<u32>> = vec![Vec::new(); n];
-    for c in 0..n {
-        if !is_channel[c] {
-            continue;
-        }
-        if let Some(d) = hydro.downstream(c) {
-            if is_channel[d] {
-                ups[d].push(c as u32);
-            }
-        }
-    }
-    let mut chan: Vec<u32> = (0..n as u32).filter(|&i| is_channel[i as usize]).collect();
-    chan.sort_by(|&a, &b| {
-        hydro.flow_accumulation[a as usize].total_cmp(&hydro.flow_accumulation[b as usize])
-    });
+    let ups = &network.upstream;
+    let order = &network.strahler_order;
+    let chan: Vec<usize> = (0..n).filter(|&cell| is_channel[cell]).collect();
 
-    // Strahler orders + Horton bifurcation ratio.
-    let mut order = vec![0u8; n];
-    for &c in &chan {
-        let c = c as usize;
-        let (mut best, mut ties) = (0u8, 0u32);
-        for &u in &ups[c] {
-            let o = order[u as usize];
-            if o > best {
-                best = o;
-                ties = 1;
-            } else if o == best {
-                ties += 1;
-            }
-        }
-        order[c] = if best == 0 {
-            1
-        } else if ties >= 2 {
-            best + 1
-        } else {
-            best
-        };
-    }
-    let max_order = chan.iter().map(|&c| order[c as usize]).max().unwrap_or(0);
+    // Horton counts derive from the shared Strahler field.
+    let max_order = chan.iter().map(|&cell| order[cell]).max().unwrap_or(0);
     let mut streams = vec![0u32; max_order as usize + 1];
     for &c in &chan {
-        let c = c as usize;
         let o = order[c];
         // A stream of order o starts where no upstream child has order o.
-        if !ups[c].iter().any(|&u| order[u as usize] == o) {
+        if !ups[c].iter().any(|&u| order[u] == o) {
             streams[o as usize] += 1;
         }
     }
@@ -3906,21 +3867,18 @@ fn river_mode_panel(
 
     // Mouth census: where do rivers end?
     let (mut ocean_m, mut lake_m, mut inland_m) = (0u32, 0u32, 0u32);
-    let mut mouths: Vec<u32> = Vec::new();
-    for &c in &chan {
-        let c = c as usize;
+    let mut mouths = network.mouths.clone();
+    for &c in &mouths {
         match hydro.downstream(c) {
-            Some(d) if !is_channel[d] && hydro.is_submerged(d) => {
+            Some(d) if hydro.is_submerged(d) => {
                 if hydro.is_ocean(d) {
                     ocean_m += 1;
                 } else {
                     lake_m += 1;
                 }
-                mouths.push(c as u32);
             }
             None => {
                 inland_m += 1;
-                mouths.push(c as u32);
             }
             _ => {}
         }
@@ -3931,9 +3889,7 @@ fn river_mode_panel(
     );
 
     // Top trunks by mouth discharge: walk upstream along the max-flow child.
-    mouths.sort_by(|&a, &b| {
-        hydro.flow_accumulation[b as usize].total_cmp(&hydro.flow_accumulation[a as usize])
-    });
+    mouths.sort_by(|&a, &b| hydro.flow_accumulation[b].total_cmp(&hydro.flow_accumulation[a]));
     println!(
         "    top rivers:    len_km  straight  sinuos  basin_km²  src_m  %drop-upper-half  mouth"
     );
@@ -3942,17 +3898,17 @@ fn river_mode_panel(
         cont_len
     );
     for (k, &mouth) in mouths.iter().take(top).enumerate() {
-        let mouth = mouth as usize;
         // Trace the trunk upstream.
         let mut path = vec![mouth];
         let mut cur = mouth;
         loop {
-            let next = ups[cur].iter().copied().max_by(|&a, &b| {
-                hydro.flow_accumulation[a as usize].total_cmp(&hydro.flow_accumulation[b as usize])
-            });
+            let next = ups[cur]
+                .iter()
+                .copied()
+                .max_by(|&a, &b| hydro.flow_accumulation[a].total_cmp(&hydro.flow_accumulation[b]));
             match next {
                 Some(u) => {
-                    cur = u as usize;
+                    cur = u;
                     path.push(cur);
                 }
                 None => break,
