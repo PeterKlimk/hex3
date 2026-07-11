@@ -44,6 +44,7 @@ mod history;
 mod hydrology;
 mod moisture;
 mod plates;
+mod provenance;
 mod tessellation;
 
 pub use atmosphere::Atmosphere;
@@ -71,6 +72,7 @@ pub use hydrology::{
     Basin, CellWaterState, Hydrology, WaterBody, DEFAULT_CLIMATE_RATIO, MIN_LAKE_DEPTH,
 };
 pub use plates::Plates;
+pub use provenance::{BuildProvenance, FineCacheOutcome, FineCacheRecord, RunManifest};
 pub use tessellation::{CellAdjacency, Tessellation};
 
 use rand::SeedableRng;
@@ -78,7 +80,8 @@ use rand_chacha::ChaCha8Rng;
 use std::fmt;
 
 /// Backend used to compute the spherical Voronoi diagram.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum VoronoiBackend {
     /// Exact convex-hull duality (slower, robust).
     #[default]
@@ -103,6 +106,12 @@ impl fmt::Display for VoronoiBackend {
 pub struct World {
     /// Random seed used for reproducible generation.
     pub seed: u64,
+
+    /// Backend used to construct the authoritative coarse tessellation.
+    pub voronoi_backend: VoronoiBackend,
+
+    /// Requested coarse Lloyd relaxation count.
+    pub lloyd_iterations: usize,
 
     /// Runtime-selectable convergent-orogen model. Legacy remains the product
     /// default until an authentic replacement passes structural/visual gates.
@@ -203,6 +212,8 @@ impl World {
 
         Self {
             seed,
+            voronoi_backend: backend,
+            lloyd_iterations,
             orogen_model: OrogenModel::default(),
             tessellation,
             plates: None,
@@ -416,6 +427,11 @@ impl World {
     /// Get the number of cells in this world.
     pub fn num_cells(&self) -> usize {
         self.active_tessellation().num_cells()
+    }
+
+    /// Effective configuration and provenance for the current retained state.
+    pub fn manifest(&self) -> RunManifest {
+        RunManifest::from_world(self)
     }
 
     /// Cap the view at `stage` for back-navigation (the `active_*` accessors and

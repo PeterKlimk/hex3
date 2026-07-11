@@ -55,10 +55,11 @@ use super::{Atmosphere, Crust, Elevation, FeatureFields, OrogenModel, Tessellati
 /// solve, and that solved field is transferred to the fine base.
 /// v11: runtime orogen-model selection is part of the key.
 /// v12: thin-sheet strain and compression-axis fields are transferred.
-const FINE_BASE_CACHE_VERSION: u32 = 13;
+pub(crate) const FINE_BASE_CACHE_VERSION: u32 = 13;
 
 /// How the fine-mesh base should use the on-disk cache.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum FineCacheMode {
     /// Never read or write the cache (always regenerate).
     Disabled,
@@ -279,19 +280,25 @@ pub fn load(key: u64) -> Option<FineBase> {
 }
 
 /// Serialize `base` to the cache under `key` (best effort; logs on failure).
-pub fn save(key: u64, base: &FineBase) {
+pub fn save(key: u64, base: &FineBase) -> bool {
     let dir = cache_dir();
     if let Err(e) = fs::create_dir_all(&dir) {
         log::warn!("fine mesh: can't create cache dir {}: {e}", dir.display());
-        return;
+        return false;
     }
     let path = cache_path(key);
     let result = File::create(&path)
         .map_err(|e| e.to_string())
         .and_then(|f| bincode::serialize_into(BufWriter::new(f), base).map_err(|e| e.to_string()));
     match result {
-        Ok(()) => log::info!("fine mesh: saved FineBase to cache {}", path.display()),
-        Err(e) => log::warn!("fine mesh: failed to save cache {}: {e}", path.display()),
+        Ok(()) => {
+            log::info!("fine mesh: saved FineBase to cache {}", path.display());
+            true
+        }
+        Err(e) => {
+            log::warn!("fine mesh: failed to save cache {}: {e}", path.display());
+            false
+        }
     }
 }
 

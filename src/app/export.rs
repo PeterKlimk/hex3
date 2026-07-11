@@ -45,6 +45,7 @@ pub fn export_world(world: &mut World, seed: u64, path: &Path) {
 
 #[derive(Serialize)]
 struct WorldExport {
+    manifest: hex3::world::RunManifest,
     metadata: Metadata,
     cells: CellData,
     plates: Vec<PlateData>,
@@ -507,6 +508,7 @@ impl WorldExport {
             });
 
         Self {
+            manifest: world.manifest(),
             metadata: Metadata {
                 seed,
                 num_cells,

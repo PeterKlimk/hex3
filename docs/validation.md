@@ -200,8 +200,10 @@ machine/backend and build mode (if performance)
 
 Record raw outputs or machine-readable summaries when practical. A derived table
 should retain the command/configuration needed to reproduce it. Generated world
-exports currently omit some runtime and presentation metadata; until that is
-fixed, reports must supply it separately.
+exports include a `manifest` with build revision/dirty state, effective world
+model parameters, backend, stages and fine-cache provenance. Presentation and
+camera state are not yet part of that world manifest, so visual reports must
+supply them separately.
 
 ## Current tools
 
@@ -254,4 +256,3 @@ status explicitly rather than promoting through optimistic prose.
 
 Do not tune downstream systems to compensate for a known upstream convergence or
 presentation error. Fix or isolate the faulty layer first.
-

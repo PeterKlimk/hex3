@@ -24,6 +24,9 @@ to make mountains, rivers and other features legible at planetary scale.
 - GPU wind particles, cartographic river rendering and controllable relief;
 - diagnostics, scorecards, controlled render sweeps and world export.
 
+World exports include an effective-run manifest with source revision, dirty
+state, model parameters, stage, backend and fine-cache provenance.
+
 The implemented pipeline currently reaches an eroded surface with final
 hydrology. Biomes, vegetation, persistent sediment, oceans/ice and human-world
 systems are roadmap candidates rather than current capabilities.

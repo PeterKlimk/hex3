@@ -53,6 +53,8 @@ Completed after the initial roadmap draft:
   generated outputs;
 - corrected the stale top-level world-stage module description and historical
   source-document paths.
+- added a serializable effective-run manifest to world exports and diagnostic
+  headers, including build revision/dirty state and fine-cache identity/outcome.
 
 Exit gate: a new contributor can find the product path, current experiments,
 validation rules and active roadmap without reading chronological specs.
@@ -67,7 +69,7 @@ before increasing model depth.
 - document the end-to-end elevation datum/unit/render conversion;
 - audit normalized versus physical temperature, precipitation, time and erosion
   quantities;
-- add revision/config/cache/stage metadata to exports and audit reports;
+- extend the shared world manifest with presentation/camera capture metadata;
 - add presentation/camera metadata to controlled captures;
 - define fixed seed and resolution panels for product promotion.
 

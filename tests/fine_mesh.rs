@@ -1,6 +1,6 @@
 use hex3::world::{
-    ErosionParams, FineCacheMode, FineDensityParams, FineStructureParams, FineWorld, OrogenFronts,
-    World,
+    ErosionParams, FineCacheMode, FineCacheOutcome, FineDensityParams, FineStructureParams,
+    FineWorld, OrogenFronts, World,
 };
 
 /// Build a tiny coarse world through stage 2 (atmosphere) — shared setup for the
@@ -56,6 +56,13 @@ fn fine_mesh_pipeline_smoke() {
     assert_eq!(fine.base.coarse_cell.len(), n);
     assert_eq!(fine.pre.elevation.values.len(), n);
     assert_eq!(fine.pre.hydrology.flow_accumulation.len(), n);
+    assert_eq!(fine.cache_record.mode, FineCacheMode::Disabled);
+    assert_eq!(
+        fine.cache_record.outcome,
+        FineCacheOutcome::DisabledGenerated
+    );
+    assert_eq!(fine.cache_record.max_cells, 4000);
+    assert_eq!(fine.cache_record.actual_cells, n);
     assert!(fine.pre.elevation.values.iter().all(|v| v.is_finite()));
     assert!(fine
         .base

@@ -18,7 +18,8 @@ use super::erosion::ErosionParams;
 use super::features::build_cell_pair_edge_endpoints;
 use super::fine_cache::{self, FineCacheMode};
 use super::{
-    Atmosphere, CellWaterState, Crust, Elevation, FeatureFields, Hydrology, Plates, Tessellation,
+    Atmosphere, CellWaterState, Crust, Elevation, FeatureFields, FineCacheOutcome, FineCacheRecord,
+    Hydrology, Plates, Tessellation,
 };
 
 type CoarseTree = ImmutableKdTree<f32, 3>;
@@ -27,7 +28,7 @@ type CoarseTree = ImmutableKdTree<f32, 3>;
 /// `FINE_*` consts). Lets tools sweep the ocean/plains/mountain cell-size budget
 /// and the demand blend without a recompile — mirrors [`ErosionParams`]. Changing
 /// any field changes the sampled mesh, so it is part of the fine-base cache key.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
 pub struct FineDensityParams {
     pub plains_km: f32,
     pub mountain_km: f32,
@@ -63,7 +64,7 @@ impl Default for FineDensityParams {
 /// levels computed on an unfaulted base, and made the scarp a temporal knob over a
 /// structural input. Moving it here also lets the disk cache key see it (a sweep
 /// of `fault_scarp` / `interior_relief` now regenerates the base per value).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
 pub struct FineStructureParams {
     /// Fault range-front scarp relief imposed on the base. 0 = off.
     pub fault_scarp_height: f32,
@@ -370,6 +371,7 @@ pub struct FineWorld {
     pub base: FineBase,
     pub pre: FineSurface,
     pub eroded: Option<FineSurface>,
+    pub cache_record: FineCacheRecord,
 }
 
 /// Expensive, reused base of the fine mesh (stage 3a): the adaptive tessellation,
@@ -487,7 +489,7 @@ impl FineWorld {
         fronts: &OrogenFronts,
     ) -> Self {
         let total = Instant::now();
-        let base = FineBase::load_or_generate(
+        let (base, cache_record) = FineBase::load_or_generate(
             cache,
             seed,
             orogen_model,
@@ -514,6 +516,7 @@ impl FineWorld {
             base,
             pre,
             eroded: None,
+            cache_record,
         }
     }
 
@@ -607,7 +610,7 @@ impl FineBase {
         density_params: FineDensityParams,
         structure_params: FineStructureParams,
         fronts: &OrogenFronts,
-    ) -> Self {
+    ) -> (Self, FineCacheRecord) {
         let key = fine_cache::fine_base_key(
             seed,
             orogen_model,
@@ -623,7 +626,19 @@ impl FineBase {
         );
         if cache == FineCacheMode::Enabled {
             if let Some(base) = fine_cache::load(key) {
-                return base;
+                let actual_cells = base.tessellation.num_cells();
+                return (
+                    base,
+                    FineCacheRecord {
+                        mode: cache,
+                        version: fine_cache::FINE_BASE_CACHE_VERSION,
+                        key_hex: format!("{key:016x}"),
+                        outcome: FineCacheOutcome::Hit,
+                        write_succeeded: None,
+                        max_cells,
+                        actual_cells,
+                    },
+                );
             }
         }
         let base = Self::generate_with_target(
@@ -639,10 +654,26 @@ impl FineBase {
             structure_params,
             fronts,
         );
-        if matches!(cache, FineCacheMode::Enabled | FineCacheMode::Rebuild) {
-            fine_cache::save(key, &base);
-        }
-        base
+        let write_succeeded = matches!(cache, FineCacheMode::Enabled | FineCacheMode::Rebuild)
+            .then(|| fine_cache::save(key, &base));
+        let outcome = match cache {
+            FineCacheMode::Disabled => FineCacheOutcome::DisabledGenerated,
+            FineCacheMode::Enabled => FineCacheOutcome::MissGenerated,
+            FineCacheMode::Rebuild => FineCacheOutcome::Rebuilt,
+        };
+        let actual_cells = base.tessellation.num_cells();
+        (
+            base,
+            FineCacheRecord {
+                mode: cache,
+                version: fine_cache::FINE_BASE_CACHE_VERSION,
+                key_hex: format!("{key:016x}"),
+                outcome,
+                write_succeeded,
+                max_cells,
+                actual_cells,
+            },
+        )
     }
 
     /// Stage 3a: build the expensive, reusable fine-mesh base (steps 1–7 of the

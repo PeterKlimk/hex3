@@ -43,6 +43,7 @@ use super::{EpisodeCrustWork, FeatureFields, MaterialEpisodeWork, Tessellation};
 /// Kept runtime-selectable so physical-model experiments can be evaluated on
 /// identical seeds without silently replacing the product terrain.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum OrogenModel {
     /// Historical additive arc/collision response fields. Product baseline.
     #[default]

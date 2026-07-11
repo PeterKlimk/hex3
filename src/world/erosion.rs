@@ -52,7 +52,7 @@ use super::Tessellation;
 /// re-run with tweaked values without a recompile (staging tooling). `Default`
 /// pulls today's `EROSION_*` constants — those stay the source of truth for the
 /// defaults; this struct just makes them overridable at runtime.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
 pub struct ErosionParams {
     /// Number of erosion steps to run.
     pub steps: usize,

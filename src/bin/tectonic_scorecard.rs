@@ -126,6 +126,10 @@ struct Metrics {
 fn main() {
     let cli = Cli::parse();
     validate(&cli);
+    println!(
+        "provenance: build={}",
+        hex3::world::BuildProvenance::current().label()
+    );
     let started = Instant::now();
     let mut rows = Vec::new();
 

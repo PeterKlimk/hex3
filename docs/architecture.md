@@ -46,6 +46,12 @@ seed, coarse tessellation, optional stage products, model selections and
 fine-stage parameters. Stage products are optional because the interactive app
 constructs the world progressively.
 
+`World::manifest` derives a serializable effective-run record from that retained
+state. It includes source revision/dirty state, backend, generation parameters,
+computed/viewed stage and fine-cache identity/outcome. World export embeds the
+same record and diagnostic tools print its compact summary, preventing each tool
+from inventing a different provenance header.
+
 The coarse world owns:
 
 - `Tessellation`: spherical Voronoi geometry, compact adjacency and cell area;

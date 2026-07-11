@@ -31,7 +31,7 @@ pub enum HistoryModel {
 /// Runtime carrier resolution for experimental scorecards. Product/default
 /// generation retains the constants-backed default; exposing this avoids
 /// recompiling three binaries to run a resolution-convergence audit.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize)]
 pub struct TectonicCarrierConfig {
     pub cells: usize,
     pub step_myr: f32,

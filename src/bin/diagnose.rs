@@ -321,6 +321,7 @@ fn main() {
     world.generate_features();
     world.generate_elevation();
     if cli.tectonic_history_audit {
+        eprintln!("provenance: {}", world.manifest().summary());
         run_tectonic_history_audit(&world, cli.seed, cli.top);
         return;
     }
@@ -477,6 +478,7 @@ fn main() {
     } else {
         world.generate_hydrology();
     }
+    eprintln!("provenance: {}", world.manifest().summary());
 
     // Feature audits are combinable (one world generation, several panels).
     let mut audited = false;
