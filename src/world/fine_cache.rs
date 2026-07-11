@@ -1,5 +1,5 @@
 //! Disk cache for the expensive [`FineBase`] (staging tooling — see
-//! docs/specs/staging.md). The fine mesh is slow to rebuild after a recompile,
+//! docs/archive/specs/staging.md). The fine mesh is slow to rebuild after a recompile,
 //! but most before/afters change erosion-or-later code, which lives in
 //! `FineSurface`, NOT `FineBase`. So caching the base lets a recompile of
 //! downstream code reload the mesh and jump straight to the new code.

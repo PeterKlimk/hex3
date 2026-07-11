@@ -1,3 +1,5 @@
+> **Dated audit evidence:** Results are revision/configuration specific and do not define current defaults.
+
 # Moving-carrier tectonic promotion scorecard — 2026-07-11
 
 The `tectonic_scorecard` binary audits the coarse geological state before fine
@@ -407,3 +409,54 @@ Do not tune the remap interval or weaken the standing gate. The next architectur
 must represent fractional plate/material occupancy or conservative face-swept flux so
 sub-cell motion produces proportional work. Whole-cell gaps and overlaps may still
 choose a visible surface owner, but they can no longer be the material-reaction measure.
+
+### Fractional face work implemented; Eulerian material layers rejected
+
+Three implementations of that architectural rung were tested. A single-owner
+finite-volume face transport converged peak height well but numerically mixed plates and
+material until 65% of land was mountainous and all fourteen initial motion domains had
+become one. Persistent per-plate Eulerian material layers preserved ownership, but
+first-order advection diffusively spread roots and magma over most of the sphere during
+the 100 Myr window and cost roughly 20–60 seconds at 8k–16k. Both are rejected.
+
+The retained hybrid separates the two questions. Conservative topology-aware pullback
+chooses the discrete surface owner, while collision, subduction, and spreading work are
+integrated continuously from normal relative velocity times carrier-face length and
+timestep. Binary remap gaps and overlaps create no tectonic work. Material from losing
+remap candidates enters an explicit deposit ledger: undeformed base crust returns to
+surviving support of its own motion domain, while underthrust crust and magma are
+re-emplaced through their bounded sheet and batholith mechanisms. Base crust columns are
+then reconditioned as intensive material; explicit deformation reservoirs remain local.
+
+The solver interval is capped at 0.45 carrier spacings at maximum plate speed. This is a
+stability limit rather than an event threshold: a unit invariant verifies that a
+sub-cell half-step produces nonzero and exactly half the collision work of the full
+step. The former 0.5 Myr all-zero failure is therefore removed. Simultaneous merge
+events are canonically sorted; duplicate seed-12345 runs are bit-identical in every
+reported field except timing.
+
+The strict seed-12345 resolution audit still rejects promotion:
+
+| carrier | peak km | land % | mountain-land % | created / consumed ocean | max remap layer |
+|---:|---:|---:|---:|:---|---:|
+| 4096 | 12.55 | 38.3 | 11.1 | 0.464 / 0.563 | 0.673 |
+| 8192 | 9.23 | 30.0 | 11.4 | 0.409 / 0.507 | 0.098 |
+| 16384 | 10.64 | 29.7 | 14.5 | 0.359 / 0.460 | 0.149 |
+
+Peak span is 3.32 km and land span is 8.6 percentage points, both outside the standing
+gate. The low 8k/16k remap maxima and closed material ledgers rule out remap stacking as
+the first remaining cause.
+
+At canonical 8k across ten standing seeds, peak median/range is 8.75/7.65–10.84 km and
+all peak gates pass. Median mountain-land coverage is 13.85%, but seeds 8675309 and 1001
+reach 41.4% and 49.8%. At 50 rather than 100 Myr those become 19.6% and 16.8%, showing
+that long coherent loading is causal. Setting the existing motion-coherence dial to
+25 Myr produces bit-identical lifecycle output to infinite coherence: the forward
+solver currently reads only the original constant Euler poles and ignores the generated
+motion-reorganization schedule.
+
+This hybrid is retained as a physically inspired, conservative experimental rung. It is
+not a terrain promotion. The next architectural correction is upstream: feed the actual
+time-varying Euler schedule into lifecycle transport, face work, and collision coupling,
+then repeat duration and resolution A/Bs before changing any load capacity or relief
+response.

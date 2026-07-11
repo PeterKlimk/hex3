@@ -120,12 +120,12 @@ struct Cli {
     /// Override the drainage re-route interval (steps between re-routings).
     /// 0 = use the EROSION_REROUTE_INTERVAL default; 1 = re-route every step.
     /// Set to 1 to test whether stale routing is driving the spiral/perforation
-    /// artifacts (see docs/specs/erosion.md "Roughness counters").
+    /// artifacts (see docs/archive/specs/erosion.md "Roughness counters").
     #[arg(long, default_value_t = 0)]
     erosion_reroute_interval: usize,
     /// Barnes convergent flat resolution (Rung 1). -1 = use the
     /// EROSION_FLAT_RESOLUTION default; 0 = off (old flood_parent wavefront);
-    /// 1 = on. A/B the spiral-on-flats fix (docs/specs/erosion-routing-ladder.md).
+    /// 1 = on. A/B the spiral-on-flats fix (docs/archive/specs/erosion-routing-ladder.md).
     #[arg(long, default_value_t = -1)]
     erosion_flat_resolution: i8,
     /// MFD drainage-area exponent (Rung 2). <0 = use EROSION_MFD_EXPONENT; 0 =
@@ -135,7 +135,7 @@ struct Cli {
     erosion_mfd_exponent: f32,
     /// Plains alluvial regime gate: channel slope (elev/km) at/above which
     /// incision is full; gentler channels fade to alluvial. <0 = use
-    /// EROSION_CONFINEMENT_SLOPE; 0 = off. See docs/specs/erosion-valleys-not-channels.md.
+    /// EROSION_CONFINEMENT_SLOPE; 0 = off. See docs/archive/specs/erosion-valleys-not-channels.md.
     #[arg(long, default_value_t = -1.0)]
     erosion_confinement_slope: f32,
     /// Override lithologic erodibility contrast (exp-amplitude sigma). <0 = use
@@ -157,7 +157,7 @@ struct Cli {
     /// per-step uplift source over a sub-grid orogenic width to kill mountain-top
     /// cell-scale chatter without flattening orogens. <0 = use
     /// EROSION_UPLIFT_SMOOTH_KM default; 0 = off. See
-    /// docs/specs/erosion-uplift-smoothing.md.
+    /// docs/archive/specs/erosion-uplift-smoothing.md.
     #[arg(long, default_value_t = -1.0)]
     erosion_uplift_smooth: f32,
     /// Override Roering nonlinear-hillslope critical slope S_c (escalation #2;
@@ -3169,7 +3169,7 @@ fn run_roughness_probe(world: &World) {
     // the SAME fine mesh. NOTE: the land mask is recomputed per surface, so the
     // `land` column shifts if erosion moves cells across sea level — a falling
     // pit% with a falling `land` may be submergence, not artifact removal.
-    // See docs/specs/erosion.md.
+    // See docs/archive/specs/erosion.md.
     let ftess = fine.tessellation();
     let pre = hex3::world::roughness_counters(ftess, &fine.surface_for(3).elevation.values);
     let ero = hex3::world::roughness_counters(ftess, &fine.surface_for(4).elevation.values);

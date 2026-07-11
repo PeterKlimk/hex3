@@ -1,3 +1,5 @@
+> **Dated audit evidence:** Results are revision/configuration specific and do not define current defaults.
+
 # Orogen numeric sweep — 2026-07-11
 
 All runs use the legacy orogen model, seed-specific 100,000-cell coarse worlds,

@@ -15,10 +15,17 @@
 //! - Climate - Temperature, pressure, wind fields
 //! - Moisture - Advected moisture and precipitation
 //!
-//! **Stage 3: Hydrosphere**
-//! - Hydrology - Depression filling, drainage, rivers
+//! **Stage 3: Hydrosphere (pre-erosion fine surface)**
+//! - Adaptive fine tessellation + transferred/synthesized terrain fields
+//! - Hydrology - depression integration, drainage, basins, lakes, rivers
 //!
-//! Future stages: Erosion, Biomes
+//! **Stage 4: Erosion**
+//! - Fluvial incision + hillslope transport on the retained fine base
+//! - Local fine-climate adjustment + hydrology re-derived on eroded terrain
+//!
+//! The numbered stages describe the implemented runtime frontier, not a complete
+//! planet model. See `docs/pipeline.md` and `docs/roadmap.md` for current ownership
+//! and future domains.
 
 mod atmosphere;
 mod boundary;

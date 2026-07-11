@@ -1,4 +1,4 @@
-//! Fluvial erosion on the fine mesh (docs/specs/erosion.md).
+//! Fluvial erosion on the fine mesh (docs/archive/specs/erosion.md).
 //!
 //! Detachment-limited stream power (Braun & Willett 2013 implicit scheme, n = 1)
 //! with linear hillslope diffusion, plus transport-aware deposition (en-route
@@ -96,7 +96,7 @@ pub struct ErosionParams {
     pub rebuild_gain: f32,
     /// Forcing-smoothing length (km) for the uplift SOURCE, applied once before the
     /// step loop (conservative land-masked diffusion of `u_thick`). 0 = off. See
-    /// `EROSION_UPLIFT_SMOOTH_KM` / docs/specs/erosion-uplift-smoothing.md.
+    /// `EROSION_UPLIFT_SMOOTH_KM` / docs/archive/specs/erosion-uplift-smoothing.md.
     pub uplift_smooth_km: f32,
     /// Fraction of a sink's depth-to-base-level that deposition may fill.
     pub deposit_fill_fraction: f32,
@@ -357,7 +357,7 @@ pub(crate) fn glacial_erode(
     roughness_report(tess, elev, "glacial");
 }
 
-/// A4 drainage-pulse uplift-shape modifier (docs/specs/meso-a4-drainage-pulse.md).
+/// A4 drainage-pulse uplift-shape modifier (docs/archive/specs/meso-a4-drainage-pulse.md).
 ///
 /// From a burn-in eroded surface, extract the self-organized major drainage
 /// (Strahler order ≥ `EROSION_PULSE_TRUNK_ORDER` on the SFD channel network) and
@@ -774,7 +774,7 @@ impl ErosionState {
         // the orogens carry cell-scale chatter. A conservative, land-masked
         // diffusion of `u_thick` removes the sub-landform speckle while preserving
         // the integrated (area-weighted) uplift exactly. See
-        // docs/specs/erosion-uplift-smoothing.md.
+        // docs/archive/specs/erosion-uplift-smoothing.md.
         if params.uplift_smooth_km > 0.0 {
             // Emergent: smooth over the coarse-TARGET land mask, so the conservative
             // no-flux boundary sits at the intended coastline, not the demoted
@@ -1130,7 +1130,7 @@ impl ErosionState {
 
 /// Artifact counters that separate genuine fluvial dissection from SFD +
 /// flat-routing discretization texture (the "fractal spiral ridge / swiss-cheese"
-/// look — see docs/specs/erosion.md "Roughness counters"). Computed over the land
+/// look — see docs/archive/specs/erosion.md "Roughness counters"). Computed over the land
 /// cells of `elev`. Pulled out of [`roughness_report`] so the diagnose binary can
 /// print them on any surface (e.g. pre-erosion vs eroded) in its own report style.
 pub struct RoughnessCounters {
@@ -1417,7 +1417,7 @@ fn roughness_report(tess: &Tessellation, elev: &[f32], label: &str) {
     );
 }
 
-/// Plains alluvial regime gate (docs/specs/erosion-valleys-not-channels.md).
+/// Plains alluvial regime gate (docs/archive/specs/erosion-valleys-not-channels.md).
 /// Detachment-vs-transport confinement factor in [0,1] from the channel slope
 /// (elev-units per km): `C = smoothstep(0, confinement_slope, slope)`. 1 =
 /// bedrock/confined (full stream-power incision); 0 = alluvial plain (no incision

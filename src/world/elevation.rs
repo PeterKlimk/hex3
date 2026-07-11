@@ -118,7 +118,7 @@ pub struct Elevation {
 
 /// Individual noise layer contributions for visualization (macro only;
 /// hills/ridge retired, micro removed — see
-/// docs/specs/erosion-v2.md "Noise philosophy").
+/// docs/archive/specs/erosion-v2.md "Noise philosophy").
 pub struct NoiseLayerData {
     /// Macro layer (continental tilt).
     pub macro_layer: Vec<f32>,

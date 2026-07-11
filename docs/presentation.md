@@ -1,5 +1,13 @@
 # Presentation contract
 
+This is a canonical policy for the boundary between modeled state and visual
+communication. It should be read with the [project thesis](thesis.md) and
+[semantic and presentation architecture](semantic-presentation.md). This file
+records the currently implemented relief/river contract; the architecture
+document defines the broader semantic, generalization and profile model. The
+preset named `Authentic` is the current code/UI name; in architecture prose it
+is the authentic/cartographic preset, not physical scale.
+
 Hex3 stores and audits terrain in physical elevation units. Rendering is a
 cartographic presentation layer: displacement, line width, color, and lighting
 may be intentionally exaggerated, but they do not feed back into world
@@ -22,9 +30,9 @@ and the same massif has a plausible visual silhouette.
 Normal interactive use:
 
 ```powershell
-cargo run --release -- --relief-preset authentic
-cargo run --release -- --relief-preset physical
-cargo run --release -- --relief-scale 0.025
+cargo run --release --bin hex3 -- --relief-preset authentic
+cargo run --release --bin hex3 -- --relief-preset physical
+cargo run --release --bin hex3 -- --relief-scale 0.025
 ```
 
 `--relief-scale` is an explicit custom override and takes precedence over the
@@ -39,7 +47,7 @@ channels qualify. Visible width is cartographic and screen-space because even
 the largest real rivers are subpixel in globe views.
 
 ```powershell
-cargo run --release -- --river-width-scale 0.75
+cargo run --release --bin hex3 -- --river-width-scale 0.75
 ```
 
 This multiplier changes only the stroke width. It does not alter hydrology,

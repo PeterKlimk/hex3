@@ -111,7 +111,7 @@ impl WorldBuffers {
 /// Runtime erosion-knob overrides from the CLI, applied to a freshly created
 /// world before its stages are computed. `None` keeps the `EROSION_*` default.
 /// Lets the interactive app A/B the routing-ladder rungs (e.g. MFD incision) on
-/// Windows without a recompile. See docs/specs/erosion-routing-ladder.md.
+/// Windows without a recompile. See docs/archive/specs/erosion-routing-ladder.md.
 #[derive(Clone, Copy, Default)]
 pub struct ErosionOverrides {
     /// Renderer-only sweep value. World generation deliberately ignores this.

@@ -58,7 +58,7 @@ impl Default for FineDensityParams {
 /// base cache key, NOT erosion-stage knobs.
 ///
 /// `fault_scarp_height` migrated here from [`ErosionParams`] (decision A in
-/// docs/specs/erosion-fine-synthesis.md): structural relief is part of the
+/// docs/archive/specs/erosion-fine-synthesis.md): structural relief is part of the
 /// pre-erosion base — applying it in the erosion stage left terminal-lake base
 /// levels computed on an unfaulted base, and made the scarp a temporal knob over a
 /// structural input. Moving it here also lets the disk cache key see it (a sweep
@@ -901,7 +901,7 @@ impl FineSurface {
         // Fluvial erosion: carve the interpolated base into real river valleys by
         // evolving crust thickness (isostasy responds). Runs on the fine mesh
         // before final hydrology; sea level is the fixed datum inherited via
-        // `base_elevation`. See docs/specs/erosion.md.
+        // `base_elevation`. See docs/archive/specs/erosion.md.
         let erodibility = lithology_erodibility(
             &base.tessellation,
             &base.fields.elevation_fields,
@@ -1720,7 +1720,7 @@ fn point_to_arc_distance(p: Vec3, a: Vec3, b: Vec3) -> f32 {
 /// SUBSTRATE erosion dissects into real ranges — gated to high orogen terrain and
 /// made coarse-cell-local zero-mean so it adds sub-coarse structure WITHOUT shifting
 /// the coarse sea-level datum or land fraction (root cause #1 / fix #7,
-/// docs/specs/erosion-fine-synthesis.md).
+/// docs/archive/specs/erosion-fine-synthesis.md).
 ///
 /// Two grains, blended by `front_strike_weight` and proximity to a front:
 /// - **Isotropic fBm (P1a):** soft, orientation-free. The fallback everywhere, and

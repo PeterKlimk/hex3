@@ -379,7 +379,7 @@ pub const NOISE_OCTAVES: usize = 4;
 
 // Elevation noise (post erosion-v2). Only the macro layer remains in the
 // simulation: hills and ridge were appearance-paint that erosion now supersedes
-// (docs/specs/erosion-v2.md "Noise philosophy") and were retired; cosmetic micro
+// (docs/archive/specs/erosion-v2.md "Noise philosophy") and were retired; cosmetic micro
 // texture was removed entirely. Macro is a crust-thickness perturbation
 // (isostatically compensated — the model of "the crust isn't uniform"); it does
 // not paint terrain relief.
@@ -826,7 +826,7 @@ pub const FINE_ACTIVITY_DENSITY_WEIGHT: f32 = 6.0;
 /// every metric for ~5s less. See src/bin/sample_experiment.rs.
 pub const FINE_RELAX_PASSES: usize = 3;
 
-// --- Fluvial erosion on the fine mesh (docs/specs/erosion.md) ---------------
+// --- Fluvial erosion on the fine mesh (docs/archive/specs/erosion.md) ---------------
 //
 // Detachment-limited stream power (Braun & Willett 2013 implicit, n = 1) plus
 // linear hillslope diffusion, run on the fine mesh between fine-elevation
@@ -855,7 +855,7 @@ pub const FINE_RELAX_PASSES: usize = 3;
 // RESET NOTE (2026-07-11): 200 is retained provisionally because the stripped direct-
 // uplift baseline is numerically more mature (fewer unresolved peaks/pits) than 60.
 // It is NOT a physical age. Replace `steps * dt` with a dimensioned orogen age before
-// treating this as a calibrated geological control (docs/specs/terrain-reset.md).
+// treating this as a calibrated geological control (docs/archive/specs/terrain-reset.md).
 pub const EROSION_STEPS: usize = 200;
 
 /// Timestep (dimensionless; folded into K / uplift scale). Kept explicit so the
@@ -906,7 +906,7 @@ pub const EROSION_K: f32 = 4.0e-2;
 pub const EROSION_DIFFUSIVITY: f32 = 2.0e-8;
 
 /// Roering nonlinear-hillslope critical slope S_c (escalation #2,
-/// docs/specs/erosion-escalations.md). Linear creep (EROSION_DIFFUSIVITY) rounds
+/// docs/archive/specs/erosion-escalations.md). Linear creep (EROSION_DIFFUSIVITY) rounds
 /// every ridge into mush and can't hold a crest against constantly-regenerated
 /// relief without over-smoothing everything. The Roering, Kirchner & Dietrich
 /// (1999) flux law `q = -D ∇h / (1 - (|∇h|/S_c)²)` instead lets the creep
@@ -960,7 +960,7 @@ pub const EROSION_REROUTE_INTERVAL: usize = 6;
 /// toward outlets and away from higher walls, instead of the bare priority-flood
 /// wavefront (`flood_parent`) which spirals and gets incised as spiral grooves.
 /// `false` reproduces the old wavefront routing (for A/B). See
-/// docs/specs/erosion-routing-ladder.md (Rung 1).
+/// docs/archive/specs/erosion-routing-ladder.md (Rung 1).
 pub const EROSION_FLAT_RESOLUTION: bool = true;
 
 /// Multiple-flow-direction exponent (Rung 2 area + Rung 3 incision). Each cell
@@ -980,10 +980,10 @@ pub const EROSION_FLAT_RESOLUTION: bool = true;
 /// (divergent flow, mesh-insensitive) and kept as a toggle, but it is not the fix,
 /// so it stays off (it adds a per-reroute sort + CSR for ~no gain on this artifact).
 /// `p → ∞` ≈ SFD, `p ≈ 1` fully dispersive. A/B with `--erosion-mfd-exponent`.
-/// See docs/specs/erosion-routing-ladder.md.
+/// See docs/archive/specs/erosion-routing-ladder.md.
 pub const EROSION_MFD_EXPONENT: f32 = 0.0;
 
-/// Plains alluvial regime gate (docs/specs/erosion-valleys-not-channels.md,
+/// Plains alluvial regime gate (docs/archive/specs/erosion-valleys-not-channels.md,
 /// Phase 1). Stream-power incision is faded by a confinement factor
 /// `C = smoothstep(0, this, channel_slope)` in [0,1]: full incision (C=1) on
 /// bedrock/mountain channels at/above this slope, fading to none (C=0) on gentle
@@ -998,7 +998,7 @@ pub const EROSION_MFD_EXPONENT: f32 = 0.0;
 /// because the "too busy/sharp" dissection lives in steeper UPLAND incision. Only
 /// an absurd value (~3e-1, a 300% gradient — i.e. incision off everywhere) removes
 /// it, and that flattens mountains too. So this stays off and dormant (kept for
-/// docs/specs/erosion-valleys-not-channels.md Phase 1 / plains floodplains); the
+/// docs/archive/specs/erosion-valleys-not-channels.md Phase 1 / plains floodplains); the
 /// actual dissection-texture levers are K, diffusivity, and channel support.
 pub const EROSION_CONFINEMENT_SLOPE: f32 = 0.0;
 
@@ -1028,7 +1028,7 @@ pub const EROSION_UPLIFT_SCALE: f32 = 0.003;
 
 /// Forcing-smoothing length (km) for the tectonic uplift SOURCE, applied once in
 /// `ErosionState::new` before the step loop. Escalation #1
-/// (docs/specs/erosion-uplift-smoothing.md): the per-step uplift source
+/// (docs/archive/specs/erosion-uplift-smoothing.md): the per-step uplift source
 /// `u_thick = SCALE·(tectonic_thickening + rift_delta)` is built from coarse
 /// feature fields interpolated onto the fine mesh; if that handoff carries
 /// wavelengths below the landform scale, erosion re-injects high-frequency
@@ -1184,7 +1184,7 @@ pub const OROGRAPHIC_PRECIP_MIN: f32 = 0.3;
 /// Upper clamp on the modulation factor (wettest windward = MAX x coarse precip).
 pub const OROGRAPHIC_PRECIP_MAX: f32 = 2.5;
 
-// --- Downwind rain shadow (side-aware lee drying; docs/specs/rain-shadow.md) ---
+// --- Downwind rain shadow (side-aware lee drying; docs/archive/specs/rain-shadow.md) ---
 // The local orographic term above is purely per-cell, so a flat lee basin behind a crest
 // (wind·∇elev≈0) snaps back to coarse precip. This propagates each cell's LOCAL lee
 // dry-anomaly DOWNWIND along the per-cell wind in one ordered O(N) DAG sweep (NOT CFL
@@ -1238,7 +1238,7 @@ pub const LAKE_EVAP_DIFFUSE_STEPS: usize = 5;
 /// ("prickle": curv-rms ~8x, glacial-flux checker ~49%) instead of clean glacial
 /// landforms — it point-routes ice like water (no glacier width / ice-surface
 /// slope). Disabled until the OpenLEM-style glacial stream-power rework lands; see
-/// docs/specs/erosion-glacial-streampower.md. Cosmetic snow caps (coloring.rs
+/// docs/archive/specs/erosion-glacial-streampower.md. Cosmetic snow caps (coloring.rs
 /// `apply_snow_cap`) are independent of this and still render. Set >0 to A/B the v1
 /// pass; production stays fluvial-only for now.
 pub const GLACIAL_K: f32 = 0.0;
@@ -1368,7 +1368,7 @@ pub const FINE_STRUCTURE_LAND_DRIFT_TOL: f32 = 1e-3;
 // per-cell strike vector (which would seam at kinks). Near a front the relief blends
 // toward the bands; far from any front it falls back to P1a isotropic grain. Magnitude
 // stays gated by the P1a elevation+forcing gates (primitives drive ORIENTATION, not a
-// new uplift model). See docs/specs/erosion-fine-synthesis.md rung P1b.
+// new uplift model). See docs/archive/specs/erosion-fine-synthesis.md rung P1b.
 
 /// Blend weight (0..1) of the strike-banded grain vs P1a isotropic grain at a front
 /// (faded by distance to the front). 0 = pure isotropic (P1a); 1 = pure bands. The
@@ -1427,7 +1427,7 @@ pub const FINE_MARGIN_PASSIVE_FACTOR: f32 = 0.5;
 // --- Emergent orogens (erosion-v3 prototype) ---
 // Demote the orogen peak from the static fine base and re-supply it as active uplift, so
 // fine erosion BUILDS dissected ranges instead of dissecting a pre-baked flat plateau.
-// See docs/specs/erosion-v3-emergent-orogens.md. `lambda` = fraction of the solved
+// See docs/archive/specs/erosion-v3-emergent-orogens.md. `lambda` = fraction of the solved
 // tectonic crust load removed from the base envelope and rebuilt by uplift over the
 // erosion epoch. 0 = off (current painted/postprocessor behaviour); 0.25-0.5 = the
 // prototype's hedge; 1.0 = build the orogen entirely from uplift (riskiest).

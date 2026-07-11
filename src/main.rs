@@ -183,7 +183,7 @@ struct Cli {
 
     /// MFD erosion exponent (routing ladder Rung 2/3). <0 = EROSION_MFD_EXPONENT
     /// default (off); 0 = single-flow; ~1 dispersive .. high ≈ single-flow. Set
-    /// >0 to visually A/B MFD incision. See docs/specs/erosion-routing-ladder.md.
+    /// >0 to visually A/B MFD incision. See docs/archive/specs/erosion-routing-ladder.md.
     #[arg(long, default_value_t = -1.0)]
     erosion_mfd_exponent: f32,
 
@@ -195,7 +195,7 @@ struct Cli {
     /// Plains alluvial regime gate: channel slope (elev/km) at/above which
     /// incision is full; gentler channels fade to alluvial (floodplains, not
     /// ditches). <0 = EROSION_CONFINEMENT_SLOPE default (off). See
-    /// docs/specs/erosion-valleys-not-channels.md.
+    /// docs/archive/specs/erosion-valleys-not-channels.md.
     #[arg(long, default_value_t = -1.0)]
     erosion_confinement_slope: f32,
 
@@ -223,14 +223,14 @@ struct Cli {
     /// Uplift-FORCING smoothing length (km; escalation #1). Smooths the per-step
     /// tectonic uplift source over a sub-grid orogenic width to remove mountain-top
     /// cell-scale "swiss cheese" without flattening orogens. <0 = default; 0 = off.
-    /// See docs/specs/erosion-uplift-smoothing.md.
+    /// See docs/archive/specs/erosion-uplift-smoothing.md.
     #[arg(long, default_value_t = -1.0)]
     erosion_uplift_smooth: f32,
 
     /// Roering nonlinear-hillslope critical slope S_c (escalation #2; Δelev/radian,
     /// ~grade·637). Diffusivity blows up toward S_c -> planar slopes + crisp
     /// ridges (vs linear-creep mush). <0 = default; 0 = off. Visual de-prickle
-    /// lever; sweep ~150-300. See docs/specs/erosion-escalations.md.
+    /// lever; sweep ~150-300. See docs/archive/specs/erosion-escalations.md.
     #[arg(long, default_value_t = -1.0)]
     erosion_hillslope_crit: f32,
 

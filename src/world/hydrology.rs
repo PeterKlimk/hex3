@@ -164,7 +164,7 @@ const MIN_OCEAN_AREA_FRACTION: f32 = 0.001;
 /// At equilibrium: lake_surface_area = catchment_area × climate_ratio
 pub const DEFAULT_CLIMATE_RATIO: f32 = 0.15;
 
-// --- Drainage integration (docs/specs/drainage-integration.md) ---
+// --- Drainage integration (docs/archive/specs/drainage-integration.md) ---
 // Real drainage networks INTEGRATE over geologic time: rivers breach divides and basins
 // capture each other, so most interior basins have an inherited outlet even in arid present
 // climates. The generator only does depression FILLING, leaving ~30-50% of land endorheic.
@@ -177,7 +177,7 @@ pub const DEFAULT_CLIMATE_RATIO: f32 = 0.15;
 /// `MIN_LAKE_DEPTH` (a rendering threshold) even though both are "depth": "deep enough to render
 /// as a lake" and "deep enough to stay endorheic over geologic time" are different questions
 /// (Codex round-2). Kept ≈ `MIN_INTEGRATION_SILL_RELIEF` is a PRAGMATIC proxy for the real
-/// water-budget/incision model (see docs/specs/drainage-integration.md roadmap).
+/// water-budget/incision model (see docs/archive/specs/drainage-integration.md roadmap).
 const MIN_INTEGRATION_SILL_RELIEF: f32 = 0.01;
 /// A basin must have at least this many cells in its DEEP body (cells submerged by more than
 /// `MIN_LAKE_DEPTH` at spill-full) to resist integration — otherwise its sill relief rests on a
@@ -1328,7 +1328,7 @@ fn calculate_water_levels(basins: &mut [Basin], climate_ratio: f32) {
             // `*e < spill_elevation` filter keeps every union cell fillable (a min
             // cap would wrongly drop the higher member's cells). Cycles are rare;
             // a rigorous external outlet would need saddle tracking in the
-            // priority-flood. See docs/algorithm-audit-2026-06-15.md.
+            // priority-flood. See docs/audits/algorithm-audit-2026-06-15.md.
             spill_elevation = mem
                 .iter()
                 .map(|&b| basins[b].spill_elevation)
