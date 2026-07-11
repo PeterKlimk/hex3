@@ -92,3 +92,31 @@ independent before changing any physical coefficient:
 
 Do not tune arc retention, stress-transmission length, mobility, or erosion against
 the current peaks until those operator audits close.
+
+## Operator-isolation follow-up
+
+The scorecard now runs the requested five-rung ladder only when its runtime carrier
+configuration enables `operator_audit`; normal experimental worlds do not pay this
+cost. Seed 12345 at a fixed 100k terrain mesh gives:
+
+| carrier | mean boundary length | convergent swept area / Myr | boundary support | one-step max | frozen-100 max | moving-native max | projected max | projection net residual |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 4096 | 416,671 km | 3.98M km² | 36.0% | 0.127 | 2.407 | 2.018 | 2.018 | −1.66e-3 |
+| 8192 | 513,035 km | 4.48M km² | 30.4% | 0.182 | 2.498 | 2.253 | 2.253 | +1.59e-3 |
+| 16384 | 646,608 km | 4.74M km² | 26.2% | 0.249 | 3.001 | 2.834 | 2.834 | +8.04e-4 |
+
+The first divergent rung is the single 2 Myr step from uniform crust: its maximum
+thickness response spans 0.122 before parcel history, while total positive/negative
+one-step volumes remain relatively close. The boundary becomes 55% longer and its
+support occupies a shrinking fraction of the mesh as resolution increases. Long-time
+integration amplifies that localized response, but does not create it.
+
+Carrier-native and projected maxima are identical at every resolution. Projection
+changes net volume by only ~1e-3 thickness·steradian and is therefore not the primary
+cause. Parcel gather/distribute also cannot be the first cause because it is absent from
+the already-divergent one-step rung.
+
+The next fix belongs in boundary forcing: define traction on edges as a finite-volume
+boundary flux or regularize it over a fixed physical fault-zone width before solving
+sheet velocity. It must make integrated swept area and maximum one-step response
+converge without changing plate speed, arc retention, mobility, or erosion.

@@ -46,6 +46,7 @@ pub use crust::{Crust, CrustType};
 
 /// Default plate count used by the app and diagnostic tooling.
 pub const NUM_PLATES_DEFAULT: usize = 14;
+pub use deformation::CarrierOperatorAudit;
 pub use dynamics::{Dynamics, EulerPole, TectonicClock};
 pub use elevation::{Elevation, NoiseLayerData, OrogenModel};
 pub use erosion::{roughness_counters, ErosionParams, RoughnessCounters};

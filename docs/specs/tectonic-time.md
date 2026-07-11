@@ -298,6 +298,12 @@ seeds exceed 14 km, and mountain-land coverage reaches 33–51%. Mass conservati
 passes, isolating the failure to deformation concentration/parcel projection rather
 than leakage. T3 erosion is paused until carrier resolution convergence closes.
 
+The subsequent five-rung operator ladder localizes the first failure to one 2 Myr
+step from uniform crust. Boundary length grows from 417k to 647k km and the step maximum
+from 0.127 to 0.249 across 4k→16k carriers; carrier-native and 100k-projected maxima are
+identical. The pending fix is therefore a finite-volume/fixed-physical-width boundary
+traction, not parcel remapping, projection, or erosion.
+
 ## Migration
 
 The 2026-07-11 reset direct-uplift path is the temporary product baseline because it has

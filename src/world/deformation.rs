@@ -35,6 +35,31 @@ pub(crate) struct ThinSheetFields {
     /// Fraction of historical receiver-parcel forcing events not represented
     /// by the present-day receiver support.
     pub moving_forcing_fraction: f32,
+    pub operator_audit: Option<CarrierOperatorAudit>,
+}
+
+/// Resolution-isolation ladder for the experimental moving-carrier operator.
+/// All volume terms are thickness × steradian; maxima are thickness units.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct CarrierOperatorAudit {
+    pub mean_boundary_length_km: f32,
+    pub mean_convergent_swept_area_km2_per_myr: f32,
+    pub mean_boundary_support_pct: f32,
+    pub mean_target_l1: f64,
+    pub mean_arc_addition_rate: f64,
+    pub one_step_positive: f64,
+    pub one_step_negative: f64,
+    pub one_step_max: f32,
+    pub frozen_positive: f64,
+    pub frozen_negative: f64,
+    pub frozen_max: f32,
+    pub moving_positive: f64,
+    pub moving_negative: f64,
+    pub moving_max: f32,
+    pub projected_positive: f64,
+    pub projected_negative: f64,
+    pub projected_max: f32,
+    pub projection_net_residual: f64,
 }
 
 #[derive(Clone, Copy)]
@@ -462,6 +487,7 @@ pub(crate) fn solve_thin_sheet(
         present_uplift_rate: vec![0.0; n],
         evolution_seconds: 0.0,
         moving_forcing_fraction: 0.0,
+        operator_audit: None,
     }
 }
 
@@ -723,6 +749,7 @@ pub(crate) fn solve_history_thin_sheet(
         present_uplift_rate: vec![0.0; n],
         evolution_seconds: 0.0,
         moving_forcing_fraction: 0.0,
+        operator_audit: None,
     }
 }
 
@@ -759,6 +786,10 @@ struct CarrierStep {
     compression_axis: Vec<Vec3>,
     outgoing_rate: Vec<f32>,
     receiver_parcels: HashSet<u16>,
+    boundary_length_km: f32,
+    convergent_swept_area_km2_per_myr: f32,
+    boundary_support_pct: f32,
+    target_l1: f64,
 }
 
 /// Bounded dynamic-history rung. Every geological interval is forced on that
@@ -810,6 +841,12 @@ fn solve_carrier_replay_evolved(
     let mut forcing_events = 0usize;
     let mut moving_forcing_events = 0usize;
     let mut material_added = 0.0f64;
+    let mut audit_boundary_length = 0.0f64;
+    let mut audit_swept_area = 0.0f64;
+    let mut audit_boundary_support = 0.0f64;
+    let mut audit_target_l1 = 0.0f64;
+    let mut audit_arc_rate = 0.0f64;
+    let mut audit_steps = 0usize;
 
     // Snapshots are stored present -> past. Integrate oldest -> present so each
     // parcel carries inherited state through the changing surface ownership.
@@ -822,6 +859,12 @@ fn solve_carrier_replay_evolved(
         }
         let (mut thickness, owned_area) = distribute_parcel_volume(mesh, snapshot, &parcel_volume);
         let step = carrier_step(mesh, snapshot, dynamics);
+        audit_boundary_length += step.boundary_length_km as f64;
+        audit_swept_area += step.convergent_swept_area_km2_per_myr as f64;
+        audit_boundary_support += step.boundary_support_pct as f64;
+        audit_target_l1 += step.target_l1;
+        audit_arc_rate += step.magmatic_volume_rate;
+        audit_steps += 1;
         forcing_events += step.receiver_parcels.len();
         moving_forcing_events += step.receiver_parcels.difference(&current_receivers).count();
         material_added += step.magmatic_volume_rate * dt as f64;
@@ -910,6 +953,59 @@ fn solve_carrier_replay_evolved(
     let compression_axis = project_carrier_vec3(present_tess, mesh, &parcel_axis);
     let present_uplift_rate = project_carrier_scalar(present_tess, mesh, &parcel_uplift_rate);
     let moving_forcing_fraction = moving_forcing_events as f32 / forcing_events.max(1) as f32;
+    let operator_audit = if replay.operator_audit {
+        let reference_cells: Vec<_> = present
+            .crust_owner
+            .iter()
+            .map(|crust| match crust {
+                CrustType::Continental => CRUST_THICKNESS_CONTINENTAL,
+                CrustType::Oceanic => CRUST_THICKNESS_OCEANIC,
+            })
+            .collect();
+        let one_step =
+            evolve_frozen_carrier(mesh, &present_step, &reference_cells, replay.step_myr, 1);
+        let frozen_steps = (history_duration_myr(replay) / replay.step_myr)
+            .round()
+            .max(1.0) as usize;
+        let frozen = evolve_frozen_carrier(
+            mesh,
+            &present_step,
+            &reference_cells,
+            replay.step_myr,
+            frozen_steps,
+        );
+        let (one_positive, one_negative, one_max, _) =
+            thickness_change_stats(&one_step, &reference_cells, &mesh.areas);
+        let (frozen_positive, frozen_negative, frozen_max, _) =
+            thickness_change_stats(&frozen, &reference_cells, &mesh.areas);
+        let (moving_positive, moving_negative, moving_max, moving_net) =
+            field_stats(&parcel_delta, &mesh.areas);
+        let (projected_positive, projected_negative, projected_max, projected_net) =
+            field_stats(&thickness_delta, &present_tess.cell_areas());
+        let inv_audit_steps = 1.0 / audit_steps.max(1) as f64;
+        Some(CarrierOperatorAudit {
+            mean_boundary_length_km: (audit_boundary_length * inv_audit_steps) as f32,
+            mean_convergent_swept_area_km2_per_myr: (audit_swept_area * inv_audit_steps) as f32,
+            mean_boundary_support_pct: (audit_boundary_support * inv_audit_steps) as f32,
+            mean_target_l1: audit_target_l1 * inv_audit_steps,
+            mean_arc_addition_rate: audit_arc_rate * inv_audit_steps,
+            one_step_positive: one_positive,
+            one_step_negative: one_negative,
+            one_step_max: one_max,
+            frozen_positive,
+            frozen_negative,
+            frozen_max,
+            moving_positive,
+            moving_negative,
+            moving_max,
+            projected_positive,
+            projected_negative,
+            projected_max,
+            projection_net_residual: projected_net - moving_net,
+        })
+    } else {
+        None
+    };
 
     ThinSheetFields {
         thickness_delta,
@@ -920,6 +1016,7 @@ fn solve_carrier_replay_evolved(
         present_uplift_rate,
         evolution_seconds: started.elapsed().as_secs_f32(),
         moving_forcing_fraction,
+        operator_audit,
     }
 }
 
@@ -1009,6 +1106,27 @@ fn carrier_step(
         })
         .collect();
     let boundaries = build_carrier_boundaries(mesh, snapshot, dynamics);
+    let boundary_length_km = boundaries
+        .iter()
+        .map(|boundary| boundary.edge_length * PLANET_RADIUS_KM)
+        .sum();
+    let convergent_swept_area_km2_per_myr = boundaries
+        .iter()
+        .filter(|boundary| boundary.kind == BoundaryKind::Convergent)
+        .map(|boundary| {
+            boundary.convergence.max(0.0)
+                * MAX_PLATE_ANGULAR_SPEED_RAD_PER_MYR
+                * boundary.edge_length
+                * PLANET_RADIUS_KM
+                * PLANET_RADIUS_KM
+        })
+        .sum();
+    let mut boundary_cells = HashSet::new();
+    for boundary in &boundaries {
+        boundary_cells.insert(boundary.a);
+        boundary_cells.insert(boundary.b);
+    }
+    let boundary_support_pct = 100.0 * boundary_cells.len() as f32 / n.max(1) as f32;
     let mut target_sum = vec![Vec3::ZERO; n];
     let mut target_weight = vec![0.0f32; n];
     let mut magmatic_volume_rate = vec![0.0f32; n];
@@ -1074,6 +1192,11 @@ fn carrier_step(
             }
         })
         .collect();
+    let target_l1 = target
+        .iter()
+        .zip(mesh.areas.iter())
+        .map(|(target, &area)| target.length() as f64 * area as f64)
+        .sum();
     let coupling = (HISTORY_SHEET_STRESS_TRANSMISSION_KM / PLANET_RADIUS_KM).powi(2);
     let velocity =
         solve_velocity_geometry(&mesh.centers, &mesh.areas, &sheet_edges, &target, coupling);
@@ -1122,6 +1245,10 @@ fn carrier_step(
         compression_axis,
         outgoing_rate,
         receiver_parcels,
+        boundary_length_km,
+        convergent_swept_area_km2_per_myr,
+        boundary_support_pct,
+        target_l1,
     }
 }
 
@@ -1145,6 +1272,83 @@ fn carrier_cell_volume_rate(mesh: &CarrierMesh, thickness: &[f32], step: &Carrie
         rate[cell] += step.magmatic_rate[cell].max(0.0) * mesh.areas[cell];
     }
     rate
+}
+
+fn history_duration_myr(replay: &super::history::CarrierReplay) -> f32 {
+    replay
+        .snapshots
+        .last()
+        .map(|snapshot| snapshot.lookback_myr)
+        .unwrap_or(0.0)
+}
+
+fn evolve_frozen_carrier(
+    mesh: &CarrierMesh,
+    step: &CarrierStep,
+    initial: &[f32],
+    interval_myr: f32,
+    intervals: usize,
+) -> Vec<f32> {
+    let mut thickness = initial.to_vec();
+    let max_courant = interval_myr * step.outgoing_rate.iter().copied().fold(0.0f32, f32::max);
+    let substeps = (max_courant / 0.20).ceil().max(1.0) as usize;
+    let dt = interval_myr / substeps as f32;
+    let mut volume_change = vec![0.0f32; mesh.centers.len()];
+    for _ in 0..intervals {
+        for _ in 0..substeps {
+            volume_change.fill(0.0);
+            for edge in &step.sheet_edges {
+                let midpoint = (mesh.centers[edge.a] + mesh.centers[edge.b]).normalize_or_zero();
+                let va = step.velocity[edge.a] - midpoint * midpoint.dot(step.velocity[edge.a]);
+                let vb = step.velocity[edge.b] - midpoint * midpoint.dot(step.velocity[edge.b]);
+                let speed = (0.5 * (va + vb)).dot(edge.normal_a_to_b);
+                let donor_h = if speed >= 0.0 {
+                    thickness[edge.a]
+                } else {
+                    thickness[edge.b]
+                };
+                let flux = donor_h * speed * edge.face_length;
+                volume_change[edge.a] -= dt * flux;
+                volume_change[edge.b] += dt * flux;
+            }
+            for cell in 0..thickness.len() {
+                thickness[cell] += volume_change[cell] / mesh.areas[cell].max(1e-12);
+                thickness[cell] += dt * step.magmatic_rate[cell].max(0.0);
+            }
+        }
+        let gravity_tau = CRUST_GRAVITATIONAL_DIFFUSIVITY_KM2_PER_MYR
+            / (PLANET_RADIUS_KM * PLANET_RADIUS_KM)
+            * interval_myr;
+        if gravity_tau > 0.0 {
+            thickness =
+                solve_screened_scalar(&mesh.areas, &step.sheet_edges, &thickness, gravity_tau);
+        }
+    }
+    thickness
+}
+
+fn thickness_change_stats(after: &[f32], before: &[f32], areas: &[f32]) -> (f64, f64, f32, f64) {
+    let delta: Vec<_> = after
+        .iter()
+        .zip(before.iter())
+        .map(|(&after, &before)| after - before)
+        .collect();
+    field_stats(&delta, areas)
+}
+
+fn field_stats(field: &[f32], areas: &[f32]) -> (f64, f64, f32, f64) {
+    let mut positive = 0.0f64;
+    let mut negative = 0.0f64;
+    let mut max = f32::NEG_INFINITY;
+    let mut net = 0.0f64;
+    for (&value, &area) in field.iter().zip(areas.iter()) {
+        let volume = value as f64 * area as f64;
+        positive += volume.max(0.0);
+        negative += (-volume).max(0.0);
+        max = max.max(value);
+        net += volume;
+    }
+    (positive, negative, max, net)
 }
 
 fn canonical_plate_pair(a: usize, b: usize) -> (usize, usize) {
@@ -1549,13 +1753,15 @@ mod tests {
             &HashSet::new(),
             256,
             step_myr,
+            false,
         );
         (tessellation, dynamics, replay)
     }
 
     #[test]
     fn carrier_evolution_is_deterministic_and_mass_conservative() {
-        let (tessellation, dynamics, replay) = evolved_fixture(2.0);
+        let (tessellation, dynamics, mut replay) = evolved_fixture(2.0);
+        replay.operator_audit = true;
         let a = solve_carrier_replay_evolved(&tessellation, &dynamics, &replay, Instant::now());
         let b = solve_carrier_replay_evolved(&tessellation, &dynamics, &replay, Instant::now());
         assert_eq!(a.thickness_delta, b.thickness_delta);
@@ -1564,6 +1770,8 @@ mod tests {
         assert_eq!(a.present_uplift_rate, b.present_uplift_rate);
         assert_eq!(a.material_added, b.material_added);
         assert_eq!(a.material_residual, b.material_residual);
+        assert_eq!(a.operator_audit, b.operator_audit);
+        assert!(a.operator_audit.is_some());
         assert!(
             a.material_residual.abs() < 1e-5
                 || a.material_residual.abs() / a.material_added.abs().max(1e-30) < 1e-4,

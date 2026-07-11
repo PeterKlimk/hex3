@@ -7,7 +7,9 @@ use std::time::Instant;
 
 use clap::Parser;
 use hex3::world::diagnostics::{measure_components, EARTH_RADIUS_KM};
-use hex3::world::{OrogenModel, TectonicCarrierConfig, World, NUM_PLATES_DEFAULT};
+use hex3::world::{
+    CarrierOperatorAudit, OrogenModel, TectonicCarrierConfig, World, NUM_PLATES_DEFAULT,
+};
 
 const RANGE_ELEV: f32 = 0.15;
 const SIGNIFICANT_RANGE_KM2: f32 = 20_000.0;
@@ -71,6 +73,7 @@ struct Metrics {
     gap_pct: f32,
     overlap_pct: f32,
     mass_relative_residual: f64,
+    operator: Option<CarrierOperatorAudit>,
 }
 
 fn main() {
@@ -90,12 +93,14 @@ fn main() {
                 Some(TectonicCarrierConfig {
                     cells: carrier_cells,
                     step_myr: cli.carrier_step_myr,
+                    operator_audit: true,
                 }),
             ));
         }
     }
 
     print_rows(&rows);
+    print_operator_ladder(&rows, &cli.carrier_cells);
     print_convergence(&rows, &cli.carrier_cells);
     println!(
         "\nscorecard wall time: {:.2}s ({} worlds; rendering/fine erosion excluded)",
@@ -306,6 +311,7 @@ fn measure_world(world: &World, wall_s: f32) -> Metrics {
         gap_pct,
         overlap_pct,
         mass_relative_residual: features.thin_sheet_material_residual.abs() / residual_denominator,
+        operator: features.carrier_operator_audit,
     }
 }
 
@@ -352,6 +358,87 @@ fn print_rows(rows: &[Metrics]) {
             row.evolution_s,
             row.wall_s,
             gate,
+        );
+    }
+}
+
+fn print_operator_ladder(rows: &[Metrics], requested_resolutions: &[usize]) {
+    println!("\n## Operator isolation ladder\n");
+    println!("Volumes are thickness×steradian; maxima are thickness units before isostasy. Projection residual compares projected with carrier-native net volume.\n");
+    println!("| seed | carrier | boundary km | swept km²/Myr | support % | target L1 | arc rate | one-step max/+/- | frozen-100 max/+/- | moving-native max/+/- | projected max/+/- | projection net residual |");
+    println!("|---:|---:|---:|---:|---:|---:|---:|:---|:---|:---|:---|---:|");
+    for row in rows {
+        let Some(audit) = row.operator else {
+            continue;
+        };
+        println!(
+            "| {} | {} | {:.0} | {:.0} | {:.1} | {:.3e} | {:.3e} | {:.3}/{:.3e}/{:.3e} | {:.3}/{:.3e}/{:.3e} | {:.3}/{:.3e}/{:.3e} | {:.3}/{:.3e}/{:.3e} | {:+.3e} |",
+            row.seed,
+            row.carrier_cells,
+            audit.mean_boundary_length_km,
+            audit.mean_convergent_swept_area_km2_per_myr,
+            audit.mean_boundary_support_pct,
+            audit.mean_target_l1,
+            audit.mean_arc_addition_rate,
+            audit.one_step_max,
+            audit.one_step_positive,
+            audit.one_step_negative,
+            audit.frozen_max,
+            audit.frozen_positive,
+            audit.frozen_negative,
+            audit.moving_max,
+            audit.moving_positive,
+            audit.moving_negative,
+            audit.projected_max,
+            audit.projected_positive,
+            audit.projected_negative,
+            audit.projection_net_residual,
+        );
+    }
+
+    println!("\n### Maximum-thickness span by rung\n");
+    println!("| seed | resolutions | one step | frozen 100 Myr | moving native | projected | first divergent rung |");
+    println!("|---:|:---|---:|---:|---:|---:|:---|");
+    let mut seeds: Vec<_> = rows.iter().map(|row| row.seed).collect();
+    seeds.sort_unstable();
+    seeds.dedup();
+    for seed in seeds {
+        let audits: Vec<_> = rows
+            .iter()
+            .filter(|row| row.seed == seed)
+            .filter_map(|row| row.operator)
+            .collect();
+        if audits.len() < 2 {
+            continue;
+        }
+        let one = span(audits.iter().map(|audit| audit.one_step_max));
+        let frozen = span(audits.iter().map(|audit| audit.frozen_max));
+        let moving = span(audits.iter().map(|audit| audit.moving_max));
+        let projected = span(audits.iter().map(|audit| audit.projected_max));
+        let first = if one > 0.10 {
+            "boundary/one-step"
+        } else if frozen > 0.10 {
+            "time integration"
+        } else if moving > 0.10 {
+            "parcel remap"
+        } else if projected > 0.10 {
+            "projection"
+        } else {
+            "none >0.1"
+        };
+        println!(
+            "| {} | {} | {:.3} | {:.3} | {:.3} | {:.3} | {} |",
+            seed,
+            requested_resolutions
+                .iter()
+                .map(usize::to_string)
+                .collect::<Vec<_>>()
+                .join("/"),
+            one,
+            frozen,
+            moving,
+            projected,
+            first,
         );
     }
 }

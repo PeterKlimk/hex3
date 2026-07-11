@@ -112,6 +112,7 @@ pub struct FeatureFields {
     pub tectonic_uplift_rate: Vec<f32>,
     pub carrier_evolution_seconds: f32,
     pub carrier_moving_forcing_fraction: f32,
+    pub carrier_operator_audit: Option<super::CarrierOperatorAudit>,
 
     /// Tectonic activity scalar (0-1).
     /// High near active boundaries, decays into plate interiors.
@@ -959,6 +960,7 @@ impl FeatureFields {
                 present_uplift_rate: vec![0.0; num_cells],
                 evolution_seconds: 0.0,
                 moving_forcing_fraction: 0.0,
+                operator_audit: None,
             },
         };
 
@@ -1005,6 +1007,7 @@ impl FeatureFields {
             tectonic_uplift_rate: thin_sheet.present_uplift_rate,
             carrier_evolution_seconds: thin_sheet.evolution_seconds,
             carrier_moving_forcing_fraction: thin_sheet.moving_forcing_fraction,
+            carrier_operator_audit: thin_sheet.operator_audit,
             rift_delta,
             activity,
             convergent,
