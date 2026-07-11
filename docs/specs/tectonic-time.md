@@ -285,6 +285,14 @@ did not respond materially. The next T3 rung must condition removal on relief/dr
 and resolve sediment deposition; increasing the uniform ceiling until all peaks pass
 would be target tuning.
 
+**Coherent-motion audit implemented.** The scorecard can override geological lookback
+without changing product defaults. At 25/50/75/100 Myr with denudation disabled,
+ten-seed median peaks were 6.68/9.87/13.06/15.98 km, but median mountain-land coverage
+was already 35.0% at 25 Myr and saturated near 40% by 50–100 Myr. Thus constant Euler
+motion over the full 100 Myr is causal for extreme stacking, not for most of the broad
+footprint. No shorter duration is selected: the next physical-history experiment must
+retain 100 Myr while allowing plate velocities to reorganize through time.
+
 ### T4 — plate lifecycle
 
 Only after T1–T3 work should the model add ridge birth, subduction consumption, plate

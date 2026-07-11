@@ -40,6 +40,11 @@ struct Cli {
     #[arg(long, default_value_t = 2.0)]
     carrier_step_myr: f32,
 
+    /// Duration for which the generated Euler motions remain coherent.
+    /// The product/default clock is 100 Myr; this override is scorecard-only.
+    #[arg(long, default_value_t = 100.0)]
+    lookback_myr: f32,
+
     /// Skip the legacy reset baseline rows.
     #[arg(long, default_value_t = false)]
     no_legacy: bool,
@@ -59,6 +64,7 @@ struct Metrics {
     seed: u64,
     model: &'static str,
     carrier_cells: usize,
+    lookback_myr: f32,
     wall_s: f32,
     carrier_s: f32,
     evolution_s: f32,
@@ -95,7 +101,7 @@ fn main() {
 
     for &seed in &cli.seeds {
         if !cli.no_legacy {
-            rows.push(run_world(seed, cli.cells, None));
+            rows.push(run_world(seed, cli.cells, None, None));
         }
         for &carrier_cells in &cli.carrier_cells {
             rows.push(run_world(
@@ -107,6 +113,7 @@ fn main() {
                     operator_audit: !cli.no_operator_audit,
                     denudation_rate_km_per_myr: cli.denudation_rate_km_per_myr,
                 }),
+                Some(cli.lookback_myr),
             ));
         }
     }
@@ -128,6 +135,7 @@ fn validate(cli: &Cli) {
         "at least one carrier resolution is required"
     );
     assert!(cli.carrier_step_myr > 0.0);
+    assert!(cli.lookback_myr > 0.0);
     assert!(cli.denudation_rate_km_per_myr >= 0.0);
     for &cells in &cli.carrier_cells {
         assert!(
@@ -137,7 +145,12 @@ fn validate(cli: &Cli) {
     }
 }
 
-fn run_world(seed: u64, cells: usize, carrier: Option<TectonicCarrierConfig>) -> Metrics {
+fn run_world(
+    seed: u64,
+    cells: usize,
+    carrier: Option<TectonicCarrierConfig>,
+    lookback_myr: Option<f32>,
+) -> Metrics {
     let started = Instant::now();
     let mut world = World::new(seed, cells, 1);
     world.orogen_model = if carrier.is_some() {
@@ -151,6 +164,14 @@ fn run_world(seed: u64, cells: usize, carrier: Option<TectonicCarrierConfig>) ->
     world.generate_plates(NUM_PLATES_DEFAULT);
     world.generate_crust();
     world.generate_dynamics();
+    if let Some(lookback_myr) = lookback_myr {
+        world
+            .dynamics
+            .as_mut()
+            .expect("dynamics generated above")
+            .clock
+            .lookback_myr = lookback_myr;
+    }
     world.generate_features();
     world.generate_elevation();
     measure_world(&world, started.elapsed().as_secs_f32())
@@ -304,6 +325,11 @@ fn measure_world(world: &World, wall_s: f32) -> Metrics {
             "evolved"
         },
         carrier_cells,
+        lookback_myr: world
+            .dynamics
+            .as_ref()
+            .map(|dynamics| dynamics.clock.lookback_myr)
+            .unwrap_or(0.0),
         wall_s,
         carrier_s,
         evolution_s: features.carrier_evolution_seconds,
@@ -343,8 +369,8 @@ fn print_rows(rows: &[Metrics]) {
     println!("Absolute gates: peak >14 km = FAIL, >12 km = WARN; mass residual >1e-4 = FAIL.");
     println!("Magma/+work may exceed 100% when denudation leaves net negative inherited work.");
     println!("Active support is the smallest cell set carrying 90% of positive present uplift.\n");
-    println!("| seed | model | carrier | denude km/Myr | peak km | land % | mountain-land % | land p50/p90/p99 km | ranges | width p50 km | elong p50 | cap500 p50 km² | flat-cap p50 % | +work/-work | removed | magma/+work % | inherited outside active % | inherited·active cos | moved forcing % | gap/overlap % | mass residual | carrier/evolve/wall s | gate |");
-    println!("|---:|:---|---:|---:|---:|---:|---:|:---|---:|---:|---:|---:|---:|:---|---:|---:|---:|---:|---:|:---|---:|:---|:---|");
+    println!("| seed | model | carrier | history Myr | denude km/Myr | peak km | land % | mountain-land % | land p50/p90/p99 km | ranges | width p50 km | elong p50 | cap500 p50 km² | flat-cap p50 % | +work/-work | +work/Myr | removed | magma/+work % | inherited outside active % | inherited·active cos | moved forcing % | gap/overlap % | mass residual | carrier/evolve/wall s | gate |");
+    println!("|---:|:---|---:|---:|---:|---:|---:|---:|:---|---:|---:|---:|---:|---:|:---|---:|---:|---:|---:|---:|---:|:---|---:|:---|:---|");
     for row in rows {
         let gate = if row.mass_relative_residual > 1e-4 || row.peak_km > 14.0 {
             "FAIL"
@@ -354,10 +380,11 @@ fn print_rows(rows: &[Metrics]) {
             "PASS"
         };
         println!(
-            "| {} | {} | {} | {:.3} | {:.2} | {:.1} | {:.1} | {:.2}/{:.2}/{:.2} | {} | {:.0} | {:.1} | {:.0} | {:.1} | {:.3e}/{:.3e} | {:.3e} | {:.1} | {:.1} | {:.3} | {:.1} | {:.1}/{:.1} | {:.2e} | {:.2}/{:.2}/{:.2} | {} |",
+            "| {} | {} | {} | {:.0} | {:.3} | {:.2} | {:.1} | {:.1} | {:.2}/{:.2}/{:.2} | {} | {:.0} | {:.1} | {:.0} | {:.1} | {:.3e}/{:.3e} | {:.3e} | {:.3e} | {:.1} | {:.1} | {:.3} | {:.1} | {:.1}/{:.1} | {:.2e} | {:.2}/{:.2}/{:.2} | {} |",
             row.seed,
             row.model,
             if row.carrier_cells == 0 { "-".to_string() } else { row.carrier_cells.to_string() },
+            row.lookback_myr,
             row.denudation_rate_km_per_myr,
             row.peak_km,
             row.land_pct,
@@ -372,6 +399,7 @@ fn print_rows(rows: &[Metrics]) {
             row.flat_cap_p50_pct,
             row.positive_work,
             row.negative_work,
+            row.positive_work / row.lookback_myr.max(f32::EPSILON) as f64,
             row.material_removed,
             row.arc_share_positive_pct,
             row.inherited_outside_active_pct,

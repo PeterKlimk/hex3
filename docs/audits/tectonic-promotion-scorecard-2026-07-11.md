@@ -190,3 +190,29 @@ also becomes a major part of the tracked material budget. Do not select a higher
 rate merely to clear the peak gate. Keep this capacity rung experimental; the justified
 next mechanism is relief/drainage-conditioned denudation with resolved coarse sediment
 deposition.
+
+### Coherent-history duration: peak-causal, footprint-secondary
+
+The scorecard now accepts `--lookback-myr` and reports accumulated positive work per
+Myr. A canonical-8k, zero-denudation sweep changed only the duration for which the
+generated present Euler motions remain coherent:
+
+| coherent history | median peak | peaks FAIL/WARN/PASS | median mountain-land | median +work/Myr |
+|---:|---:|:---|---:|---:|
+| 25 Myr | 6.68 km | 0/0/10 | 35.0% | 1.16e-2 |
+| 50 Myr | 9.87 km | 0/3/7 | 39.2% | 7.98e-3 |
+| 75 Myr | 13.06 km | 4/2/4 | 40.1% | 6.81e-3 |
+| 100 Myr | 15.98 km | 6/1/3 | 40.8% | 6.11e-3 |
+
+The extreme-height result is strongly history-dependent and nonlinear: seed 1001 rises
+from 5.41 to 12.19 to 20.57 to 26.81 km. Fixed present motions acting coherently for
+100 Myr are therefore load-bearing for the tallest anomalies. The broad footprint is
+not primarily a long-duration artifact, however: most of it appears within 25–50 Myr
+and then saturates.
+
+Do not promote 50 Myr merely because this sample clears the 14 km gate. A hard cutoff
+would be another target reconstruction. The justified successor is a fixed-100-Myr A/B
+with time-varying historical Euler motion (finite correlation/reorganization), which
+retains old terrain while preventing one present kinematic regime from being projected
+unchanged through the entire record. Footprint width remains a separate deformation-
+support question.
