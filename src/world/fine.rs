@@ -2880,6 +2880,7 @@ fn transfer_fields(
         legacy_uplift_source: coarse_fields.legacy_uplift_source,
         tectonic_strain: Vec::with_capacity(n),
         compression_axis: Vec::with_capacity(n),
+        tectonic_uplift_rate: Vec::with_capacity(n),
         continentality: Vec::with_capacity(n),
         ridge_age_distance: Vec::with_capacity(n),
         trench: Vec::with_capacity(n),
@@ -2905,6 +2906,9 @@ fn transfer_fields(
         elevation_fields
             .compression_axis
             .push(cell.compression_axis);
+        elevation_fields
+            .tectonic_uplift_rate
+            .push(cell.tectonic_uplift_rate);
         elevation_fields.continentality.push(cell.continentality);
         elevation_fields
             .ridge_age_distance
@@ -2939,6 +2943,7 @@ struct TransferredCell {
     tectonic_thickening: f32,
     tectonic_strain: f32,
     compression_axis: Vec3,
+    tectonic_uplift_rate: f32,
     continentality: f32,
     ridge_age_distance: f32,
     trench: f32,
@@ -2978,6 +2983,7 @@ fn transfer_cell(
         compression_axis: support
             .interpolate_vec3(&coarse_fields.compression_axis)
             .normalize_or_zero(),
+        tectonic_uplift_rate: support.interpolate(&coarse_fields.tectonic_uplift_rate, 0.0),
         continentality,
         ridge_age_distance: support.interpolate(&coarse_fields.ridge_age_distance, f32::INFINITY),
         trench: support.interpolate(&coarse_fields.trench, 0.0),

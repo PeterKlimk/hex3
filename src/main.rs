@@ -39,6 +39,8 @@ enum CliOrogenModel {
     HistoryThinSheet,
     #[value(name = "history-carrier-thin-sheet")]
     HistoryCarrierThinSheet,
+    #[value(name = "history-carrier-evolved")]
+    HistoryCarrierEvolved,
     #[value(name = "thin-sheet")]
     ThinSheet,
 }
@@ -75,6 +77,7 @@ impl From<CliOrogenModel> for OrogenModel {
             CliOrogenModel::HistoryMaterial => OrogenModel::HistoryMaterial,
             CliOrogenModel::HistoryThinSheet => OrogenModel::HistoryThinSheet,
             CliOrogenModel::HistoryCarrierThinSheet => OrogenModel::HistoryCarrierThinSheet,
+            CliOrogenModel::HistoryCarrierEvolved => OrogenModel::HistoryCarrierEvolved,
             CliOrogenModel::ThinSheet => OrogenModel::ThinSheet,
         }
     }

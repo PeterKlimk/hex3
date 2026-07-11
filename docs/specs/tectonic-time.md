@@ -2,8 +2,8 @@
 
 Status: T0, stationary-topology T1a, seed-Voronoi T1b, full-resolution material-
 raster T1c, and low-resolution fixed-carrier T1d implemented; scalar T2 rungs
-falsified; physical-clock thin-sheet T2c promising but not promoted; moving forcing
-geography and concurrent surface processes pending.
+falsified; physical-clock thin-sheet T2c and moving-carrier T2d implemented but not
+promoted; concurrent surface processes pending.
 
 ## Problem
 
@@ -206,6 +206,41 @@ accommodate the rest. Plate closure therefore cannot itself be a retained-crust 
 
 The current legacy envelope can remain as a comparison rung, but not as both an
 instantaneous height prescription and an uplift-rate source.
+
+**T2d moving-carrier evolution implemented.** `history-carrier-evolved` uses the T1d
+8,192-cell snapshots as actual forcing geography rather than only as a contact clock.
+For every 2 Myr interval, oldest to present, it reconstructs plate/crust boundary edges,
+classifies the whole plate-pair regime, derives ocean/continent and motion-voted
+ocean/ocean polarity, solves the thin-sheet velocity on that snapshot, and integrates
+continuity. Conserved thickness volume and accumulated strain live on material parcels:
+the filled surface owner receives each cell's deformation and arc magma, hidden overlap
+parcels retain their state, and gap-filled cells share their owner's finite parcel volume
+rather than duplicating it. Historical compression axes rotate forward with their Euler
+plate. There is no dynamic parcel birth/death, multilayer underthrust stack, sediment,
+or geological erosion in this bounded rung.
+
+Collision flux is globally neutral; retained arc magma is the only positive material
+source. Release results for seeds 12345/777/4242 are:
+
+| seed | carrier build | evolution | peak | arc addition | relative mass residual | historical receiver events outside current support |
+|---:|---:|---:|---:|---:|---:|---:|
+| 12345 | 0.132 s | 0.846 s | 13.9 km | 0.3744 | 1.06e-6 | 49.9% |
+| 777 | 0.151 s | 0.889 s | 12.0 km | 0.3143 | 1.82e-6 | 60.2% |
+| 4242 | 0.146 s | 0.915 s | 16.8 km | 0.3327 | 4.99e-6 | 56.4% |
+
+The stationary carrier-clock peaks were 13.9/15.6/11.0 km, so moving forcing is
+load-bearing even where one seed's maximum happens to be unchanged. The receiver-event
+metric is material-domain based: it asks whether the historically forced parcel belongs
+to the present receiver support, not merely whether a fixed spatial cell was reused.
+The solver also projects inherited thickness/strain/fabric and the present physical
+thickness tendency onto the 100k terrain mesh. Present tendency remains diagnostic and
+is not fed into the legacy dimensionless erosion loop.
+
+Small-mesh regression tests require bit-deterministic replay/evolution, conservative
+parcel mass, and stable 1/2/4 Myr subdivision (relative thickness RMS under 10% for
+1-to-2 Myr and under 20% for 2-to-4 Myr). This is authentic qualitative history, not a
+plate lifecycle: overlaps and gaps inform surface ownership/polarity but are not yet
+resolved through crust production, consumption, or stacked underthrust sheets.
 
 ### T3 — run surface processes on the same clock
 

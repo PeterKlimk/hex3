@@ -75,6 +75,9 @@ pub enum OrogenModel {
     HistoryThinSheet,
     /// History thin sheet driven by a moving low-resolution material carrier.
     HistoryCarrierThinSheet,
+    /// Moving-boundary carrier replay with deformation accumulated on material
+    /// parcels and projected back to the present terrain mesh.
+    HistoryCarrierEvolved,
     /// Velocity/continuity thin-sheet prototype (T0).
     ThinSheet,
 }
@@ -92,6 +95,7 @@ impl std::fmt::Display for OrogenModel {
             Self::HistoryMaterial => write!(f, "history-material"),
             Self::HistoryThinSheet => write!(f, "history-thin-sheet"),
             Self::HistoryCarrierThinSheet => write!(f, "history-carrier-thin-sheet"),
+            Self::HistoryCarrierEvolved => write!(f, "history-carrier-evolved"),
             Self::ThinSheet => write!(f, "thin-sheet"),
         }
     }
@@ -136,6 +140,8 @@ pub struct ElevationFields {
     pub tectonic_strain: Vec<f32>,
     /// Tangent principal-compression axis; zero where unresolved.
     pub compression_axis: Vec<Vec3>,
+    /// Present physical tectonic thickness tendency (thickness units/Myr).
+    pub tectonic_uplift_rate: Vec<f32>,
     pub continentality: Vec<f32>,
     pub ridge_age_distance: Vec<f32>,
     pub trench: Vec<f32>,
@@ -752,7 +758,8 @@ pub(crate) fn coarse_elevation_fields(
         ),
         OrogenModel::ThinSheet
         | OrogenModel::HistoryThinSheet
-        | OrogenModel::HistoryCarrierThinSheet => features.thin_sheet_thickness_delta.clone(),
+        | OrogenModel::HistoryCarrierThinSheet
+        | OrogenModel::HistoryCarrierEvolved => features.thin_sheet_thickness_delta.clone(),
     };
 
     let mut crust_thickness = Vec::with_capacity(num_cells);
@@ -798,6 +805,7 @@ pub(crate) fn coarse_elevation_fields(
         ),
         tectonic_strain: features.thin_sheet_strain.clone(),
         compression_axis: features.thin_sheet_compression_axis.clone(),
+        tectonic_uplift_rate: features.tectonic_uplift_rate.clone(),
         continentality: continentality_field,
         ridge_age_distance: features.ridge_age_distance.clone(),
         trench: features.trench.clone(),

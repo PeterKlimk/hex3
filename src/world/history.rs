@@ -35,6 +35,12 @@ pub struct CarrierSnapshot {
     pub lookback_myr: f32,
     pub plate_owner: Vec<u16>,
     pub crust_owner: Vec<CrustType>,
+    /// Material parcel exposed at each filled carrier cell. Gap cells inherit
+    /// the nearest occupied surface parcel; overlap losers remain in the
+    /// explicit overlap ledger and retain their own state off-surface.
+    pub surface_parcel: Vec<u16>,
+    /// Landing cell of every material parcel before overlap/gap resolution.
+    pub parcel_cells: Vec<u16>,
     pub occupancy: Vec<u16>,
     pub gap_cell_indices: Vec<u32>,
     /// All material landings in multiply occupied cells, including the
@@ -68,6 +74,24 @@ pub struct CarrierReplay {
     pub step_myr: f32,
     pub snapshots: Vec<CarrierSnapshot>,
     pub build_seconds: f32,
+    pub(crate) mesh: CarrierMesh,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct CarrierMesh {
+    pub centers: Vec<glam::Vec3>,
+    pub areas: Vec<f32>,
+    pub neighbors: Vec<Vec<u16>>,
+    pub edges: Vec<CarrierMeshEdge>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct CarrierMeshEdge {
+    pub a: usize,
+    pub b: usize,
+    pub face_length: f32,
+    pub conductance: f32,
+    pub normal_a_to_b: glam::Vec3,
 }
 
 #[derive(Clone, Debug)]
@@ -123,7 +147,7 @@ impl TectonicHistory {
                 None,
                 HistoryModel::MaterialRasterBackrotation,
             ),
-            OrogenModel::HistoryCarrierThinSheet => {
+            OrogenModel::HistoryCarrierThinSheet | OrogenModel::HistoryCarrierEvolved => {
                 let (ages, replay) = replay_fixed_carrier(
                     seed,
                     tessellation,
@@ -395,7 +419,7 @@ struct CarrierPairMotion {
 /// reconstruction, not a surface-process integration: it supplies changing
 /// topology/contact clocks to the existing history solver while retaining every
 /// raster overlap and gap for audit.
-fn replay_fixed_carrier(
+pub(crate) fn replay_fixed_carrier(
     seed: u64,
     source: &Tessellation,
     plates: &Plates,
@@ -410,6 +434,7 @@ fn replay_fixed_carrier(
     let carrier = Tessellation::generate(carrier_cells, 0, &mut rng);
     let mean_spacing_km =
         PLANET_RADIUS_KM * (4.0 * std::f32::consts::PI / carrier_cells as f32).sqrt();
+    let carrier_mesh = build_carrier_mesh(&carrier);
 
     // Each carrier site represents one present-day material parcel. Coherent
     // walking makes the one-off 8k -> source transfer linear in practice.
@@ -490,6 +515,7 @@ fn replay_fixed_carrier(
                 if owner[next] == usize::MAX {
                     owner[next] = owner[cell];
                     owner_crust[next] = owner_crust[cell];
+                    winner_parcel[next] = winner_parcel[cell];
                     queue.push_back(next);
                 }
             }
@@ -508,6 +534,8 @@ fn replay_fixed_carrier(
             lookback_myr: t,
             plate_owner: owner.iter().map(|&plate| plate as u16).collect(),
             crust_owner: owner_crust,
+            surface_parcel: winner_parcel.iter().map(|&parcel| parcel as u16).collect(),
+            parcel_cells: landed_cell.iter().map(|&cell| cell as u16).collect(),
             occupancy,
             gap_cell_indices,
             overlap_landings,
@@ -566,8 +594,57 @@ fn replay_fixed_carrier(
         step_myr,
         snapshots,
         build_seconds: started.elapsed().as_secs_f32(),
+        mesh: carrier_mesh,
     };
     (ages, replay)
+}
+
+fn build_carrier_mesh(tessellation: &Tessellation) -> CarrierMesh {
+    let n = tessellation.num_cells();
+    let centers = (0..n).map(|cell| tessellation.cell_center(cell)).collect();
+    let areas = tessellation.cell_areas();
+    let neighbors = (0..n)
+        .map(|cell| {
+            tessellation
+                .neighbors(cell)
+                .iter()
+                .map(|&next| next as u16)
+                .collect()
+        })
+        .collect();
+    let mut edges = Vec::with_capacity(tessellation.adjacency.total_neighbor_entries() / 2);
+    for a in 0..n {
+        for &b in tessellation.neighbors(a) {
+            if b <= a {
+                continue;
+            }
+            let center_a = tessellation.cell_center(a);
+            let center_b = tessellation.cell_center(b);
+            let center_distance = (center_b - center_a).length();
+            let face_length = tessellation.shared_edge_length(a, b);
+            if center_distance <= 1e-8 || face_length <= 0.0 {
+                continue;
+            }
+            let midpoint = (center_a + center_b).normalize_or_zero();
+            let chord = center_b - center_a;
+            let normal = (chord - midpoint * midpoint.dot(chord)).normalize_or_zero();
+            if normal != glam::Vec3::ZERO {
+                edges.push(CarrierMeshEdge {
+                    a,
+                    b,
+                    face_length,
+                    conductance: face_length / center_distance,
+                    normal_a_to_b: normal,
+                });
+            }
+        }
+    }
+    CarrierMesh {
+        centers,
+        areas,
+        neighbors,
+        edges,
+    }
 }
 
 fn carrier_pair_topology(

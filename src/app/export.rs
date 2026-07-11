@@ -134,6 +134,9 @@ struct FeatureData {
     tectonic_work_mean_duration_myr: f32,
     thin_sheet_material_added: f64,
     thin_sheet_material_residual: f64,
+    tectonic_uplift_rate: Vec<f32>,
+    carrier_evolution_seconds: f32,
+    carrier_moving_forcing_fraction: f32,
 }
 
 #[derive(Serialize)]
@@ -264,6 +267,9 @@ impl WorldExport {
                 tectonic_work_mean_duration_myr: features.tectonic_work_mean_duration_myr,
                 thin_sheet_material_added: features.thin_sheet_material_added,
                 thin_sheet_material_residual: features.thin_sheet_material_residual,
+                tectonic_uplift_rate: map_feature(&features.tectonic_uplift_rate),
+                carrier_evolution_seconds: features.carrier_evolution_seconds,
+                carrier_moving_forcing_fraction: features.carrier_moving_forcing_fraction,
             }
         } else {
             FeatureData {
@@ -283,6 +289,9 @@ impl WorldExport {
                 tectonic_work_mean_duration_myr: features.tectonic_work_mean_duration_myr,
                 thin_sheet_material_added: features.thin_sheet_material_added,
                 thin_sheet_material_residual: features.thin_sheet_material_residual,
+                tectonic_uplift_rate: features.tectonic_uplift_rate.clone(),
+                carrier_evolution_seconds: features.carrier_evolution_seconds,
+                carrier_moving_forcing_fraction: features.carrier_moving_forcing_fraction,
             }
         };
 

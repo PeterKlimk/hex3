@@ -34,6 +34,8 @@ enum CliOrogenModel {
     HistoryThinSheet,
     #[value(name = "history-carrier-thin-sheet")]
     HistoryCarrierThinSheet,
+    #[value(name = "history-carrier-evolved")]
+    HistoryCarrierEvolved,
     #[value(name = "thin-sheet")]
     ThinSheet,
 }
@@ -307,6 +309,7 @@ fn main() {
         CliOrogenModel::HistoryMaterial => OrogenModel::HistoryMaterial,
         CliOrogenModel::HistoryThinSheet => OrogenModel::HistoryThinSheet,
         CliOrogenModel::HistoryCarrierThinSheet => OrogenModel::HistoryCarrierThinSheet,
+        CliOrogenModel::HistoryCarrierEvolved => OrogenModel::HistoryCarrierEvolved,
         CliOrogenModel::ThinSheet => OrogenModel::ThinSheet,
     };
     world.generate_plates(hex3::world::NUM_PLATES_DEFAULT);
@@ -1627,6 +1630,7 @@ fn run_tectonic_history_audit(world: &World, seed: u64, top: usize) {
         OrogenModel::ThinSheet
             | OrogenModel::HistoryThinSheet
             | OrogenModel::HistoryCarrierThinSheet
+            | OrogenModel::HistoryCarrierEvolved
     ) {
         println!(
             "  thin-sheet mass: magma-added {:.6e}, residual {:+.3e} ({:.3e} relative)",
@@ -1635,6 +1639,40 @@ fn run_tectonic_history_audit(world: &World, seed: u64, top: usize) {
             features.thin_sheet_material_residual.abs()
                 / features.thin_sheet_material_added.abs().max(1e-30),
         );
+        if world.orogen_model == OrogenModel::HistoryCarrierEvolved {
+            let areas = world.tessellation.cell_areas();
+            let inherited = &features.thin_sheet_thickness_delta;
+            let uplift = &features.tectonic_uplift_rate;
+            let total_area: f64 = areas.iter().map(|&area| area as f64).sum();
+            let inherited_rms = (inherited
+                .iter()
+                .zip(areas.iter())
+                .map(|(&value, &area)| value as f64 * value as f64 * area as f64)
+                .sum::<f64>()
+                / total_area.max(1e-30))
+            .sqrt();
+            let uplift_rms = (uplift
+                .iter()
+                .zip(areas.iter())
+                .map(|(&value, &area)| value as f64 * value as f64 * area as f64)
+                .sum::<f64>()
+                / total_area.max(1e-30))
+            .sqrt();
+            let uplift_max = uplift.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+            let uplift_min = uplift.iter().copied().fold(f32::INFINITY, f32::min);
+            println!(
+                "  carrier evolution: {:.3}s | inherited thickness RMS {:.3} | present rate RMS {:.4} (min/max {:+.4}/{:+.4}) per Myr",
+                features.carrier_evolution_seconds,
+                inherited_rms,
+                uplift_rms,
+                uplift_min,
+                uplift_max,
+            );
+            println!(
+                "  moving-vs-stationary forcing: {:.1}% of historical receiver-parcel events lie outside present receiver support",
+                100.0 * features.carrier_moving_forcing_fraction,
+            );
+        }
     }
     println!(
         "  id pair kind       edges length_km rate_n rate_s speed duration displacement_n/shear km"

@@ -104,6 +104,7 @@ pub fn fine_base_key(
             OrogenModel::HistoryMaterial => 8,
             OrogenModel::HistoryThinSheet => 9,
             OrogenModel::HistoryCarrierThinSheet => 10,
+            OrogenModel::HistoryCarrierEvolved => 11,
         },
     );
     mix_u64(&mut h, max_cells as u64);
@@ -242,6 +243,7 @@ pub fn fine_base_key(
         &features.tectonic_crust_flux,
         &features.thin_sheet_thickness_delta,
         &features.thin_sheet_strain,
+        &features.tectonic_uplift_rate,
     ] {
         mix_f32s(&mut h, field);
     }

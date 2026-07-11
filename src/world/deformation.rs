@@ -8,10 +8,13 @@
 
 use glam::Vec3;
 
-use super::boundary::{PlateBoundaryEdge, SubductionPolarity};
+use super::boundary::{BoundaryKind, PlateBoundaryEdge, SubductionPolarity};
 use super::constants::*;
 use super::crust::{Crust, CrustType};
-use super::{Plates, TectonicHistory, Tessellation};
+use super::history::{CarrierMesh, CarrierSnapshot};
+use super::{Dynamics, Plates, TectonicHistory, Tessellation};
+use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 
 pub(crate) struct ThinSheetFields {
     /// Signed thickness change. Area-weighted integral equals retained magma;
@@ -25,6 +28,13 @@ pub(crate) struct ThinSheetFields {
     pub material_added: f64,
     /// Final area-weighted thickness change minus `material_added`.
     pub material_residual: f64,
+    /// Present physical crust-thickness tendency in thickness units/Myr.
+    pub present_uplift_rate: Vec<f32>,
+    /// Wall time of the moving carrier deformation solve (projection included).
+    pub evolution_seconds: f32,
+    /// Fraction of historical receiver-parcel forcing events not represented
+    /// by the present-day receiver support.
+    pub moving_forcing_fraction: f32,
 }
 
 #[derive(Clone, Copy)]
@@ -449,6 +459,9 @@ pub(crate) fn solve_thin_sheet(
         compression_axis,
         material_added,
         material_residual,
+        present_uplift_rate: vec![0.0; n],
+        evolution_seconds: 0.0,
+        moving_forcing_fraction: 0.0,
     }
 }
 
@@ -707,7 +720,634 @@ pub(crate) fn solve_history_thin_sheet(
         compression_axis,
         material_added,
         material_residual,
+        present_uplift_rate: vec![0.0; n],
+        evolution_seconds: 0.0,
+        moving_forcing_fraction: 0.0,
     }
+}
+
+#[derive(Clone, Copy)]
+struct CarrierBoundary {
+    a: usize,
+    b: usize,
+    point: Vec3,
+    edge_length: f32,
+    convergence: f32,
+    kind: BoundaryKind,
+    polarity: Option<SubductionPolarity>,
+    type_a: CrustType,
+    type_b: CrustType,
+}
+
+#[derive(Default)]
+struct CarrierPairStats {
+    length: f32,
+    normal: f32,
+    shear: f32,
+    positive_length: f32,
+    negative_length: f32,
+    ocean_min_vote: f32,
+    ocean_max_vote: f32,
+}
+
+struct CarrierStep {
+    sheet_edges: Vec<SheetEdge>,
+    velocity: Vec<Vec3>,
+    magmatic_rate: Vec<f32>,
+    magmatic_volume_rate: f64,
+    strain_rate: Vec<f32>,
+    compression_axis: Vec<Vec3>,
+    outgoing_rate: Vec<f32>,
+    receiver_parcels: HashSet<u16>,
+}
+
+/// Bounded dynamic-history rung. Every geological interval is forced on that
+/// interval's reconstructed carrier domains; conservative thickness state is
+/// stored on material parcels, not carrier locations, so it advects naturally
+/// to the present without a separate remap.
+pub(crate) fn solve_history_carrier_evolved(
+    present_tess: &Tessellation,
+    dynamics: &Dynamics,
+    history: &TectonicHistory,
+) -> ThinSheetFields {
+    let started = Instant::now();
+    let replay = history
+        .carrier_replay
+        .as_ref()
+        .expect("carrier-evolved requires a carrier replay");
+    solve_carrier_replay_evolved(present_tess, dynamics, replay, started)
+}
+
+fn solve_carrier_replay_evolved(
+    present_tess: &Tessellation,
+    dynamics: &Dynamics,
+    replay: &super::history::CarrierReplay,
+    started: Instant,
+) -> ThinSheetFields {
+    let mesh = &replay.mesh;
+    let n = mesh.centers.len();
+    let present = &replay.snapshots[0];
+    debug_assert_eq!(n, present.surface_parcel.len());
+
+    let parcel_crust: Vec<_> = (0..n).map(|parcel| present.crust_owner[parcel]).collect();
+    let reference_thickness: Vec<_> = parcel_crust
+        .iter()
+        .map(|crust| match crust {
+            CrustType::Continental => CRUST_THICKNESS_CONTINENTAL,
+            CrustType::Oceanic => CRUST_THICKNESS_OCEANIC,
+        })
+        .collect();
+    let mut parcel_volume: Vec<f32> = reference_thickness
+        .iter()
+        .zip(mesh.areas.iter())
+        .map(|(&thickness, &area)| thickness * area)
+        .collect();
+    let initial_volume: f64 = parcel_volume.iter().map(|&volume| volume as f64).sum();
+    let mut parcel_strain = vec![0.0f32; n];
+    let mut strongest_compression = vec![0.0f32; n];
+    let mut parcel_axis = vec![Vec3::ZERO; n];
+    let current_receivers = carrier_receiver_parcels(mesh, present, dynamics);
+    let mut forcing_events = 0usize;
+    let mut moving_forcing_events = 0usize;
+    let mut material_added = 0.0f64;
+
+    // Snapshots are stored present -> past. Integrate oldest -> present so each
+    // parcel carries inherited state through the changing surface ownership.
+    for index in (1..replay.snapshots.len()).rev() {
+        let snapshot = &replay.snapshots[index];
+        let younger = &replay.snapshots[index - 1];
+        let dt = snapshot.lookback_myr - younger.lookback_myr;
+        if dt <= 0.0 {
+            continue;
+        }
+        let (mut thickness, owned_area) = distribute_parcel_volume(mesh, snapshot, &parcel_volume);
+        let step = carrier_step(mesh, snapshot, dynamics);
+        forcing_events += step.receiver_parcels.len();
+        moving_forcing_events += step.receiver_parcels.difference(&current_receivers).count();
+        material_added += step.magmatic_volume_rate * dt as f64;
+
+        let max_courant = dt * step.outgoing_rate.iter().copied().fold(0.0f32, f32::max);
+        let substeps = (max_courant / 0.20).ceil().max(1.0) as usize;
+        let sub_dt = dt / substeps as f32;
+        let mut volume_change = vec![0.0f32; n];
+        for _ in 0..substeps {
+            volume_change.fill(0.0);
+            for edge in &step.sheet_edges {
+                let midpoint = (mesh.centers[edge.a] + mesh.centers[edge.b]).normalize_or_zero();
+                let va = step.velocity[edge.a] - midpoint * midpoint.dot(step.velocity[edge.a]);
+                let vb = step.velocity[edge.b] - midpoint * midpoint.dot(step.velocity[edge.b]);
+                let speed = (0.5 * (va + vb)).dot(edge.normal_a_to_b);
+                let donor_h = if speed >= 0.0 {
+                    thickness[edge.a]
+                } else {
+                    thickness[edge.b]
+                };
+                let flux = donor_h * speed * edge.face_length;
+                volume_change[edge.a] -= sub_dt * flux;
+                volume_change[edge.b] += sub_dt * flux;
+            }
+            for cell in 0..n {
+                thickness[cell] += volume_change[cell] / mesh.areas[cell].max(1e-12);
+                thickness[cell] += sub_dt * step.magmatic_rate[cell].max(0.0);
+            }
+        }
+
+        let gravity_tau = CRUST_GRAVITATIONAL_DIFFUSIVITY_KM2_PER_MYR
+            / (PLANET_RADIUS_KM * PLANET_RADIUS_KM)
+            * dt;
+        if gravity_tau > 0.0 {
+            thickness =
+                solve_screened_scalar(&mesh.areas, &step.sheet_edges, &thickness, gravity_tau);
+        }
+        gather_visible_parcel_volume(mesh, snapshot, &owned_area, &thickness, &mut parcel_volume);
+
+        for cell in 0..n {
+            let parcel = snapshot.surface_parcel[cell] as usize;
+            let weight = mesh.areas[cell] / owned_area[parcel].max(1e-12);
+            parcel_strain[parcel] += dt * step.strain_rate[cell] * weight;
+            if step.strain_rate[cell] > strongest_compression[parcel] {
+                strongest_compression[parcel] = step.strain_rate[cell];
+                let plate = snapshot.plate_owner[cell] as usize;
+                let pole = dynamics.euler_pole(plate);
+                // Historical tangent fabric is carried forward with its plate.
+                parcel_axis[parcel] = glam::Quat::from_axis_angle(
+                    pole.axis,
+                    pole.angular_velocity_rad_per_myr() * snapshot.lookback_myr,
+                ) * step.compression_axis[cell];
+            }
+        }
+    }
+
+    let final_thickness: Vec<_> = parcel_volume
+        .iter()
+        .zip(mesh.areas.iter())
+        .map(|(&volume, &area)| volume / area.max(1e-12))
+        .collect();
+    let parcel_delta: Vec<_> = final_thickness
+        .iter()
+        .zip(reference_thickness.iter())
+        .map(|(&after, &before)| after - before)
+        .collect();
+    let final_volume: f64 = parcel_volume.iter().map(|&volume| volume as f64).sum();
+    let material_residual = final_volume - initial_volume - material_added;
+
+    // A final non-integrated solve exports the current physical thickness
+    // tendency. This is provenance for future T3 erosion; it is not fed back
+    // into the legacy dimensionless erosion clock.
+    let (present_thickness, present_owned_area) =
+        distribute_parcel_volume(mesh, present, &parcel_volume);
+    let present_step = carrier_step(mesh, present, dynamics);
+    let cell_volume_rate = carrier_cell_volume_rate(mesh, &present_thickness, &present_step);
+    let mut parcel_uplift_rate = vec![0.0f32; n];
+    for cell in 0..n {
+        let parcel = present.surface_parcel[cell] as usize;
+        parcel_uplift_rate[parcel] += cell_volume_rate[cell] / mesh.areas[parcel].max(1e-12);
+    }
+    debug_assert!(present_owned_area.iter().all(|&area| area > 0.0));
+
+    let thickness_delta = project_carrier_scalar(present_tess, mesh, &parcel_delta);
+    let strain = project_carrier_scalar(present_tess, mesh, &parcel_strain);
+    let compression_axis = project_carrier_vec3(present_tess, mesh, &parcel_axis);
+    let present_uplift_rate = project_carrier_scalar(present_tess, mesh, &parcel_uplift_rate);
+    let moving_forcing_fraction = moving_forcing_events as f32 / forcing_events.max(1) as f32;
+
+    ThinSheetFields {
+        thickness_delta,
+        strain,
+        compression_axis,
+        material_added,
+        material_residual,
+        present_uplift_rate,
+        evolution_seconds: started.elapsed().as_secs_f32(),
+        moving_forcing_fraction,
+    }
+}
+
+fn distribute_parcel_volume(
+    mesh: &CarrierMesh,
+    snapshot: &CarrierSnapshot,
+    parcel_volume: &[f32],
+) -> (Vec<f32>, Vec<f32>) {
+    let n = mesh.centers.len();
+    let mut owned_area = vec![0.0f32; n];
+    for cell in 0..n {
+        owned_area[snapshot.surface_parcel[cell] as usize] += mesh.areas[cell];
+    }
+    let thickness = (0..n)
+        .map(|cell| {
+            let parcel = snapshot.surface_parcel[cell] as usize;
+            parcel_volume[parcel] / owned_area[parcel].max(1e-12)
+        })
+        .collect();
+    (thickness, owned_area)
+}
+
+fn gather_visible_parcel_volume(
+    mesh: &CarrierMesh,
+    snapshot: &CarrierSnapshot,
+    owned_area: &[f32],
+    thickness: &[f32],
+    parcel_volume: &mut [f32],
+) {
+    for (parcel, &area) in owned_area.iter().enumerate() {
+        if area > 0.0 {
+            parcel_volume[parcel] = 0.0;
+        }
+    }
+    for cell in 0..mesh.centers.len() {
+        parcel_volume[snapshot.surface_parcel[cell] as usize] += thickness[cell] * mesh.areas[cell];
+    }
+}
+
+fn carrier_receiver_parcels(
+    mesh: &CarrierMesh,
+    snapshot: &CarrierSnapshot,
+    dynamics: &Dynamics,
+) -> HashSet<u16> {
+    build_carrier_boundaries(mesh, snapshot, dynamics)
+        .into_iter()
+        .filter(|boundary| boundary.kind == BoundaryKind::Convergent)
+        .flat_map(|boundary| match boundary.polarity {
+            None if boundary.type_a == CrustType::Continental
+                && boundary.type_b == CrustType::Continental =>
+            {
+                vec![
+                    snapshot.surface_parcel[boundary.a],
+                    snapshot.surface_parcel[boundary.b],
+                ]
+            }
+            Some(SubductionPolarity::ASubducts) => {
+                vec![snapshot.surface_parcel[boundary.b]]
+            }
+            Some(SubductionPolarity::BSubducts) => {
+                vec![snapshot.surface_parcel[boundary.a]]
+            }
+            _ => Vec::new(),
+        })
+        .collect()
+}
+
+fn carrier_step(
+    mesh: &CarrierMesh,
+    snapshot: &CarrierSnapshot,
+    dynamics: &Dynamics,
+) -> CarrierStep {
+    let n = mesh.centers.len();
+    let sheet_edges: Vec<_> = mesh
+        .edges
+        .iter()
+        .filter(|edge| {
+            snapshot.plate_owner[edge.a] == snapshot.plate_owner[edge.b]
+                && snapshot.crust_owner[edge.a] == snapshot.crust_owner[edge.b]
+        })
+        .map(|edge| SheetEdge {
+            a: edge.a,
+            b: edge.b,
+            conductance: edge.conductance,
+            face_length: edge.face_length,
+            normal_a_to_b: edge.normal_a_to_b,
+        })
+        .collect();
+    let boundaries = build_carrier_boundaries(mesh, snapshot, dynamics);
+    let mut target_sum = vec![Vec3::ZERO; n];
+    let mut target_weight = vec![0.0f32; n];
+    let mut magmatic_volume_rate = vec![0.0f32; n];
+    let mut receiver_parcels = HashSet::new();
+    let rate_scale = MAX_PLATE_ANGULAR_SPEED_RAD_PER_MYR;
+    for boundary in boundaries {
+        if boundary.kind != BoundaryKind::Convergent {
+            continue;
+        }
+        let closing = boundary.convergence.max(0.0) * rate_scale;
+        if closing <= 0.0 {
+            continue;
+        }
+        let mut add_target = |cell: usize, magnitude: f32| {
+            let center = mesh.centers[cell];
+            let toward = boundary.point - center * center.dot(boundary.point);
+            if magnitude > 0.0 && toward.length_squared() > 1e-12 {
+                target_sum[cell] += -toward.normalize() * magnitude * boundary.edge_length;
+                target_weight[cell] += boundary.edge_length;
+                receiver_parcels.insert(snapshot.surface_parcel[cell]);
+            }
+        };
+        match boundary.polarity {
+            None if boundary.type_a == CrustType::Continental
+                && boundary.type_b == CrustType::Continental =>
+            {
+                add_target(boundary.a, 0.5 * closing);
+                add_target(boundary.b, 0.5 * closing);
+            }
+            Some(SubductionPolarity::ASubducts) => {
+                if boundary.type_b == CrustType::Continental {
+                    add_target(boundary.b, SUBDUCTION_COMPRESSION_COUPLING * closing);
+                } else {
+                    receiver_parcels.insert(snapshot.surface_parcel[boundary.b]);
+                }
+                magmatic_volume_rate[boundary.b] += closing
+                    * boundary.edge_length
+                    * SUBDUCTION_MAGMATIC_ACCRETION
+                    * CRUST_THICKNESS_OCEANIC;
+            }
+            Some(SubductionPolarity::BSubducts) => {
+                if boundary.type_a == CrustType::Continental {
+                    add_target(boundary.a, SUBDUCTION_COMPRESSION_COUPLING * closing);
+                } else {
+                    receiver_parcels.insert(snapshot.surface_parcel[boundary.a]);
+                }
+                magmatic_volume_rate[boundary.a] += closing
+                    * boundary.edge_length
+                    * SUBDUCTION_MAGMATIC_ACCRETION
+                    * CRUST_THICKNESS_OCEANIC;
+            }
+            _ => {}
+        }
+    }
+    let target: Vec<_> = target_sum
+        .iter()
+        .zip(target_weight.iter())
+        .map(|(&sum, &weight)| {
+            if weight > 0.0 {
+                sum / weight
+            } else {
+                Vec3::ZERO
+            }
+        })
+        .collect();
+    let coupling = (HISTORY_SHEET_STRESS_TRANSMISSION_KM / PLANET_RADIUS_KM).powi(2);
+    let velocity =
+        solve_velocity_geometry(&mesh.centers, &mesh.areas, &sheet_edges, &target, coupling);
+    let magma_source: Vec<_> = magmatic_volume_rate
+        .iter()
+        .zip(mesh.areas.iter())
+        .map(|(&rate, &area)| rate / area.max(1e-12))
+        .collect();
+    let magmatic_rate = solve_screened_scalar(&mesh.areas, &sheet_edges, &magma_source, coupling);
+    let mut strain_rate = vec![0.0f32; n];
+    let mut strongest = vec![0.0f32; n];
+    let mut compression_axis = vec![Vec3::ZERO; n];
+    let mut outgoing_rate = vec![0.0f32; n];
+    for edge in &sheet_edges {
+        let midpoint = (mesh.centers[edge.a] + mesh.centers[edge.b]).normalize_or_zero();
+        let va = velocity[edge.a] - midpoint * midpoint.dot(velocity[edge.a]);
+        let vb = velocity[edge.b] - midpoint * midpoint.dot(velocity[edge.b]);
+        let speed = (0.5 * (va + vb)).dot(edge.normal_a_to_b);
+        let (donor, outward) = if speed > 0.0 {
+            (edge.a, speed)
+        } else {
+            (edge.b, -speed)
+        };
+        outgoing_rate[donor] += outward * edge.face_length / mesh.areas[donor].max(1e-12);
+        let distance = (mesh.centers[edge.b] - mesh.centers[edge.a])
+            .length()
+            .max(1e-8);
+        let normal_strain = (vb - va).dot(edge.normal_a_to_b) / distance;
+        strain_rate[edge.a] += 0.5 * normal_strain.abs();
+        strain_rate[edge.b] += 0.5 * normal_strain.abs();
+        if normal_strain < -strongest[edge.a] {
+            strongest[edge.a] = -normal_strain;
+            compression_axis[edge.a] = edge.normal_a_to_b;
+        }
+        if normal_strain < -strongest[edge.b] {
+            strongest[edge.b] = -normal_strain;
+            compression_axis[edge.b] = edge.normal_a_to_b;
+        }
+    }
+    CarrierStep {
+        sheet_edges,
+        velocity,
+        magmatic_rate,
+        magmatic_volume_rate: magmatic_volume_rate.iter().map(|&rate| rate as f64).sum(),
+        strain_rate,
+        compression_axis,
+        outgoing_rate,
+        receiver_parcels,
+    }
+}
+
+fn carrier_cell_volume_rate(mesh: &CarrierMesh, thickness: &[f32], step: &CarrierStep) -> Vec<f32> {
+    let mut rate = vec![0.0f32; mesh.centers.len()];
+    for edge in &step.sheet_edges {
+        let midpoint = (mesh.centers[edge.a] + mesh.centers[edge.b]).normalize_or_zero();
+        let va = step.velocity[edge.a] - midpoint * midpoint.dot(step.velocity[edge.a]);
+        let vb = step.velocity[edge.b] - midpoint * midpoint.dot(step.velocity[edge.b]);
+        let speed = (0.5 * (va + vb)).dot(edge.normal_a_to_b);
+        let donor_h = if speed >= 0.0 {
+            thickness[edge.a]
+        } else {
+            thickness[edge.b]
+        };
+        let flux = donor_h * speed * edge.face_length;
+        rate[edge.a] -= flux;
+        rate[edge.b] += flux;
+    }
+    for cell in 0..rate.len() {
+        rate[cell] += step.magmatic_rate[cell].max(0.0) * mesh.areas[cell];
+    }
+    rate
+}
+
+fn canonical_plate_pair(a: usize, b: usize) -> (usize, usize) {
+    if a <= b {
+        (a, b)
+    } else {
+        (b, a)
+    }
+}
+
+fn classify_carrier_pair(stats: &CarrierPairStats) -> BoundaryKind {
+    if stats.length < PLATE_PAIR_MIN_BOUNDARY_LENGTH {
+        return BoundaryKind::Transform;
+    }
+    let normal = stats.normal / stats.length.max(1e-12);
+    let shear = stats.shear / stats.length.max(1e-12);
+    if shear > normal.abs() * TRANSFORM_RATIO && normal.abs() < TRANSFORM_NORMAL_THRESHOLD {
+        BoundaryKind::Transform
+    } else if normal > TRANSFORM_NORMAL_THRESHOLD
+        && stats.positive_length >= PLATE_PAIR_MIN_ACTIVE_LENGTH
+    {
+        BoundaryKind::Convergent
+    } else if normal < -TRANSFORM_NORMAL_THRESHOLD
+        && stats.negative_length >= PLATE_PAIR_MIN_ACTIVE_LENGTH
+    {
+        BoundaryKind::Divergent
+    } else {
+        BoundaryKind::Transform
+    }
+}
+
+fn build_carrier_boundaries(
+    mesh: &CarrierMesh,
+    snapshot: &CarrierSnapshot,
+    dynamics: &Dynamics,
+) -> Vec<CarrierBoundary> {
+    struct Raw {
+        a: usize,
+        b: usize,
+        point: Vec3,
+        length: f32,
+        convergence: f32,
+        pair: (usize, usize),
+        type_a: CrustType,
+        type_b: CrustType,
+    }
+    let mut raw = Vec::new();
+    let mut pair_stats: HashMap<(usize, usize), CarrierPairStats> = HashMap::new();
+    for edge in &mesh.edges {
+        let plate_a = snapshot.plate_owner[edge.a] as usize;
+        let plate_b = snapshot.plate_owner[edge.b] as usize;
+        if plate_a == plate_b {
+            continue;
+        }
+        let point = (mesh.centers[edge.a] + mesh.centers[edge.b]).normalize_or_zero();
+        let along = point.cross(edge.normal_a_to_b).normalize_or_zero();
+        let velocity_a = dynamics.euler_pole(plate_a).velocity_at(point);
+        let velocity_b = dynamics.euler_pole(plate_b).velocity_at(point);
+        let relative = velocity_a - velocity_b;
+        let convergence = relative.dot(edge.normal_a_to_b);
+        let shear = relative.dot(along).abs();
+        let pair = canonical_plate_pair(plate_a, plate_b);
+        let stats = pair_stats.entry(pair).or_default();
+        stats.length += edge.face_length;
+        stats.normal += convergence * edge.face_length;
+        stats.shear += shear * edge.face_length;
+        if convergence >= TRANSFORM_NORMAL_THRESHOLD {
+            stats.positive_length += edge.face_length;
+        } else if convergence <= -TRANSFORM_NORMAL_THRESHOLD {
+            stats.negative_length += edge.face_length;
+        }
+        let type_a = snapshot.crust_owner[edge.a];
+        let type_b = snapshot.crust_owner[edge.b];
+        if type_a == CrustType::Oceanic && type_b == CrustType::Oceanic && convergence > 0.0 {
+            let toward_a = velocity_a.dot(edge.normal_a_to_b).max(0.0);
+            let toward_b = velocity_b.dot(-edge.normal_a_to_b).max(0.0);
+            let weight = convergence * edge.face_length;
+            let (min_toward, max_toward) = if plate_a < plate_b {
+                (toward_a, toward_b)
+            } else {
+                (toward_b, toward_a)
+            };
+            if min_toward >= max_toward {
+                stats.ocean_min_vote += weight;
+            } else {
+                stats.ocean_max_vote += weight;
+            }
+        }
+        raw.push(Raw {
+            a: edge.a,
+            b: edge.b,
+            point,
+            length: edge.face_length,
+            convergence,
+            pair,
+            type_a,
+            type_b,
+        });
+    }
+    let kinds: HashMap<_, _> = pair_stats
+        .iter()
+        .map(|(&pair, stats)| (pair, classify_carrier_pair(stats)))
+        .collect();
+    raw.into_iter()
+        .map(|edge| {
+            let kind = kinds[&edge.pair];
+            let plate_a = snapshot.plate_owner[edge.a] as usize;
+            let polarity = if kind != BoundaryKind::Convergent {
+                None
+            } else {
+                match (edge.type_a, edge.type_b) {
+                    (CrustType::Oceanic, CrustType::Continental) => {
+                        Some(SubductionPolarity::ASubducts)
+                    }
+                    (CrustType::Continental, CrustType::Oceanic) => {
+                        Some(SubductionPolarity::BSubducts)
+                    }
+                    (CrustType::Continental, CrustType::Continental) => None,
+                    (CrustType::Oceanic, CrustType::Oceanic) => {
+                        let stats = &pair_stats[&edge.pair];
+                        let min_subducts = stats.ocean_min_vote >= stats.ocean_max_vote;
+                        Some(if (plate_a == edge.pair.0) == min_subducts {
+                            SubductionPolarity::ASubducts
+                        } else {
+                            SubductionPolarity::BSubducts
+                        })
+                    }
+                }
+            };
+            CarrierBoundary {
+                a: edge.a,
+                b: edge.b,
+                point: edge.point,
+                edge_length: edge.length,
+                convergence: edge.convergence,
+                kind,
+                polarity,
+                type_a: edge.type_a,
+                type_b: edge.type_b,
+            }
+        })
+        .collect()
+}
+
+fn nearest_carrier_cell(mesh: &CarrierMesh, point: Vec3, start: usize) -> usize {
+    let mut cell = start;
+    loop {
+        let mut best = cell;
+        let mut best_dot = point.dot(mesh.centers[cell]);
+        for &next in &mesh.neighbors[cell] {
+            let next = next as usize;
+            let dot = point.dot(mesh.centers[next]);
+            if dot > best_dot {
+                best = next;
+                best_dot = dot;
+            }
+        }
+        if best == cell {
+            return cell;
+        }
+        cell = best;
+    }
+}
+
+fn project_carrier_scalar(target: &Tessellation, mesh: &CarrierMesh, values: &[f32]) -> Vec<f32> {
+    let mut hint = 0usize;
+    (0..target.num_cells())
+        .map(|cell| {
+            hint = nearest_carrier_cell(mesh, target.cell_center(cell), hint);
+            values[hint]
+        })
+        .collect()
+}
+
+fn project_carrier_vec3(target: &Tessellation, mesh: &CarrierMesh, values: &[Vec3]) -> Vec<Vec3> {
+    let mut hint = 0usize;
+    (0..target.num_cells())
+        .map(|cell| {
+            hint = nearest_carrier_cell(mesh, target.cell_center(cell), hint);
+            values[hint].normalize_or_zero()
+        })
+        .collect()
+}
+
+fn solve_velocity_geometry(
+    centers: &[Vec3],
+    areas: &[f32],
+    edges: &[SheetEdge],
+    target: &[Vec3],
+    coupling: f32,
+) -> Vec<Vec3> {
+    let xs: Vec<f32> = target.iter().map(|v| v.x).collect();
+    let ys: Vec<f32> = target.iter().map(|v| v.y).collect();
+    let zs: Vec<f32> = target.iter().map(|v| v.z).collect();
+    let x = solve_screened_scalar(areas, edges, &xs, coupling);
+    let y = solve_screened_scalar(areas, edges, &ys, coupling);
+    let z = solve_screened_scalar(areas, edges, &zs, coupling);
+    (0..target.len())
+        .map(|i| {
+            let velocity = Vec3::new(x[i], y[i], z[i]);
+            velocity - centers[i] * centers[i].dot(velocity)
+        })
+        .collect()
 }
 
 fn solve_velocity(
@@ -798,6 +1438,9 @@ fn solve_screened_scalar(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::world::{Crust, Dynamics, Plates};
+    use rand::SeedableRng;
+    use rand_chacha::ChaCha8Rng;
 
     fn edge() -> SheetEdge {
         SheetEdge {
@@ -883,5 +1526,78 @@ mod tests {
             relaxed_tight[0],
             relaxed[0]
         );
+    }
+
+    fn evolved_fixture(
+        step_myr: f32,
+    ) -> (Tessellation, Dynamics, super::super::history::CarrierReplay) {
+        let mut mesh_rng = ChaCha8Rng::seed_from_u64(301);
+        let tessellation = Tessellation::generate(512, 0, &mut mesh_rng);
+        let mut plate_rng = ChaCha8Rng::seed_from_u64(302);
+        let plates = Plates::generate(&tessellation, 6, &mut plate_rng);
+        let mut crust_rng = ChaCha8Rng::seed_from_u64(303);
+        let crust = Crust::generate(&tessellation, 3, 0.3, &mut crust_rng);
+        let mut dynamics_rng = ChaCha8Rng::seed_from_u64(304);
+        let mut dynamics = Dynamics::generate(&plates, &mut dynamics_rng);
+        dynamics.clock.lookback_myr = 8.0;
+        let (_, replay) = super::super::history::replay_fixed_carrier(
+            305,
+            &tessellation,
+            &plates,
+            &crust,
+            &dynamics,
+            &HashSet::new(),
+            256,
+            step_myr,
+        );
+        (tessellation, dynamics, replay)
+    }
+
+    #[test]
+    fn carrier_evolution_is_deterministic_and_mass_conservative() {
+        let (tessellation, dynamics, replay) = evolved_fixture(2.0);
+        let a = solve_carrier_replay_evolved(&tessellation, &dynamics, &replay, Instant::now());
+        let b = solve_carrier_replay_evolved(&tessellation, &dynamics, &replay, Instant::now());
+        assert_eq!(a.thickness_delta, b.thickness_delta);
+        assert_eq!(a.strain, b.strain);
+        assert_eq!(a.compression_axis, b.compression_axis);
+        assert_eq!(a.present_uplift_rate, b.present_uplift_rate);
+        assert_eq!(a.material_added, b.material_added);
+        assert_eq!(a.material_residual, b.material_residual);
+        assert!(
+            a.material_residual.abs() < 1e-5
+                || a.material_residual.abs() / a.material_added.abs().max(1e-30) < 1e-4,
+            "mass residual {} for added {}",
+            a.material_residual,
+            a.material_added,
+        );
+    }
+
+    #[test]
+    fn carrier_evolution_is_stable_under_time_subdivision() {
+        let (tessellation, dynamics, replay_1) = evolved_fixture(1.0);
+        let (_, _, replay_2) = evolved_fixture(2.0);
+        let (_, _, replay_4) = evolved_fixture(4.0);
+        let one = solve_carrier_replay_evolved(&tessellation, &dynamics, &replay_1, Instant::now());
+        let two = solve_carrier_replay_evolved(&tessellation, &dynamics, &replay_2, Instant::now());
+        let four =
+            solve_carrier_replay_evolved(&tessellation, &dynamics, &replay_4, Instant::now());
+        let relative_rms = |a: &[f32], b: &[f32]| {
+            let error = a
+                .iter()
+                .zip(b.iter())
+                .map(|(&x, &y)| (x as f64 - y as f64).powi(2))
+                .sum::<f64>()
+                .sqrt();
+            let scale = a
+                .iter()
+                .map(|&x| (x as f64).powi(2))
+                .sum::<f64>()
+                .sqrt()
+                .max(1e-12);
+            error / scale
+        };
+        assert!(relative_rms(&one.thickness_delta, &two.thickness_delta) < 0.10);
+        assert!(relative_rms(&two.thickness_delta, &four.thickness_delta) < 0.20);
     }
 }
