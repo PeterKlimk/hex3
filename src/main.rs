@@ -29,6 +29,16 @@ enum CliOrogenModel {
     ConservedFeatureFootprint,
     #[value(name = "conserved-isotropic")]
     ConservedIsotropic,
+    #[value(name = "history-local")]
+    HistoryLocal,
+    #[value(name = "history-diffusive")]
+    HistoryDiffusive,
+    #[value(name = "history-material")]
+    HistoryMaterial,
+    #[value(name = "history-thin-sheet")]
+    HistoryThinSheet,
+    #[value(name = "history-carrier-thin-sheet")]
+    HistoryCarrierThinSheet,
     #[value(name = "thin-sheet")]
     ThinSheet,
 }
@@ -60,6 +70,11 @@ impl From<CliOrogenModel> for OrogenModel {
             CliOrogenModel::ConservedLocal => OrogenModel::ConservedLocal,
             CliOrogenModel::ConservedFeatureFootprint => OrogenModel::ConservedFeatureFootprint,
             CliOrogenModel::ConservedIsotropic => OrogenModel::ConservedIsotropic,
+            CliOrogenModel::HistoryLocal => OrogenModel::HistoryLocal,
+            CliOrogenModel::HistoryDiffusive => OrogenModel::HistoryDiffusive,
+            CliOrogenModel::HistoryMaterial => OrogenModel::HistoryMaterial,
+            CliOrogenModel::HistoryThinSheet => OrogenModel::HistoryThinSheet,
+            CliOrogenModel::HistoryCarrierThinSheet => OrogenModel::HistoryCarrierThinSheet,
             CliOrogenModel::ThinSheet => OrogenModel::ThinSheet,
         }
     }

@@ -2877,6 +2877,7 @@ fn transfer_fields(
     let mut elevation_fields = ElevationFields {
         crust_thickness: Vec::with_capacity(n),
         tectonic_thickening: Vec::with_capacity(n),
+        legacy_uplift_source: coarse_fields.legacy_uplift_source,
         tectonic_strain: Vec::with_capacity(n),
         compression_axis: Vec::with_capacity(n),
         continentality: Vec::with_capacity(n),

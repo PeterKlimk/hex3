@@ -14,13 +14,39 @@ use std::f32::consts::PI;
 
 use glam::Vec3;
 use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
+use ordered_float::OrderedFloat;
 
 use super::boundary::{collect_plate_boundaries, BoundaryKind, SubductionPolarity};
 use super::constants::*;
 use super::crust::{Crust, CrustType};
 use super::dynamics::Dynamics;
 use super::elevation::OrogenModel;
-use super::{Plates, Tessellation};
+use super::{Plates, TectonicHistory, Tessellation};
+
+/// Sparse crustal work contributed by one boundary episode.
+///
+/// Keeping episodes separate is required for geological-time evolution: a young
+/// contact's load must not be relaxed for the area-weighted age of every other
+/// contact on the planet. `cell_work` is extensive (thickness × steradian).
+#[derive(Clone, Debug)]
+pub struct EpisodeCrustWork {
+    pub episode_id: usize,
+    pub duration_myr: f32,
+    pub cell_work: Vec<(usize, f32)>,
+}
+
+/// Episode work remapped from the boundary into a finite-strain material
+/// footprint on the receiving plate(s). The footprint area is derived from
+/// `work / reference_crust_thickness`: convergence consumes a strip of crust;
+/// it cannot all occupy a zero-width present-day boundary cell.
+#[derive(Clone, Debug)]
+pub struct MaterialEpisodeWork {
+    pub episode_id: usize,
+    pub duration_myr: f32,
+    pub target_footprint_area: f32,
+    pub allocated_footprint_area: f32,
+    pub cell_work: Vec<(usize, f32)>,
+}
 
 /// Tectonic feature fields derived from plate boundaries.
 ///
@@ -49,6 +75,25 @@ pub struct FeatureFields {
     /// applying isostasy; it is deliberately not a prescribed height field.
     pub tectonic_crust_flux: Vec<f32>,
 
+    /// Episode-integrated convergent crust work (thickness × unit-sphere area).
+    /// Uses physical closing rates and each connected boundary's kinematic duration.
+    /// Unlike `tectonic_crust_flux`, no additional accumulation-time multiplier belongs
+    /// downstream. Consumed only by history-aware experimental orogen models.
+    pub tectonic_crust_work: Vec<f32>,
+
+    /// Crust-work-weighted mean duration of the contributing boundary episodes.
+    pub tectonic_work_mean_duration_myr: f32,
+
+    /// Episode-resolved version of `tectonic_crust_work`. The aggregate remains
+    /// useful for export and conservation audits; history solvers consume this
+    /// representation so each source evolves on its own clock.
+    pub tectonic_episode_work: Vec<EpisodeCrustWork>,
+
+    /// Conservative finite-strain remap of `tectonic_episode_work` into plate-
+    /// and crust-constrained material footprints. Experimental history-material
+    /// terrain consumes this field.
+    pub tectonic_material_episode_work: Vec<MaterialEpisodeWork>,
+
     /// Signed crust-thickness change from the velocity/continuity thin-sheet
     /// solve. Nonzero only when that runtime model is selected.
     pub thin_sheet_thickness_delta: Vec<f32>,
@@ -58,6 +103,11 @@ pub struct FeatureFields {
 
     /// Tangent axis of strongest thin-sheet compression.
     pub thin_sheet_compression_axis: Vec<Vec3>,
+
+    /// Continuity-solver mass ledger. Collision transport must integrate to
+    /// zero globally; only retained arc magma contributes `material_added`.
+    pub thin_sheet_material_added: f64,
+    pub thin_sheet_material_residual: f64,
 
     /// Tectonic activity scalar (0-1).
     /// High near active boundaries, decays into plate interiors.
@@ -114,6 +164,7 @@ impl FeatureFields {
         plates: &Plates,
         crust: &Crust,
         dynamics: &Dynamics,
+        history: &TectonicHistory,
         orogen_model: OrogenModel,
     ) -> Self {
         let boundaries = collect_plate_boundaries(tessellation, plates, crust, dynamics);
@@ -162,6 +213,9 @@ impl FeatureFields {
         // this is never normalized to an intensive per-cell response: summing
         // it over cells recovers the volume supplied by all boundary segments.
         let mut tectonic_crust_flux = vec![0.0f32; num_cells];
+        let mut tectonic_crust_work = vec![0.0f32; num_cells];
+        let mut tectonic_work_by_episode: HashMap<usize, HashMap<usize, f32>> = HashMap::new();
+        let mut tectonic_work_duration_moment = 0.0f32;
 
         let mut rift_seed_strength = vec![0.0f32; num_cells];
         let mut rift_seed_dist0 = vec![f32::INFINITY; num_cells];
@@ -229,6 +283,10 @@ impl FeatureFields {
                     if closing < TRANSFORM_NORMAL_THRESHOLD {
                         continue;
                     }
+                    let episode = history.episode_for_edge(b.cell_a, b.cell_b);
+                    let duration_myr = episode.map(|episode| episode.duration_myr).unwrap_or(0.0);
+                    let integrated_physical_closing =
+                        b.convergence_km_per_myr().max(0.0) / PLANET_RADIUS_KM * duration_myr;
 
                     // Compute per-side forcing
                     //
@@ -265,6 +323,24 @@ impl FeatureFields {
                                     closing,
                                     b.edge_length,
                                 );
+                                let before = tectonic_crust_work[b.cell_b];
+                                add_subduction_crust_flux(
+                                    &mut tectonic_crust_work,
+                                    b.cell_b,
+                                    b.type_b,
+                                    integrated_physical_closing,
+                                    b.edge_length,
+                                );
+                                let added = tectonic_crust_work[b.cell_b] - before;
+                                tectonic_work_duration_moment += added * duration_myr;
+                                if let Some(episode) = episode {
+                                    add_episode_work(
+                                        &mut tectonic_work_by_episode,
+                                        episode.id,
+                                        b.cell_b,
+                                        added,
+                                    );
+                                }
                                 // A subducts: trench on A if oceanic; arc on B (overriding)
                                 if b.type_a == CrustType::Oceanic {
                                     add_force_seed(
@@ -319,6 +395,24 @@ impl FeatureFields {
                                     closing,
                                     b.edge_length,
                                 );
+                                let before = tectonic_crust_work[b.cell_a];
+                                add_subduction_crust_flux(
+                                    &mut tectonic_crust_work,
+                                    b.cell_a,
+                                    b.type_a,
+                                    integrated_physical_closing,
+                                    b.edge_length,
+                                );
+                                let added = tectonic_crust_work[b.cell_a] - before;
+                                tectonic_work_duration_moment += added * duration_myr;
+                                if let Some(episode) = episode {
+                                    add_episode_work(
+                                        &mut tectonic_work_by_episode,
+                                        episode.id,
+                                        b.cell_a,
+                                        added,
+                                    );
+                                }
                                 if b.type_b == CrustType::Oceanic {
                                     add_force_seed(
                                         &mut trench_seed_strength,
@@ -375,6 +469,26 @@ impl FeatureFields {
                             let volume_rate = closing * b.edge_length * CRUST_THICKNESS_CONTINENTAL;
                             tectonic_crust_flux[b.cell_a] += 0.5 * volume_rate;
                             tectonic_crust_flux[b.cell_b] += 0.5 * volume_rate;
+                            let volume_work = integrated_physical_closing
+                                * b.edge_length
+                                * CRUST_THICKNESS_CONTINENTAL;
+                            tectonic_crust_work[b.cell_a] += 0.5 * volume_work;
+                            tectonic_crust_work[b.cell_b] += 0.5 * volume_work;
+                            if let Some(episode) = episode {
+                                add_episode_work(
+                                    &mut tectonic_work_by_episode,
+                                    episode.id,
+                                    b.cell_a,
+                                    0.5 * volume_work,
+                                );
+                                add_episode_work(
+                                    &mut tectonic_work_by_episode,
+                                    episode.id,
+                                    b.cell_b,
+                                    0.5 * volume_work,
+                                );
+                            }
+                            tectonic_work_duration_moment += volume_work * duration_myr;
                             add_force_seed(
                                 &mut collision_seed_strength,
                                 &mut collision_seed_weight,
@@ -816,14 +930,51 @@ impl FeatureFields {
             );
         }
 
-        let thin_sheet = if orogen_model == OrogenModel::ThinSheet {
-            super::deformation::solve_thin_sheet(tessellation, plates, crust, &boundaries)
-        } else {
-            super::deformation::ThinSheetFields {
+        let thin_sheet = match orogen_model {
+            OrogenModel::ThinSheet => {
+                super::deformation::solve_thin_sheet(tessellation, plates, crust, &boundaries)
+            }
+            OrogenModel::HistoryThinSheet | OrogenModel::HistoryCarrierThinSheet => {
+                super::deformation::solve_history_thin_sheet(
+                    tessellation,
+                    plates,
+                    crust,
+                    &boundaries,
+                    history,
+                )
+            }
+            _ => super::deformation::ThinSheetFields {
                 thickness_delta: vec![0.0; num_cells],
                 strain: vec![0.0; num_cells],
                 compression_axis: vec![Vec3::ZERO; num_cells],
-            }
+                material_added: 0.0,
+                material_residual: 0.0,
+            },
+        };
+
+        let total_tectonic_work: f32 = tectonic_crust_work.iter().sum();
+        let tectonic_work_mean_duration_myr = if total_tectonic_work > 0.0 {
+            tectonic_work_duration_moment / total_tectonic_work
+        } else {
+            0.0
+        };
+        let mut tectonic_episode_work: Vec<_> = tectonic_work_by_episode
+            .into_iter()
+            .map(|(episode_id, cells)| {
+                let mut cell_work: Vec<_> = cells.into_iter().collect();
+                cell_work.sort_unstable_by_key(|&(cell, _)| cell);
+                EpisodeCrustWork {
+                    episode_id,
+                    duration_myr: history.episodes[episode_id].duration_myr,
+                    cell_work,
+                }
+            })
+            .collect();
+        tectonic_episode_work.sort_unstable_by_key(|work| work.episode_id);
+        let tectonic_material_episode_work = if orogen_model == OrogenModel::HistoryMaterial {
+            build_material_footprints(tessellation, plates, crust, &tectonic_episode_work)
+        } else {
+            Vec::new()
         };
 
         Self {
@@ -832,9 +983,15 @@ impl FeatureFields {
             ridge,
             collision,
             tectonic_crust_flux,
+            tectonic_crust_work,
+            tectonic_work_mean_duration_myr,
+            tectonic_episode_work,
+            tectonic_material_episode_work,
             thin_sheet_thickness_delta: thin_sheet.thickness_delta,
             thin_sheet_strain: thin_sheet.strain,
             thin_sheet_compression_axis: thin_sheet.compression_axis,
+            thin_sheet_material_added: thin_sheet.material_added,
+            thin_sheet_material_residual: thin_sheet.material_residual,
             rift_delta,
             activity,
             convergent,
@@ -847,6 +1004,128 @@ impl FeatureFields {
             arc_shape_noise,
         }
     }
+}
+
+fn add_episode_work(
+    episodes: &mut HashMap<usize, HashMap<usize, f32>>,
+    episode_id: usize,
+    cell: usize,
+    work: f32,
+) {
+    if work > 0.0 {
+        *episodes
+            .entry(episode_id)
+            .or_default()
+            .entry(cell)
+            .or_default() += work;
+    }
+}
+
+fn build_material_footprints(
+    tessellation: &Tessellation,
+    plates: &Plates,
+    crust: &Crust,
+    episodes: &[EpisodeCrustWork],
+) -> Vec<MaterialEpisodeWork> {
+    let areas = tessellation.cell_areas();
+    let n = tessellation.num_cells();
+    let mut result = Vec::with_capacity(episodes.len());
+
+    for episode in episodes {
+        // A connected episode can cross a continent/ocean margin. Remap each
+        // receiving plate/material domain independently so work never jumps a
+        // plate boundary or turns oceanic arc addition into continental crust.
+        let mut groups: HashMap<(u32, u8), Vec<(usize, f32)>> = HashMap::new();
+        for &(cell, work) in &episode.cell_work {
+            let material = match crust.crust_type(cell) {
+                CrustType::Continental => 0,
+                CrustType::Oceanic => 1,
+            };
+            groups
+                .entry((plates.cell_plate[cell], material))
+                .or_default()
+                .push((cell, work));
+        }
+
+        let mut remapped: HashMap<usize, f32> = HashMap::new();
+        let mut target_footprint_area = 0.0f32;
+        let mut allocated_footprint_area = 0.0f32;
+        for ((plate, material), sources) in groups {
+            let reference_thickness = if material == 0 {
+                CRUST_THICKNESS_CONTINENTAL
+            } else {
+                CRUST_THICKNESS_OCEANIC
+            };
+            let total_work: f32 = sources.iter().map(|&(_, work)| work).sum();
+            if total_work <= 0.0 {
+                continue;
+            }
+            let target_area = total_work / reference_thickness.max(1e-12);
+            target_footprint_area += target_area;
+
+            let mut dist = vec![f32::INFINITY; n];
+            let mut heap: BinaryHeap<std::cmp::Reverse<(OrderedFloat<f32>, usize)>> =
+                BinaryHeap::new();
+            for &(cell, _) in &sources {
+                if dist[cell] > 0.0 {
+                    dist[cell] = 0.0;
+                    heap.push(std::cmp::Reverse((OrderedFloat(0.0), cell)));
+                }
+            }
+
+            let mut allocation = Vec::new();
+            let mut used_area = 0.0f32;
+            while let Some(std::cmp::Reverse((d, cell))) = heap.pop() {
+                if d.0 > dist[cell] || used_area >= target_area {
+                    continue;
+                }
+                let used = areas[cell].min(target_area - used_area);
+                if used > 0.0 {
+                    allocation.push((cell, used));
+                    used_area += used;
+                }
+                let center = tessellation.cell_center(cell);
+                for &next in tessellation.neighbors(cell) {
+                    if plates.cell_plate[next] != plate {
+                        continue;
+                    }
+                    let next_material = match crust.crust_type(next) {
+                        CrustType::Continental => 0,
+                        CrustType::Oceanic => 1,
+                    };
+                    if next_material != material {
+                        continue;
+                    }
+                    let nd = d.0 + (tessellation.cell_center(next) - center).length();
+                    if nd < dist[next] {
+                        dist[next] = nd;
+                        heap.push(std::cmp::Reverse((OrderedFloat(nd), next)));
+                    }
+                }
+            }
+
+            allocated_footprint_area += used_area;
+            // Normally used_area == target_area, yielding one reference crustal
+            // thickness across the swept footprint. If a receiving material
+            // domain is too small, conservation wins: the density rises and the
+            // target/allocated ratio exposes the capacity failure in diagnostics.
+            let density = total_work / used_area.max(1e-12);
+            for (cell, used) in allocation {
+                *remapped.entry(cell).or_default() += density * used;
+            }
+        }
+
+        let mut cell_work: Vec<_> = remapped.into_iter().collect();
+        cell_work.sort_unstable_by_key(|&(cell, _)| cell);
+        result.push(MaterialEpisodeWork {
+            episode_id: episode.episode_id,
+            duration_myr: episode.duration_myr,
+            target_footprint_area,
+            allocated_footprint_area,
+            cell_work,
+        });
+    }
+    result
 }
 
 /// Add overriding-plate crust production from a subduction segment.

@@ -28,24 +28,81 @@ impl EulerPole {
         // v = ω × r, where ω is angular velocity vector and r is position
         self.axis.cross(point) * self.angular_velocity
     }
+
+    /// Physical Euler angular velocity in radians per million years.
+    pub fn angular_velocity_rad_per_myr(&self) -> f32 {
+        self.angular_velocity * MAX_PLATE_ANGULAR_SPEED_RAD_PER_MYR
+    }
+
+    /// Physical surface velocity in kilometres per million years.
+    pub fn velocity_km_per_myr_at(&self, point: Vec3) -> Vec3 {
+        self.velocity_at(point) * MAX_PLATE_SPEED_KM_PER_MYR
+    }
+}
+
+/// Geological window used by tectonic-history consumers. Keeping it in Dynamics makes
+/// exported provenance explicit and permits future per-world clock distributions.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TectonicClock {
+    pub lookback_myr: f32,
+    pub step_myr: f32,
+}
+
+impl Default for TectonicClock {
+    fn default() -> Self {
+        Self {
+            lookback_myr: TECTONIC_HISTORY_LOOKBACK_MYR,
+            step_myr: TECTONIC_HISTORY_STEP_MYR,
+        }
+    }
 }
 
 /// Plate dynamics: motion for each plate.
 pub struct Dynamics {
     /// Euler pole for each plate (rotation axis + angular velocity).
     pub euler_poles: Vec<EulerPole>,
+    pub clock: TectonicClock,
 }
 
 impl Dynamics {
     /// Generate plate dynamics from plate assignments.
     pub fn generate<R: Rng>(plates: &Plates, rng: &mut R) -> Self {
         let euler_poles = generate_euler_poles(plates.num_plates, rng);
-        Self { euler_poles }
+        Self {
+            euler_poles,
+            clock: TectonicClock::default(),
+        }
     }
 
     /// Get the Euler pole for a plate.
     pub fn euler_pole(&self, plate_id: usize) -> &EulerPole {
         &self.euler_poles[plate_id]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalized_plate_speed_has_explicit_physical_conversion() {
+        let pole = EulerPole {
+            axis: Vec3::Z,
+            angular_velocity: 1.0,
+        };
+        let point = Vec3::X;
+        let speed = pole.velocity_km_per_myr_at(point).length();
+        assert!((speed - MAX_PLATE_SPEED_KM_PER_MYR).abs() < 1e-5);
+        assert!((pole.angular_velocity_rad_per_myr() * PLANET_RADIUS_KM - speed).abs() < 1e-4);
+    }
+
+    #[test]
+    fn tectonic_clock_is_positive_and_evenly_subdivides() {
+        let clock = TectonicClock::default();
+        assert!(clock.lookback_myr > 0.0);
+        assert!(clock.step_myr > 0.0);
+        let steps = clock.lookback_myr / clock.step_myr;
+        assert!((steps - steps.round()).abs() < 1e-6);
     }
 }
 

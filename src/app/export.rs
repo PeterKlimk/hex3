@@ -48,6 +48,7 @@ struct WorldExport {
     metadata: Metadata,
     cells: CellData,
     plates: Vec<PlateData>,
+    boundary_episodes: Vec<BoundaryEpisodeData>,
 }
 
 #[derive(Serialize)]
@@ -59,6 +60,23 @@ struct Metadata {
     mean_neighbor_dist: f32,
     mean_cell_area: f32,
     orogen_model: String,
+    tectonic_lookback_myr: f32,
+    tectonic_step_myr: f32,
+    max_plate_speed_km_per_myr: f32,
+    boundary_episode_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tectonic_carrier: Option<CarrierReplayData>,
+}
+
+#[derive(Serialize)]
+struct CarrierReplayData {
+    cells: usize,
+    mean_spacing_km: f32,
+    step_myr: f32,
+    snapshots: usize,
+    mean_gap_fraction: f32,
+    mean_overlap_excess_fraction: f32,
+    topology_changes: usize,
 }
 
 #[derive(Serialize)]
@@ -112,6 +130,10 @@ struct FeatureData {
     ridge_spreading_rate: Vec<f32>,
     collision_distance: Vec<f32>,
     tectonic_crust_flux: Vec<f32>,
+    tectonic_crust_work: Vec<f32>,
+    tectonic_work_mean_duration_myr: f32,
+    thin_sheet_material_added: f64,
+    thin_sheet_material_residual: f64,
 }
 
 #[derive(Serialize)]
@@ -156,6 +178,26 @@ struct PlateData {
     cell_count: usize,
     euler_pole: [f32; 3],
     angular_velocity: f32,
+    angular_velocity_rad_per_myr: f32,
+    max_surface_speed_km_per_myr: f32,
+}
+
+#[derive(Serialize)]
+struct BoundaryEpisodeData {
+    id: usize,
+    plate_a: usize,
+    plate_b: usize,
+    kind: String,
+    subducting_plate: Option<usize>,
+    edge_count: usize,
+    length_km: f32,
+    mean_convergence_km_per_myr: f32,
+    mean_shear_km_per_myr: f32,
+    mean_relative_speed_km_per_myr: f32,
+    duration_myr: f32,
+    integrated_normal_displacement_km: f32,
+    integrated_shear_displacement_km: f32,
+    history_model: String,
 }
 
 impl WorldExport {
@@ -218,6 +260,10 @@ impl WorldExport {
                 ridge_spreading_rate: map_feature(&features.ridge_spreading_rate),
                 collision_distance: map_feature(&features.collision_distance),
                 tectonic_crust_flux: map_feature(&features.tectonic_crust_flux),
+                tectonic_crust_work: map_feature(&features.tectonic_crust_work),
+                tectonic_work_mean_duration_myr: features.tectonic_work_mean_duration_myr,
+                thin_sheet_material_added: features.thin_sheet_material_added,
+                thin_sheet_material_residual: features.thin_sheet_material_residual,
             }
         } else {
             FeatureData {
@@ -233,6 +279,10 @@ impl WorldExport {
                 ridge_spreading_rate: features.ridge_spreading_rate.clone(),
                 collision_distance: features.collision_distance.clone(),
                 tectonic_crust_flux: features.tectonic_crust_flux.clone(),
+                tectonic_crust_work: features.tectonic_crust_work.clone(),
+                tectonic_work_mean_duration_myr: features.tectonic_work_mean_duration_myr,
+                thin_sheet_material_added: features.thin_sheet_material_added,
+                thin_sheet_material_residual: features.thin_sheet_material_residual,
             }
         };
 
@@ -364,8 +414,70 @@ impl WorldExport {
                 cell_count,
                 euler_pole: [euler.axis.x, euler.axis.y, euler.axis.z],
                 angular_velocity: euler.angular_velocity,
+                angular_velocity_rad_per_myr: euler.angular_velocity_rad_per_myr(),
+                max_surface_speed_km_per_myr: euler.angular_velocity.abs()
+                    * hex3::world::MAX_PLATE_SPEED_KM_PER_MYR,
             });
         }
+
+        let boundary_episodes: Vec<_> = world
+            .tectonic_history
+            .as_ref()
+            .map(|history| {
+                history
+                    .episodes
+                    .iter()
+                    .map(|episode| BoundaryEpisodeData {
+                        id: episode.id,
+                        plate_a: episode.plate_a,
+                        plate_b: episode.plate_b,
+                        kind: format!("{:?}", episode.kind).to_lowercase(),
+                        subducting_plate: episode.subducting_plate,
+                        edge_count: episode.edge_count,
+                        length_km: episode.length_km,
+                        mean_convergence_km_per_myr: episode.mean_convergence_km_per_myr,
+                        mean_shear_km_per_myr: episode.mean_shear_km_per_myr,
+                        mean_relative_speed_km_per_myr: episode.mean_relative_speed_km_per_myr,
+                        duration_myr: episode.duration_myr,
+                        integrated_normal_displacement_km: episode
+                            .integrated_normal_displacement_km,
+                        integrated_shear_displacement_km: episode.integrated_shear_displacement_km,
+                        history_model: format!("{:?}", episode.model).to_lowercase(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let tectonic_carrier = world
+            .tectonic_history
+            .as_ref()
+            .and_then(|history| history.carrier_replay.as_ref())
+            .map(|carrier| {
+                let snapshot_count = carrier.snapshots.len().max(1) as f32;
+                CarrierReplayData {
+                    cells: carrier.num_cells,
+                    mean_spacing_km: carrier.mean_spacing_km,
+                    step_myr: carrier.step_myr,
+                    snapshots: carrier.snapshots.len(),
+                    mean_gap_fraction: carrier
+                        .snapshots
+                        .iter()
+                        .map(|snapshot| snapshot.gap_cells as f32 / carrier.num_cells as f32)
+                        .sum::<f32>()
+                        / snapshot_count,
+                    mean_overlap_excess_fraction: carrier
+                        .snapshots
+                        .iter()
+                        .map(|snapshot| snapshot.overlap_excess as f32 / carrier.num_cells as f32)
+                        .sum::<f32>()
+                        / snapshot_count,
+                    topology_changes: carrier
+                        .snapshots
+                        .iter()
+                        .map(|snapshot| snapshot.topology_changes_from_previous)
+                        .sum(),
+                }
+            });
 
         Self {
             metadata: Metadata {
@@ -376,6 +488,15 @@ impl WorldExport {
                 mean_neighbor_dist,
                 mean_cell_area: mean_area,
                 orogen_model: world.orogen_model.to_string(),
+                tectonic_lookback_myr: dynamics.clock.lookback_myr,
+                tectonic_step_myr: world
+                    .tectonic_history
+                    .as_ref()
+                    .map(|history| history.step_myr)
+                    .unwrap_or(dynamics.clock.step_myr),
+                max_plate_speed_km_per_myr: hex3::world::MAX_PLATE_SPEED_KM_PER_MYR,
+                boundary_episode_count: boundary_episodes.len(),
+                tectonic_carrier,
             },
             cells: CellData {
                 elevation: elevation_vec,
@@ -392,6 +513,7 @@ impl WorldExport {
                 hydrology: hydrology_data,
             },
             plates: plates_data,
+            boundary_episodes,
         }
     }
 }

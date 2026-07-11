@@ -34,6 +34,9 @@ pub struct Plates {
 
     /// Indices of cells that are on plate boundaries.
     pub boundary_cells: Vec<usize>,
+
+    /// Generator positions retained for coarse kinematic topology replay.
+    pub(crate) seed_positions: Vec<Vec3>,
 }
 
 impl Plates {
@@ -51,10 +54,15 @@ impl Plates {
         // Find boundary cells
         let boundary_cells = find_boundary_cells(&tessellation.adjacency, &cell_plate);
 
+        let seed_positions = seeds
+            .iter()
+            .map(|&cell| tessellation.cell_center(cell))
+            .collect();
         Self {
             cell_plate,
             num_plates,
             boundary_cells,
+            seed_positions,
         }
     }
 

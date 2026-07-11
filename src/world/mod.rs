@@ -33,6 +33,7 @@ mod erosion;
 mod features;
 mod fine;
 mod fine_cache;
+mod history;
 mod hydrology;
 mod moisture;
 mod plates;
@@ -45,15 +46,19 @@ pub use crust::{Crust, CrustType};
 
 /// Default plate count used by the app and diagnostic tooling.
 pub const NUM_PLATES_DEFAULT: usize = 14;
-pub use dynamics::{Dynamics, EulerPole};
+pub use dynamics::{Dynamics, EulerPole, TectonicClock};
 pub use elevation::{Elevation, NoiseLayerData, OrogenModel};
 pub use erosion::{roughness_counters, ErosionParams, RoughnessCounters};
-pub use features::FeatureFields;
+pub use features::{EpisodeCrustWork, FeatureFields, MaterialEpisodeWork};
 pub use fine::{
     FineBase, FineDensityParams, FineFields, FineStructureParams, FineSurface, FineWorld,
     OrogenFronts,
 };
 pub use fine_cache::FineCacheMode;
+pub use history::{
+    BoundaryEpisode, CarrierParcelLanding, CarrierReplay, CarrierSnapshot, HistoryModel,
+    TectonicHistory,
+};
 pub use hydrology::{
     Basin, CellWaterState, Hydrology, WaterBody, DEFAULT_CLIMATE_RATIO, MIN_LAKE_DEPTH,
 };
@@ -110,6 +115,9 @@ pub struct World {
 
     /// Tectonic feature fields (trench, arc, ridge, collision, activity).
     pub features: Option<FeatureFields>,
+
+    /// Connected plate-pair contacts with physical rates and bounded duration.
+    pub tectonic_history: Option<TectonicHistory>,
 
     /// Terrain elevation.
     pub elevation: Option<Elevation>,
@@ -189,6 +197,7 @@ impl World {
             crust: None,
             dynamics: None,
             features: None,
+            tectonic_history: None,
             elevation: None,
             atmosphere: None,
             hydrology: None,
@@ -258,11 +267,22 @@ impl World {
             .dynamics
             .as_ref()
             .expect("Dynamics must be generated first");
+        self.tectonic_history = Some(TectonicHistory::compute(
+            self.seed,
+            &self.tessellation,
+            plates,
+            crust,
+            dynamics,
+            self.orogen_model,
+        ));
         self.features = Some(FeatureFields::compute(
             &self.tessellation,
             plates,
             crust,
             dynamics,
+            self.tectonic_history
+                .as_ref()
+                .expect("Tectonic history generated above"),
             self.orogen_model,
         ));
     }

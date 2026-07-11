@@ -36,7 +36,7 @@ use rayon::prelude::*;
 use super::constants::*;
 use super::crust::{Crust, CrustType};
 use super::plates::PLATE_NOISE_OFFSET_RANGE;
-use super::{FeatureFields, Tessellation};
+use super::{EpisodeCrustWork, FeatureFields, MaterialEpisodeWork, Tessellation};
 
 /// Coarse convergent-orogen model.
 ///
@@ -62,6 +62,19 @@ pub enum OrogenModel {
     /// Conserved boundary crust flux redistributed by isotropic thin-sheet
     /// diffusion. Retained as an explicit experiment, not the default.
     ConservedIsotropic,
+    /// Physical-rate crust work integrated over connected boundary-episode duration,
+    /// left in receiving boundary cells. First geological-time experiment.
+    HistoryLocal,
+    /// Episode-integrated crust work redistributed by dimensioned lower-crust mobility.
+    HistoryDiffusive,
+    /// Episode work first occupies a volume-derived finite-strain material
+    /// footprint, then undergoes dimensioned lower-crust diffusion.
+    HistoryMaterial,
+    /// Physical-rate thin-sheet continuity integrated over boundary-episode
+    /// intervals. No scalar closing-volume source and no yield-height tuning.
+    HistoryThinSheet,
+    /// History thin sheet driven by a moving low-resolution material carrier.
+    HistoryCarrierThinSheet,
     /// Velocity/continuity thin-sheet prototype (T0).
     ThinSheet,
 }
@@ -74,6 +87,11 @@ impl std::fmt::Display for OrogenModel {
             Self::ConservedLocal => write!(f, "conserved-local"),
             Self::ConservedFeatureFootprint => write!(f, "conserved-feature-footprint"),
             Self::ConservedIsotropic => write!(f, "conserved-isotropic"),
+            Self::HistoryLocal => write!(f, "history-local"),
+            Self::HistoryDiffusive => write!(f, "history-diffusive"),
+            Self::HistoryMaterial => write!(f, "history-material"),
+            Self::HistoryThinSheet => write!(f, "history-thin-sheet"),
+            Self::HistoryCarrierThinSheet => write!(f, "history-carrier-thin-sheet"),
             Self::ThinSheet => write!(f, "thin-sheet"),
         }
     }
@@ -111,6 +129,9 @@ pub struct ElevationFields {
     /// this reproduces the historical `arc + collision` elevation response;
     /// experimental models derive it from conserved crust evolution.
     pub tectonic_thickening: Vec<f32>,
+    /// Whether fine erosion may interpret tectonic state as the legacy per-step
+    /// uplift source. False for history models until both clocks are physical.
+    pub legacy_uplift_source: bool,
     /// Accumulated deformational strain; zero for models without a strain solve.
     pub tectonic_strain: Vec<f32>,
     /// Tangent principal-compression axis; zero where unresolved.
@@ -466,6 +487,66 @@ fn solve_tectonic_thickening(
     relaxed
 }
 
+fn solve_history_diffusive_thickening(
+    tessellation: &Tessellation,
+    crust: &Crust,
+    episode_work: &[EpisodeCrustWork],
+) -> Vec<f32> {
+    solve_history_work_fields(
+        tessellation,
+        crust,
+        episode_work
+            .iter()
+            .map(|episode| (episode.duration_myr, episode.cell_work.as_slice())),
+    )
+}
+
+fn solve_history_material_thickening(
+    tessellation: &Tessellation,
+    crust: &Crust,
+    episode_work: &[MaterialEpisodeWork],
+) -> Vec<f32> {
+    solve_history_work_fields(
+        tessellation,
+        crust,
+        episode_work
+            .iter()
+            .map(|episode| (episode.duration_myr, episode.cell_work.as_slice())),
+    )
+}
+
+fn solve_history_work_fields<'a>(
+    tessellation: &Tessellation,
+    crust: &Crust,
+    episode_work: impl Iterator<Item = (f32, &'a [(usize, f32)])>,
+) -> Vec<f32> {
+    // Superpose the linear conservative solve episode by episode. This is more
+    // expensive than diffusing the global sum once, but it is the correct causal
+    // baseline: each contact relaxes over its own duration rather than an
+    // area-weighted global mean age.
+    let n = tessellation.num_cells();
+    let mut total = vec![0.0f32; n];
+    let shim_duration = TECTONIC_ACCUMULATION_TIME.max(1e-9);
+    for (duration_myr, cell_work) in episode_work {
+        let mut equivalent_flux = vec![0.0f32; n];
+        for &(cell, work) in cell_work {
+            equivalent_flux[cell] = work / shim_duration;
+        }
+        let tau_rad2 = CRUST_GRAVITATIONAL_DIFFUSIVITY_KM2_PER_MYR * duration_myr.max(0.0)
+            / (PLANET_RADIUS_KM * PLANET_RADIUS_KM);
+        let relaxed = solve_tectonic_thickening(
+            tessellation,
+            crust,
+            &equivalent_flux,
+            tau_rad2 / shim_duration,
+        );
+        for (sum, value) in total.iter_mut().zip(relaxed) {
+            *sum += value;
+        }
+    }
+    total
+}
+
 /// Conjugate-gradient solve for `(A + tau*L) x = A*source`, where A is cell
 /// area and L is the symmetric finite-volume graph Laplacian.
 fn solve_screened_conservative(
@@ -602,10 +683,9 @@ pub(crate) fn coarse_elevation_fields(
                 .iter()
                 .map(|&w_rad| {
                     let w_km = w_rad * PLANET_RADIUS_KM;
-                    let factor = (w_km / OROGEN_YIELD_WIDTH_REF_KM).sqrt().clamp(
-                        OROGEN_YIELD_WIDTH_FACTOR_MIN,
-                        OROGEN_YIELD_WIDTH_FACTOR_MAX,
-                    );
+                    let factor = (w_km / OROGEN_YIELD_WIDTH_REF_KM)
+                        .sqrt()
+                        .clamp(OROGEN_YIELD_WIDTH_FACTOR_MIN, OROGEN_YIELD_WIDTH_FACTOR_MAX);
                     yield_ref * factor
                 })
                 .collect();
@@ -656,7 +736,23 @@ pub(crate) fn coarse_elevation_fields(
             &features.tectonic_crust_flux,
             CRUST_GRAVITATIONAL_DIFFUSIVITY,
         ),
-        OrogenModel::ThinSheet => features.thin_sheet_thickness_delta.clone(),
+        OrogenModel::HistoryLocal => features
+            .tectonic_crust_work
+            .iter()
+            .zip(tessellation.cell_areas().iter())
+            .map(|(&work, &area)| work.max(0.0) / area.max(1e-12))
+            .collect(),
+        OrogenModel::HistoryDiffusive => {
+            solve_history_diffusive_thickening(tessellation, crust, &features.tectonic_episode_work)
+        }
+        OrogenModel::HistoryMaterial => solve_history_material_thickening(
+            tessellation,
+            crust,
+            &features.tectonic_material_episode_work,
+        ),
+        OrogenModel::ThinSheet
+        | OrogenModel::HistoryThinSheet
+        | OrogenModel::HistoryCarrierThinSheet => features.thin_sheet_thickness_delta.clone(),
     };
 
     let mut crust_thickness = Vec::with_capacity(num_cells);
@@ -669,10 +765,7 @@ pub(crate) fn coarse_elevation_fields(
     // model delta after, so a conserved model can thin below the legacy floor.
     // legacy-yield shares the grouping so its sub-yield cells stay bit-equal to
     // legacy at the coarse level.
-    let legacy_grouping = matches!(
-        orogen_model,
-        OrogenModel::Legacy | OrogenModel::LegacyYield
-    );
+    let legacy_grouping = matches!(orogen_model, OrogenModel::Legacy | OrogenModel::LegacyYield);
     #[allow(clippy::needless_range_loop)] // indexes 4 parallel sources; zip obscures
     for i in 0..num_cells {
         let crust_type = crust.crust_type(i);
@@ -699,6 +792,10 @@ pub(crate) fn coarse_elevation_fields(
     ElevationFields {
         crust_thickness,
         tectonic_thickening,
+        legacy_uplift_source: matches!(
+            orogen_model,
+            OrogenModel::Legacy | OrogenModel::LegacyYield
+        ),
         tectonic_strain: features.thin_sheet_strain.clone(),
         compression_axis: features.thin_sheet_compression_axis.clone(),
         continentality: continentality_field,

@@ -44,6 +44,30 @@ pub const FEATURE_FORCE_SCALE: f32 = 35.0;
 /// — that would reintroduce the 1/sqrt(N) resolution dependence this removes.)
 pub const FEATURE_FORCE_REF_SPACING: f32 = 0.012558;
 
+// Geological time and physical plate-speed units (tectonic-time T0).
+//
+// The historical dynamics field stores a normalized angular velocity in [-1, 1]
+// because every feature calibration was built against that range. T0 preserves that
+// bit-identical field and supplies an explicit conversion for new history consumers.
+// One cm/yr equals 10 km/Myr.
+
+/// Maximum surface speed represented by a normalized plate speed of 1.
+pub const MAX_PLATE_SPEED_CM_PER_YEAR: f32 = 10.0;
+pub const CM_PER_YEAR_TO_KM_PER_MYR: f32 = 10.0;
+pub const MAX_PLATE_SPEED_KM_PER_MYR: f32 = MAX_PLATE_SPEED_CM_PER_YEAR * CM_PER_YEAR_TO_KM_PER_MYR;
+/// Physical angular speed corresponding to normalized angular velocity 1.
+pub const MAX_PLATE_ANGULAR_SPEED_RAD_PER_MYR: f32 = MAX_PLATE_SPEED_KM_PER_MYR / PLANET_RADIUS_KM;
+/// Initial bounded lookback for constant-velocity boundary replay.
+pub const TECTONIC_HISTORY_LOOKBACK_MYR: f32 = 100.0;
+/// Geological interval used to sample/match boundary episodes during replay.
+pub const TECTONIC_HISTORY_STEP_MYR: f32 = 1.0;
+/// Fixed material-carrier resolution for the experimental dynamic-domain replay.
+/// This gives a mean center spacing of about 249 km on an Earth-sized sphere.
+pub const TECTONIC_CARRIER_CELLS: usize = 8192;
+/// Carrier snapshot interval. Even a plate at the 100 km/Myr ceiling moves less
+/// than one mean carrier spacing per slice.
+pub const TECTONIC_CARRIER_STEP_MYR: f32 = 2.0;
+
 // Screened diffusion solver parameters
 
 /// Damping factor for Gauss-Seidel iteration (0 < ω ≤ 1). Lower = more stable.
@@ -104,6 +128,12 @@ pub const SUBDUCTION_MAGMATIC_ACCRETION: f32 = 0.15;
 /// broad, low orogenic plateaus.
 pub const CRUST_GRAVITATIONAL_DIFFUSIVITY: f32 = 0.024;
 
+/// Effective lower-crust/orogenic spreading mobility for history-integrated work.
+/// Dimensioned in km²/Myr; combined with episode duration, not a painted width.
+/// 1000 km²/Myr produces a diffusion length sqrt(D*t) of ~220–320 km over
+/// 50–100 Myr, comparable to broad continental deformation zones.
+pub const CRUST_GRAVITATIONAL_DIFFUSIVITY_KM2_PER_MYR: f32 = 1_000.0;
+
 // Thin-sheet deformation (T0)
 
 /// Duration of the thin-sheet deformation episode in Euler-velocity time
@@ -128,6 +158,12 @@ pub const THIN_SHEET_GRAVITATIONAL_DIFFUSIVITY: f32 = 0.002;
 /// This is a strength/gravity ratio: larger values permit narrow high ranges;
 /// zero gives fully viscous spreading. It is not a surface-elevation cap.
 pub const THIN_SHEET_YIELD_EXCESS: f32 = 0.20;
+
+/// Stress-transmission length for the physical-clock thin-sheet rung. This is
+/// the dimensioned form of the sheet-viscosity/basal-drag ratio; the solver
+/// converts `L²` to radians². It controls how far boundary traction penetrates,
+/// not a prescribed mountain footprint.
+pub const HISTORY_SHEET_STRESS_TRANSMISSION_KM: f32 = 440.0;
 
 // --- legacy-yield orogen rung (the missing middle of the model ladder) ---
 // The seed-12345 "pillar": a microplate with convergence on all sides gets
@@ -261,6 +297,9 @@ pub const PASSIVE_OCEANIC_TRANSITION_WIDTH: f32 = 0.08;
 pub const ACTIVE_OCEANIC_TRANSITION_WIDTH: f32 = 0.03;
 
 /// Angular velocity range for random Euler poles.
+/// Maximum NORMALIZED Euler angular velocity. Convert with
+/// `MAX_PLATE_ANGULAR_SPEED_RAD_PER_MYR`; legacy feature code intentionally consumes
+/// the normalized value until episode-integrated rates replace its calibrations.
 pub const MAX_ANGULAR_VELOCITY: f32 = 1.0;
 
 // Plate interaction multipliers (convergent)
@@ -809,10 +848,10 @@ pub const FINE_RELAX_PASSES: usize = 3;
 /// less relief; far more = over-graded lowlands. With uplift OFF (relaxation) the
 /// count is just a visual stopping time. Per-step cost is dominated by re-routing,
 /// so this is also the runtime knob.
-// DEFAULT 60→200 (2026-06-21): the emergent build needs more carving time (steps spreads
-// the same total uplift, so more steps = more dissection of the rising orogen) — 200 was
-// the visual-validated budget. This ~3× the erosion stage's time; `steps` is the primary
-// quality↔speed dial (lower = faster, less mature/dissected).
+// RESET NOTE (2026-07-11): 200 is retained provisionally because the stripped direct-
+// uplift baseline is numerically more mature (fewer unresolved peaks/pits) than 60.
+// It is NOT a physical age. Replace `steps * dt` with a dimensioned orogen age before
+// treating this as a calibrated geological control (docs/specs/terrain-reset.md).
 pub const EROSION_STEPS: usize = 200;
 
 /// Timestep (dimensionless; folded into K / uplift scale). Kept explicit so the
@@ -893,7 +932,7 @@ pub const EROSION_DIFFUSIVITY: f32 = 2.0e-8;
 /// (crisper, more planar ridges should LOWER cell-scale curvature, unlike the #1
 /// source smoothing which was a no-op). Watch the trap: too low → a
 /// "critical-slope-everywhere" tiled-facet world.
-pub const EROSION_HILLSLOPE_CRITICAL_SLOPE: f32 = 200.0;
+pub const EROSION_HILLSLOPE_CRITICAL_SLOPE: f32 = 0.0;
 
 /// Jacobi sweeps used to approximate the implicit diffusion solve each step.
 /// More = closer to the exact backward-Euler smoothing. Verified ample at 6
@@ -1044,7 +1083,7 @@ pub const EROSION_DEPOSIT_FILL_FRACTION: f32 = 0.5;
 /// at ~0.5–2%, i.e. SLOPE ≈ 3–13. 6.0 (~0.9% grade) is a conservative starting
 /// point in that band — meaningful valley-floor / fan aggradation without
 /// over-filling; raise toward 13 for more pervasive fill. Calibrate on renders.
-pub const EROSION_DEPOSITION_SLOPE: f32 = 6.0;
+pub const EROSION_DEPOSITION_SLOPE: f32 = 0.0;
 
 /// Channel-initiation support area (km²) at MEAN land wetness. Stream-power
 /// incision acts only on cells whose precip-weighted drainage (discharge)
@@ -1085,7 +1124,7 @@ pub const EROSION_CHANNEL_SUPPORT_KM2: f32 = 4.0;
 /// 0.5–2.0 (≈4x hard-to-soft). 0 = uniform K (no lithology). The effect is a
 /// pure redistribution, so it is subtle at low total erosion — raise it (or K)
 /// for bolder differential dissection. Sweep with diagnose --erosion-litho-sigma.
-pub const EROSION_LITHO_SIGMA: f32 = 0.7;
+pub const EROSION_LITHO_SIGMA: f32 = 0.0;
 
 /// Base spatial frequency of lithologic units (fBm on the unit sphere). ~12 puts
 /// the coarsest units near terrane scale (~500 km); octaves carry it down to
@@ -1112,7 +1151,7 @@ pub const EROSION_LITHO_GEO_STRENGTH: f32 = 0.5;
 /// strengthen toward the suture — a fold-and-thrust fabric the incision can express
 /// as ridge-and-valley / trellis drainage. EXPERIMENTAL (trellis is an outcome to
 /// test, not a promise). 0 = no grain. Sweep with diagnose --litho-grain-strength.
-pub const EROSION_LITHO_GRAIN_STRENGTH: f32 = 0.6;
+pub const EROSION_LITHO_GRAIN_STRENGTH: f32 = 0.0;
 
 /// Fold wavelength of the structural grain, in units of normalized convergence
 /// (0..1 across a belt). ~0.15 gives ~6–7 bands across the convergent gradient,
@@ -1132,9 +1171,10 @@ pub const EROSION_FOLD_WAVELENGTH: f32 = 0.15;
 /// Strength of the orographic precip modulation. The per-cell factor is
 /// (1 + STRENGTH * signed_orographic_norm), clamped to [MIN, MAX]. 0 disables it
 /// (precip = coarse). Up = sharper rain shadows. Conservative default — the
-/// effect is local (windward/lee of a range) so it's judged on maps, not the
-/// global drainage-density probe; sweep with diagnose --erosion-orographic-strength.
-pub const OROGRAPHIC_PRECIP_STRENGTH: f32 = 0.6;
+/// effect is local (windward/lee of a range). Reset default is neutral until the
+/// climate field and erosion response are validated independently of presentation;
+/// sweep with diagnose --erosion-orographic-strength.
+pub const OROGRAPHIC_PRECIP_STRENGTH: f32 = 0.0;
 /// Lower clamp on the modulation factor (driest lee = MIN x coarse precip).
 pub const OROGRAPHIC_PRECIP_MIN: f32 = 0.3;
 /// Upper clamp on the modulation factor (wettest windward = MAX x coarse precip).
@@ -1165,14 +1205,14 @@ pub const DOWNWIND_CONE_COS: f32 = 0.5;
 /// hydrology, but no erosion feedback); 2 = one feedback pass. Cost is ~linear
 /// (each pass is a full erosion run), so keep it small. Dial to 1 if stage-4 is
 /// too slow at full resolution.
-pub const EROSION_PRECIP_OUTER_ITERS: usize = 2;
+pub const EROSION_PRECIP_OUTER_ITERS: usize = 1;
 
 /// Lakes as evaporation sources: standing water adds local humidity, boosting
 /// precipitation in a halo around lakes. The per-cell factor is (1 + STRENGTH *
 /// lake_halo), renormalized to land mean 1.0. Local only (the fine mesh doesn't
 /// re-advect moisture), applied once after the lakes are known, so no runaway
 /// lake growth. 0 disables.
-pub const LAKE_EVAP_STRENGTH: f32 = 0.5;
+pub const LAKE_EVAP_STRENGTH: f32 = 0.0;
 /// Diffusion steps that spread the lake humidity into the surrounding halo.
 pub const LAKE_EVAP_DIFFUSE_STEPS: usize = 5;
 
@@ -1276,10 +1316,10 @@ pub const FAULT_BASIN_DROP_FRAC: f32 = 0.25;
 /// Amplitude (elevation units) of the interior structural relief. Zero-mean per
 /// coarse cell, so this is the ~peak fBm excursion (≈ this × 10 km). 0 = off
 /// (pure interpolant — the old flat-top behaviour). The master P1a knob.
-// DEFAULT 0.04→0.005 (2026-06-21): under the emergent default this is just a FAINT seed
-// to break drainage symmetry (erosion builds the relief). For the painted A/B path set it
-// back to ~0.04 (the structural-substrate amplitude).
-pub const FINE_INTERIOR_RELIEF: f32 = 0.005;
+// RESET DEFAULT (2026-07-11): off. The 0.005→0.04 range is erased by erosion, while
+// amplitudes large enough to survive make procedural height own the terrain. The
+// irregular coarse surface already supplies drainage gradients in the direct-uplift path.
+pub const FINE_INTERIOR_RELIEF: f32 = 0.0;
 
 /// Base spatial frequency of the interior fBm (cell_center is a unit vector, so
 /// the base-octave wavelength ≈ 1/this rad; 160 ≈ 40 km, squarely in the mid-band
@@ -1389,11 +1429,10 @@ pub const FINE_MARGIN_PASSIVE_FACTOR: f32 = 0.5;
 // prototype's hedge; 1.0 = build the orogen entirely from uplift (riskiest).
 // Rebuild calibration: uplift_scale * steps * dt ~= lambda (today 0.18); raise
 // EROSION_UPLIFT_SCALE accordingly when emergent.
-// DEFAULT (2026-06-21): emergent orogens are the PRODUCT path (validated: structured
-// uplift + n>1 + channel_support≈4 beats painted P1 dunes + the smooth dome). Set 0 to
-// fall back to the painted path (also requires the painted knobs — interior_relief 0.04,
-// front_strike_weight 0.7, etc.). See docs/specs/orogen-structure.md.
-pub const FINE_EMERGENT_LAMBDA: f32 = 0.5;
+// RESET DEFAULT (2026-07-11): off. Demoting a solved tectonic target and deriving a
+// self-calibrating rate to rebuild it is circular target chasing. Retained only for
+// experiments; the product path preserves the coarse surface and uses direct uplift.
+pub const FINE_EMERGENT_LAMBDA: f32 = 0.0;
 
 // --- O0: structured (asymmetric + segmented) emergent uplift (orogen-structure.md) ---
 // Replace the uniform per-cell rebuild of the demoted orogen with a TECTONIC uplift
@@ -1404,8 +1443,8 @@ pub const FINE_EMERGENT_LAMBDA: f32 = 0.5;
 // DISTRIBUTION is tectonic. Drives emergent + n>1. 0 = off (uniform v3 rebuild).
 
 /// Master O0 knob: blend of structured shape vs uniform rebuild. 0 = uniform (v3); 1 =
-/// fully structured. The decisive-hack default for an A/B run is 1.
-pub const FINE_EMERGENT_STRUCTURED: f32 = 1.0;
+/// fully structured. Product default is off; the machinery remains available for A/B.
+pub const FINE_EMERGENT_STRUCTURED: f32 = 0.0;
 
 /// Asymmetric front profile widths (radians of front-normal distance): steep narrow rise
 /// on the FORELAND side (≈64 km), gentle wide taper into the HINTERLAND (≈320 km). The
@@ -1533,3 +1572,31 @@ pub const EROSION_PULSE_TRUNK_ORDER: u32 = 3;
 pub const EROSION_PULSE_TRUNK_SUPPRESS: f32 = 0.4;
 /// Uplift boost on far interfluves/massif cores at dial 1.0 (consult: ~1.1-1.3×).
 pub const EROSION_PULSE_INTERFLUVE_BOOST: f32 = 0.25;
+
+#[cfg(test)]
+mod terrain_reset_tests {
+    use super::*;
+
+    #[test]
+    fn product_defaults_have_one_terrain_owner_per_scale() {
+        assert_eq!(FINE_EMERGENT_LAMBDA, 0.0);
+        assert_eq!(FINE_EMERGENT_STRUCTURED, 0.0);
+        assert_eq!(FINE_INTERIOR_RELIEF, 0.0);
+        assert_eq!(FINE_FRONT_STRIKE_WEIGHT, 0.0);
+        assert_eq!(FINE_MARGIN_CONTRAST, 0.0);
+        assert_eq!(FAULT_SCARP_HEIGHT, 0.0);
+        assert_eq!(EROSION_LITHO_SIGMA, 0.0);
+        assert_eq!(EROSION_LITHO_GRAIN_STRENGTH, 0.0);
+        assert_eq!(EROSION_HILLSLOPE_CRITICAL_SLOPE, 0.0);
+        assert_eq!(OROGRAPHIC_PRECIP_STRENGTH, 0.0);
+        assert_eq!(EROSION_PRECIP_OUTER_ITERS, 1);
+        assert_eq!(LAKE_EVAP_STRENGTH, 0.0);
+        assert_eq!(EROSION_DEPOSITION_SLOPE, 0.0);
+
+        assert_eq!(EROSION_N, 2.0);
+        assert_eq!(EROSION_UPLIFT_SCALE, 0.003);
+        assert_eq!(EROSION_STEPS, 200);
+        assert!(EROSION_FLAT_RESOLUTION);
+        assert_eq!(EROSION_CHANNEL_SUPPORT_KM2, 4.0);
+    }
+}

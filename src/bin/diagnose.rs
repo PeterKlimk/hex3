@@ -24,6 +24,16 @@ enum CliOrogenModel {
     ConservedFeatureFootprint,
     #[value(name = "conserved-isotropic")]
     ConservedIsotropic,
+    #[value(name = "history-local")]
+    HistoryLocal,
+    #[value(name = "history-diffusive")]
+    HistoryDiffusive,
+    #[value(name = "history-material")]
+    HistoryMaterial,
+    #[value(name = "history-thin-sheet")]
+    HistoryThinSheet,
+    #[value(name = "history-carrier-thin-sheet")]
+    HistoryCarrierThinSheet,
     #[value(name = "thin-sheet")]
     ThinSheet,
 }
@@ -66,6 +76,10 @@ struct Cli {
     /// stage over the complete process footprint (not only surviving mountains).
     #[arg(long, default_value_t = false)]
     detail_survival_audit: bool,
+    /// Audit connected plate-pair boundary episodes using physical km/Myr and
+    /// Myr units. This is coarse-only and exits before atmosphere/fine generation.
+    #[arg(long, default_value_t = false)]
+    tectonic_history_audit: bool,
     /// Run the RIVER NETWORK audit and exit: the rendered river network's
     /// Strahler/Horton structure, drainage density, mouths, and per-trunk
     /// length/sinuosity/profile table with Earth references.
@@ -288,6 +302,11 @@ fn main() {
         CliOrogenModel::ConservedLocal => OrogenModel::ConservedLocal,
         CliOrogenModel::ConservedFeatureFootprint => OrogenModel::ConservedFeatureFootprint,
         CliOrogenModel::ConservedIsotropic => OrogenModel::ConservedIsotropic,
+        CliOrogenModel::HistoryLocal => OrogenModel::HistoryLocal,
+        CliOrogenModel::HistoryDiffusive => OrogenModel::HistoryDiffusive,
+        CliOrogenModel::HistoryMaterial => OrogenModel::HistoryMaterial,
+        CliOrogenModel::HistoryThinSheet => OrogenModel::HistoryThinSheet,
+        CliOrogenModel::HistoryCarrierThinSheet => OrogenModel::HistoryCarrierThinSheet,
         CliOrogenModel::ThinSheet => OrogenModel::ThinSheet,
     };
     world.generate_plates(hex3::world::NUM_PLATES_DEFAULT);
@@ -295,6 +314,10 @@ fn main() {
     world.generate_dynamics();
     world.generate_features();
     world.generate_elevation();
+    if cli.tectonic_history_audit {
+        run_tectonic_history_audit(&world, cli.seed, cli.top);
+        return;
+    }
     world.generate_atmosphere();
     if cli.erosion_k >= 0.0 {
         world.erosion_params.k = cli.erosion_k;
@@ -1427,6 +1450,215 @@ fn main() {
             );
         }
     }
+}
+
+// ===================== TECTONIC-HISTORY AUDIT =====================
+
+fn run_tectonic_history_audit(world: &World, seed: u64, top: usize) {
+    let history = world
+        .tectonic_history
+        .as_ref()
+        .expect("tectonic history generated with features");
+    let mut episodes: Vec<_> = history.episodes.iter().collect();
+    episodes.sort_by(|a, b| {
+        b.integrated_normal_displacement_km
+            .abs()
+            .total_cmp(&a.integrated_normal_displacement_km.abs())
+    });
+
+    let mut durations: Vec<f32> = episodes.iter().map(|e| e.duration_myr).collect();
+    durations.sort_by(f32::total_cmp);
+    if durations.is_empty() {
+        println!("\n================ TECTONIC HISTORY seed={seed} ================");
+        println!("  no boundary episodes");
+        return;
+    }
+    let q = |p: f32| durations[(((durations.len() - 1) as f32) * p) as usize];
+    let count = |kind| episodes.iter().filter(|e| e.kind == kind).count();
+    let total_length: f32 = episodes.iter().map(|e| e.length_km).sum();
+    let features = world.features.as_ref().expect("features generated");
+    let aggregate_work: f64 = features
+        .tectonic_crust_work
+        .iter()
+        .map(|&work| work as f64)
+        .sum();
+    let episode_work: f64 = features
+        .tectonic_episode_work
+        .iter()
+        .flat_map(|episode| episode.cell_work.iter())
+        .map(|&(_, work)| work as f64)
+        .sum();
+    let material_work: f64 = features
+        .tectonic_material_episode_work
+        .iter()
+        .flat_map(|episode| episode.cell_work.iter())
+        .map(|&(_, work)| work as f64)
+        .sum();
+    let target_area: f64 = features
+        .tectonic_material_episode_work
+        .iter()
+        .map(|episode| episode.target_footprint_area as f64)
+        .sum();
+    let allocated_area: f64 = features
+        .tectonic_material_episode_work
+        .iter()
+        .map(|episode| episode.allocated_footprint_area as f64)
+        .sum();
+    let work_residual = episode_work - aggregate_work;
+    let max_elevation_km = world
+        .elevation
+        .as_ref()
+        .expect("elevation generated")
+        .values
+        .iter()
+        .copied()
+        .fold(f32::NEG_INFINITY, f32::max)
+        * 10.0;
+
+    let history_model = format!("{:?}", episodes[0].model).to_lowercase();
+    println!(
+        "\n================ TECTONIC HISTORY seed={} model={} ================",
+        seed, history_model
+    );
+    println!(
+        "  clock: lookback {:.1} Myr, sample step {:.1} Myr | max plate speed {:.1} km/Myr ({:.1} cm/yr)",
+        history.lookback_myr,
+        history.step_myr,
+        hex3::world::MAX_PLATE_SPEED_KM_PER_MYR,
+        hex3::world::MAX_PLATE_SPEED_CM_PER_YEAR,
+    );
+    println!(
+        "  episodes {} (conv/div/transform {}/{}/{}) | boundary length {:.0} km",
+        episodes.len(),
+        count(hex3::world::BoundaryKind::Convergent),
+        count(hex3::world::BoundaryKind::Divergent),
+        count(hex3::world::BoundaryKind::Transform),
+        total_length,
+    );
+    println!(
+        "  residence duration p10/p50/p90 = {:.1}/{:.1}/{:.1} Myr",
+        q(0.1),
+        q(0.5),
+        q(0.9),
+    );
+    if let Some(carrier) = &history.carrier_replay {
+        let snapshot_count = carrier.snapshots.len().max(1);
+        let mean_gaps: f32 = carrier
+            .snapshots
+            .iter()
+            .map(|snapshot| snapshot.gap_cells as f32)
+            .sum::<f32>()
+            / snapshot_count as f32;
+        let mean_overlaps: f32 = carrier
+            .snapshots
+            .iter()
+            .map(|snapshot| snapshot.overlap_excess as f32)
+            .sum::<f32>()
+            / snapshot_count as f32;
+        let max_gaps = carrier
+            .snapshots
+            .iter()
+            .map(|snapshot| snapshot.gap_cells)
+            .max()
+            .unwrap_or(0);
+        let max_overlaps = carrier
+            .snapshots
+            .iter()
+            .map(|snapshot| snapshot.overlap_excess)
+            .max()
+            .unwrap_or(0);
+        let topology_changes: usize = carrier
+            .snapshots
+            .iter()
+            .map(|snapshot| snapshot.topology_changes_from_previous)
+            .sum();
+        let last = carrier.snapshots.last().expect("carrier has t=0 snapshot");
+        println!(
+            "  carrier: {} cells ({:.0} km spacing), {} snapshots x {:.1} Myr, built {:.3}s",
+            carrier.num_cells,
+            carrier.mean_spacing_km,
+            carrier.snapshots.len(),
+            carrier.step_myr,
+            carrier.build_seconds,
+        );
+        println!(
+            "  raster ledger: mean/max gaps {:.0}/{} cells, overlap excess {:.0}/{} parcels, max occupancy {} | pair topology changes {}",
+            mean_gaps,
+            max_gaps,
+            mean_overlaps,
+            max_overlaps,
+            carrier
+                .snapshots
+                .iter()
+                .map(|snapshot| snapshot.max_occupancy)
+                .max()
+                .unwrap_or(0),
+            topology_changes,
+        );
+        println!(
+            "  oldest topology @ {:.0} Myr: {} pairs (conv/div/transform {}/{}/{})",
+            last.lookback_myr,
+            last.adjacent_pairs.len(),
+            last.convergent_pairs,
+            last.divergent_pairs,
+            last.transform_pairs,
+        );
+    }
+    println!(
+        "  crust-work ledger: aggregate {:.6e}, episode-sparse {:.6e}, residual {:+.3e} ({:.3e} relative) | model peak {:.1} km",
+        aggregate_work,
+        episode_work,
+        work_residual,
+        work_residual.abs() / aggregate_work.abs().max(1e-30),
+        max_elevation_km,
+    );
+    if !features.tectonic_material_episode_work.is_empty() {
+        println!(
+            "  material remap: work {:.6e}, residual {:+.3e} | footprint target/allocated {:.6e}/{:.6e} sr ({:.1}% capacity)",
+            material_work,
+            material_work - aggregate_work,
+            target_area,
+            allocated_area,
+            100.0 * allocated_area / target_area.max(1e-30),
+        );
+    }
+    if matches!(
+        world.orogen_model,
+        OrogenModel::ThinSheet
+            | OrogenModel::HistoryThinSheet
+            | OrogenModel::HistoryCarrierThinSheet
+    ) {
+        println!(
+            "  thin-sheet mass: magma-added {:.6e}, residual {:+.3e} ({:.3e} relative)",
+            features.thin_sheet_material_added,
+            features.thin_sheet_material_residual,
+            features.thin_sheet_material_residual.abs()
+                / features.thin_sheet_material_added.abs().max(1e-30),
+        );
+    }
+    println!(
+        "  id pair kind       edges length_km rate_n rate_s speed duration displacement_n/shear km"
+    );
+    for e in episodes.into_iter().take(top) {
+        println!(
+            " {:>3} {:>2}-{:>2} {:<10} {:>5} {:>9.0} {:+6.1} {:+6.1} {:>5.1} {:>7.1} {:+8.0}/{:+8.0}",
+            e.id,
+            e.plate_a,
+            e.plate_b,
+            format!("{:?}", e.kind).to_lowercase(),
+            e.edge_count,
+            e.length_km,
+            e.mean_convergence_km_per_myr,
+            e.mean_shear_km_per_myr,
+            e.mean_relative_speed_km_per_myr,
+            e.duration_myr,
+            e.integrated_normal_displacement_km,
+            e.integrated_shear_displacement_km,
+        );
+    }
+    println!(
+        "  provenance: duration=min(kinematic residence, back-rotated pair adjacency); Euler poles held fixed; present geography is the reconstruction boundary condition"
+    );
 }
 
 // ===================== REBUILD-FIDELITY AUDIT =====================
@@ -2924,6 +3156,68 @@ fn run_mountain_audit(world: &World, seed: u64, top: usize) {
         eq(0.9)
     );
 
+    // Per-range plateau geometry. A broad cap can disappear in a global
+    // top-decile aggregate when a structured builder fragments one massif into
+    // several components. Measure each significant range independently:
+    // physical area within 0.5/1.0 km of its own summit, plus the fraction of
+    // the 0.5-km cap whose steepest downhill edge is below a 1% grade. These
+    // are terrain-field measurements; relief scale, lighting, and coloring do
+    // not enter them.
+    let r2 = EARTH_RADIUS_KM * EARTH_RADIUS_KM;
+    let mut cap500_areas = Vec::with_capacity(significant.len());
+    let mut cap1000_areas = Vec::with_capacity(significant.len());
+    let mut cap500_flat_pct = Vec::with_capacity(significant.len());
+    for comp in &significant {
+        let peak = comp
+            .cells
+            .iter()
+            .map(|&i| elev[i])
+            .fold(f32::NEG_INFINITY, f32::max);
+        let mut cap500_area = 0.0f64;
+        let mut cap1000_area = 0.0f64;
+        let mut flat500_area = 0.0f64;
+        for &i in &comp.cells {
+            let area_km2 = areas[i] as f64 * r2 as f64;
+            if elev[i] >= peak - 0.10 {
+                cap1000_area += area_km2;
+            }
+            if elev[i] < peak - 0.05 {
+                continue;
+            }
+            cap500_area += area_km2;
+            let ci = tess.cell_center(i);
+            let mut max_downhill = 0.0f32;
+            for &nb in tess.neighbors(i) {
+                let d_km = (ci - tess.cell_center(nb)).length().max(1e-9) * EARTH_RADIUS_KM;
+                max_downhill = max_downhill.max((elev[i] - elev[nb]).max(0.0) / d_km);
+            }
+            // Elevation unit = 10 km, so 1e-3 elevation/km = 1% grade.
+            if max_downhill < 1.0e-3 {
+                flat500_area += area_km2;
+            }
+        }
+        cap500_areas.push(cap500_area as f32);
+        cap1000_areas.push(cap1000_area as f32);
+        cap500_flat_pct.push(if cap500_area > 0.0 {
+            (100.0 * flat500_area / cap500_area) as f32
+        } else {
+            0.0
+        });
+    }
+    for values in [&mut cap500_areas, &mut cap1000_areas, &mut cap500_flat_pct] {
+        values.sort_by(f32::total_cmp);
+    }
+    let q = |values: &[f32], p: f32| values[(((values.len() - 1) as f32) * p) as usize];
+    println!(
+        "  per-range summit caps p50/p90: within 0.5km {:>7.0}/{:>7.0} km² | within 1.0km {:>7.0}/{:>7.0} km² | 0.5km cap below 1% grade {:>5.1}/{:>5.1}%",
+        q(&cap500_areas, 0.5),
+        q(&cap500_areas, 0.9),
+        q(&cap1000_areas, 0.5),
+        q(&cap1000_areas, 0.9),
+        q(&cap500_flat_pct, 0.5),
+        q(&cap500_flat_pct, 0.9),
+    );
+
     println!(
         "  per-range:   area_km²  len×wid km   peak_m  crest: bins passes med_pass_m floor_m  offset"
     );
@@ -2954,7 +3248,6 @@ fn run_mountain_audit(world: &World, seed: u64, top: usize) {
     {
         let max_peak_m = significant
             .iter()
-            .take(top)
             .map(|c| audit_range(tess, c, elev).peak_m)
             .fold(f32::NEG_INFINITY, f32::max);
         let verdict = if max_peak_m > 14_000.0 {

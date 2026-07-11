@@ -12,13 +12,13 @@ use std::collections::HashMap;
 
 use glam::Vec3;
 
-use super::constants::{TRANSFORM_NORMAL_THRESHOLD, TRANSFORM_RATIO};
+use super::constants::{MAX_PLATE_SPEED_KM_PER_MYR, TRANSFORM_NORMAL_THRESHOLD, TRANSFORM_RATIO};
 use super::crust::{Crust, CrustType};
 use super::dynamics::Dynamics;
 use super::{Plates, Tessellation};
 
 /// Kinematic boundary classification based on relative motion across the boundary.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum BoundaryKind {
     /// Plates are moving toward each other across the boundary.
     Convergent,
@@ -65,6 +65,22 @@ pub struct PlateBoundaryEdge {
     pub kind: BoundaryKind,
     /// Subduction polarity for convergent boundaries where it is defined.
     pub subduction: Option<SubductionPolarity>,
+}
+
+impl PlateBoundaryEdge {
+    /// Closing rate in km/Myr (positive convergent, negative divergent).
+    pub fn convergence_km_per_myr(&self) -> f32 {
+        self.convergence * MAX_PLATE_SPEED_KM_PER_MYR
+    }
+
+    /// Along-boundary relative motion in km/Myr.
+    pub fn shear_km_per_myr(&self) -> f32 {
+        self.shear * MAX_PLATE_SPEED_KM_PER_MYR
+    }
+
+    pub fn relative_speed_km_per_myr(&self) -> f32 {
+        self.relative_speed * MAX_PLATE_SPEED_KM_PER_MYR
+    }
 }
 
 #[cfg(test)]

@@ -11,7 +11,7 @@ use glam::Vec3;
 use super::boundary::{PlateBoundaryEdge, SubductionPolarity};
 use super::constants::*;
 use super::crust::{Crust, CrustType};
-use super::{Plates, Tessellation};
+use super::{Plates, TectonicHistory, Tessellation};
 
 pub(crate) struct ThinSheetFields {
     /// Signed thickness change. Area-weighted integral equals retained magma;
@@ -21,6 +21,10 @@ pub(crate) struct ThinSheetFields {
     pub strain: Vec<f32>,
     /// Tangent axis of strongest compression; zero where unresolved.
     pub compression_axis: Vec<Vec3>,
+    /// Positive material supplied by retained arc magma (thickness × steradian).
+    pub material_added: f64,
+    /// Final area-weighted thickness change minus `material_added`.
+    pub material_residual: f64,
 }
 
 #[derive(Clone, Copy)]
@@ -54,10 +58,7 @@ pub(crate) fn yield_relax(
     let n = tess.num_cells();
     if tau <= 0.0
         || picard_steps == 0
-        || !field
-            .iter()
-            .zip(yield_value.iter())
-            .any(|(&h, &y)| h > y)
+        || !field.iter().zip(yield_value.iter()).any(|(&h, &y)| h > y)
     {
         return field.to_vec();
     }
@@ -406,6 +407,16 @@ pub(crate) fn solve_thin_sheet(
         .zip(reference_thickness.iter())
         .map(|(&after, &before)| after - before)
         .collect();
+    let material_added: f64 = magmatic_volume_rate
+        .iter()
+        .map(|&rate| rate as f64 * duration as f64)
+        .sum();
+    let material_residual: f64 = thickness_delta
+        .iter()
+        .zip(areas.iter())
+        .map(|(&delta, &area)| delta as f64 * area as f64)
+        .sum::<f64>()
+        - material_added;
 
     let strain: Vec<f32> = strain_sum
         .iter()
@@ -436,6 +447,266 @@ pub(crate) fn solve_thin_sheet(
         thickness_delta,
         strain,
         compression_axis,
+        material_added,
+        material_residual,
+    }
+}
+
+/// Physical-clock thin-sheet evolution. Boundary closure supplies traction,
+/// not crustal volume: continuity redistributes the receiving plate's existing
+/// crust, while only retained arc magma is a positive material source. Episode
+/// start times determine which contacts are active in each interval.
+pub(crate) fn solve_history_thin_sheet(
+    tess: &Tessellation,
+    plates: &Plates,
+    crust: &Crust,
+    boundaries: &[PlateBoundaryEdge],
+    history: &TectonicHistory,
+) -> ThinSheetFields {
+    let n = tess.num_cells();
+    let areas = tess.cell_areas();
+    let reference_thickness: Vec<f32> = (0..n)
+        .map(|i| match crust.crust_type(i) {
+            CrustType::Continental => CRUST_THICKNESS_CONTINENTAL,
+            CrustType::Oceanic => CRUST_THICKNESS_OCEANIC,
+        })
+        .collect();
+    let mut thickness = reference_thickness.clone();
+
+    let mut edges = Vec::with_capacity(tess.adjacency.total_neighbor_entries() / 2);
+    for i in 0..n {
+        for &j in tess.neighbors(i) {
+            if j <= i
+                || plates.cell_plate[i] != plates.cell_plate[j]
+                || crust.crust_type(i) != crust.crust_type(j)
+            {
+                continue;
+            }
+            let a = tess.cell_center(i);
+            let b = tess.cell_center(j);
+            let center_distance = (b - a).length();
+            let face_length = tess.shared_edge_length(i, j);
+            if center_distance <= 1e-8 || face_length <= 0.0 {
+                continue;
+            }
+            let midpoint = (a + b).normalize_or_zero();
+            let chord = b - a;
+            let normal = (chord - midpoint * midpoint.dot(chord)).normalize_or_zero();
+            if normal != Vec3::ZERO {
+                edges.push(SheetEdge {
+                    a: i,
+                    b: j,
+                    conductance: face_length / center_distance,
+                    face_length,
+                    normal_a_to_b: normal,
+                });
+            }
+        }
+    }
+
+    let mut ages = vec![0.0f32];
+    ages.extend(
+        history
+            .episodes
+            .iter()
+            .filter(|episode| episode.duration_myr > 0.0)
+            .map(|episode| episode.duration_myr),
+    );
+    ages.sort_by(f32::total_cmp);
+    ages.dedup_by(|a, b| (*a - *b).abs() < 1e-6);
+
+    let coupling = (HISTORY_SHEET_STRESS_TRANSMISSION_KM / PLANET_RADIUS_KM).powi(2);
+    let gravity_diffusivity =
+        CRUST_GRAVITATIONAL_DIFFUSIVITY_KM2_PER_MYR / (PLANET_RADIUS_KM * PLANET_RADIUS_KM);
+    let rate_scale = MAX_PLATE_ANGULAR_SPEED_RAD_PER_MYR;
+    let mut strain = vec![0.0f32; n];
+    let mut strongest_compression = vec![0.0f32; n];
+    let mut compression_axis = vec![Vec3::ZERO; n];
+    let mut total_substeps = 0usize;
+    let mut material_added = 0.0f64;
+
+    // Integrate from the oldest represented contact toward the present. A
+    // current episode of duration T is active for geological ages [0, T].
+    for interval in (1..ages.len()).rev() {
+        let age_hi = ages[interval];
+        let age_lo = ages[interval - 1];
+        let dt_interval = age_hi - age_lo;
+        if dt_interval <= 0.0 {
+            continue;
+        }
+        let age_mid = 0.5 * (age_hi + age_lo);
+        let mut target_sum = vec![Vec3::ZERO; n];
+        let mut target_weight = vec![0.0f32; n];
+        let mut magmatic_volume_rate = vec![0.0f32; n];
+
+        for boundary in boundaries {
+            let Some(episode) = history.episode_for_edge(boundary.cell_a, boundary.cell_b) else {
+                continue;
+            };
+            if episode.duration_myr < age_mid {
+                continue;
+            }
+            let closing = boundary.convergence.max(0.0) * rate_scale;
+            if closing <= 0.0 {
+                continue;
+            }
+            let mut add_target = |cell: usize, magnitude: f32| {
+                if magnitude <= 0.0 {
+                    return;
+                }
+                let center = tess.cell_center(cell);
+                let toward = boundary.boundary_point - center * center.dot(boundary.boundary_point);
+                if toward.length_squared() <= 1e-12 {
+                    return;
+                }
+                let weight = boundary.edge_length;
+                target_sum[cell] += -toward.normalize() * magnitude * weight;
+                target_weight[cell] += weight;
+            };
+            match boundary.subduction {
+                None if boundary.type_a == CrustType::Continental
+                    && boundary.type_b == CrustType::Continental =>
+                {
+                    add_target(boundary.cell_a, 0.5 * closing);
+                    add_target(boundary.cell_b, 0.5 * closing);
+                }
+                Some(SubductionPolarity::ASubducts) => {
+                    if boundary.type_b == CrustType::Continental {
+                        add_target(boundary.cell_b, SUBDUCTION_COMPRESSION_COUPLING * closing);
+                    }
+                    magmatic_volume_rate[boundary.cell_b] += closing
+                        * boundary.edge_length
+                        * SUBDUCTION_MAGMATIC_ACCRETION
+                        * CRUST_THICKNESS_OCEANIC;
+                }
+                Some(SubductionPolarity::BSubducts) => {
+                    if boundary.type_a == CrustType::Continental {
+                        add_target(boundary.cell_a, SUBDUCTION_COMPRESSION_COUPLING * closing);
+                    }
+                    magmatic_volume_rate[boundary.cell_a] += closing
+                        * boundary.edge_length
+                        * SUBDUCTION_MAGMATIC_ACCRETION
+                        * CRUST_THICKNESS_OCEANIC;
+                }
+                _ => {}
+            }
+        }
+
+        let target: Vec<Vec3> = target_sum
+            .iter()
+            .zip(target_weight.iter())
+            .map(|(&sum, &weight)| {
+                if weight > 0.0 {
+                    sum / weight
+                } else {
+                    Vec3::ZERO
+                }
+            })
+            .collect();
+        let velocity = solve_velocity(tess, &areas, &edges, &target, coupling);
+        let magma_source: Vec<f32> = magmatic_volume_rate
+            .iter()
+            .zip(areas.iter())
+            .map(|(&rate, &area)| rate / area.max(1e-12))
+            .collect();
+        let magmatic_rate = solve_screened_scalar(&areas, &edges, &magma_source, coupling);
+        material_added += magmatic_volume_rate
+            .iter()
+            .map(|&rate| rate as f64 * dt_interval as f64)
+            .sum::<f64>();
+
+        let mut outgoing_rate = vec![0.0f32; n];
+        for edge in &edges {
+            let midpoint =
+                (tess.cell_center(edge.a) + tess.cell_center(edge.b)).normalize_or_zero();
+            let va = velocity[edge.a] - midpoint * midpoint.dot(velocity[edge.a]);
+            let vb = velocity[edge.b] - midpoint * midpoint.dot(velocity[edge.b]);
+            let normal_speed = (0.5 * (va + vb)).dot(edge.normal_a_to_b);
+            let (donor, speed) = if normal_speed > 0.0 {
+                (edge.a, normal_speed)
+            } else {
+                (edge.b, -normal_speed)
+            };
+            outgoing_rate[donor] += speed * edge.face_length / areas[donor].max(1e-12);
+
+            let center_distance = (tess.cell_center(edge.b) - tess.cell_center(edge.a))
+                .length()
+                .max(1e-8);
+            let normal_strain = (vb - va).dot(edge.normal_a_to_b) / center_distance;
+            let strain_add = dt_interval * normal_strain.abs();
+            strain[edge.a] += 0.5 * strain_add;
+            strain[edge.b] += 0.5 * strain_add;
+            if normal_strain < -strongest_compression[edge.a] {
+                strongest_compression[edge.a] = -normal_strain;
+                compression_axis[edge.a] = edge.normal_a_to_b;
+            }
+            if normal_strain < -strongest_compression[edge.b] {
+                strongest_compression[edge.b] = -normal_strain;
+                compression_axis[edge.b] = edge.normal_a_to_b;
+            }
+        }
+        let max_courant = dt_interval * outgoing_rate.iter().copied().fold(0.0f32, f32::max);
+        let substeps = (max_courant / 0.20).ceil().max(1.0) as usize;
+        total_substeps += substeps;
+        let dt = dt_interval / substeps as f32;
+        let mut volume_change = vec![0.0f32; n];
+        for _ in 0..substeps {
+            volume_change.fill(0.0);
+            for edge in &edges {
+                let midpoint =
+                    (tess.cell_center(edge.a) + tess.cell_center(edge.b)).normalize_or_zero();
+                let va = velocity[edge.a] - midpoint * midpoint.dot(velocity[edge.a]);
+                let vb = velocity[edge.b] - midpoint * midpoint.dot(velocity[edge.b]);
+                let normal_speed = (0.5 * (va + vb)).dot(edge.normal_a_to_b);
+                let donor_h = if normal_speed >= 0.0 {
+                    thickness[edge.a]
+                } else {
+                    thickness[edge.b]
+                };
+                let flux = donor_h * normal_speed * edge.face_length;
+                volume_change[edge.a] -= dt * flux;
+                volume_change[edge.b] += dt * flux;
+            }
+            for i in 0..n {
+                thickness[i] += volume_change[i] / areas[i].max(1e-12);
+                thickness[i] += dt * magmatic_rate[i].max(0.0);
+            }
+        }
+
+        let tau = gravity_diffusivity * dt_interval;
+        if tau > 0.0 {
+            thickness = solve_screened_scalar(&areas, &edges, &thickness, tau);
+        }
+    }
+
+    let thickness_delta: Vec<f32> = thickness
+        .iter()
+        .zip(reference_thickness.iter())
+        .map(|(&after, &before)| after - before)
+        .collect();
+    let material_residual: f64 = thickness_delta
+        .iter()
+        .zip(areas.iter())
+        .map(|(&delta, &area)| delta as f64 * area as f64)
+        .sum::<f64>()
+        - material_added;
+    log::debug!(
+        "history thin sheet: intervals={}, substeps={}, min_H={:.3}, max_H={:.3}, max_dH={:.3}",
+        ages.len().saturating_sub(1),
+        total_substeps,
+        thickness.iter().copied().fold(f32::INFINITY, f32::min),
+        thickness.iter().copied().fold(f32::NEG_INFINITY, f32::max),
+        thickness_delta
+            .iter()
+            .copied()
+            .fold(f32::NEG_INFINITY, f32::max),
+    );
+    ThinSheetFields {
+        thickness_delta,
+        strain,
+        compression_axis,
+        material_added,
+        material_residual,
     }
 }
 

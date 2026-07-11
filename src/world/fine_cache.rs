@@ -55,7 +55,7 @@ use super::{Atmosphere, Crust, Elevation, FeatureFields, OrogenModel, Tessellati
 /// solve, and that solved field is transferred to the fine base.
 /// v11: runtime orogen-model selection is part of the key.
 /// v12: thin-sheet strain and compression-axis fields are transferred.
-const FINE_BASE_CACHE_VERSION: u32 = 12;
+const FINE_BASE_CACHE_VERSION: u32 = 13;
 
 /// How the fine-mesh base should use the on-disk cache.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -99,6 +99,11 @@ pub fn fine_base_key(
             OrogenModel::ConservedIsotropic => 3,
             OrogenModel::ThinSheet => 4,
             OrogenModel::LegacyYield => 5,
+            OrogenModel::HistoryLocal => 6,
+            OrogenModel::HistoryDiffusive => 7,
+            OrogenModel::HistoryMaterial => 8,
+            OrogenModel::HistoryThinSheet => 9,
+            OrogenModel::HistoryCarrierThinSheet => 10,
         },
     );
     mix_u64(&mut h, max_cells as u64);

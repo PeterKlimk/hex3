@@ -681,11 +681,11 @@ impl ErosionState {
         let inv_slope = 1.0 / slope;
         let thick_init = fields.crust_thickness.clone();
 
-        // Tectonic uplift source, in THICKNESS units per step. The static orogen
-        // load is selected by `OrogenModel`: legacy reproduces the historical
-        // arc/collision response, while experiments can supply a conserved crust
-        // solve. Rift delta is already a signed thickness delta. NOT atmospheric
-        // uplift.
+        // Tectonic uplift source, in legacy THICKNESS units per step, explicitly
+        // separate from the model's accumulated crust state. Legacy carries its
+        // arc/collision/rift source here. History models carry zero until their
+        // present physical rate and the erosion clock are both dimensioned; this
+        // prevents the fine loop from rebuilding a 100-Myr load every 200 steps.
         //
         // Gated to land (base >= sea level). Incision and diffusion skip submerged
         // cells, so uplift there would be a one-way thickness addition with nothing
@@ -751,7 +751,11 @@ impl ErosionState {
                     if base[i] < 0.0 {
                         return 0.0;
                     }
-                    params.uplift_scale * (fields.tectonic_thickening[i] + fields.rift_delta[i])
+                    if fields.legacy_uplift_source {
+                        params.uplift_scale * (fields.tectonic_thickening[i] + fields.rift_delta[i])
+                    } else {
+                        0.0
+                    }
                 }
             })
             .collect();
