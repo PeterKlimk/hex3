@@ -365,14 +365,14 @@ fn print_rows(rows: &[Metrics]) {
 fn print_operator_ladder(rows: &[Metrics], requested_resolutions: &[usize]) {
     println!("\n## Operator isolation ladder\n");
     println!("Volumes are thickness×steradian; maxima are thickness units before isostasy. Projection residual compares projected with carrier-native net volume.\n");
-    println!("| seed | carrier | boundary km | swept km²/Myr | support % | target L1 | arc rate | one-step max/+/- | frozen-100 max/+/- | moving-native max/+/- | projected max/+/- | projection net residual |");
-    println!("|---:|---:|---:|---:|---:|---:|---:|:---|:---|:---|:---|---:|");
+    println!("| seed | carrier | boundary km | swept km²/Myr | support % | target L1 | arc rate | one-step total/transport/magma max | one-step +/- | frozen-100 max/+/- | moving-native max/+/- | projected max/+/- | projection net residual |");
+    println!("|---:|---:|---:|---:|---:|---:|---:|:---|:---|:---|:---|:---|---:|");
     for row in rows {
         let Some(audit) = row.operator else {
             continue;
         };
         println!(
-            "| {} | {} | {:.0} | {:.0} | {:.1} | {:.3e} | {:.3e} | {:.3}/{:.3e}/{:.3e} | {:.3}/{:.3e}/{:.3e} | {:.3}/{:.3e}/{:.3e} | {:.3}/{:.3e}/{:.3e} | {:+.3e} |",
+            "| {} | {} | {:.0} | {:.0} | {:.1} | {:.3e} | {:.3e} | {:.3}/{:.3}/{:.3} | {:.3e}/{:.3e} | {:.3}/{:.3e}/{:.3e} | {:.3}/{:.3e}/{:.3e} | {:.3}/{:.3e}/{:.3e} | {:+.3e} |",
             row.seed,
             row.carrier_cells,
             audit.mean_boundary_length_km,
@@ -381,6 +381,8 @@ fn print_operator_ladder(rows: &[Metrics], requested_resolutions: &[usize]) {
             audit.mean_target_l1,
             audit.mean_arc_addition_rate,
             audit.one_step_max,
+            audit.one_step_transport_max,
+            audit.one_step_magma_max,
             audit.one_step_positive,
             audit.one_step_negative,
             audit.frozen_max,

@@ -120,3 +120,51 @@ The next fix belongs in boundary forcing: define traction on edges as a finite-v
 boundary flux or regularize it over a fixed physical fault-zone width before solving
 sheet velocity. It must make integrated swept area and maximum one-step response
 converge without changing plate speed, arc retention, mobility, or erosion.
+
+### Exact boundary-velocity A/B: falsified and reverted
+
+A constrained screened-Laplace experiment fixed every receiver-boundary cell to its
+closure-derived velocity and solved only the free interior. This removed the shrinking
+volumetric-source interpretation without adding a traction coefficient. It worsened
+every gate:
+
+| carrier | one-step max | frozen-100 max | final coarse peak |
+|---:|---:|---:|---:|
+| 4096 | 0.176 | 3.548 | 14.23 km |
+| 8192 | 0.232 | 5.275 | 17.72 km |
+| 16384 | 0.505 | 6.623 | 20.34 km |
+
+The one-step span increased from 0.122 to 0.330 and the frozen-100 span from
+0.594 to 3.075. Exact constraints preserve every increasingly jagged boundary-cell
+corner and therefore concentrate, rather than regularize, deformation. The experiment
+was reverted; `history-carrier-evolved` retains its prior volumetric-source result.
+
+This A/B rules out raw per-cell Dirichlet forcing. The next candidate must first define
+a resolution-independent physical boundary geometry—e.g. fixed-scale chain
+regularization or a finite-width forcing measure—before either Dirichlet velocity or
+Neumann traction can converge.
+
+### Fixed-width boundary-band A/B: falsified and reverted
+
+A 440 km compact band (the existing sheet stress-transmission length) propagated
+closure velocity inward on each plate/crust domain. The first nearest-seed version
+created internal Voronoi seams and produced a 0.301 one-step span. Blending nearby
+boundary directions by edge length removed those seams but still produced:
+
+| carrier | one-step max | transport-only max | magma-only max | final coarse peak |
+|---:|---:|---:|---:|---:|
+| 4096 | 0.197 | 0.197 | 0.024 | 14.12 km |
+| 8192 | 0.250 | 0.250 | 0.031 | 13.89 km |
+| 16384 | 0.336 | 0.336 | 0.059 | 20.85 km |
+
+The blended one-step span is 0.139, still worse than the original 0.122, and its
+terrain peak span is 6.96 km. Source attribution shows the one-step maximum is
+transport-dominated, not arc-magma dominated. The band machinery was removed; only
+the transport/magma attribution remains in the standing ladder.
+
+At this point 4096/8192/16384 are better understood as different physical procedural
+resolutions, not a convergent discretization family: a 440 km deformation gradient is
+barely one carrier edge at 4096 cells. Hex3 does not require a physics-grade continuum
+limit. The honest near-term choice is to retain the canonical 8192-cell (~250 km)
+carrier, keep its resolution failure visible, and assess whether same-clock denudation
+regulates the otherwise authentic moving history. Do not claim numerical convergence.

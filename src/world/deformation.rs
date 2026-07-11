@@ -50,6 +50,8 @@ pub struct CarrierOperatorAudit {
     pub one_step_positive: f64,
     pub one_step_negative: f64,
     pub one_step_max: f32,
+    pub one_step_transport_max: f32,
+    pub one_step_magma_max: f32,
     pub frozen_positive: f64,
     pub frozen_negative: f64,
     pub frozen_max: f32,
@@ -962,8 +964,33 @@ fn solve_carrier_replay_evolved(
                 CrustType::Oceanic => CRUST_THICKNESS_OCEANIC,
             })
             .collect();
-        let one_step =
-            evolve_frozen_carrier(mesh, &present_step, &reference_cells, replay.step_myr, 1);
+        let one_step = evolve_frozen_carrier(
+            mesh,
+            &present_step,
+            &reference_cells,
+            replay.step_myr,
+            1,
+            true,
+            true,
+        );
+        let one_step_transport = evolve_frozen_carrier(
+            mesh,
+            &present_step,
+            &reference_cells,
+            replay.step_myr,
+            1,
+            true,
+            false,
+        );
+        let one_step_magma = evolve_frozen_carrier(
+            mesh,
+            &present_step,
+            &reference_cells,
+            replay.step_myr,
+            1,
+            false,
+            true,
+        );
         let frozen_steps = (history_duration_myr(replay) / replay.step_myr)
             .round()
             .max(1.0) as usize;
@@ -973,11 +1000,17 @@ fn solve_carrier_replay_evolved(
             &reference_cells,
             replay.step_myr,
             frozen_steps,
+            true,
+            true,
         );
         let (one_positive, one_negative, one_max, _) =
             thickness_change_stats(&one_step, &reference_cells, &mesh.areas);
         let (frozen_positive, frozen_negative, frozen_max, _) =
             thickness_change_stats(&frozen, &reference_cells, &mesh.areas);
+        let (_, _, one_step_transport_max, _) =
+            thickness_change_stats(&one_step_transport, &reference_cells, &mesh.areas);
+        let (_, _, one_step_magma_max, _) =
+            thickness_change_stats(&one_step_magma, &reference_cells, &mesh.areas);
         let (moving_positive, moving_negative, moving_max, moving_net) =
             field_stats(&parcel_delta, &mesh.areas);
         let (projected_positive, projected_negative, projected_max, projected_net) =
@@ -992,6 +1025,8 @@ fn solve_carrier_replay_evolved(
             one_step_positive: one_positive,
             one_step_negative: one_negative,
             one_step_max: one_max,
+            one_step_transport_max,
+            one_step_magma_max,
             frozen_positive,
             frozen_negative,
             frozen_max,
@@ -1192,14 +1227,14 @@ fn carrier_step(
             }
         })
         .collect();
+    let coupling = (HISTORY_SHEET_STRESS_TRANSMISSION_KM / PLANET_RADIUS_KM).powi(2);
+    let velocity =
+        solve_velocity_geometry(&mesh.centers, &mesh.areas, &sheet_edges, &target, coupling);
     let target_l1 = target
         .iter()
         .zip(mesh.areas.iter())
         .map(|(target, &area)| target.length() as f64 * area as f64)
         .sum();
-    let coupling = (HISTORY_SHEET_STRESS_TRANSMISSION_KM / PLANET_RADIUS_KM).powi(2);
-    let velocity =
-        solve_velocity_geometry(&mesh.centers, &mesh.areas, &sheet_edges, &target, coupling);
     let magma_source: Vec<_> = magmatic_volume_rate
         .iter()
         .zip(mesh.areas.iter())
@@ -1288,6 +1323,8 @@ fn evolve_frozen_carrier(
     initial: &[f32],
     interval_myr: f32,
     intervals: usize,
+    include_transport: bool,
+    include_magma: bool,
 ) -> Vec<f32> {
     let mut thickness = initial.to_vec();
     let max_courant = interval_myr * step.outgoing_rate.iter().copied().fold(0.0f32, f32::max);
@@ -1298,6 +1335,9 @@ fn evolve_frozen_carrier(
         for _ in 0..substeps {
             volume_change.fill(0.0);
             for edge in &step.sheet_edges {
+                if !include_transport {
+                    continue;
+                }
                 let midpoint = (mesh.centers[edge.a] + mesh.centers[edge.b]).normalize_or_zero();
                 let va = step.velocity[edge.a] - midpoint * midpoint.dot(step.velocity[edge.a]);
                 let vb = step.velocity[edge.b] - midpoint * midpoint.dot(step.velocity[edge.b]);
@@ -1313,7 +1353,9 @@ fn evolve_frozen_carrier(
             }
             for cell in 0..thickness.len() {
                 thickness[cell] += volume_change[cell] / mesh.areas[cell].max(1e-12);
-                thickness[cell] += dt * step.magmatic_rate[cell].max(0.0);
+                if include_magma {
+                    thickness[cell] += dt * step.magmatic_rate[cell].max(0.0);
+                }
             }
         }
         let gravity_tau = CRUST_GRAVITATIONAL_DIFFUSIVITY_KM2_PER_MYR

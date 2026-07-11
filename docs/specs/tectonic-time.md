@@ -304,6 +304,20 @@ from 0.127 to 0.249 across 4k→16k carriers; carrier-native and 100k-projected 
 identical. The pending fix is therefore a finite-volume/fixed-physical-width boundary
 traction, not parcel remapping, projection, or erosion.
 
+An exact boundary-velocity (Dirichlet) A/B was implemented and reverted after worsening
+the one-step maximum span from 0.122 to 0.330 and seed-12345 peaks to
+14.2/17.7/20.3 km. It preserved the carrier's increasingly jagged boundary geometry too
+faithfully. Fixed-physical-scale boundary geometry must precede another forcing-law
+change.
+
+A subsequent 440 km fixed-width boundary band was also implemented and removed. Both
+nearest-seed and edge-weighted blended variants failed; the blended one-step maximum
+span was 0.139 versus the original 0.122. Transport/magma isolation shows transport
+sets the maximum (0.197/0.250/0.336 across 4k/8k/16k), not arc addition. Since the
+coarsest mesh barely resolves the physical band, carrier resolution is now treated as
+part of the procedural model rather than a continuum claim. The canonical 8192-cell
+carrier remains explicitly experimental and non-converged.
+
 ## Migration
 
 The 2026-07-11 reset direct-uplift path is the temporary product baseline because it has
