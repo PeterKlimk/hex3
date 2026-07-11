@@ -86,10 +86,14 @@ pub const DIFFUSION_TOLERANCE: f32 = 0.001;
 // (CRUST_THICKNESS_OCEANIC -> ABYSSAL_DEPTH).
 //
 // CANONICAL VERTICAL SCALE: elevation is a normalized unit-sphere field (sea
-// level = 0); 1 elevation unit ≈ 10 km. This is the single reference for every
-// "≈ N m" annotation below (it is the scale the ocean anchors and the
+// level = 0); 1 elevation unit is interpreted as ELEVATION_UNIT_KM. This is the
+// single reference for every "≈ N m" annotation below (it is the scale the ocean anchors and the
 // land↔ocean isostasy gap imply). The world is physically inspired, not
 // Earth-accurate. Horizontal distances use PLANET_RADIUS_KM.
+//
+// Crust thickness below is a REFERENCE-COLUMN coordinate, not kilometres.
+// Isostasy defines its conversion to elevation. Do not multiply a crust-thickness
+// value by ELEVATION_UNIT_KM.
 
 /// Physical interpretation of one normalized elevation unit. Same-clock
 /// surface-process experiments use this conversion rather than treating their
@@ -623,7 +627,7 @@ pub const UPLIFT_NORM_PERCENTILE: f32 = 0.95;
 
 /// How much terrain slope blocks uphill wind.
 /// block_factor = min(gradient * UPHILL_BLOCKING, 1.0)
-/// At 1.0: full blocking at 45° slopes (gradient=1.0), partial at gentler slopes.
+/// Calibrated against the native elevation/radian gradient, not physical degrees.
 pub const UPHILL_BLOCKING: f32 = 1.0;
 
 /// Katabatic (downhill) wind acceleration strength.
@@ -634,8 +638,8 @@ pub const KATABATIC_STRENGTH: f32 = 0.1;
 
 // --- Projection solver ---
 
-/// Power for cosine permeability law: perm = cos^p(atan(gradient)) = 1/(1+g²)^(p/2)
-/// At p=2: gradient=0.5 → perm=0.80, gradient=1.0 (45°) → perm=0.50,
+/// Power for a permeability response in native elevation/radian coordinates.
+/// At p=2: gradient=0.5 → perm=0.80, gradient=1.0 → perm=0.50,
 /// gradient=2.0 → perm=0.20, gradient=4.0 → perm=0.06.
 pub const PERMEABILITY_POWER: f32 = 2.0;
 
@@ -924,9 +928,8 @@ pub const EROSION_DIFFUSIVITY: f32 = 2.0e-8;
 /// linear diffusion above, so 0 = OFF (current behaviour).
 ///
 /// UNITS: code slope = Δelevation / Δradian (the diffusion's native units, same
-/// as EROSION_DEPOSITION_SLOPE), NOT a dimensionless grade. Convert a physical
-/// hillslope grade (rise/run) via `S_code ≈ grade · R / (m per elev-unit)` =
-/// `grade · 6.371e6 / 1e4 ≈ grade · 637` (canonical ~10 km/elev-unit). So a
+/// as EROSION_DEPOSITION_SLOPE), NOT a dimensionless grade. Convert with
+/// `grade_to_elevation_per_radian`; at current scales the factor is ~637. So a
 /// ~30-45° angle-of-repose grade (0.6-1.0) is S_code ≈ 380-640. CAVEAT: this acts
 /// on CELL-TO-CELL slopes (~1.5 km mountain cells), which are gentler than true
 /// sub-cell hillslope angles — the eroded mesh's steepest cell slopes sit near
@@ -1079,8 +1082,8 @@ pub const EROSION_DEPOSIT_FILL_FRACTION: f32 = 0.5;
 ///
 /// PHYSICAL SCALE (the knob's real meaning, cell-size-independent): a reach
 /// aggrades only where its bed grade is gentler than this slope. Converting to a
-/// surface grade, `grade ≈ SLOPE · (m per elev-unit) / R` with ~10 km/unit (the
-/// canonical vertical scale) and R = 6.371e6 m, so `grade ≈ SLOPE × 0.16%`.
+/// surface grade with `elevation_per_radian_to_grade`; at current scales
+/// `grade ≈ SLOPE × 0.16%`.
 /// The old value 1.0 was a ~0.16% repose grade — only deltas/lake floors are that
 /// flat, so en-route deposition was effectively inert (sink-fill only) at the
 /// fine mesh's radian-scale receiver distances. Floodplains and alluvial fans sit

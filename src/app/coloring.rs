@@ -132,8 +132,8 @@ fn apply_snow_cap(base_color: Vec3, elevation: f32) -> Vec3 {
     }
 }
 
-/// Compute slope steepness for a cell based on elevation gradient.
-/// Returns a value from 0.0 (flat) to 1.0 (very steep).
+/// Stylized terrain steepness for coloring, based on the native
+/// elevation-per-radian gradient. This is not a physical slope angle.
 pub fn compute_slope(world: &World, cell_idx: usize) -> f32 {
     let elevation = world
         .active_elevation()
@@ -148,7 +148,7 @@ pub fn compute_slope(world: &World, cell_idx: usize) -> f32 {
         return 0.0;
     }
 
-    // Compute maximum elevation difference per unit distance (steepest slope)
+    // Compute maximum native simulation slope.
     let mut max_slope = 0.0f32;
     for &n in neighbors {
         let neighbor_elev = elevation.values[n];
@@ -166,8 +166,7 @@ pub fn compute_slope(world: &World, cell_idx: usize) -> f32 {
         max_slope = max_slope.max(slope);
     }
 
-    // Normalize: slope of ~0.5 (about 27 degrees) starts looking steep
-    // slope of ~1.0 (45 degrees) is very steep
+    // Historical presentation calibration; deliberately not physical degrees.
     (max_slope * 2.0).clamp(0.0, 1.0)
 }
 

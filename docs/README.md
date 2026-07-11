@@ -14,6 +14,8 @@ experimental, superseded, or awaiting classification.
   flow.
 - [Stage and state pipeline](pipeline.md) — runtime stages, coarse/fine state,
   viewed/computed state and invalidation.
+- [Elevation and unit contract](units.md) — vertical scale, datum, crust-column
+  coordinates, distance, slopes, time and true-scale relief.
 - [System assessments](system-assessments.md) — fidelity, payoff, cost,
   validation, limits and provisional Pareto posture.
 - [Experiment registry](experiment-registry.md) — product defaults, selectable

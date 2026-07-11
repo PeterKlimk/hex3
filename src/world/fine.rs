@@ -2468,7 +2468,7 @@ fn compute_areal_density(
 ) -> Vec<f32> {
     let n = tessellation.num_cells();
     let max_slope = (0..n)
-        .map(|i| elevation.slope(tessellation, i))
+        .map(|i| elevation.slope_elevation_per_radian(tessellation, i))
         .fold(0.0_f32, f32::max)
         .max(1e-6);
     // flow_count_equiv (not raw discharge) so the .max(1.0) log floor stays in
@@ -2500,7 +2500,7 @@ fn compute_areal_density(
         // so gentle terrain stays near the plains size; combined into a single
         // demand in [0,1] (0 = flat plains, 1 = all features maxed). Weights are
         // relative importances; absolute scale comes from the cell-size scales.
-        let slope = (elevation.slope(tessellation, i) / max_slope).powf(e);
+        let slope = (elevation.slope_elevation_per_radian(tessellation, i) / max_slope).powf(e);
         let flow = (preview_hydrology.flow_count_equiv(i).max(1.0).ln() / max_flow_ln).powf(e);
         let strain = (features.thin_sheet_strain[i] / max_strain).clamp(0.0, 1.0);
         let activity = features.activity[i].clamp(0.0, 1.0).max(strain).powf(e);

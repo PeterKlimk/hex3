@@ -8,7 +8,8 @@ use std::time::Instant;
 use clap::Parser;
 use hex3::world::diagnostics::{measure_components, EARTH_RADIUS_KM};
 use hex3::world::{
-    CarrierOperatorAudit, OrogenModel, TectonicCarrierConfig, World, NUM_PLATES_DEFAULT,
+    elevation_to_km, CarrierOperatorAudit, OrogenModel, TectonicCarrierConfig, World,
+    ELEVATION_UNIT_KM, NUM_PLATES_DEFAULT,
 };
 
 const RANGE_ELEV: f32 = 0.15;
@@ -236,11 +237,11 @@ fn measure_world(world: &World, wall_s: f32) -> Metrics {
         .filter(|&i| elevation[i] >= RANGE_ELEV)
         .map(|i| areas[i] as f64)
         .sum();
-    let peak_km = elevation.iter().copied().fold(f32::NEG_INFINITY, f32::max) * 10.0;
+    let peak_km = elevation_to_km(elevation.iter().copied().fold(f32::NEG_INFINITY, f32::max));
 
     let land_samples: Vec<_> = (0..elevation.len())
         .filter(|&i| elevation[i] >= 0.0)
-        .map(|i| (elevation[i] * 10.0, areas[i]))
+        .map(|i| (elevation_to_km(elevation[i]), areas[i]))
         .collect();
     let land_p50_km = weighted_quantile(&land_samples, 0.50);
     let land_p90_km = weighted_quantile(&land_samples, 0.90);
@@ -277,16 +278,16 @@ fn measure_world(world: &World, wall_s: f32) -> Metrics {
             let area_km2 = areas[cell] as f64 * r2 as f64;
             cap_area += area_km2;
             let center = tess.cell_center(cell);
-            let max_downhill = tess
+            let max_downhill_grade = tess
                 .neighbors(cell)
                 .iter()
                 .map(|&next| {
                     let distance =
                         (center - tess.cell_center(next)).length().max(1e-9) * EARTH_RADIUS_KM;
-                    (elevation[cell] - elevation[next]).max(0.0) / distance
+                    (elevation[cell] - elevation[next]).max(0.0) * ELEVATION_UNIT_KM / distance
                 })
                 .fold(0.0f32, f32::max);
-            if max_downhill < 1.0e-3 {
+            if max_downhill_grade < 0.01 {
                 flat_area += area_km2;
             }
         }

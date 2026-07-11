@@ -267,12 +267,17 @@ impl Elevation {
         self.values[cell_idx]
     }
 
-    /// Compute elevation gradient (uphill direction) at a cell.
+    /// Compute the native simulation gradient (uphill direction) at a cell.
     ///
     /// Returns a Vec3 tangent to the sphere surface pointing in the direction
-    /// of steepest ascent. Magnitude roughly indicates slope steepness.
-    /// Returns zero vector for flat areas or cells with no neighbors.
-    pub fn gradient(&self, tessellation: &Tessellation, cell_idx: usize) -> glam::Vec3 {
+    /// of steepest ascent. Its magnitude is normalized elevation per arc radian,
+    /// not physical rise/run. Use [`Self::physical_grade_gradient`] where a real
+    /// surface grade or angle is required.
+    pub fn gradient_elevation_per_radian(
+        &self,
+        tessellation: &Tessellation,
+        cell_idx: usize,
+    ) -> glam::Vec3 {
         use glam::Vec3;
 
         let cell_elev = self.values[cell_idx];
@@ -320,9 +325,26 @@ impl Elevation {
         gradient
     }
 
-    /// Compute gradient magnitude (slope steepness) at a cell.
-    pub fn slope(&self, tessellation: &Tessellation, cell_idx: usize) -> f32 {
-        self.gradient(tessellation, cell_idx).length()
+    /// Physical tangent-plane grade (`vertical km / horizontal km`).
+    pub fn physical_grade_gradient(
+        &self,
+        tessellation: &Tessellation,
+        cell_idx: usize,
+    ) -> glam::Vec3 {
+        self.gradient_elevation_per_radian(tessellation, cell_idx)
+            * (ELEVATION_UNIT_KM / PLANET_RADIUS_KM)
+    }
+
+    /// Physical maximum-ascent grade; `atan(grade)` is the slope angle.
+    pub fn physical_grade(&self, tessellation: &Tessellation, cell_idx: usize) -> f32 {
+        self.physical_grade_gradient(tessellation, cell_idx)
+            .length()
+    }
+
+    /// Magnitude of the native simulation gradient (`elevation / radian`).
+    pub fn slope_elevation_per_radian(&self, tessellation: &Tessellation, cell_idx: usize) -> f32 {
+        self.gradient_elevation_per_radian(tessellation, cell_idx)
+            .length()
     }
 }
 
@@ -1023,6 +1045,16 @@ mod tests {
     #[test]
     fn legacy_orogeny_remains_the_product_default() {
         assert_eq!(OrogenModel::default(), OrogenModel::Legacy);
+    }
+
+    #[test]
+    fn fine_refinement_inherits_the_coarse_datum_without_resolving() {
+        let world = World::new(17, 64, 0);
+        let base: Vec<f32> = (0..world.tessellation.num_cells())
+            .map(|i| i as f32 * 0.001 - 0.02)
+            .collect();
+        let refined = Elevation::refine_from_base(&world.tessellation, &base);
+        assert_eq!(refined.values, base);
     }
 
     #[test]

@@ -148,6 +148,10 @@ World-model gates use modeled or derived physical quantities: elevation units,
 slope, distance, area, topology, flow, conservation and stage-to-stage state.
 They must not depend on relief scale, line width, lighting or camera.
 
+Elevation, crust-column, distance, slope and relief claims must use the
+[elevation and unit contract](units.md). In particular, native
+elevation-per-radian slope is not physical grade.
+
 Presentation gates use declared visual conditions: apparent silhouette,
 screen-space width, contrast, clutter, labels, seam behavior and readability.
 Every visual result must identify its profile and camera. If a screenshot looks

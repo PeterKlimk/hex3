@@ -10,11 +10,11 @@ use std::io::BufReader;
 use std::path::PathBuf;
 
 use clap::Parser;
+use hex3::world::{ELEVATION_UNIT_KM, PLANET_RADIUS_KM};
 use kiddo::{ImmutableKdTree, SquaredEuclidean};
 use serde::Deserialize;
 
-const EARTH_RADIUS_KM: f32 = 6371.0;
-const METERS_PER_ELEVATION: f64 = 10_000.0;
+const METERS_PER_ELEVATION: f64 = ELEVATION_UNIT_KM as f64 * 1_000.0;
 
 #[derive(Parser)]
 #[command(name = "compare-orogen-exports")]
@@ -98,7 +98,7 @@ fn main() {
         let p = point(lat, lon);
         let nearest = tree.nearest_one::<SquaredEuclidean>(&p);
         mapping.push(nearest.item as usize);
-        distances_km.push(nearest.distance.sqrt() * EARTH_RADIUS_KM);
+        distances_km.push(nearest.distance.sqrt() * PLANET_RADIUS_KM);
     }
     distances_km.sort_by(f32::total_cmp);
 

@@ -11,7 +11,7 @@ use clap::{Parser, ValueEnum};
 use hex3::world::diagnostics::{
     distance_from_mask, measure_components, ComponentStats, EARTH_RADIUS_KM,
 };
-use hex3::world::{CellWaterState, OrogenModel, World};
+use hex3::world::{elevation_to_km, CellWaterState, OrogenModel, World, ELEVATION_UNIT_KM};
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
 enum CliOrogenModel {
@@ -591,7 +591,7 @@ fn main() {
         // how busy the dissection is — and UNLIKE the hydrology network this
         // responds to channel-support / K. Resolution + threshold dependent, so
         // read vs Earth as a ballpark + a knob-response signal, not a hard number.
-        const M_PER_UNIT: f32 = 10_000.0; // ~10 km vertical per elev-unit
+        const M_PER_UNIT: f32 = ELEVATION_UNIT_KM * 1_000.0;
         let base = &fine.surface_for(3).elevation.values;
         let eroded = &fine.surface_for(4).elevation.values;
         let fareas = ftess.cell_areas();
@@ -1424,7 +1424,7 @@ fn main() {
         let stride = (mtn.len() / 20_000).max(1);
         let sample: Vec<usize> = mtn.iter().copied().step_by(stride).collect();
         // ~10 km vertical per elev-unit (canonical scale) -> meters for Earth refs.
-        const M_PER_UNIT: f32 = 10_000.0;
+        const M_PER_UNIT: f32 = ELEVATION_UNIT_KM * 1_000.0;
         println!(
             "\n-- Fine-scale local relief (fixed-radius max-min, meters, {} mountain samples)  [Earth mountains: ~1-2 km within 25 km; hills ~0.3-1 km] --",
             sample.len()
@@ -1513,15 +1513,16 @@ fn run_tectonic_history_audit(world: &World, seed: u64, top: usize) {
         .map(|episode| episode.allocated_footprint_area as f64)
         .sum();
     let work_residual = episode_work - aggregate_work;
-    let max_elevation_km = world
-        .elevation
-        .as_ref()
-        .expect("elevation generated")
-        .values
-        .iter()
-        .copied()
-        .fold(f32::NEG_INFINITY, f32::max)
-        * 10.0;
+    let max_elevation_km = elevation_to_km(
+        world
+            .elevation
+            .as_ref()
+            .expect("elevation generated")
+            .values
+            .iter()
+            .copied()
+            .fold(f32::NEG_INFINITY, f32::max),
+    );
 
     let history_model = format!("{:?}", episodes[0].model).to_lowercase();
     println!(
@@ -2744,7 +2745,9 @@ fn run_detail_survival_audit(world: &World, seed: u64) {
         positive_load_volume,
         negative_load_volume,
         load_volume / footprint_solid_angle.max(1e-20),
-        load_volume / footprint_solid_angle.max(1e-20) * slope as f64 * 10.0,
+        load_volume / footprint_solid_angle.max(1e-20)
+            * slope as f64
+            * ELEVATION_UNIT_KM as f64,
     );
     println!("  survival funnel (% of fixed process footprint):");
     println!(
@@ -2826,7 +2829,7 @@ fn run_detail_survival_audit(world: &World, seed: u64) {
 // distinct signatures here. Earth refs inline.
 
 const AUDIT_RANGE_ELEV: f32 = 0.15;
-const AUDIT_M_PER_UNIT: f32 = 10_000.0; // ~10 km vertical per elevation unit
+const AUDIT_M_PER_UNIT: f32 = ELEVATION_UNIT_KM * 1_000.0;
 
 /// The (sampled) farthest-apart pair of cells in a component — the range's
 /// principal axis endpoints.

@@ -52,6 +52,10 @@ computed/viewed stage and fine-cache identity/outcome. World export embeds the
 same record and diagnostic tools print its compact summary, preventing each tool
 from inventing a different provenance header.
 
+The [elevation and unit contract](units.md) defines the conversion boundaries
+used by that manifest and distinguishes model elevation, reference crust-column
+thickness, native simulation slopes and physical grades.
+
 The coarse world owns:
 
 - `Tessellation`: spherical Voronoi geometry, compact adjacency and cell area;

@@ -2,7 +2,8 @@ use serde::Serialize;
 
 use super::{
     ErosionParams, FineCacheMode, FineDensityParams, FineStructureParams, OrogenModel,
-    TectonicCarrierConfig, VoronoiBackend, World,
+    TectonicCarrierConfig, VoronoiBackend, World, ELEVATION_UNIT_KM, PHYSICAL_RELIEF_SCALE,
+    PLANET_RADIUS_KM,
 };
 
 #[derive(Debug, Clone, Serialize)]
@@ -52,6 +53,7 @@ pub struct FineCacheRecord {
 #[derive(Debug, Clone, Serialize)]
 pub struct RunManifest {
     pub build: BuildProvenance,
+    pub units: UnitManifest,
     pub seed: u64,
     pub voronoi_backend: VoronoiBackend,
     pub lloyd_iterations: usize,
@@ -70,12 +72,36 @@ pub struct RunManifest {
     pub active_cells: usize,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct UnitManifest {
+    pub contract_version: u32,
+    pub elevation_unit_km: f32,
+    pub planet_radius_km: f32,
+    pub physical_relief_scale: f32,
+    pub sea_level_datum: &'static str,
+    pub native_slope: &'static str,
+}
+
+impl Default for UnitManifest {
+    fn default() -> Self {
+        Self {
+            contract_version: 1,
+            elevation_unit_km: ELEVATION_UNIT_KM,
+            planet_radius_km: PLANET_RADIUS_KM,
+            physical_relief_scale: PHYSICAL_RELIEF_SCALE,
+            sea_level_datum: "coarse-area-quantile-zero",
+            native_slope: "elevation-per-arc-radian",
+        }
+    }
+}
+
 impl RunManifest {
     pub fn from_world(world: &World) -> Self {
         let computed_stage = world.current_stage();
         let viewed_stage = world.view_stage().min(computed_stage);
         Self {
             build: BuildProvenance::current(),
+            units: UnitManifest::default(),
             seed: world.seed,
             voronoi_backend: world.voronoi_backend,
             lloyd_iterations: world.lloyd_iterations,

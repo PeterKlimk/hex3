@@ -8,6 +8,9 @@ document defines the broader semantic, generalization and profile model. The
 preset named `Authentic` is the current code/UI name; in architecture prose it
 is the authentic/cartographic preset, not physical scale.
 
+Physical elevation, datum and true-scale displacement are defined by the
+[elevation and unit contract](units.md).
+
 Hex3 stores and audits terrain in physical elevation units. Rendering is a
 cartographic presentation layer: displacement, line width, color, and lighting
 may be intentionally exaggerated, but they do not feed back into world
@@ -18,7 +21,7 @@ generation or terrain acceptance decisions.
 | Preset | Scale | Approx. exaggeration | Purpose |
 |---|---:|---:|---|
 | Flat | 0 | 0x | map/data inspection |
-| Physical | 0.00157 | 1x | scientific geometry inspection |
+| Physical | `ELEVATION_UNIT_KM / PLANET_RADIUS_KM` | 1x | scientific geometry inspection |
 | Authentic | 0.04 | 25x | product/default presentation |
 | Dramatic | 0.08 | 51x | optional showcase view |
 

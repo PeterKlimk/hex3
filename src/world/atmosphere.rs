@@ -414,7 +414,9 @@ fn apply_terrain_effects(tessellation: &Tessellation, elevation: &Elevation, win
             continue;
         }
 
-        let gradient = elevation.gradient(tessellation, i);
+        // Deliberately retains the calibrated native elevation/radian response;
+        // this is a terrain-wind heuristic, not a physical slope angle.
+        let gradient = elevation.gradient_elevation_per_radian(tessellation, i);
         let gradient_mag = gradient.length();
         if gradient_mag < 1e-6 {
             continue;
@@ -422,7 +424,7 @@ fn apply_terrain_effects(tessellation: &Tessellation, elevation: &Elevation, win
 
         let gradient_norm = gradient / gradient_mag;
 
-        // gradient_mag is the true terrain gradient dz/ds = tan(θ) for slope angle θ.
+        // Native simulation slope (elevation units per arc radian).
         let gradient = gradient_mag;
         max_slope_seen = max_slope_seen.max(gradient);
 
@@ -437,8 +439,8 @@ fn apply_terrain_effects(tessellation: &Tessellation, elevation: &Elevation, win
             cells_modified += 1;
         }
 
-        // Katabatic acceleration: gravity component parallel to slope is g*sin(θ)
-        // sin(atan(gradient)) = gradient / sqrt(1 + gradient²), bounded to [0, 1]
+        // Saturating stylized downslope acceleration. This preserves the existing
+        // calibrated response; it must not be interpreted as physical sin(slope).
         let sin_slope = gradient / (1.0 + gradient * gradient).sqrt();
         let katabatic = -gradient_norm * sin_slope * KATABATIC_STRENGTH;
         wind[i] += katabatic;
@@ -499,7 +501,7 @@ fn precompute_permeability(tessellation: &Tessellation, elevation: &Elevation) -
                 let pos_j = tessellation.cell_center(j);
                 let dist = pos_i.dot(pos_j).clamp(-1.0, 1.0).acos().max(1e-6);
 
-                // True gradient: elevation change per unit arc length (dz/ds) = tan(θ)
+                // Native simulation slope: elevation change per arc radian.
                 let gradient = delta / dist;
 
                 // Debug: collect slope statistics
@@ -508,8 +510,7 @@ fn precompute_permeability(tessellation: &Tessellation, elevation: &Elevation) -
                     all_deltas.push(delta);
                 }
 
-                // Cosine power law: perm = cos^p(atan(g)) = 1/(1+g²)^(p/2)
-                // For p=2: perm = 1/(1+g²), giving 0.5 at 45° slope
+                // Calibrated permeability response in native slope coordinates.
                 1.0 / (1.0 + gradient * gradient).powf(half_power)
             })
             .collect();
@@ -903,7 +904,7 @@ fn compute_uplift(
         if elevation.values[i] <= 0.0 {
             continue;
         }
-        let grad = elevation.gradient(tessellation, i);
+        let grad = elevation.gradient_elevation_per_radian(tessellation, i);
         if grad.length_squared() < 1e-10 {
             continue;
         }

@@ -66,7 +66,8 @@ before increasing model depth.
 
 ### 1A. Units and evidence envelope
 
-- document the end-to-end elevation datum/unit/render conversion;
+- **Completed:** document and test the end-to-end elevation
+  datum/unit/slope/render conversion, with unit-contract metadata in exports;
 - audit normalized versus physical temperature, precipitation, time and erosion
   quantities;
 - extend the shared world manifest with presentation/camera capture metadata;

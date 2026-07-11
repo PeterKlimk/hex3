@@ -10,7 +10,7 @@ pub enum ReliefPreset {
 }
 
 impl ReliefPreset {
-    pub const PHYSICAL_SCALE: f32 = 10.0 / hex3::world::PLANET_RADIUS_KM;
+    pub const PHYSICAL_SCALE: f32 = hex3::world::PHYSICAL_RELIEF_SCALE;
     pub const AUTHENTIC_SCALE: f32 = hex3::world::RELIEF_SCALE;
     pub const DRAMATIC_SCALE: f32 = 0.08;
 
@@ -247,10 +247,12 @@ impl RenderMode {
 #[cfg(test)]
 mod tests {
     use super::ReliefPreset;
+    use hex3::world::{relief_exaggeration, PHYSICAL_RELIEF_SCALE};
 
     #[test]
     fn relief_presets_have_stable_scales_and_cycle() {
-        assert!((ReliefPreset::Physical.scale() - 10.0 / 6371.0).abs() < 1e-6);
+        assert_eq!(ReliefPreset::Physical.scale(), PHYSICAL_RELIEF_SCALE);
+        assert!((relief_exaggeration(ReliefPreset::Physical.scale()) - 1.0).abs() < 1e-6);
         assert_eq!(ReliefPreset::Authentic.scale(), 0.04);
         assert_eq!(ReliefPreset::Dramatic.cycle(), ReliefPreset::Flat);
         assert_eq!(

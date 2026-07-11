@@ -46,6 +46,7 @@ mod moisture;
 mod plates;
 mod provenance;
 mod tessellation;
+mod units;
 
 pub use atmosphere::Atmosphere;
 pub use boundary::{collect_plate_boundaries, BoundaryKind, PlateBoundaryEdge, SubductionPolarity};
@@ -72,8 +73,15 @@ pub use hydrology::{
     Basin, CellWaterState, Hydrology, WaterBody, DEFAULT_CLIMATE_RATIO, MIN_LAKE_DEPTH,
 };
 pub use plates::Plates;
-pub use provenance::{BuildProvenance, FineCacheOutcome, FineCacheRecord, RunManifest};
+pub use provenance::{
+    BuildProvenance, FineCacheOutcome, FineCacheRecord, RunManifest, UnitManifest,
+};
 pub use tessellation::{CellAdjacency, Tessellation};
+pub use units::{
+    arc_radians_to_km, elevation_per_radian_to_grade, elevation_to_km, elevation_to_meters,
+    grade_to_degrees, grade_to_elevation_per_radian, km_to_arc_radians, km_to_elevation,
+    meters_to_elevation, relief_exaggeration, solid_angle_to_km2, PHYSICAL_RELIEF_SCALE,
+};
 
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
