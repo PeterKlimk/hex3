@@ -130,6 +130,10 @@ pub struct LifecycleAudit {
     /// crustal sheet beneath the receiving domain. It remains in an explicit
     /// deep/foundering reservoir and does not support surface elevation.
     pub foundered_continental_volume: f64,
+    /// Retained arc material that could not be accommodated within the finite
+    /// lower-crustal sheet of its overriding motion domain. It remains in an
+    /// explicit dense/foundering reservoir and does not support elevation.
+    pub foundered_magmatic_volume: f64,
     pub magmatic_added_volume: f64,
     pub material_residual: f64,
     pub continental_material_residual: f64,
@@ -150,11 +154,13 @@ pub struct LifecycleAudit {
     pub positive_delta_area_fraction: f32,
     pub underthrust_positive_volume: f64,
     pub magma_positive_volume: f64,
+    pub magma_footprint_area_sr: f64,
     pub remap_positive_volume: f64,
     pub max_underthrust_thickness: f32,
     pub underthrust_footprint_area_sr: f64,
     pub max_underthrust_layer_fraction: f32,
     pub max_magma_thickness: f32,
+    pub max_buried_layer_fraction: f32,
     pub max_remap_thickness: f32,
     pub max_collision_deposits: usize,
 }

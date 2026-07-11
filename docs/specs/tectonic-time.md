@@ -385,6 +385,28 @@ not a promotion. Remaining failures are now magma-localization dominated (maximu
 magma 1.89–2.65 thickness units in the three FAIL seeds), which must be specified and
 audited independently.
 
+**T4c capacity-limited arc batholith sheet implemented.** Retained subduction material is
+now an explicit deposit event rather than an addition to the winning overlap parcel. A
+directionally ordered graph front advances through the overriding motion domain and fills
+one reference-thickness lower-crustal batholith reservoir; pullback overflow is
+re-propagated every interval and unplaceable dense material enters an explicit magmatic
+foundering ledger. The batholith and continental-underthrust reservoirs remain vertically
+distinct. A shared single-layer experiment was rejected because it collapsed all ten
+seed peaks to 7.07–8.83 km and behaved as a universal height cap.
+
+Against committed checkpoint `5baf2fa`, canonical-8k peak median/range improves from
+8.71/7.08–20.21 km to 7.53/7.07–14.17 km; gates move from 3/1/6 to 1/0/9 while median
+mountain-land coverage remains about 2.75%. Maximum local magma falls from 0.15–2.65 to
+0.15–1.00, its footprint spans 0.0026–0.1265 steradians, and only one seed founders any
+magma (0.00327 volume units). Ledgers close at roundoff and the optimized local graph
+front keeps canonical evolution at 0.81–1.00 seconds. Seed 12345 remains a 14.17 km FAIL.
+
+The lifecycle remains non-promotable on resolution convergence. Seed 12345 was already
+7.10/20.21/12.89 km at 4k/8k/16k in `5baf2fa`; T4c reduces those peaks to
+7.10/14.17/8.12 km but does not meet the 2 km span gate. The next causal target is event
+discretization and topology convergence across carrier resolutions, not another local
+height response.
+
 ## Required invariants
 
 - Integrated crustal addition equals boundary flux integrated over time, within solver

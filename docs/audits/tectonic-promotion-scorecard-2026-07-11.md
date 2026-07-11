@@ -329,3 +329,49 @@ the lifecycle terrain. The remaining three FAIL seeds have locally concentrated 
 arc magma (maximum 1.89, 2.31, and 2.65 thickness units); across all seeds magma maxima
 span 0.15–2.65 versus remap maxima 0.028–0.892. Magma geometry is therefore the next
 separate mechanism to specify. Do not fold an arc-spreading adjustment into this result.
+
+### Capacity-limited arc batholith sheet: causal improvement retained
+
+The lifecycle previously returned retained subduction material directly to the single
+winning overlap parcel. Repeated subduction therefore accumulated an unlimited local
+magmatic column even though the source event represented a laterally extensive arc
+plumbing system. The replacement queues each retained-magmatic-volume event, advances a
+deterministic graph front through the overriding motion domain, and fills a finite
+lower-crustal batholith reservoir. Direction inside each graph ring follows subducting
+motion relative to the overriding plate. The front stops when its volume is placed, so
+footprint follows conserved material and available lower-crustal area rather than a
+painted width. Pullback reconcentration is re-extracted every interval. Material that
+cannot fit anywhere in the receiving domain enters an explicit magmatic-foundering
+ledger.
+
+One initially tested variant made underthrust and magma share a single reference-layer
+capacity. It produced 10/10 PASS but collapsed all peaks to 7.07–8.83 km and put almost
+every seed exactly on the same total-load ceiling. That rung is rejected as a disguised
+universal height cap. The retained variant keeps the two physically distinct vertical
+reservoirs separate: one reference layer for underthrust slab material and one for arc
+batholith addition. It introduces no new numerical dial.
+
+Strict canonical-8k ten-seed A/B against the committed buried-sheet checkpoint
+`5baf2fa`:
+
+| statistic | contact-local magma (`5baf2fa`) | arc batholith sheet |
+|:---|---:|---:|
+| peak median / range | 8.71 / 7.08–20.21 km | 7.53 / 7.07–14.17 km |
+| peak gates | 3 FAIL / 1 WARN / 6 PASS | 1 FAIL / 0 WARN / 9 PASS |
+| mountain-land median | ~2.75% | ~2.75% |
+| maximum local magma | 0.15–2.65 | 0.15–1.00 |
+| magmatic footprint area | not previously audited | 0.0026–0.1265 sr |
+| foundered magmatic volume | unrepresented | 0–0.00327 |
+| lifecycle solve cost | 0.76–1.02 s | 0.81–1.00 s |
+
+All material ledgers close near roundoff. Seed 12345 remains a narrow FAIL at 14.17 km;
+it was not tuned through the gate. The mechanism is retained because it removes unlimited
+parcel-local storage, preserves volume and broad mountain coverage, exposes its only
+sink, and remains cheap.
+
+This does not promote the lifecycle. At seed 12345 the committed checkpoint varies
+7.10 / 20.21 / 12.89 km across 4k / 8k / 16k carriers; the batholith sheet improves that
+to 7.10 / 14.17 / 8.12 km but still fails the standing resolution gate. Created ocean,
+consumed ocean, sutures, and topology also vary materially with carrier resolution. The
+next blocker is therefore lifecycle event discretization/convergence, not another local
+terrain-height mechanism.

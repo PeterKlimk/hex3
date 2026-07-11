@@ -856,6 +856,17 @@ struct UnderthrustDeposit {
     direction: Vec3,
 }
 
+/// Retained subduction-zone material waiting to be emplaced through the lower
+/// crust of the overriding motion domain rather than stacked at one raster
+/// overlap cell.
+#[derive(Clone, Debug)]
+struct MagmaticDeposit {
+    origin: usize,
+    receiving_plate: usize,
+    volume: f64,
+    direction: Vec3,
+}
+
 impl LifecycleCell {
     fn total_volume(&self) -> f64 {
         self.continental_volume + self.ocean_volume + self.magma_volume
@@ -977,6 +988,7 @@ fn solve_carrier_lifecycle_replay(
 
         let mut resolved: Vec<Option<LifecycleCell>> = vec![None; n];
         let mut underthrust_deposits = Vec::new();
+        let mut magmatic_deposits = Vec::new();
         let mut step_collision_speed: HashMap<(usize, usize), f32> = HashMap::new();
         for cell in 0..n {
             if admissions[cell].is_empty() {
@@ -992,6 +1004,7 @@ fn solve_carrier_lifecycle_replay(
                 &continental_closure_rates,
                 &mut step_collision_speed,
                 &mut underthrust_deposits,
+                &mut magmatic_deposits,
                 &mut audit,
             ));
         }
@@ -1032,11 +1045,21 @@ fn solve_carrier_lifecycle_replay(
         for state in &mut states {
             state.plate = lifecycle_find(&mut parent, state.plate);
         }
-        underthrust_deposits.extend(extract_underthrust_overflow(mesh, &mut states));
+        let (underthrust_overflow, magmatic_overflow) =
+            extract_buried_sheet_overflow(mesh, &mut states);
+        underthrust_deposits.extend(underthrust_overflow);
+        magmatic_deposits.extend(magmatic_overflow);
         place_underthrust_deposits(
             mesh,
             &mut states,
             &underthrust_deposits,
+            &mut parent,
+            &mut audit,
+        );
+        place_magmatic_deposits(
+            mesh,
+            &mut states,
+            &magmatic_deposits,
             &mut parent,
             &mut audit,
         );
@@ -1088,7 +1111,9 @@ fn solve_carrier_lifecycle_replay(
         .collect();
 
     audit.final_material_volume = states.iter().map(LifecycleCell::total_volume).sum();
-    audit.material_residual = audit.final_material_volume + audit.foundered_continental_volume
+    audit.material_residual = audit.final_material_volume
+        + audit.foundered_continental_volume
+        + audit.foundered_magmatic_volume
         - audit.initial_material_volume
         - audit.created_ocean_volume
         + audit.consumed_ocean_volume
@@ -1137,6 +1162,9 @@ fn solve_carrier_lifecycle_replay(
         let remap = delta_carrier[cell] - underthrust - magma;
         audit.underthrust_positive_volume += states[cell].underthrust_volume;
         audit.magma_positive_volume += states[cell].magma_volume;
+        if magma > 0.0 {
+            audit.magma_footprint_area_sr += area as f64;
+        }
         audit.remap_positive_volume += remap.max(0.0) as f64 * area as f64;
         audit.max_underthrust_thickness = audit.max_underthrust_thickness.max(underthrust);
         if underthrust > 0.0 {
@@ -1146,6 +1174,9 @@ fn solve_carrier_lifecycle_replay(
             .max_underthrust_layer_fraction
             .max(underthrust / CRUST_THICKNESS_CONTINENTAL.max(1e-12));
         audit.max_magma_thickness = audit.max_magma_thickness.max(magma);
+        audit.max_buried_layer_fraction = audit
+            .max_buried_layer_fraction
+            .max((underthrust + magma) / CRUST_THICKNESS_CONTINENTAL.max(1e-12));
         audit.max_remap_thickness = audit.max_remap_thickness.max(remap);
         audit.max_collision_deposits = audit
             .max_collision_deposits
@@ -1173,7 +1204,9 @@ fn solve_carrier_lifecycle_replay(
         strain,
         compression_axis,
         material_added: audit.magmatic_added_volume + audit.created_ocean_volume,
-        material_removed: audit.consumed_ocean_volume + audit.foundered_continental_volume,
+        material_removed: audit.consumed_ocean_volume
+            + audit.foundered_continental_volume
+            + audit.foundered_magmatic_volume,
         material_residual: audit.material_residual,
         present_uplift_rate,
         evolution_seconds: audit.runtime_seconds,
@@ -1863,19 +1896,117 @@ fn place_underthrust_deposits(
             continue;
         }
         let receiving_plate = lifecycle_find(parent, deposit.receiving_plate);
-        let mut distance = vec![usize::MAX; n];
-        let mut queue = std::collections::VecDeque::new();
-        if states[deposit.origin].plate == receiving_plate
+        let start = if states[deposit.origin].plate == receiving_plate
             && states[deposit.origin].crust == CrustType::Continental
         {
-            distance[deposit.origin] = 0;
-            queue.push_back(deposit.origin);
+            Some(deposit.origin)
+        } else {
+            states
+                .iter()
+                .enumerate()
+                .filter(|(_, state)| {
+                    state.plate == receiving_plate && state.crust == CrustType::Continental
+                })
+                .min_by(|(a, _), (b, _)| {
+                    let da = mesh.centers[*a].dot(mesh.centers[deposit.origin]);
+                    let db = mesh.centers[*b].dot(mesh.centers[deposit.origin]);
+                    db.total_cmp(&da).then_with(|| a.cmp(b))
+                })
+                .map(|(cell, _)| cell)
+        };
+        let Some(start) = start else {
+            audit.foundered_continental_volume += deposit.continental_volume;
+            continue;
+        };
+        let origin = mesh.centers[deposit.origin];
+        let alignment = |cell: usize| {
+            let tangent = mesh.centers[cell] - origin * origin.dot(mesh.centers[cell]);
+            if tangent.length_squared() > 1e-12 {
+                tangent.normalize().dot(deposit.direction)
+            } else {
+                1.0
+            }
+        };
+        let mut visited = vec![false; n];
+        visited[start] = true;
+        let mut frontier = vec![start];
+        let mut remaining = deposit.continental_volume;
+        while remaining > 1e-30 && !frontier.is_empty() {
+            frontier.sort_by(|&a, &b| {
+                alignment(b)
+                    .total_cmp(&alignment(a))
+                    .then_with(|| a.cmp(&b))
+            });
+            for &cell in &frontier {
+                let capacity = CRUST_THICKNESS_CONTINENTAL as f64 * mesh.areas[cell] as f64;
+                let available = (capacity - states[cell].underthrust_volume).max(0.0);
+                let placed = remaining.min(available);
+                if placed <= 0.0 {
+                    continue;
+                }
+                let material_fraction = placed / deposit.continental_volume;
+                states[cell].continental_volume += placed;
+                states[cell].continental_area += deposit.continental_area * material_fraction;
+                states[cell].underthrust_volume += placed;
+                if deposit.direction.length_squared() > 1e-12 {
+                    let mut axis = deposit.direction;
+                    if states[cell].fabric.dot(axis) < 0.0 {
+                        axis = -axis;
+                    }
+                    states[cell].fabric = if states[cell].fabric.length_squared() > 1e-12 {
+                        (states[cell].fabric + axis).normalize_or_zero()
+                    } else {
+                        axis
+                    };
+                }
+                remaining -= placed;
+                if remaining <= 1e-30 {
+                    break;
+                }
+            }
+            let mut next_frontier = Vec::new();
+            for &cell in &frontier {
+                for &next in &mesh.neighbors[cell] {
+                    let next = next as usize;
+                    if visited[next]
+                        || states[next].plate != receiving_plate
+                        || states[next].crust != CrustType::Continental
+                    {
+                        continue;
+                    }
+                    visited[next] = true;
+                    next_frontier.push(next);
+                }
+            }
+            frontier = next_frontier;
+        }
+        audit.foundered_continental_volume += remaining.max(0.0);
+    }
+}
+
+/// Emplace retained arc material through the overriding domain's lower crust.
+/// Graph distance keeps it near the active margin while convergence direction
+/// orders the advancing front. Arc batholiths and underthrust slabs remain
+/// distinct vertical reservoirs rather than sharing a universal height cap.
+fn place_magmatic_deposits(
+    mesh: &CarrierMesh,
+    states: &mut [LifecycleCell],
+    deposits: &[MagmaticDeposit],
+    parent: &mut [usize],
+    audit: &mut LifecycleAudit,
+) {
+    let n = states.len();
+    for deposit in deposits {
+        if deposit.volume <= 0.0 {
+            continue;
+        }
+        let receiving_plate = lifecycle_find(parent, deposit.receiving_plate);
+        let start = if states[deposit.origin].plate == receiving_plate {
+            Some(deposit.origin)
         } else if let Some(start) = states
             .iter()
             .enumerate()
-            .filter(|(_, state)| {
-                state.plate == receiving_plate && state.crust == CrustType::Continental
-            })
+            .filter(|(_, state)| state.plate == receiving_plate)
             .min_by(|(a, _), (b, _)| {
                 let da = mesh.centers[*a].dot(mesh.centers[deposit.origin]);
                 let db = mesh.centers[*b].dot(mesh.centers[deposit.origin]);
@@ -1883,103 +2014,102 @@ fn place_underthrust_deposits(
             })
             .map(|(cell, _)| cell)
         {
-            distance[start] = 0;
-            queue.push_back(start);
-        }
-        while let Some(cell) = queue.pop_front() {
-            for &next in &mesh.neighbors[cell] {
-                let next = next as usize;
-                if distance[next] != usize::MAX
-                    || states[next].plate != receiving_plate
-                    || states[next].crust != CrustType::Continental
-                {
+            Some(start)
+        } else {
+            None
+        };
+        let Some(start) = start else {
+            audit.foundered_magmatic_volume += deposit.volume;
+            continue;
+        };
+        let origin = mesh.centers[deposit.origin];
+        let alignment = |cell: usize| {
+            let tangent = mesh.centers[cell] - origin * origin.dot(mesh.centers[cell]);
+            if tangent.length_squared() > 1e-12 {
+                tangent.normalize().dot(deposit.direction)
+            } else {
+                1.0
+            }
+        };
+        let mut visited = vec![false; n];
+        visited[start] = true;
+        let mut frontier = vec![start];
+        let mut remaining = deposit.volume;
+        while remaining > 1e-30 && !frontier.is_empty() {
+            frontier.sort_by(|&a, &b| {
+                alignment(b)
+                    .total_cmp(&alignment(a))
+                    .then_with(|| a.cmp(&b))
+            });
+            for &cell in &frontier {
+                let capacity = CRUST_THICKNESS_CONTINENTAL as f64 * mesh.areas[cell] as f64;
+                let placed = remaining.min((capacity - states[cell].magma_volume).max(0.0));
+                if placed <= 0.0 {
                     continue;
                 }
-                distance[next] = distance[cell] + 1;
-                queue.push_back(next);
-            }
-        }
-        let origin = mesh.centers[deposit.origin];
-        let mut targets: Vec<_> = (0..n)
-            .filter(|&cell| distance[cell] != usize::MAX)
-            .collect();
-        targets.sort_by(|&a, &b| {
-            let alignment = |cell: usize| {
-                let tangent = mesh.centers[cell] - origin * origin.dot(mesh.centers[cell]);
-                if tangent.length_squared() > 1e-12 {
-                    tangent.normalize().dot(deposit.direction)
-                } else {
-                    1.0
+                states[cell].magma_volume += placed;
+                remaining -= placed;
+                if remaining <= 1e-30 {
+                    break;
                 }
-            };
-            distance[a]
-                .cmp(&distance[b])
-                .then_with(|| alignment(b).total_cmp(&alignment(a)))
-                .then_with(|| a.cmp(&b))
-        });
-
-        let mut remaining = deposit.continental_volume;
-        for cell in targets {
-            if remaining <= 1e-30 {
-                break;
             }
-            let capacity = CRUST_THICKNESS_CONTINENTAL as f64 * mesh.areas[cell] as f64;
-            let available = (capacity - states[cell].underthrust_volume).max(0.0);
-            let placed = remaining.min(available);
-            if placed <= 0.0 {
-                continue;
-            }
-            let material_fraction = placed / deposit.continental_volume;
-            states[cell].continental_volume += placed;
-            states[cell].continental_area += deposit.continental_area * material_fraction;
-            states[cell].underthrust_volume += placed;
-            if deposit.direction.length_squared() > 1e-12 {
-                let mut axis = deposit.direction;
-                if states[cell].fabric.dot(axis) < 0.0 {
-                    axis = -axis;
+            let mut next_frontier = Vec::new();
+            for &cell in &frontier {
+                for &next in &mesh.neighbors[cell] {
+                    let next = next as usize;
+                    if visited[next] || states[next].plate != receiving_plate {
+                        continue;
+                    }
+                    visited[next] = true;
+                    next_frontier.push(next);
                 }
-                states[cell].fabric = if states[cell].fabric.length_squared() > 1e-12 {
-                    (states[cell].fabric + axis).normalize_or_zero()
-                } else {
-                    axis
-                };
             }
-            remaining -= placed;
+            frontier = next_frontier;
         }
-        audit.foundered_continental_volume += remaining.max(0.0);
+        audit.foundered_magmatic_volume += remaining.max(0.0);
     }
 }
 
-/// Conservative pullback can locally reconcentrate a sheet even while its
-/// plate total remains exact. Remove only the above-capacity buried fraction
-/// and feed it back through the same geometric front before accepting a step.
-fn extract_underthrust_overflow(
+/// Conservative pullback can locally reconcentrate buried material even while
+/// plate totals remain exact. Re-extract above-capacity material independently
+/// from the underthrust and arc-batholith reservoirs before accepting a step.
+fn extract_buried_sheet_overflow(
     mesh: &CarrierMesh,
     states: &mut [LifecycleCell],
-) -> Vec<UnderthrustDeposit> {
-    let mut deposits = Vec::new();
+) -> (Vec<UnderthrustDeposit>, Vec<MagmaticDeposit>) {
+    let mut underthrust_deposits = Vec::new();
+    let mut magmatic_deposits = Vec::new();
     for (cell, state) in states.iter_mut().enumerate() {
         let capacity = CRUST_THICKNESS_CONTINENTAL as f64 * mesh.areas[cell] as f64;
-        let excess = (state.underthrust_volume - capacity).max(0.0);
-        if excess <= 1e-30 {
-            continue;
+        let magma_excess = (state.magma_volume - capacity).max(0.0);
+        if magma_excess > 0.0 {
+            state.magma_volume -= magma_excess;
+            magmatic_deposits.push(MagmaticDeposit {
+                origin: cell,
+                receiving_plate: state.plate,
+                volume: magma_excess,
+                direction: state.fabric,
+            });
         }
-        let material_fraction = excess / state.continental_volume.max(1e-30);
-        let area = state.continental_area * material_fraction;
-        state.underthrust_volume -= excess;
-        state.continental_volume -= excess;
-        state.continental_area -= area;
-        deposits.push(UnderthrustDeposit {
-            origin: cell,
-            receiving_plate: state.plate,
-            continental_volume: excess,
-            continental_area: area,
-            // Fabric is an unoriented compression axis; either sign gives the
-            // same graph-ring ordering apart from a deterministic mirror.
-            direction: state.fabric,
-        });
+        let underthrust_excess = (state.underthrust_volume - capacity).max(0.0);
+        if underthrust_excess > 1e-30 {
+            let material_fraction = underthrust_excess / state.continental_volume.max(1e-30);
+            let area = state.continental_area * material_fraction;
+            state.underthrust_volume -= underthrust_excess;
+            state.continental_volume -= underthrust_excess;
+            state.continental_area -= area;
+            underthrust_deposits.push(UnderthrustDeposit {
+                origin: cell,
+                receiving_plate: state.plate,
+                continental_volume: underthrust_excess,
+                continental_area: area,
+                // Fabric is an unoriented compression axis; either sign gives
+                // the same ordering apart from a deterministic mirror.
+                direction: state.fabric,
+            });
+        }
     }
-    deposits
+    (underthrust_deposits, magmatic_deposits)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1993,6 +2123,7 @@ fn resolve_lifecycle_overlap(
     continental_closure_rates: &HashMap<(usize, usize), f32>,
     step_collision_speed: &mut HashMap<(usize, usize), f32>,
     underthrust_deposits: &mut Vec<UnderthrustDeposit>,
+    magmatic_deposits: &mut Vec<MagmaticDeposit>,
     audit: &mut LifecycleAudit,
 ) -> LifecycleCell {
     let mut continental: Vec<_> = sources
@@ -2077,7 +2208,14 @@ fn resolve_lifecycle_overlap(
             let consumed = loser.ocean_volume + loser.magma_volume;
             audit.consumed_ocean_volume += consumed;
             let magma = consumed * SUBDUCTION_MAGMATIC_ACCRETION as f64;
-            winner.magma_volume += magma;
+            let relative = poles[loser_plate].velocity_km_per_myr_at(mesh.centers[cell])
+                - poles[winner.plate].velocity_km_per_myr_at(mesh.centers[cell]);
+            magmatic_deposits.push(MagmaticDeposit {
+                origin: cell,
+                receiving_plate: winner.plate,
+                volume: magma,
+                direction: relative.normalize_or_zero(),
+            });
             audit.magmatic_added_volume += magma;
         }
         winner.crust = CrustType::Continental;
@@ -2108,7 +2246,14 @@ fn resolve_lifecycle_overlap(
             let consumed = loser.ocean_volume + loser.magma_volume;
             audit.consumed_ocean_volume += consumed;
             let magma = consumed * SUBDUCTION_MAGMATIC_ACCRETION as f64;
-            winner.magma_volume += magma;
+            let relative = poles[loser_plate].velocity_km_per_myr_at(mesh.centers[cell])
+                - poles[winner.plate].velocity_km_per_myr_at(mesh.centers[cell]);
+            magmatic_deposits.push(MagmaticDeposit {
+                origin: cell,
+                receiving_plate: winner.plate,
+                volume: magma,
+                direction: relative.normalize_or_zero(),
+            });
             audit.magmatic_added_volume += magma;
         }
     }
@@ -3114,6 +3259,8 @@ mod tests {
         assert!(audit_a.continental_material_residual.abs() < 1e-10);
         assert_eq!(audit_a.final_unresolved_overlaps, 0);
         assert!(audit_a.max_underthrust_layer_fraction <= 1.0 + 1e-5);
+        assert!(audit_a.max_magma_thickness <= CRUST_THICKNESS_CONTINENTAL + 1e-5);
+        assert!(audit_a.max_buried_layer_fraction <= 2.0 + 1e-5);
     }
 
     #[test]
@@ -3182,6 +3329,7 @@ mod tests {
         let mut speeds = HashMap::new();
         let closure_rates = HashMap::from([((0, 1), 50.0)]);
         let mut deposits = Vec::new();
+        let mut magmatic_deposits = Vec::new();
         let mut audit = LifecycleAudit::default();
         let result = resolve_lifecycle_overlap(
             0,
@@ -3193,10 +3341,12 @@ mod tests {
             &closure_rates,
             &mut speeds,
             &mut deposits,
+            &mut magmatic_deposits,
             &mut audit,
         );
         assert_eq!(result.continental_volume, states[0].continental_volume);
         assert_eq!(deposits.len(), 1);
+        assert!(magmatic_deposits.is_empty());
         assert_eq!(deposits[0].continental_volume, states[1].continental_volume);
         assert_eq!(
             result.continental_volume + deposits[0].continental_volume,
@@ -3235,6 +3385,7 @@ mod tests {
         let mut speeds = HashMap::new();
         let closure_rates = HashMap::new();
         let mut deposits = Vec::new();
+        let mut magmatic_deposits = Vec::new();
         let mut audit = LifecycleAudit::default();
         let _ = resolve_lifecycle_overlap(
             0,
@@ -3246,9 +3397,17 @@ mod tests {
             &closure_rates,
             &mut speeds,
             &mut deposits,
+            &mut magmatic_deposits,
             &mut audit,
         );
         assert!(deposits.is_empty());
+        assert_eq!(magmatic_deposits.len(), 1);
+        assert!(
+            (magmatic_deposits[0].volume
+                - states[1].ocean_volume * SUBDUCTION_MAGMATIC_ACCRETION as f64)
+                .abs()
+                < 1e-12
+        );
         assert!(speeds.is_empty());
         assert_eq!(parent, (0..dynamics.euler_poles.len()).collect::<Vec<_>>());
     }
@@ -3306,7 +3465,9 @@ mod tests {
             let capacity = CRUST_THICKNESS_CONTINENTAL as f64 * mesh.areas[cell] as f64;
             assert!(state.underthrust_volume <= capacity + 1e-10);
         }
-        assert!(extract_underthrust_overflow(mesh, &mut states).is_empty());
+        let (underthrust, magma) = extract_buried_sheet_overflow(mesh, &mut states);
+        assert!(underthrust.is_empty());
+        assert!(magma.is_empty());
     }
 
     #[test]
@@ -3348,6 +3509,106 @@ mod tests {
         let after: f64 = states.iter().map(LifecycleCell::total_volume).sum();
         assert_eq!(after, before);
         assert!((audit.foundered_continental_volume - volume).abs() < 1e-10);
+    }
+
+    #[test]
+    fn arc_magma_advances_through_its_batholith_capacity() {
+        let (_, dynamics, replay) = evolved_fixture(2.0);
+        let mesh = &replay.mesh;
+        let mut states: Vec<_> = (0..mesh.centers.len())
+            .map(|cell| {
+                let area = mesh.areas[cell] as f64;
+                LifecycleCell {
+                    plate: 0,
+                    crust: CrustType::Continental,
+                    ocean_age_myr: 0.0,
+                    continental_volume: CRUST_THICKNESS_CONTINENTAL as f64 * area,
+                    ocean_volume: 0.0,
+                    magma_volume: 0.0,
+                    continental_area: area,
+                    ocean_area: 0.0,
+                    underthrust_volume: 0.0,
+                    weakness: 0.0,
+                    fabric: Vec3::ZERO,
+                    collision_deposits: 0,
+                }
+            })
+            .collect();
+        let origin = 0usize;
+        let forward = mesh.neighbors[origin][0] as usize;
+        let origin_center = mesh.centers[origin];
+        let direction = (mesh.centers[forward]
+            - origin_center * origin_center.dot(mesh.centers[forward]))
+        .normalize();
+        let origin_capacity = CRUST_THICKNESS_CONTINENTAL as f64 * mesh.areas[origin] as f64;
+        let forward_capacity = CRUST_THICKNESS_CONTINENTAL as f64 * mesh.areas[forward] as f64;
+        states[origin].underthrust_volume = 0.75 * origin_capacity;
+        states[origin].continental_volume += states[origin].underthrust_volume;
+        states[origin].magma_volume = 0.75 * origin_capacity;
+        let volume = 0.25 * origin_capacity + 0.5 * forward_capacity;
+        let deposit = MagmaticDeposit {
+            origin,
+            receiving_plate: 0,
+            volume,
+            direction,
+        };
+        let before: f64 = states.iter().map(LifecycleCell::total_volume).sum();
+        let mut parent: Vec<_> = (0..dynamics.euler_poles.len()).collect();
+        let mut audit = LifecycleAudit::default();
+        place_magmatic_deposits(mesh, &mut states, &[deposit], &mut parent, &mut audit);
+        let after: f64 = states.iter().map(LifecycleCell::total_volume).sum();
+
+        assert!((after - before - volume).abs() < 1e-10);
+        assert_eq!(audit.foundered_magmatic_volume, 0.0);
+        assert!((states[origin].magma_volume - origin_capacity).abs() < 1e-10);
+        assert!((states[forward].magma_volume - 0.5 * forward_capacity).abs() < 1e-10);
+        for (cell, state) in states.iter().enumerate() {
+            let capacity = CRUST_THICKNESS_CONTINENTAL as f64 * mesh.areas[cell] as f64;
+            assert!(state.underthrust_volume <= capacity + 1e-10);
+            assert!(state.magma_volume <= capacity + 1e-10);
+        }
+        let (underthrust, magma) = extract_buried_sheet_overflow(mesh, &mut states);
+        assert!(underthrust.is_empty());
+        assert!(magma.is_empty());
+    }
+
+    #[test]
+    fn arc_magma_keeps_unplaceable_volume_in_foundering_ledger() {
+        let (_, dynamics, replay) = evolved_fixture(2.0);
+        let mesh = &replay.mesh;
+        let mut states: Vec<_> = (0..mesh.centers.len())
+            .map(|cell| {
+                let area = mesh.areas[cell] as f64;
+                LifecycleCell {
+                    plate: 0,
+                    crust: CrustType::Continental,
+                    ocean_age_myr: 0.0,
+                    continental_volume: CRUST_THICKNESS_CONTINENTAL as f64 * area,
+                    ocean_volume: 0.0,
+                    magma_volume: CRUST_THICKNESS_CONTINENTAL as f64 * area,
+                    continental_area: area,
+                    ocean_area: 0.0,
+                    underthrust_volume: 0.0,
+                    weakness: 0.0,
+                    fabric: Vec3::ZERO,
+                    collision_deposits: 0,
+                }
+            })
+            .collect();
+        let volume = 0.25 * CRUST_THICKNESS_CONTINENTAL as f64 * mesh.areas[0] as f64;
+        let deposit = MagmaticDeposit {
+            origin: 0,
+            receiving_plate: 0,
+            volume,
+            direction: Vec3::ZERO,
+        };
+        let before: f64 = states.iter().map(LifecycleCell::total_volume).sum();
+        let mut parent: Vec<_> = (0..dynamics.euler_poles.len()).collect();
+        let mut audit = LifecycleAudit::default();
+        place_magmatic_deposits(mesh, &mut states, &[deposit], &mut parent, &mut audit);
+        let after: f64 = states.iter().map(LifecycleCell::total_volume).sum();
+        assert_eq!(after, before);
+        assert!((audit.foundered_magmatic_volume - volume).abs() < 1e-10);
     }
 
     #[test]

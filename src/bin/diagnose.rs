@@ -1724,11 +1724,14 @@ fn run_tectonic_history_audit(world: &World, seed: u64, top: usize) {
                 audit.consumed_ocean_volume,
             );
             println!(
-                "  collision: underthrust {:.4e}, foundered {:.4e}, sheet area {:.4e} sr, max layer {:.3}, sutures {}, merges/splits {}/{}, plates {} (motion changes {})",
+                "  collision: underthrust {:.4e}, foundered {:.4e}, under/magma area {:.4e}/{:.4e} sr, max under/buried layer {:.3}/{:.3}, magma foundered {:.4e}, sutures {}, merges/splits {}/{}, plates {} (motion changes {})",
                 audit.continental_underthrust_volume,
                 audit.foundered_continental_volume,
                 audit.underthrust_footprint_area_sr,
+                audit.magma_footprint_area_sr,
                 audit.max_underthrust_layer_fraction,
+                audit.max_buried_layer_fraction,
+                audit.foundered_magmatic_volume,
                 audit.active_sutures,
                 audit.plate_merges,
                 audit.plate_splits,
