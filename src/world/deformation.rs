@@ -845,6 +845,17 @@ struct LifecycleCell {
     collision_deposits: usize,
 }
 
+/// One conservative continent/continent transfer waiting to be placed as a
+/// buried, normal-thickness sheet beneath the receiving motion domain.
+#[derive(Clone, Debug)]
+struct UnderthrustDeposit {
+    origin: usize,
+    receiving_plate: usize,
+    continental_volume: f64,
+    continental_area: f64,
+    direction: Vec3,
+}
+
 impl LifecycleCell {
     fn total_volume(&self) -> f64 {
         self.continental_volume + self.ocean_volume + self.magma_volume
@@ -965,6 +976,7 @@ fn solve_carrier_lifecycle_replay(
         let continental_closure_rates = continental_pair_closure_rates(mesh, &states, &poles);
 
         let mut resolved: Vec<Option<LifecycleCell>> = vec![None; n];
+        let mut underthrust_deposits = Vec::new();
         let mut step_collision_speed: HashMap<(usize, usize), f32> = HashMap::new();
         for cell in 0..n {
             if admissions[cell].is_empty() {
@@ -979,6 +991,7 @@ fn solve_carrier_lifecycle_replay(
                 &mut parent,
                 &continental_closure_rates,
                 &mut step_collision_speed,
+                &mut underthrust_deposits,
                 &mut audit,
             ));
         }
@@ -1016,6 +1029,17 @@ fn solve_carrier_lifecycle_replay(
         }
 
         states = conservatively_fill_lifecycle_gaps(mesh, resolved);
+        for state in &mut states {
+            state.plate = lifecycle_find(&mut parent, state.plate);
+        }
+        underthrust_deposits.extend(extract_underthrust_overflow(mesh, &mut states));
+        place_underthrust_deposits(
+            mesh,
+            &mut states,
+            &underthrust_deposits,
+            &mut parent,
+            &mut audit,
+        );
     }
 
     for state in &mut states {
@@ -1064,12 +1088,14 @@ fn solve_carrier_lifecycle_replay(
         .collect();
 
     audit.final_material_volume = states.iter().map(LifecycleCell::total_volume).sum();
-    audit.material_residual =
-        audit.final_material_volume - audit.initial_material_volume - audit.created_ocean_volume
-            + audit.consumed_ocean_volume
-            - audit.magmatic_added_volume;
+    audit.material_residual = audit.final_material_volume + audit.foundered_continental_volume
+        - audit.initial_material_volume
+        - audit.created_ocean_volume
+        + audit.consumed_ocean_volume
+        - audit.magmatic_added_volume;
     let final_continental_volume: f64 = states.iter().map(|state| state.continental_volume).sum();
-    audit.continental_material_residual = final_continental_volume - initial_continental_volume;
+    audit.continental_material_residual =
+        final_continental_volume + audit.foundered_continental_volume - initial_continental_volume;
     audit.active_sutures = count_lifecycle_sutures(mesh, &states);
     audit.final_plate_count = states
         .iter()
@@ -1113,6 +1139,12 @@ fn solve_carrier_lifecycle_replay(
         audit.magma_positive_volume += states[cell].magma_volume;
         audit.remap_positive_volume += remap.max(0.0) as f64 * area as f64;
         audit.max_underthrust_thickness = audit.max_underthrust_thickness.max(underthrust);
+        if underthrust > 0.0 {
+            audit.underthrust_footprint_area_sr += area as f64;
+        }
+        audit.max_underthrust_layer_fraction = audit
+            .max_underthrust_layer_fraction
+            .max(underthrust / CRUST_THICKNESS_CONTINENTAL.max(1e-12));
         audit.max_magma_thickness = audit.max_magma_thickness.max(magma);
         audit.max_remap_thickness = audit.max_remap_thickness.max(remap);
         audit.max_collision_deposits = audit
@@ -1141,7 +1173,7 @@ fn solve_carrier_lifecycle_replay(
         strain,
         compression_axis,
         material_added: audit.magmatic_added_volume + audit.created_ocean_volume,
-        material_removed: audit.consumed_ocean_volume,
+        material_removed: audit.consumed_ocean_volume + audit.foundered_continental_volume,
         material_residual: audit.material_residual,
         present_uplift_rate,
         evolution_seconds: audit.runtime_seconds,
@@ -1814,6 +1846,142 @@ fn continental_pair_closure_rates(
         .collect()
 }
 
+/// Place continental collision volume into a single normal-thickness buried
+/// sheet. The front fills graph rings away from the suture; convergence
+/// alignment orders cells within each ring. Width therefore follows material
+/// volume and carrier geometry rather than a prescribed terrain kernel.
+fn place_underthrust_deposits(
+    mesh: &CarrierMesh,
+    states: &mut [LifecycleCell],
+    deposits: &[UnderthrustDeposit],
+    parent: &mut [usize],
+    audit: &mut LifecycleAudit,
+) {
+    let n = states.len();
+    for deposit in deposits {
+        if deposit.continental_volume <= 0.0 {
+            continue;
+        }
+        let receiving_plate = lifecycle_find(parent, deposit.receiving_plate);
+        let mut distance = vec![usize::MAX; n];
+        let mut queue = std::collections::VecDeque::new();
+        if states[deposit.origin].plate == receiving_plate
+            && states[deposit.origin].crust == CrustType::Continental
+        {
+            distance[deposit.origin] = 0;
+            queue.push_back(deposit.origin);
+        } else if let Some(start) = states
+            .iter()
+            .enumerate()
+            .filter(|(_, state)| {
+                state.plate == receiving_plate && state.crust == CrustType::Continental
+            })
+            .min_by(|(a, _), (b, _)| {
+                let da = mesh.centers[*a].dot(mesh.centers[deposit.origin]);
+                let db = mesh.centers[*b].dot(mesh.centers[deposit.origin]);
+                db.total_cmp(&da).then_with(|| a.cmp(b))
+            })
+            .map(|(cell, _)| cell)
+        {
+            distance[start] = 0;
+            queue.push_back(start);
+        }
+        while let Some(cell) = queue.pop_front() {
+            for &next in &mesh.neighbors[cell] {
+                let next = next as usize;
+                if distance[next] != usize::MAX
+                    || states[next].plate != receiving_plate
+                    || states[next].crust != CrustType::Continental
+                {
+                    continue;
+                }
+                distance[next] = distance[cell] + 1;
+                queue.push_back(next);
+            }
+        }
+        let origin = mesh.centers[deposit.origin];
+        let mut targets: Vec<_> = (0..n)
+            .filter(|&cell| distance[cell] != usize::MAX)
+            .collect();
+        targets.sort_by(|&a, &b| {
+            let alignment = |cell: usize| {
+                let tangent = mesh.centers[cell] - origin * origin.dot(mesh.centers[cell]);
+                if tangent.length_squared() > 1e-12 {
+                    tangent.normalize().dot(deposit.direction)
+                } else {
+                    1.0
+                }
+            };
+            distance[a]
+                .cmp(&distance[b])
+                .then_with(|| alignment(b).total_cmp(&alignment(a)))
+                .then_with(|| a.cmp(&b))
+        });
+
+        let mut remaining = deposit.continental_volume;
+        for cell in targets {
+            if remaining <= 1e-30 {
+                break;
+            }
+            let capacity = CRUST_THICKNESS_CONTINENTAL as f64 * mesh.areas[cell] as f64;
+            let available = (capacity - states[cell].underthrust_volume).max(0.0);
+            let placed = remaining.min(available);
+            if placed <= 0.0 {
+                continue;
+            }
+            let material_fraction = placed / deposit.continental_volume;
+            states[cell].continental_volume += placed;
+            states[cell].continental_area += deposit.continental_area * material_fraction;
+            states[cell].underthrust_volume += placed;
+            if deposit.direction.length_squared() > 1e-12 {
+                let mut axis = deposit.direction;
+                if states[cell].fabric.dot(axis) < 0.0 {
+                    axis = -axis;
+                }
+                states[cell].fabric = if states[cell].fabric.length_squared() > 1e-12 {
+                    (states[cell].fabric + axis).normalize_or_zero()
+                } else {
+                    axis
+                };
+            }
+            remaining -= placed;
+        }
+        audit.foundered_continental_volume += remaining.max(0.0);
+    }
+}
+
+/// Conservative pullback can locally reconcentrate a sheet even while its
+/// plate total remains exact. Remove only the above-capacity buried fraction
+/// and feed it back through the same geometric front before accepting a step.
+fn extract_underthrust_overflow(
+    mesh: &CarrierMesh,
+    states: &mut [LifecycleCell],
+) -> Vec<UnderthrustDeposit> {
+    let mut deposits = Vec::new();
+    for (cell, state) in states.iter_mut().enumerate() {
+        let capacity = CRUST_THICKNESS_CONTINENTAL as f64 * mesh.areas[cell] as f64;
+        let excess = (state.underthrust_volume - capacity).max(0.0);
+        if excess <= 1e-30 {
+            continue;
+        }
+        let material_fraction = excess / state.continental_volume.max(1e-30);
+        let area = state.continental_area * material_fraction;
+        state.underthrust_volume -= excess;
+        state.continental_volume -= excess;
+        state.continental_area -= area;
+        deposits.push(UnderthrustDeposit {
+            origin: cell,
+            receiving_plate: state.plate,
+            continental_volume: excess,
+            continental_area: area,
+            // Fabric is an unoriented compression axis; either sign gives the
+            // same graph-ring ordering apart from a deterministic mirror.
+            direction: state.fabric,
+        });
+    }
+    deposits
+}
+
 #[allow(clippy::too_many_arguments)]
 fn resolve_lifecycle_overlap(
     cell: usize,
@@ -1824,6 +1992,7 @@ fn resolve_lifecycle_overlap(
     parent: &mut [usize],
     continental_closure_rates: &HashMap<(usize, usize), f32>,
     step_collision_speed: &mut HashMap<(usize, usize), f32>,
+    underthrust_deposits: &mut Vec<UnderthrustDeposit>,
     audit: &mut LifecycleAudit,
 ) -> LifecycleCell {
     let mut continental: Vec<_> = sources
@@ -1862,19 +2031,28 @@ fn resolve_lifecycle_overlap(
                     }
                 }
                 winner.weakness = 1.0;
-                winner.underthrust_volume += loser.continental_volume;
                 winner.collision_deposits += 1;
                 audit.continental_underthrust_volume += loser.continental_volume;
                 let relative = poles[winner.plate].velocity_km_per_myr_at(mesh.centers[cell])
                     - poles[loser_plate].velocity_km_per_myr_at(mesh.centers[cell]);
                 winner.fabric = relative.normalize_or_zero();
+                underthrust_deposits.push(UnderthrustDeposit {
+                    origin: cell,
+                    receiving_plate: winner.plate,
+                    continental_volume: loser.continental_volume,
+                    continental_area: loser.continental_area,
+                    // The losing plate advances beneath the receiver opposite
+                    // the receiver-minus-loser relative velocity.
+                    direction: (-relative).normalize_or_zero(),
+                });
+            } else {
+                winner.continental_volume += loser.continental_volume;
+                winner.continental_area += loser.continental_area;
+                winner.underthrust_volume += loser.underthrust_volume;
             }
-            winner.continental_volume += loser.continental_volume;
             winner.ocean_volume += loser.ocean_volume;
             winner.magma_volume += loser.magma_volume;
-            winner.continental_area += loser.continental_area;
             winner.ocean_area += loser.ocean_area;
-            winner.underthrust_volume += loser.underthrust_volume;
             winner.collision_deposits += loser.collision_deposits;
             winner.weakness = winner.weakness.max(loser.weakness);
         }
@@ -2935,6 +3113,7 @@ mod tests {
         assert!(audit_a.material_residual.abs() < 1e-10);
         assert!(audit_a.continental_material_residual.abs() < 1e-10);
         assert_eq!(audit_a.final_unresolved_overlaps, 0);
+        assert!(audit_a.max_underthrust_layer_fraction <= 1.0 + 1e-5);
     }
 
     #[test]
@@ -3002,6 +3181,7 @@ mod tests {
         let mut parent: Vec<_> = (0..dynamics.euler_poles.len()).collect();
         let mut speeds = HashMap::new();
         let closure_rates = HashMap::from([((0, 1), 50.0)]);
+        let mut deposits = Vec::new();
         let mut audit = LifecycleAudit::default();
         let result = resolve_lifecycle_overlap(
             0,
@@ -3012,11 +3192,15 @@ mod tests {
             &mut parent,
             &closure_rates,
             &mut speeds,
+            &mut deposits,
             &mut audit,
         );
+        assert_eq!(result.continental_volume, states[0].continental_volume);
+        assert_eq!(deposits.len(), 1);
+        assert_eq!(deposits[0].continental_volume, states[1].continental_volume);
         assert_eq!(
-            result.continental_volume,
-            states[0].continental_volume * 2.0
+            result.continental_volume + deposits[0].continental_volume,
+            states[0].continental_volume + states[1].continental_volume
         );
         assert_eq!(result.weakness, 1.0);
         assert_eq!(
@@ -3050,6 +3234,7 @@ mod tests {
         let mut parent: Vec<_> = (0..dynamics.euler_poles.len()).collect();
         let mut speeds = HashMap::new();
         let closure_rates = HashMap::new();
+        let mut deposits = Vec::new();
         let mut audit = LifecycleAudit::default();
         let _ = resolve_lifecycle_overlap(
             0,
@@ -3060,10 +3245,109 @@ mod tests {
             &mut parent,
             &closure_rates,
             &mut speeds,
+            &mut deposits,
             &mut audit,
         );
+        assert!(deposits.is_empty());
         assert!(speeds.is_empty());
         assert_eq!(parent, (0..dynamics.euler_poles.len()).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn buried_sheet_fills_directionally_and_respects_one_layer_capacity() {
+        let (_, dynamics, replay) = evolved_fixture(2.0);
+        let mesh = &replay.mesh;
+        let mut states: Vec<_> = (0..mesh.centers.len())
+            .map(|cell| {
+                let area = mesh.areas[cell] as f64;
+                LifecycleCell {
+                    plate: 0,
+                    crust: CrustType::Continental,
+                    ocean_age_myr: 0.0,
+                    continental_volume: CRUST_THICKNESS_CONTINENTAL as f64 * area,
+                    ocean_volume: 0.0,
+                    magma_volume: 0.0,
+                    continental_area: area,
+                    ocean_area: 0.0,
+                    underthrust_volume: 0.0,
+                    weakness: 0.0,
+                    fabric: Vec3::ZERO,
+                    collision_deposits: 0,
+                }
+            })
+            .collect();
+        let origin = 0usize;
+        let forward = mesh.neighbors[origin][0] as usize;
+        let origin_center = mesh.centers[origin];
+        let direction = (mesh.centers[forward]
+            - origin_center * origin_center.dot(mesh.centers[forward]))
+        .normalize();
+        let origin_capacity = CRUST_THICKNESS_CONTINENTAL as f64 * mesh.areas[origin] as f64;
+        let forward_capacity = CRUST_THICKNESS_CONTINENTAL as f64 * mesh.areas[forward] as f64;
+        let volume = origin_capacity + 0.5 * forward_capacity;
+        let deposit = UnderthrustDeposit {
+            origin,
+            receiving_plate: 0,
+            continental_volume: volume,
+            continental_area: volume / CRUST_THICKNESS_CONTINENTAL as f64,
+            direction,
+        };
+        let before: f64 = states.iter().map(LifecycleCell::total_volume).sum();
+        let mut parent: Vec<_> = (0..dynamics.euler_poles.len()).collect();
+        let mut audit = LifecycleAudit::default();
+        place_underthrust_deposits(mesh, &mut states, &[deposit], &mut parent, &mut audit);
+        let after: f64 = states.iter().map(LifecycleCell::total_volume).sum();
+
+        assert!((after - before - volume).abs() < 1e-10);
+        assert_eq!(audit.foundered_continental_volume, 0.0);
+        assert!((states[origin].underthrust_volume - origin_capacity).abs() < 1e-10);
+        assert!((states[forward].underthrust_volume - 0.5 * forward_capacity).abs() < 1e-10);
+        for (cell, state) in states.iter().enumerate() {
+            let capacity = CRUST_THICKNESS_CONTINENTAL as f64 * mesh.areas[cell] as f64;
+            assert!(state.underthrust_volume <= capacity + 1e-10);
+        }
+        assert!(extract_underthrust_overflow(mesh, &mut states).is_empty());
+    }
+
+    #[test]
+    fn buried_sheet_keeps_unplaceable_volume_in_foundering_ledger() {
+        let (_, dynamics, replay) = evolved_fixture(2.0);
+        let mesh = &replay.mesh;
+        let mut states: Vec<_> = (0..mesh.centers.len())
+            .map(|cell| {
+                let area = mesh.areas[cell] as f64;
+                let layer = CRUST_THICKNESS_CONTINENTAL as f64 * area;
+                LifecycleCell {
+                    plate: 0,
+                    crust: CrustType::Continental,
+                    ocean_age_myr: 0.0,
+                    continental_volume: 2.0 * layer,
+                    ocean_volume: 0.0,
+                    magma_volume: 0.0,
+                    continental_area: 2.0 * area,
+                    ocean_area: 0.0,
+                    underthrust_volume: layer,
+                    weakness: 0.0,
+                    fabric: Vec3::ZERO,
+                    collision_deposits: 0,
+                }
+            })
+            .collect();
+        let volume = 0.25 * CRUST_THICKNESS_CONTINENTAL as f64 * mesh.areas[0] as f64;
+        let deposit = UnderthrustDeposit {
+            origin: 0,
+            receiving_plate: 0,
+            continental_volume: volume,
+            continental_area: volume / CRUST_THICKNESS_CONTINENTAL as f64,
+            direction: Vec3::ZERO,
+        };
+        let before: f64 = states.iter().map(LifecycleCell::total_volume).sum();
+        let mut parent: Vec<_> = (0..dynamics.euler_poles.len()).collect();
+        let mut audit = LifecycleAudit::default();
+        place_underthrust_deposits(mesh, &mut states, &[deposit], &mut parent, &mut audit);
+        let after: f64 = states.iter().map(LifecycleCell::total_volume).sum();
+        assert_eq!(after, before);
+        assert!((audit.foundered_continental_volume - volume).abs() < 1e-10);
     }
 
     #[test]

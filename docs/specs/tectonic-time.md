@@ -349,16 +349,13 @@ present thickness tendency project to the 100k terrain mesh. Source-layout trenc
 ridge, collision, rift, and craton-macro fields remain available as diagnostics but are
 explicitly zeroed in lifecycle elevation assembly. They do not force lifecycle terrain.
 
-An untuned ten-seed canonical scorecard gives median peak 14.35 km (range 1.50–27.93;
-7 FAIL / 1 WARN / 2 PASS), median mountain-land coverage about 0.7% (range 0–3.6%), and
-median land p50/p90/p99 about 0.02/0.055/0.64 km. Thus the lifecycle is not promotable:
-it produces localized excessive roots in several seeds while generating too little broad
-mountain area. Pullback removed numerical remap dominance. Maximum underthrust thickness
-is 1.00–4.03 units across seeds versus only 0.028–0.786 residual remap; the remaining
-extremes are now predominantly explicit underthrust columns. Buried continental volume
-currently contributes its full isostatic root at the surface cell rather than occupying a
-resolved multilayer slab/footprint. That architectural simplification is the next causal
-target; no cap or retention coefficient was introduced.
+A strict rerun after the positive-normal-convergence merge correction gives the committed
+direct-column baseline a median peak of 33.48 km (range 1.50–334.67; 9 FAIL / 0 WARN /
+1 PASS) and median mountain-land coverage about 0.65%. Maximum local underthrust is
+2.51–47.22 reference thickness units versus 0.028–0.892 residual remap. The earlier
+14.35 km table predated that root-review correction and is superseded. The lifecycle is
+not promotable: direct full-column expression creates localized excessive roots while
+generating too little broad mountain area.
 
 Across the same ten seeds, created/consumed ocean volumes span 0.047–0.536 / 0.013–0.378,
 continental underthrust 0.0053–0.0606, retained magma 0.0019–0.0567, active sutures 0–24,
@@ -369,6 +366,24 @@ Persistent weakness is transported as an intensive connected-component field: ev
 suture retains deterministic support through rigid pullback, damage uses max semantics,
 fabric rotates with its plate, and collision-deposit counts cannot disappear through
 nearest-cell sampling.
+
+**T4b capacity-limited buried sheet implemented.** Continental collision now transfers
+the losing material into a separate deposit event rather than adding it at the contact.
+The receiving domain admits at most one normal reference-crust layer per carrier cell;
+overflow advances through graph rings with convergence alignment providing the ordering
+inside each ring. Thus sheet area is volume divided by reference thickness, not a painted
+width. Pullback reconcentration is re-extracted and propagated every interval. Any volume
+blocked by finite receiving geometry remains in an explicit foundering reservoir included
+in both material ledgers but excluded from surface isostasy.
+
+At canonical 8k, ten seeds improve from the committed direct-column median/range of
+33.48/1.50–334.67 km to 8.71/7.08–20.21 km; gates move from 9/0/1 to 3/1/6 and median
+mountain-land coverage from about 0.65% to 2.75%. Every seed respects a maximum buried
+layer fraction of 1.0, sheet footprint spans 0.0079–0.2195 steradians, foundering spans
+0–0.0304 volume units, and ledgers remain at roundoff. This is a retained causal rung,
+not a promotion. Remaining failures are now magma-localization dominated (maximum local
+magma 1.89–2.65 thickness units in the three FAIL seeds), which must be specified and
+audited independently.
 
 ## Required invariants
 

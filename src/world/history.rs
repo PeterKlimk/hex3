@@ -126,6 +126,10 @@ pub struct LifecycleAudit {
     pub consumed_ocean_area_sr: f64,
     pub consumed_ocean_volume: f64,
     pub continental_underthrust_volume: f64,
+    /// Continental volume that could not be accommodated in a single buried
+    /// crustal sheet beneath the receiving domain. It remains in an explicit
+    /// deep/foundering reservoir and does not support surface elevation.
+    pub foundered_continental_volume: f64,
     pub magmatic_added_volume: f64,
     pub material_residual: f64,
     pub continental_material_residual: f64,
@@ -148,6 +152,8 @@ pub struct LifecycleAudit {
     pub magma_positive_volume: f64,
     pub remap_positive_volume: f64,
     pub max_underthrust_thickness: f32,
+    pub underthrust_footprint_area_sr: f64,
+    pub max_underthrust_layer_fraction: f32,
     pub max_magma_thickness: f32,
     pub max_remap_thickness: f32,
     pub max_collision_deposits: usize,

@@ -108,11 +108,15 @@ struct Metrics {
     lifecycle_created_ocean: f64,
     lifecycle_consumed_ocean: f64,
     lifecycle_underthrust: f64,
+    lifecycle_foundered: f64,
+    lifecycle_underthrust_footprint: f64,
+    lifecycle_max_layer_fraction: f32,
     lifecycle_magma: f64,
     lifecycle_sutures: usize,
     lifecycle_merges: usize,
     lifecycle_final_plates: usize,
     lifecycle_max_underthrust: f32,
+    lifecycle_max_magma: f32,
     lifecycle_max_remap: f32,
 }
 
@@ -427,6 +431,21 @@ fn measure_world(world: &World, wall_s: f32) -> Metrics {
             .as_ref()
             .map(|audit| audit.continental_underthrust_volume)
             .unwrap_or(0.0),
+        lifecycle_foundered: features
+            .lifecycle_audit
+            .as_ref()
+            .map(|audit| audit.foundered_continental_volume)
+            .unwrap_or(0.0),
+        lifecycle_underthrust_footprint: features
+            .lifecycle_audit
+            .as_ref()
+            .map(|audit| audit.underthrust_footprint_area_sr)
+            .unwrap_or(0.0),
+        lifecycle_max_layer_fraction: features
+            .lifecycle_audit
+            .as_ref()
+            .map(|audit| audit.max_underthrust_layer_fraction)
+            .unwrap_or(0.0),
         lifecycle_magma: features
             .lifecycle_audit
             .as_ref()
@@ -452,6 +471,11 @@ fn measure_world(world: &World, wall_s: f32) -> Metrics {
             .as_ref()
             .map(|audit| audit.max_underthrust_thickness)
             .unwrap_or(0.0),
+        lifecycle_max_magma: features
+            .lifecycle_audit
+            .as_ref()
+            .map(|audit| audit.max_magma_thickness)
+            .unwrap_or(0.0),
         lifecycle_max_remap: features
             .lifecycle_audit
             .as_ref()
@@ -466,20 +490,24 @@ fn print_lifecycle_summary(rows: &[Metrics]) {
         return;
     }
     println!("\n## Forward lifecycle ledgers");
-    println!("\n| seed | created ocean | consumed ocean | underthrust | magma | sutures | merges | final plates | max H underthrust/remap | evolve s |");
-    println!("|---:|---:|---:|---:|---:|---:|---:|---:|:---|---:|");
+    println!("\n| seed | created ocean | consumed ocean | underthrust/foundered | sheet area | max layer | magma | sutures | merges | final plates | max H underthrust/magma/remap | evolve s |");
+    println!("|---:|---:|---:|:---|---:|---:|---:|---:|---:|---:|:---|---:|");
     for row in lifecycle {
         println!(
-            "| {} | {:.3e} | {:.3e} | {:.3e} | {:.3e} | {} | {} | {} | {:.3}/{:.3} | {:.2} |",
+            "| {} | {:.3e} | {:.3e} | {:.3e}/{:.3e} | {:.3e} | {:.3} | {:.3e} | {} | {} | {} | {:.3}/{:.3}/{:.3} | {:.2} |",
             row.seed,
             row.lifecycle_created_ocean,
             row.lifecycle_consumed_ocean,
             row.lifecycle_underthrust,
+            row.lifecycle_foundered,
+            row.lifecycle_underthrust_footprint,
+            row.lifecycle_max_layer_fraction,
             row.lifecycle_magma,
             row.lifecycle_sutures,
             row.lifecycle_merges,
             row.lifecycle_final_plates,
             row.lifecycle_max_underthrust,
+            row.lifecycle_max_magma,
             row.lifecycle_max_remap,
             row.evolution_s,
         );

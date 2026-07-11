@@ -258,16 +258,16 @@ remap maximum and rendered a 51 km peak. That forcing implementation was removed
 retained plate-wise inverse-rotation pullback conservatively normalizes every material
 component and preserves a uniform rigid plate within 1e-5 over 100 Myr.
 
-Untuned ten-seed canonical result:
+The first table recorded here predated the final root-review correction that restricted
+plate merging to positive normal convergence. A strict rerun of committed checkpoint
+`f0f1b0b` is the standing direct-column baseline:
 
 | statistic | result |
 |:---|:---|
-| peak median / range | 14.35 / 1.50–27.93 km |
-| peak gates | 7 FAIL / 1 WARN / 2 PASS |
-| mountain-land median / range | ~0.7% / 0–3.6% |
-| land p50 / p90 / p99 medians | ~0.02 / 0.055 / 0.64 km |
-| final land fraction | 26.4–30.1% |
-| lifecycle solve cost | 0.78–1.08 s |
+| peak median / range | 33.48 / 1.50–334.67 km |
+| peak gates | 9 FAIL / 0 WARN / 1 PASS |
+| mountain-land median / range | ~0.65% / 0–3.5% |
+| lifecycle solve cost | 0.82–1.09 s |
 
 Material/topology ranges (thickness×steradian except counts):
 
@@ -293,10 +293,39 @@ intensive-field support under pullback, independent of material-volume normaliza
 
 The verdict is deliberately split. The lifecycle/topology/material engine passes its
 causal invariants. The direct surface response is falsified: maximum underthrust columns
-are 1.00–4.03 thickness units while residual pullback/remap maxima are only 0.028–0.786,
-so the remaining excessive peaks are explicit localized roots, not projection or raster
-aliasing. At the same time the mountain footprint is much too small. Buried continental
-mass currently contributes its full column to the local isostatic surface cell. Do not
-retune retention, add a cap, or spread to a target width. The next candidate must first
-specify a conservative critical-taper/underthrust geometry or independently justified
-buried-reservoir coupling, then test it against the standing scorecard.
+are 2.51–47.22 thickness units while residual pullback/remap maxima are only 0.028–0.892,
+so the excessive peaks are explicit localized roots, not projection or raster aliasing.
+At the same time the mountain footprint is much too small. Buried continental mass in
+this checkpoint contributes its full column to the local isostatic surface cell.
+
+### Capacity-limited buried underthrust sheet: causal improvement retained
+
+The next rung replaces contact-cell stacking with a conservative buried sheet. Each
+receiving continental cell can hold one normal reference-crust layer beneath its surface
+column. Additional collision volume advances through deterministic graph rings, ordered
+by the measured convergence direction within each ring. The footprint therefore follows
+`volume / reference continental thickness`; no target width, taper, height cap, retention
+factor, erosion, or flexural smoothing enters this A/B. Conservative pullback overflow
+is fed back through the same front every interval so the capacity is historical, not
+merely a final clamp. Material that cannot fit beneath the receiving continental domain
+enters an explicit deep/foundering ledger and does not support surface elevation.
+
+Strict ten-seed A/B at canonical 8k:
+
+| statistic | direct local column (`f0f1b0b`) | buried sheet |
+|:---|---:|---:|
+| peak median / range | 33.48 / 1.50–334.67 km | 8.71 / 7.08–20.21 km |
+| peak gates | 9 FAIL / 0 WARN / 1 PASS | 3 FAIL / 1 WARN / 6 PASS |
+| mountain-land median | ~0.65% | ~2.75% |
+| maximum buried layer | 2.51–47.22 | 1.00 in every seed |
+| buried footprint area | contact-local | 0.0079–0.2195 sr |
+| foundered continental volume | unrepresented | 0–0.0304 |
+| lifecycle solve cost | 0.82–1.09 s | 0.76–1.02 s |
+
+All total and continental ledgers still close near roundoff. The rung is retained as a
+successful causal correction: it removes arbitrary vertical stacking, broadens collision
+support from material geometry, and is slightly cheaper in this run. It does not promote
+the lifecycle terrain. The remaining three FAIL seeds have locally concentrated retained
+arc magma (maximum 1.89, 2.31, and 2.65 thickness units); across all seeds magma maxima
+span 0.15–2.65 versus remap maxima 0.028–0.892. Magma geometry is therefore the next
+separate mechanism to specify. Do not fold an arc-spreading adjustment into this result.

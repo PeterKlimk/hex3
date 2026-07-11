@@ -1724,8 +1724,11 @@ fn run_tectonic_history_audit(world: &World, seed: u64, top: usize) {
                 audit.consumed_ocean_volume,
             );
             println!(
-                "  collision: underthrust {:.4e}, sutures {}, merges/splits {}/{}, plates {} (motion changes {})",
+                "  collision: underthrust {:.4e}, foundered {:.4e}, sheet area {:.4e} sr, max layer {:.3}, sutures {}, merges/splits {}/{}, plates {} (motion changes {})",
                 audit.continental_underthrust_volume,
+                audit.foundered_continental_volume,
+                audit.underthrust_footprint_area_sr,
+                audit.max_underthrust_layer_fraction,
                 audit.active_sutures,
                 audit.plate_merges,
                 audit.plate_splits,
