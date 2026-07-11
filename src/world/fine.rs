@@ -2881,6 +2881,7 @@ fn transfer_fields(
         tectonic_strain: Vec::with_capacity(n),
         compression_axis: Vec::with_capacity(n),
         tectonic_uplift_rate: Vec::with_capacity(n),
+        allow_source_craton_macro: coarse_fields.allow_source_craton_macro,
         continentality: Vec::with_capacity(n),
         ridge_age_distance: Vec::with_capacity(n),
         trench: Vec::with_capacity(n),

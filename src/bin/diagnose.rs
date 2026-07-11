@@ -36,6 +36,8 @@ enum CliOrogenModel {
     HistoryCarrierThinSheet,
     #[value(name = "history-carrier-evolved")]
     HistoryCarrierEvolved,
+    #[value(name = "history-carrier-lifecycle")]
+    HistoryCarrierLifecycle,
     #[value(name = "thin-sheet")]
     ThinSheet,
 }
@@ -310,6 +312,7 @@ fn main() {
         CliOrogenModel::HistoryThinSheet => OrogenModel::HistoryThinSheet,
         CliOrogenModel::HistoryCarrierThinSheet => OrogenModel::HistoryCarrierThinSheet,
         CliOrogenModel::HistoryCarrierEvolved => OrogenModel::HistoryCarrierEvolved,
+        CliOrogenModel::HistoryCarrierLifecycle => OrogenModel::HistoryCarrierLifecycle,
         CliOrogenModel::ThinSheet => OrogenModel::ThinSheet,
     };
     world.generate_plates(hex3::world::NUM_PLATES_DEFAULT);
@@ -1631,14 +1634,24 @@ fn run_tectonic_history_audit(world: &World, seed: u64, top: usize) {
             | OrogenModel::HistoryThinSheet
             | OrogenModel::HistoryCarrierThinSheet
             | OrogenModel::HistoryCarrierEvolved
+            | OrogenModel::HistoryCarrierLifecycle
     ) {
-        println!(
-            "  thin-sheet mass: magma-added {:.6e}, residual {:+.3e} ({:.3e} relative)",
-            features.thin_sheet_material_added,
-            features.thin_sheet_material_residual,
-            features.thin_sheet_material_residual.abs()
-                / features.thin_sheet_material_added.abs().max(1e-30),
-        );
+        if world.orogen_model == OrogenModel::HistoryCarrierLifecycle {
+            println!(
+                "  lifecycle aggregate mass: created+magma added {:.6e}, ocean consumed {:.6e}, residual {:+.3e}",
+                features.thin_sheet_material_added,
+                features.thin_sheet_material_removed,
+                features.thin_sheet_material_residual,
+            );
+        } else {
+            println!(
+                "  thin-sheet mass: magma-added {:.6e}, residual {:+.3e} ({:.3e} relative)",
+                features.thin_sheet_material_added,
+                features.thin_sheet_material_residual,
+                features.thin_sheet_material_residual.abs()
+                    / features.thin_sheet_material_added.abs().max(1e-30),
+            );
+        }
         if world.orogen_model == OrogenModel::HistoryCarrierEvolved {
             let areas = world.tessellation.cell_areas();
             let inherited = &features.thin_sheet_thickness_delta;
@@ -1673,6 +1686,95 @@ fn run_tectonic_history_audit(world: &World, seed: u64, top: usize) {
                 100.0 * features.carrier_moving_forcing_fraction,
             );
         }
+        if let Some(audit) = &features.lifecycle_audit {
+            let elevation = &world
+                .elevation
+                .as_ref()
+                .expect("elevation generated")
+                .values;
+            let areas = world.tessellation.cell_areas();
+            let land_area: f64 = elevation
+                .iter()
+                .zip(areas.iter())
+                .filter(|&(&height, _)| height >= 0.0)
+                .map(|(_, &area)| area as f64)
+                .sum();
+            let mountain_area: f64 = elevation
+                .iter()
+                .zip(areas.iter())
+                .filter(|&(&height, _)| height >= 0.2)
+                .map(|(_, &area)| area as f64)
+                .sum();
+            let total_area: f64 = areas.iter().map(|&area| area as f64).sum();
+            let evolved_continental_area: f64 = features
+                .lifecycle_final_continental
+                .as_ref()
+                .expect("lifecycle final crust")
+                .iter()
+                .zip(areas.iter())
+                .filter(|&(&continental, _)| continental)
+                .map(|(_, &area)| area as f64)
+                .sum();
+            println!(
+                "  lifecycle {:.3}s: ocean created area/volume {:.4e}/{:.4e}, consumed {:.4e}/{:.4e}",
+                audit.runtime_seconds,
+                audit.created_ocean_area_sr,
+                audit.created_ocean_volume,
+                audit.consumed_ocean_area_sr,
+                audit.consumed_ocean_volume,
+            );
+            println!(
+                "  collision: underthrust {:.4e}, sutures {}, merges/splits {}/{}, plates {} (motion changes {})",
+                audit.continental_underthrust_volume,
+                audit.active_sutures,
+                audit.plate_merges,
+                audit.plate_splits,
+                audit.final_plate_count,
+                audit.motion_changes,
+            );
+            println!(
+                "  lifecycle ledger: magma {:.4e}, residual {:+.3e}, continental residual {:+.3e}, ghost overlaps {} | zero-age ocean cells {}",
+                audit.magmatic_added_volume,
+                audit.material_residual,
+                audit.continental_material_residual,
+                audit.final_unresolved_overlaps,
+                audit.final_zero_age_ocean_cells,
+            );
+            println!(
+                "  lifecycle terrain: peak {:.1} km | mountain footprint {:.1}% of land (coarse elev >=2 km)",
+                max_elevation_km,
+                100.0 * mountain_area / land_area.max(1e-30),
+            );
+            println!(
+                "  carrier thickness p50/p90/p99/max {:.3}/{:.3}/{:.3}/{:.3}; delta max carrier/projected {:.3}/{:.3}",
+                audit.thickness_p50,
+                audit.thickness_p90,
+                audit.thickness_p99,
+                audit.carrier_max_thickness,
+                audit.carrier_max_delta,
+                audit.projected_max_delta,
+            );
+            println!(
+                "  positive-load decomposition volume underthrust/magma/remap {:.4e}/{:.4e}/{:.4e}; per-cell max thickness {:.3}/{:.3}/{:.3}; max collision deposits {}",
+                audit.underthrust_positive_volume,
+                audit.magma_positive_volume,
+                audit.remap_positive_volume,
+                audit.max_underthrust_thickness,
+                audit.max_magma_thickness,
+                audit.max_remap_thickness,
+                audit.max_collision_deposits,
+            );
+            println!(
+                "  evolved continental/land/positive-thickness area {:.1}/{:.1}/{:.1}% planet; mountains occupy {:.1}% planet",
+                100.0 * evolved_continental_area / total_area.max(1e-30),
+                100.0 * land_area / total_area.max(1e-30),
+                100.0 * audit.positive_delta_area_fraction,
+                100.0 * mountain_area / total_area.max(1e-30),
+            );
+            println!(
+                "  source-layout trench/arc/ridge/collision remain diagnostics only and are zeroed in lifecycle elevation assembly"
+            );
+        }
     }
     println!(
         "  id pair kind       edges length_km rate_n rate_s speed duration displacement_n/shear km"
@@ -1694,9 +1796,15 @@ fn run_tectonic_history_audit(world: &World, seed: u64, top: usize) {
             e.integrated_shear_displacement_km,
         );
     }
-    println!(
-        "  provenance: duration=min(kinematic residence, back-rotated pair adjacency); Euler poles held fixed; present geography is the reconstruction boundary condition"
-    );
+    if world.orogen_model == OrogenModel::HistoryCarrierLifecycle {
+        println!(
+            "  provenance: generated carrier layout is oldest state; topology-aware conservative pullback evolves forward; Euler motion changes only on continental merge events"
+        );
+    } else {
+        println!(
+            "  provenance: duration=min(kinematic residence, back-rotated pair adjacency); present geography is the reconstruction boundary condition"
+        );
+    }
 }
 
 // ===================== REBUILD-FIDELITY AUDIT =====================

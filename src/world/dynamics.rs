@@ -11,7 +11,7 @@ use super::constants::*;
 use super::Plates;
 
 /// Euler pole describing plate rotation on a sphere.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct EulerPole {
     /// Normalized axis of rotation (point on unit sphere).
     pub axis: Vec3,
@@ -108,20 +108,19 @@ mod tests {
 
 /// Generate random Euler poles for each plate.
 fn generate_euler_poles<R: Rng>(num_plates: usize, rng: &mut R) -> Vec<EulerPole> {
-    (0..num_plates)
-        .map(|_| {
-            // Random point on unit sphere for axis
-            let theta = rng.gen::<f32>() * std::f32::consts::TAU;
-            let phi = (1.0 - 2.0 * rng.gen::<f32>()).acos();
-            let axis = Vec3::new(phi.sin() * theta.cos(), phi.sin() * theta.sin(), phi.cos());
+    (0..num_plates).map(|_| sample_euler_pole(rng)).collect()
+}
 
-            // Random angular velocity
-            let angular_velocity = (rng.gen::<f32>() - 0.5) * 2.0 * MAX_ANGULAR_VELOCITY;
-
-            EulerPole {
-                axis,
-                angular_velocity,
-            }
-        })
-        .collect()
+/// Draw one Euler vector from the same isotropic prior used at the present.
+/// Historical-motion experiments call this at explicit reorganization events
+/// so their marginal speed/axis distribution does not introduce a second law.
+pub(crate) fn sample_euler_pole<R: Rng>(rng: &mut R) -> EulerPole {
+    let theta = rng.gen::<f32>() * std::f32::consts::TAU;
+    let phi = (1.0 - 2.0 * rng.gen::<f32>()).acos();
+    let axis = Vec3::new(phi.sin() * theta.cos(), phi.sin() * theta.sin(), phi.cos());
+    let angular_velocity = (rng.gen::<f32>() - 0.5) * 2.0 * MAX_ANGULAR_VELOCITY;
+    EulerPole {
+        axis,
+        angular_velocity,
+    }
 }

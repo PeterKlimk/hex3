@@ -12,7 +12,9 @@ use super::boundary::{BoundaryKind, PlateBoundaryEdge, SubductionPolarity};
 use super::constants::*;
 use super::crust::{Crust, CrustType};
 use super::history::{CarrierMesh, CarrierSnapshot};
-use super::{Dynamics, Plates, TectonicHistory, Tessellation};
+use super::EulerPole;
+use super::{Dynamics, LifecycleAudit, Plates, TectonicHistory, Tessellation};
+use glam::Quat;
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
@@ -38,6 +40,10 @@ pub(crate) struct ThinSheetFields {
     /// by the present-day receiver support.
     pub moving_forcing_fraction: f32,
     pub operator_audit: Option<CarrierOperatorAudit>,
+    pub final_continental: Option<Vec<bool>>,
+    pub final_ocean_age_myr: Vec<f32>,
+    pub final_weakness: Vec<f32>,
+    pub lifecycle_audit: Option<LifecycleAudit>,
 }
 
 /// Resolution-isolation ladder for the experimental moving-carrier operator.
@@ -493,6 +499,10 @@ pub(crate) fn solve_thin_sheet(
         evolution_seconds: 0.0,
         moving_forcing_fraction: 0.0,
         operator_audit: None,
+        final_continental: None,
+        final_ocean_age_myr: vec![0.0; n],
+        final_weakness: vec![0.0; n],
+        lifecycle_audit: None,
     }
 }
 
@@ -756,6 +766,10 @@ pub(crate) fn solve_history_thin_sheet(
         evolution_seconds: 0.0,
         moving_forcing_fraction: 0.0,
         operator_audit: None,
+        final_continental: None,
+        final_ocean_age_myr: vec![0.0; n],
+        final_weakness: vec![0.0; n],
+        lifecycle_audit: None,
     }
 }
 
@@ -815,9 +829,334 @@ pub(crate) fn solve_history_carrier_evolved(
     solve_carrier_replay_evolved(present_tess, dynamics, replay, started)
 }
 
-fn solve_carrier_replay_evolved(
+#[derive(Clone, Debug)]
+struct LifecycleCell {
+    plate: usize,
+    crust: CrustType,
+    ocean_age_myr: f32,
+    continental_volume: f64,
+    ocean_volume: f64,
+    magma_volume: f64,
+    continental_area: f64,
+    ocean_area: f64,
+    underthrust_volume: f64,
+    weakness: f32,
+    fabric: Vec3,
+    collision_deposits: usize,
+}
+
+impl LifecycleCell {
+    fn total_volume(&self) -> f64 {
+        self.continental_volume + self.ocean_volume + self.magma_volume
+    }
+
+    fn scale_material(&mut self, fraction: f64) {
+        self.continental_volume *= fraction;
+        self.ocean_volume *= fraction;
+        self.magma_volume *= fraction;
+        self.continental_area *= fraction;
+        self.ocean_area *= fraction;
+        self.underthrust_volume *= fraction;
+    }
+}
+
+/// Forward lifecycle automaton. The generated carrier layout is interpreted as
+/// the oldest state, then advected toward the present. Unlike the back-rotation
+/// rungs, gaps and overlaps update material reservoirs and topology.
+pub(crate) fn solve_history_carrier_lifecycle(
     present_tess: &Tessellation,
     dynamics: &Dynamics,
+    history: &TectonicHistory,
+) -> ThinSheetFields {
+    let started = Instant::now();
+    let replay = history
+        .carrier_replay
+        .as_ref()
+        .expect("carrier lifecycle requires carrier geometry");
+    solve_carrier_lifecycle_replay(
+        present_tess,
+        dynamics,
+        replay,
+        history.lookback_myr,
+        started,
+    )
+}
+
+fn solve_carrier_lifecycle_replay(
+    present_tess: &Tessellation,
+    dynamics: &Dynamics,
+    replay: &super::history::CarrierReplay,
+    lookback_myr: f32,
+    started: Instant,
+) -> ThinSheetFields {
+    let mesh = &replay.mesh;
+    let initial = &replay.snapshots[0];
+    let n = mesh.centers.len();
+    let mut states: Vec<LifecycleCell> = (0..n)
+        .map(|cell| {
+            let crust = initial.crust_owner[cell];
+            let area = mesh.areas[cell] as f64;
+            LifecycleCell {
+                plate: initial.plate_owner[cell] as usize,
+                crust,
+                // The generated oldest state has no prior age provenance.
+                // Start its ocean clock at zero and advance it physically.
+                ocean_age_myr: 0.0,
+                continental_volume: if crust == CrustType::Continental {
+                    CRUST_THICKNESS_CONTINENTAL as f64 * area
+                } else {
+                    0.0
+                },
+                ocean_volume: if crust == CrustType::Oceanic {
+                    CRUST_THICKNESS_OCEANIC as f64 * area
+                } else {
+                    0.0
+                },
+                magma_volume: 0.0,
+                continental_area: if crust == CrustType::Continental {
+                    area
+                } else {
+                    0.0
+                },
+                ocean_area: if crust == CrustType::Oceanic {
+                    area
+                } else {
+                    0.0
+                },
+                underthrust_volume: 0.0,
+                weakness: 0.0,
+                fabric: Vec3::ZERO,
+                collision_deposits: 0,
+            }
+        })
+        .collect();
+    let initial_material_volume: f64 = states.iter().map(LifecycleCell::total_volume).sum();
+    let initial_continental_volume: f64 = states.iter().map(|state| state.continental_volume).sum();
+    let plate_count = dynamics.euler_poles.len();
+    let mut parent: Vec<usize> = (0..plate_count).collect();
+    let mut poles = dynamics.euler_poles.clone();
+    let mut collision_closure_km: HashMap<(usize, usize), f32> = HashMap::new();
+    let mut audit = LifecycleAudit {
+        initial_material_volume,
+        ..LifecycleAudit::default()
+    };
+    let mut previous_thickness = vec![0.0f32; n];
+    let steps = (lookback_myr / replay.step_myr).ceil() as usize;
+
+    for step_index in 0..steps {
+        let dt = ((step_index + 1) as f32 * replay.step_myr).min(lookback_myr)
+            - (step_index as f32 * replay.step_myr).min(lookback_myr);
+        if dt <= 0.0 {
+            continue;
+        }
+        for state in &mut states {
+            state.plate = lifecycle_find(&mut parent, state.plate);
+        }
+        age_lifecycle_ocean(&mut states, dt);
+        if step_index + 1 == steps {
+            previous_thickness = states
+                .iter()
+                .enumerate()
+                .map(|(cell, state)| state.total_volume() as f32 / mesh.areas[cell].max(1e-12))
+                .collect();
+        }
+        let (candidates, admissions) =
+            lifecycle_pullback_admissions(mesh, &states, &poles, &mut parent, dt);
+        let continental_closure_rates = continental_pair_closure_rates(mesh, &states, &poles);
+
+        let mut resolved: Vec<Option<LifecycleCell>> = vec![None; n];
+        let mut step_collision_speed: HashMap<(usize, usize), f32> = HashMap::new();
+        for cell in 0..n {
+            if admissions[cell].is_empty() {
+                continue;
+            }
+            resolved[cell] = Some(resolve_lifecycle_overlap(
+                cell,
+                &admissions[cell],
+                &candidates,
+                mesh,
+                &poles,
+                &mut parent,
+                &continental_closure_rates,
+                &mut step_collision_speed,
+                &mut audit,
+            ));
+        }
+
+        // Collision coupling is event-driven: a pair merges only after its
+        // accumulated continental closure spans one carrier cell.
+        for (pair, speed) in step_collision_speed {
+            let closure = collision_closure_km.entry(pair).or_default();
+            *closure += speed * dt;
+            if *closure >= replay.mean_spacing_km {
+                if merge_lifecycle_domains(pair.0, pair.1, &mut parent, &mut poles, &states) {
+                    audit.plate_merges += 1;
+                    audit.motion_changes += 1;
+                }
+            }
+        }
+        for state in resolved.iter_mut().flatten() {
+            state.plate = lifecycle_find(&mut parent, state.plate);
+        }
+
+        // Only an ocean/ocean divergent hole creates new lithosphere. Other
+        // raster holes are conservative domain expansion resolved below.
+        for cell in 0..n {
+            if resolved[cell].is_some() {
+                continue;
+            }
+            if let Some(plate) = divergent_ocean_gap_owner(cell, mesh, &resolved, &poles) {
+                let area = mesh.areas[cell] as f64;
+                let new_ocean = new_lifecycle_ocean(plate, area);
+                let volume = new_ocean.ocean_volume;
+                resolved[cell] = Some(new_ocean);
+                audit.created_ocean_area_sr += area;
+                audit.created_ocean_volume += volume;
+            }
+        }
+
+        states = conservatively_fill_lifecycle_gaps(mesh, resolved);
+    }
+
+    for state in &mut states {
+        state.plate = lifecycle_find(&mut parent, state.plate);
+    }
+    let final_thickness: Vec<f32> = states
+        .iter()
+        .enumerate()
+        .map(|(cell, state)| state.total_volume() as f32 / mesh.areas[cell].max(1e-12))
+        .collect();
+    let final_continental_carrier: Vec<bool> = states
+        .iter()
+        .map(|state| state.crust == CrustType::Continental)
+        .collect();
+    let reference: Vec<f32> = final_continental_carrier
+        .iter()
+        .map(|&continental| {
+            if continental {
+                CRUST_THICKNESS_CONTINENTAL
+            } else {
+                CRUST_THICKNESS_OCEANIC
+            }
+        })
+        .collect();
+    let delta_carrier: Vec<f32> = final_thickness
+        .iter()
+        .zip(reference.iter())
+        .map(|(&after, &before)| after - before)
+        .collect();
+    let uplift_carrier: Vec<f32> = final_thickness
+        .iter()
+        .zip(previous_thickness.iter())
+        .map(|(&after, &before)| (after - before) / replay.step_myr.max(1e-6))
+        .collect();
+    let strain_carrier: Vec<f32> = states.iter().map(|state| state.weakness).collect();
+    let fabric_carrier: Vec<Vec3> = states.iter().map(|state| state.fabric).collect();
+    let age_carrier: Vec<f32> = states
+        .iter()
+        .map(|state| {
+            if state.crust == CrustType::Oceanic {
+                state.ocean_age_myr
+            } else {
+                0.0
+            }
+        })
+        .collect();
+
+    audit.final_material_volume = states.iter().map(LifecycleCell::total_volume).sum();
+    audit.material_residual =
+        audit.final_material_volume - audit.initial_material_volume - audit.created_ocean_volume
+            + audit.consumed_ocean_volume
+            - audit.magmatic_added_volume;
+    let final_continental_volume: f64 = states.iter().map(|state| state.continental_volume).sum();
+    audit.continental_material_residual = final_continental_volume - initial_continental_volume;
+    audit.active_sutures = count_lifecycle_sutures(mesh, &states);
+    audit.final_plate_count = states
+        .iter()
+        .map(|state| state.plate)
+        .collect::<HashSet<_>>()
+        .len();
+    audit.final_unresolved_overlaps = 0;
+    audit.final_zero_age_ocean_cells = states
+        .iter()
+        .filter(|state| state.crust == CrustType::Oceanic && state.ocean_age_myr == 0.0)
+        .count();
+    let mut sorted_thickness = final_thickness.clone();
+    sorted_thickness.sort_by(f32::total_cmp);
+    let quantile =
+        |p: f32| sorted_thickness[(((sorted_thickness.len() - 1) as f32) * p).round() as usize];
+    audit.thickness_p50 = quantile(0.50);
+    audit.thickness_p90 = quantile(0.90);
+    audit.thickness_p99 = quantile(0.99);
+    audit.carrier_max_thickness = final_thickness
+        .iter()
+        .copied()
+        .fold(f32::NEG_INFINITY, f32::max);
+    audit.carrier_max_delta = delta_carrier
+        .iter()
+        .copied()
+        .fold(f32::NEG_INFINITY, f32::max);
+    let total_area: f64 = mesh.areas.iter().map(|&area| area as f64).sum();
+    audit.positive_delta_area_fraction = delta_carrier
+        .iter()
+        .zip(mesh.areas.iter())
+        .filter(|&(&delta, _)| delta > 0.0)
+        .map(|(_, &area)| area as f64)
+        .sum::<f64>() as f32
+        / total_area.max(1e-30) as f32;
+    for cell in 0..n {
+        let area = mesh.areas[cell].max(1e-12);
+        let underthrust = states[cell].underthrust_volume as f32 / area;
+        let magma = states[cell].magma_volume as f32 / area;
+        let remap = delta_carrier[cell] - underthrust - magma;
+        audit.underthrust_positive_volume += states[cell].underthrust_volume;
+        audit.magma_positive_volume += states[cell].magma_volume;
+        audit.remap_positive_volume += remap.max(0.0) as f64 * area as f64;
+        audit.max_underthrust_thickness = audit.max_underthrust_thickness.max(underthrust);
+        audit.max_magma_thickness = audit.max_magma_thickness.max(magma);
+        audit.max_remap_thickness = audit.max_remap_thickness.max(remap);
+        audit.max_collision_deposits = audit
+            .max_collision_deposits
+            .max(states[cell].collision_deposits);
+    }
+    let thickness_delta = project_carrier_scalar(present_tess, mesh, &delta_carrier);
+    audit.projected_max_delta = thickness_delta
+        .iter()
+        .copied()
+        .fold(f32::NEG_INFINITY, f32::max);
+    let strain = project_carrier_scalar(present_tess, mesh, &strain_carrier);
+    let compression_axis = project_carrier_vec3(present_tess, mesh, &fabric_carrier);
+    let present_uplift_rate = project_carrier_scalar(present_tess, mesh, &uplift_carrier);
+    let final_continental = Some(project_carrier_bool(
+        present_tess,
+        mesh,
+        &final_continental_carrier,
+    ));
+    let final_ocean_age_myr = project_carrier_scalar(present_tess, mesh, &age_carrier);
+    let final_weakness = strain.clone();
+    audit.runtime_seconds = started.elapsed().as_secs_f32();
+
+    ThinSheetFields {
+        thickness_delta,
+        strain,
+        compression_axis,
+        material_added: audit.magmatic_added_volume + audit.created_ocean_volume,
+        material_removed: audit.consumed_ocean_volume,
+        material_residual: audit.material_residual,
+        present_uplift_rate,
+        evolution_seconds: audit.runtime_seconds,
+        moving_forcing_fraction: 0.0,
+        operator_audit: None,
+        final_continental,
+        final_ocean_age_myr,
+        final_weakness,
+        lifecycle_audit: Some(audit),
+    }
+}
+
+fn solve_carrier_replay_evolved(
+    present_tess: &Tessellation,
+    _dynamics: &Dynamics,
     replay: &super::history::CarrierReplay,
     started: Instant,
 ) -> ThinSheetFields {
@@ -843,7 +1182,7 @@ fn solve_carrier_replay_evolved(
     let mut parcel_strain = vec![0.0f32; n];
     let mut strongest_compression = vec![0.0f32; n];
     let mut parcel_axis = vec![Vec3::ZERO; n];
-    let current_receivers = carrier_receiver_parcels(mesh, present, dynamics);
+    let current_receivers = carrier_receiver_parcels(mesh, present);
     let mut forcing_events = 0usize;
     let mut moving_forcing_events = 0usize;
     let mut material_added = 0.0f64;
@@ -865,7 +1204,7 @@ fn solve_carrier_replay_evolved(
             continue;
         }
         let (mut thickness, owned_area) = distribute_parcel_volume(mesh, snapshot, &parcel_volume);
-        let step = carrier_step(mesh, snapshot, dynamics);
+        let step = carrier_step(mesh, snapshot);
         audit_boundary_length += step.boundary_length_km as f64;
         audit_swept_area += step.convergent_swept_area_km2_per_myr as f64;
         audit_boundary_support += step.boundary_support_pct as f64;
@@ -932,12 +1271,9 @@ fn solve_carrier_replay_evolved(
             if step.strain_rate[cell] > strongest_compression[parcel] {
                 strongest_compression[parcel] = step.strain_rate[cell];
                 let plate = snapshot.plate_owner[cell] as usize;
-                let pole = dynamics.euler_pole(plate);
                 // Historical tangent fabric is carried forward with its plate.
-                parcel_axis[parcel] = glam::Quat::from_axis_angle(
-                    pole.axis,
-                    pole.angular_velocity_rad_per_myr() * snapshot.lookback_myr,
-                ) * step.compression_axis[cell];
+                parcel_axis[parcel] =
+                    snapshot.plate_past_to_present[plate] * step.compression_axis[cell];
             }
         }
     }
@@ -960,7 +1296,7 @@ fn solve_carrier_replay_evolved(
     // into the legacy dimensionless erosion clock.
     let (present_thickness, present_owned_area) =
         distribute_parcel_volume(mesh, present, &parcel_volume);
-    let present_step = carrier_step(mesh, present, dynamics);
+    let present_step = carrier_step(mesh, present);
     let cell_volume_rate = carrier_cell_volume_rate(mesh, &present_thickness, &present_step);
     let mut parcel_uplift_rate = vec![0.0f32; n];
     for cell in 0..n {
@@ -1072,6 +1408,10 @@ fn solve_carrier_replay_evolved(
         evolution_seconds: started.elapsed().as_secs_f32(),
         moving_forcing_fraction,
         operator_audit,
+        final_continental: None,
+        final_ocean_age_myr: vec![0.0; present_tess.num_cells()],
+        final_weakness: vec![0.0; present_tess.num_cells()],
+        lifecycle_audit: None,
     }
 }
 
@@ -1106,6 +1446,610 @@ fn denude_excess_thickness(
             removed as f64 * area as f64
         })
         .sum()
+}
+
+fn lifecycle_find(parent: &mut [usize], mut node: usize) -> usize {
+    let mut root = node;
+    while parent[root] != root {
+        root = parent[root];
+    }
+    while parent[node] != node {
+        let next = parent[node];
+        parent[node] = root;
+        node = next;
+    }
+    root
+}
+
+fn age_lifecycle_ocean(states: &mut [LifecycleCell], dt_myr: f32) {
+    for state in states {
+        if state.crust == CrustType::Oceanic {
+            state.ocean_age_myr += dt_myr;
+        }
+    }
+}
+
+fn new_lifecycle_ocean(plate: usize, area: f64) -> LifecycleCell {
+    LifecycleCell {
+        plate,
+        crust: CrustType::Oceanic,
+        ocean_age_myr: 0.0,
+        continental_volume: 0.0,
+        ocean_volume: CRUST_THICKNESS_OCEANIC as f64 * area,
+        magma_volume: 0.0,
+        continental_area: 0.0,
+        ocean_area: area,
+        underthrust_volume: 0.0,
+        weakness: 0.0,
+        fabric: Vec3::ZERO,
+        collision_deposits: 0,
+    }
+}
+
+fn merge_lifecycle_domains(
+    a: usize,
+    b: usize,
+    parent: &mut [usize],
+    poles: &mut [EulerPole],
+    states: &[LifecycleCell],
+) -> bool {
+    let root_a = lifecycle_find(parent, a);
+    let root_b = lifecycle_find(parent, b);
+    if root_a == root_b {
+        return false;
+    }
+    let (keep, merge) = if root_a < root_b {
+        (root_a, root_b)
+    } else {
+        (root_b, root_a)
+    };
+    let weight = |root: usize| -> f32 {
+        states
+            .iter()
+            .filter(|state| state.plate == root)
+            .map(|state| (state.continental_area + state.ocean_area) as f32)
+            .sum::<f32>()
+            .max(1e-9)
+    };
+    let keep_weight = weight(keep);
+    let merge_weight = weight(merge);
+    let omega = (poles[keep].axis * poles[keep].angular_velocity * keep_weight
+        + poles[merge].axis * poles[merge].angular_velocity * merge_weight)
+        / (keep_weight + merge_weight);
+    let magnitude = omega.length();
+    poles[keep] = EulerPole {
+        axis: if magnitude > 1e-9 {
+            omega / magnitude
+        } else {
+            poles[keep].axis
+        },
+        angular_velocity: magnitude.min(MAX_ANGULAR_VELOCITY),
+    };
+    parent[merge] = keep;
+    true
+}
+
+/// Topology-aware semi-Lagrangian pullback. Each destination asks every active
+/// motion domain where it came from; a plate is admitted only when that source
+/// cell belonged to the plate. Per-component plate totals are normalized after
+/// sampling, so pullback cannot duplicate or destroy material and a uniform
+/// rigidly rotating plate remains uniform up to carrier-area roundoff.
+fn lifecycle_pullback_admissions(
+    mesh: &CarrierMesh,
+    states: &[LifecycleCell],
+    poles: &[EulerPole],
+    parent: &mut [usize],
+    dt_myr: f32,
+) -> (Vec<LifecycleCell>, Vec<Vec<usize>>) {
+    #[derive(Default, Clone, Copy)]
+    struct Totals {
+        continental_volume: f64,
+        ocean_volume: f64,
+        magma_volume: f64,
+        continental_area: f64,
+        ocean_area: f64,
+        underthrust_volume: f64,
+    }
+    let mut active: Vec<_> = states.iter().map(|state| state.plate).collect();
+    active.sort_unstable();
+    active.dedup();
+    let mut source_totals: HashMap<usize, Totals> = HashMap::new();
+    for state in states {
+        let total = source_totals.entry(state.plate).or_default();
+        total.continental_volume += state.continental_volume;
+        total.ocean_volume += state.ocean_volume;
+        total.magma_volume += state.magma_volume;
+        total.continental_area += state.continental_area;
+        total.ocean_area += state.ocean_area;
+        total.underthrust_volume += state.underthrust_volume;
+    }
+
+    let mut candidates = Vec::new();
+    let mut candidate_sources = Vec::new();
+    let mut admissions = vec![Vec::new(); mesh.centers.len()];
+    for destination in 0..mesh.centers.len() {
+        for &plate in &active {
+            let plate = lifecycle_find(parent, plate);
+            let source_point = Quat::from_axis_angle(
+                poles[plate].axis,
+                -poles[plate].angular_velocity_rad_per_myr() * dt_myr,
+            ) * mesh.centers[destination];
+            let source = nearest_carrier_cell(mesh, source_point, destination);
+            if states[source].plate != plate {
+                continue;
+            }
+            let mut candidate = states[source].clone();
+            candidate.plate = plate;
+            candidate.fabric = (Quat::from_axis_angle(
+                poles[plate].axis,
+                poles[plate].angular_velocity_rad_per_myr() * dt_myr,
+            ) * candidate.fabric)
+                .normalize_or_zero();
+            candidate.scale_material(
+                mesh.areas[destination] as f64 / mesh.areas[source].max(1e-12) as f64,
+            );
+            let id = candidates.len();
+            candidates.push(candidate);
+            candidate_sources.push(source);
+            admissions[destination].push(id);
+        }
+    }
+
+    // A sub-cell motion domain can otherwise receive no pullback samples and
+    // vanish numerically. Give each unsampled active domain one deterministic
+    // forward-mapped support cell; it may then disappear only through the
+    // explicit overlap consumption/merge rules below.
+    let sampled_plates: HashSet<_> = candidates.iter().map(|state| state.plate).collect();
+    for &plate in &active {
+        if sampled_plates.contains(&plate) {
+            continue;
+        }
+        let source = states
+            .iter()
+            .enumerate()
+            .filter(|(_, state)| state.plate == plate)
+            .max_by(|(a, state_a), (b, state_b)| {
+                (state_a.continental_area + state_a.ocean_area)
+                    .total_cmp(&(state_b.continental_area + state_b.ocean_area))
+                    .then_with(|| b.cmp(a))
+            })
+            .map(|(cell, _)| cell)
+            .expect("active plate has material");
+        let destination_point = Quat::from_axis_angle(
+            poles[plate].axis,
+            poles[plate].angular_velocity_rad_per_myr() * dt_myr,
+        ) * mesh.centers[source];
+        let destination = nearest_carrier_cell(mesh, destination_point, source);
+        let mut candidate = states[source].clone();
+        candidate.fabric = (Quat::from_axis_angle(
+            poles[plate].axis,
+            poles[plate].angular_velocity_rad_per_myr() * dt_myr,
+        ) * candidate.fabric)
+            .normalize_or_zero();
+        candidate
+            .scale_material(mesh.areas[destination] as f64 / mesh.areas[source].max(1e-12) as f64);
+        let id = candidates.len();
+        candidates.push(candidate);
+        candidate_sources.push(source);
+        admissions[destination].push(id);
+    }
+
+    // Persistent weakness is an intensive damage field, not material volume.
+    // Track each connected suture component independently so a narrow component
+    // cannot disappear merely because nearest pullback missed its one cell.
+    let mut seen_weak = vec![false; states.len()];
+    for start in 0..states.len() {
+        if seen_weak[start] || states[start].weakness <= 0.0 {
+            continue;
+        }
+        seen_weak[start] = true;
+        let plate = states[start].plate;
+        let mut queue = std::collections::VecDeque::from([start]);
+        let mut component = Vec::new();
+        while let Some(cell) = queue.pop_front() {
+            component.push(cell);
+            for &next in &mesh.neighbors[cell] {
+                let next = next as usize;
+                if !seen_weak[next] && states[next].plate == plate && states[next].weakness > 0.0 {
+                    seen_weak[next] = true;
+                    queue.push_back(next);
+                }
+            }
+        }
+        let representative = component
+            .iter()
+            .copied()
+            .max_by(|&a, &b| {
+                states[a]
+                    .weakness
+                    .total_cmp(&states[b].weakness)
+                    .then_with(|| {
+                        states[a]
+                            .collision_deposits
+                            .cmp(&states[b].collision_deposits)
+                    })
+                    .then_with(|| b.cmp(&a))
+            })
+            .unwrap();
+        let component_set: HashSet<_> = component.iter().copied().collect();
+        let candidate = candidate_sources
+            .iter()
+            .enumerate()
+            .filter(|(_, source)| component_set.contains(source))
+            .map(|(id, _)| id)
+            .next()
+            .or_else(|| {
+                let forward = Quat::from_axis_angle(
+                    poles[plate].axis,
+                    poles[plate].angular_velocity_rad_per_myr() * dt_myr,
+                ) * mesh.centers[representative];
+                let destination = nearest_carrier_cell(mesh, forward, representative);
+                admissions[destination]
+                    .iter()
+                    .copied()
+                    .find(|&id| candidates[id].plate == plate)
+            })
+            .or_else(|| candidates.iter().position(|state| state.plate == plate))
+            .expect("weak component plate retains pullback support");
+        let max_weakness = component
+            .iter()
+            .map(|&cell| states[cell].weakness)
+            .fold(0.0f32, f32::max);
+        let max_deposits = component
+            .iter()
+            .map(|&cell| states[cell].collision_deposits)
+            .max()
+            .unwrap_or(0);
+        candidates[candidate].weakness = candidates[candidate].weakness.max(max_weakness);
+        candidates[candidate].collision_deposits =
+            candidates[candidate].collision_deposits.max(max_deposits);
+        candidates[candidate].fabric = (Quat::from_axis_angle(
+            poles[plate].axis,
+            poles[plate].angular_velocity_rad_per_myr() * dt_myr,
+        ) * states[representative].fabric)
+            .normalize_or_zero();
+    }
+
+    let mut sampled_totals: HashMap<usize, Totals> = HashMap::new();
+    for state in &candidates {
+        let total = sampled_totals.entry(state.plate).or_default();
+        total.continental_volume += state.continental_volume;
+        total.ocean_volume += state.ocean_volume;
+        total.magma_volume += state.magma_volume;
+        total.continental_area += state.continental_area;
+        total.ocean_area += state.ocean_area;
+        total.underthrust_volume += state.underthrust_volume;
+    }
+    // Nearest pullback can miss a sub-cell material component (most commonly a
+    // narrow magma or underthrust streak) even while sampling its host plate.
+    // Preserve that ledger on the plate's first deterministic support cell;
+    // this is a conservative fallback, not a new surface source.
+    for (&plate, source) in &source_totals {
+        let sampled = sampled_totals.entry(plate).or_default();
+        let first = candidates
+            .iter()
+            .position(|state| state.plate == plate)
+            .expect("active plate has pullback support");
+        if source.continental_volume > 0.0 && sampled.continental_volume == 0.0 {
+            candidates[first].continental_volume = source.continental_volume;
+            sampled.continental_volume = source.continental_volume;
+        }
+        if source.ocean_volume > 0.0 && sampled.ocean_volume == 0.0 {
+            candidates[first].ocean_volume = source.ocean_volume;
+            sampled.ocean_volume = source.ocean_volume;
+        }
+        if source.magma_volume > 0.0 && sampled.magma_volume == 0.0 {
+            candidates[first].magma_volume = source.magma_volume;
+            sampled.magma_volume = source.magma_volume;
+        }
+        if source.continental_area > 0.0 && sampled.continental_area == 0.0 {
+            candidates[first].continental_area = source.continental_area;
+            sampled.continental_area = source.continental_area;
+        }
+        if source.ocean_area > 0.0 && sampled.ocean_area == 0.0 {
+            candidates[first].ocean_area = source.ocean_area;
+            sampled.ocean_area = source.ocean_area;
+        }
+        if source.underthrust_volume > 0.0 && sampled.underthrust_volume == 0.0 {
+            candidates[first].underthrust_volume = source.underthrust_volume;
+            sampled.underthrust_volume = source.underthrust_volume;
+        }
+    }
+    let ratio = |target: f64, sampled: f64| {
+        if sampled.abs() > 1e-30 {
+            target / sampled
+        } else {
+            0.0
+        }
+    };
+    for state in &mut candidates {
+        let source = source_totals[&state.plate];
+        let sampled = sampled_totals[&state.plate];
+        state.continental_volume *= ratio(source.continental_volume, sampled.continental_volume);
+        state.ocean_volume *= ratio(source.ocean_volume, sampled.ocean_volume);
+        state.magma_volume *= ratio(source.magma_volume, sampled.magma_volume);
+        state.continental_area *= ratio(source.continental_area, sampled.continental_area);
+        state.ocean_area *= ratio(source.ocean_area, sampled.ocean_area);
+        state.underthrust_volume *= ratio(source.underthrust_volume, sampled.underthrust_volume);
+    }
+    (candidates, admissions)
+}
+
+/// Edge-length-weighted positive normal convergence on actual continental
+/// contacts before remap. Transform path length and divergent motion contribute
+/// exactly zero to the merge clock.
+fn continental_pair_closure_rates(
+    mesh: &CarrierMesh,
+    states: &[LifecycleCell],
+    poles: &[EulerPole],
+) -> HashMap<(usize, usize), f32> {
+    let mut sums: HashMap<(usize, usize), (f32, f32)> = HashMap::new();
+    for edge in &mesh.edges {
+        let a = &states[edge.a];
+        let b = &states[edge.b];
+        if a.crust != CrustType::Continental
+            || b.crust != CrustType::Continental
+            || a.plate == b.plate
+        {
+            continue;
+        }
+        let point = (mesh.centers[edge.a] + mesh.centers[edge.b]).normalize_or_zero();
+        let relative = poles[a.plate].velocity_at(point) - poles[b.plate].velocity_at(point);
+        let normal = relative.dot(edge.normal_a_to_b);
+        let closure = if normal > TRANSFORM_NORMAL_THRESHOLD {
+            normal * MAX_PLATE_SPEED_KM_PER_MYR
+        } else {
+            0.0
+        };
+        let entry = sums
+            .entry(canonical_plate_pair(a.plate, b.plate))
+            .or_default();
+        entry.0 += closure * edge.face_length;
+        entry.1 += edge.face_length;
+    }
+    sums.into_iter()
+        .filter_map(|(pair, (closure, length))| {
+            (length > 0.0 && closure > 0.0).then_some((pair, closure / length))
+        })
+        .collect()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn resolve_lifecycle_overlap(
+    cell: usize,
+    sources: &[usize],
+    states: &[LifecycleCell],
+    mesh: &CarrierMesh,
+    poles: &[EulerPole],
+    parent: &mut [usize],
+    continental_closure_rates: &HashMap<(usize, usize), f32>,
+    step_collision_speed: &mut HashMap<(usize, usize), f32>,
+    audit: &mut LifecycleAudit,
+) -> LifecycleCell {
+    let mut continental: Vec<_> = sources
+        .iter()
+        .copied()
+        .filter(|&source| states[source].crust == CrustType::Continental)
+        .collect();
+    let mut oceanic: Vec<_> = sources
+        .iter()
+        .copied()
+        .filter(|&source| states[source].crust == CrustType::Oceanic)
+        .collect();
+    continental.sort_unstable();
+    oceanic.sort_by(|&a, &b| {
+        states[a]
+            .ocean_age_myr
+            .total_cmp(&states[b].ocean_age_myr)
+            .then_with(|| a.cmp(&b))
+    });
+
+    if !continental.is_empty() {
+        let winner_source = continental[0];
+        let mut winner = states[winner_source].clone();
+        winner.plate = lifecycle_find(parent, winner.plate);
+        for &source in continental.iter().skip(1) {
+            let loser = &states[source];
+            let loser_plate = lifecycle_find(parent, loser.plate);
+            if loser_plate != winner.plate {
+                let pair = canonical_plate_pair(winner.plate, loser_plate);
+                if let Some(&closure_rate) = continental_closure_rates.get(&pair) {
+                    if closure_rate > 0.0 {
+                        step_collision_speed
+                            .entry(pair)
+                            .and_modify(|value| *value = value.max(closure_rate))
+                            .or_insert(closure_rate);
+                    }
+                }
+                winner.weakness = 1.0;
+                winner.underthrust_volume += loser.continental_volume;
+                winner.collision_deposits += 1;
+                audit.continental_underthrust_volume += loser.continental_volume;
+                let relative = poles[winner.plate].velocity_km_per_myr_at(mesh.centers[cell])
+                    - poles[loser_plate].velocity_km_per_myr_at(mesh.centers[cell]);
+                winner.fabric = relative.normalize_or_zero();
+            }
+            winner.continental_volume += loser.continental_volume;
+            winner.ocean_volume += loser.ocean_volume;
+            winner.magma_volume += loser.magma_volume;
+            winner.continental_area += loser.continental_area;
+            winner.ocean_area += loser.ocean_area;
+            winner.underthrust_volume += loser.underthrust_volume;
+            winner.collision_deposits += loser.collision_deposits;
+            winner.weakness = winner.weakness.max(loser.weakness);
+        }
+        for source in oceanic {
+            let loser = &states[source];
+            let loser_plate = lifecycle_find(parent, loser.plate);
+            if loser_plate == winner.plate {
+                // Same-motion raster alias: retain material explicitly rather
+                // than pretending it subducted.
+                winner.ocean_volume += loser.ocean_volume;
+                winner.ocean_area += loser.ocean_area;
+                winner.magma_volume += loser.magma_volume;
+                winner.continental_volume += loser.continental_volume;
+                winner.continental_area += loser.continental_area;
+                winner.underthrust_volume += loser.underthrust_volume;
+                continue;
+            }
+            winner.continental_volume += loser.continental_volume;
+            winner.continental_area += loser.continental_area;
+            winner.underthrust_volume += loser.underthrust_volume;
+            audit.consumed_ocean_area_sr += loser.ocean_area;
+            let consumed = loser.ocean_volume + loser.magma_volume;
+            audit.consumed_ocean_volume += consumed;
+            let magma = consumed * SUBDUCTION_MAGMATIC_ACCRETION as f64;
+            winner.magma_volume += magma;
+            audit.magmatic_added_volume += magma;
+        }
+        winner.crust = CrustType::Continental;
+        winner.ocean_age_myr = 0.0;
+        return winner;
+    }
+
+    let winner_source = oceanic[0];
+    let mut winner = states[winner_source].clone();
+    winner.plate = lifecycle_find(parent, winner.plate);
+    let mut retained_age_moment = winner.ocean_age_myr as f64 * winner.ocean_volume;
+    for &source in oceanic.iter().skip(1) {
+        let loser = &states[source];
+        let loser_plate = lifecycle_find(parent, loser.plate);
+        if loser_plate == winner.plate {
+            retained_age_moment += loser.ocean_age_myr as f64 * loser.ocean_volume;
+            winner.ocean_volume += loser.ocean_volume;
+            winner.ocean_area += loser.ocean_area;
+            winner.magma_volume += loser.magma_volume;
+            winner.continental_volume += loser.continental_volume;
+            winner.continental_area += loser.continental_area;
+            winner.underthrust_volume += loser.underthrust_volume;
+        } else {
+            winner.continental_volume += loser.continental_volume;
+            winner.continental_area += loser.continental_area;
+            winner.underthrust_volume += loser.underthrust_volume;
+            audit.consumed_ocean_area_sr += loser.ocean_area;
+            let consumed = loser.ocean_volume + loser.magma_volume;
+            audit.consumed_ocean_volume += consumed;
+            let magma = consumed * SUBDUCTION_MAGMATIC_ACCRETION as f64;
+            winner.magma_volume += magma;
+            audit.magmatic_added_volume += magma;
+        }
+    }
+    winner.ocean_age_myr = (retained_age_moment / winner.ocean_volume.max(1e-30)) as f32;
+    if winner.continental_volume > 0.0 {
+        winner.crust = CrustType::Continental;
+        winner.weakness = winner.weakness.max(1.0);
+    }
+    winner
+}
+
+fn divergent_ocean_gap_owner(
+    cell: usize,
+    mesh: &CarrierMesh,
+    states: &[Option<LifecycleCell>],
+    poles: &[EulerPole],
+) -> Option<usize> {
+    let occupied: Vec<_> = mesh.neighbors[cell]
+        .iter()
+        .filter_map(|&neighbor| {
+            let neighbor = neighbor as usize;
+            states[neighbor].as_ref().map(|state| (neighbor, state))
+        })
+        .filter(|(_, state)| state.crust == CrustType::Oceanic)
+        .collect();
+    let mut best: Option<(f32, usize)> = None;
+    for i in 0..occupied.len() {
+        for j in i + 1..occupied.len() {
+            let (a, state_a) = occupied[i];
+            let (b, state_b) = occupied[j];
+            if state_a.plate == state_b.plate {
+                continue;
+            }
+            let point = mesh.centers[cell];
+            let chord = mesh.centers[b] - mesh.centers[a];
+            let normal = (chord - point * point.dot(chord)).normalize_or_zero();
+            let relative =
+                poles[state_a.plate].velocity_at(point) - poles[state_b.plate].velocity_at(point);
+            let convergence = relative.dot(normal);
+            if convergence < -TRANSFORM_NORMAL_THRESHOLD {
+                let owner = state_a.plate.min(state_b.plate);
+                if best.map_or(true, |(value, _)| convergence < value) {
+                    best = Some((convergence, owner));
+                }
+            }
+        }
+    }
+    best.map(|(_, owner)| owner)
+}
+
+fn conservatively_fill_lifecycle_gaps(
+    mesh: &CarrierMesh,
+    mut states: Vec<Option<LifecycleCell>>,
+) -> Vec<LifecycleCell> {
+    let n = states.len();
+    let mut donor = vec![usize::MAX; n];
+    let mut queue = std::collections::VecDeque::new();
+    for cell in 0..n {
+        if states[cell].is_some() {
+            donor[cell] = cell;
+            queue.push_back(cell);
+        }
+    }
+    while let Some(cell) = queue.pop_front() {
+        for &next in &mesh.neighbors[cell] {
+            let next = next as usize;
+            if donor[next] == usize::MAX {
+                donor[next] = donor[cell];
+                queue.push_back(next);
+            }
+        }
+    }
+    let mut groups: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for cell in 0..n {
+        groups[donor[cell]].push(cell);
+    }
+    let mut output: Vec<Option<LifecycleCell>> = vec![None; n];
+    for source in 0..n {
+        if groups[source].is_empty() {
+            continue;
+        }
+        let state = states[source].take().expect("gap donor is occupied");
+        let total_area: f64 = groups[source]
+            .iter()
+            .map(|&cell| mesh.areas[cell] as f64)
+            .sum();
+        for &cell in &groups[source] {
+            let mut split = state.clone();
+            split.scale_material(mesh.areas[cell] as f64 / total_area.max(1e-30));
+            output[cell] = Some(split);
+        }
+    }
+    output
+        .into_iter()
+        .map(|state| state.expect("all carrier gaps filled"))
+        .collect()
+}
+
+fn count_lifecycle_sutures(mesh: &CarrierMesh, states: &[LifecycleCell]) -> usize {
+    let mut seen = vec![false; states.len()];
+    let mut components = 0;
+    for start in 0..states.len() {
+        if seen[start] || states[start].weakness <= 0.0 {
+            continue;
+        }
+        components += 1;
+        seen[start] = true;
+        let mut queue = std::collections::VecDeque::from([start]);
+        while let Some(cell) = queue.pop_front() {
+            for &next in &mesh.neighbors[cell] {
+                let next = next as usize;
+                if !seen[next] && states[next].weakness > 0.0 {
+                    seen[next] = true;
+                    queue.push_back(next);
+                }
+            }
+        }
+    }
+    components
 }
 
 fn distribute_parcel_volume(
@@ -1144,12 +2088,8 @@ fn gather_visible_parcel_volume(
     }
 }
 
-fn carrier_receiver_parcels(
-    mesh: &CarrierMesh,
-    snapshot: &CarrierSnapshot,
-    dynamics: &Dynamics,
-) -> HashSet<u16> {
-    build_carrier_boundaries(mesh, snapshot, dynamics)
+fn carrier_receiver_parcels(mesh: &CarrierMesh, snapshot: &CarrierSnapshot) -> HashSet<u16> {
+    build_carrier_boundaries(mesh, snapshot)
         .into_iter()
         .filter(|boundary| boundary.kind == BoundaryKind::Convergent)
         .flat_map(|boundary| match boundary.polarity {
@@ -1172,11 +2112,7 @@ fn carrier_receiver_parcels(
         .collect()
 }
 
-fn carrier_step(
-    mesh: &CarrierMesh,
-    snapshot: &CarrierSnapshot,
-    dynamics: &Dynamics,
-) -> CarrierStep {
+fn carrier_step(mesh: &CarrierMesh, snapshot: &CarrierSnapshot) -> CarrierStep {
     let n = mesh.centers.len();
     let sheet_edges: Vec<_> = mesh
         .edges
@@ -1193,7 +2129,7 @@ fn carrier_step(
             normal_a_to_b: edge.normal_a_to_b,
         })
         .collect();
-    let boundaries = build_carrier_boundaries(mesh, snapshot, dynamics);
+    let boundaries = build_carrier_boundaries(mesh, snapshot);
     let boundary_length_km = boundaries
         .iter()
         .map(|boundary| boundary.edge_length * PLANET_RADIUS_KM)
@@ -1478,7 +2414,6 @@ fn classify_carrier_pair(stats: &CarrierPairStats) -> BoundaryKind {
 fn build_carrier_boundaries(
     mesh: &CarrierMesh,
     snapshot: &CarrierSnapshot,
-    dynamics: &Dynamics,
 ) -> Vec<CarrierBoundary> {
     struct Raw {
         a: usize,
@@ -1500,8 +2435,8 @@ fn build_carrier_boundaries(
         }
         let point = (mesh.centers[edge.a] + mesh.centers[edge.b]).normalize_or_zero();
         let along = point.cross(edge.normal_a_to_b).normalize_or_zero();
-        let velocity_a = dynamics.euler_pole(plate_a).velocity_at(point);
-        let velocity_b = dynamics.euler_pole(plate_b).velocity_at(point);
+        let velocity_a = snapshot.plate_euler_poles[plate_a].velocity_at(point);
+        let velocity_b = snapshot.plate_euler_poles[plate_b].velocity_at(point);
         let relative = velocity_a - velocity_b;
         let convergence = relative.dot(edge.normal_a_to_b);
         let shear = relative.dot(along).abs();
@@ -1624,6 +2559,16 @@ fn project_carrier_vec3(target: &Tessellation, mesh: &CarrierMesh, values: &[Vec
         .map(|cell| {
             hint = nearest_carrier_cell(mesh, target.cell_center(cell), hint);
             values[hint].normalize_or_zero()
+        })
+        .collect()
+}
+
+fn project_carrier_bool(target: &Tessellation, mesh: &CarrierMesh, values: &[bool]) -> Vec<bool> {
+    let mut hint = 0usize;
+    (0..target.num_cells())
+        .map(|cell| {
+            hint = nearest_carrier_cell(mesh, target.cell_center(cell), hint);
+            values[hint]
         })
         .collect()
 }
@@ -1849,8 +2794,9 @@ mod tests {
         );
     }
 
-    fn evolved_fixture(
+    fn evolved_fixture_with_motion(
         step_myr: f32,
+        motion_coherence_myr: f32,
     ) -> (Tessellation, Dynamics, super::super::history::CarrierReplay) {
         let mut mesh_rng = ChaCha8Rng::seed_from_u64(301);
         let tessellation = Tessellation::generate(512, 0, &mut mesh_rng);
@@ -1872,8 +2818,15 @@ mod tests {
             step_myr,
             false,
             0.0,
+            motion_coherence_myr,
         );
         (tessellation, dynamics, replay)
+    }
+
+    fn evolved_fixture(
+        step_myr: f32,
+    ) -> (Tessellation, Dynamics, super::super::history::CarrierReplay) {
+        evolved_fixture_with_motion(step_myr, 0.0)
     }
 
     #[test]
@@ -1918,6 +2871,21 @@ mod tests {
     }
 
     #[test]
+    fn reorganizing_carrier_closes_the_material_ledger() {
+        let (tessellation, dynamics, replay) = evolved_fixture_with_motion(2.0, 2.0);
+        assert!(replay.mean_reorganizations_per_plate > 0.0);
+        let result =
+            solve_carrier_replay_evolved(&tessellation, &dynamics, &replay, Instant::now());
+        assert!(
+            result.material_residual.abs() < 1e-5
+                || result.material_residual.abs() / result.material_added.abs().max(1e-30) < 1e-4,
+            "mass residual {} for added {}",
+            result.material_residual,
+            result.material_added,
+        );
+    }
+
+    #[test]
     fn carrier_evolution_is_stable_under_time_subdivision() {
         let (tessellation, dynamics, replay_1) = evolved_fixture(1.0);
         let (_, _, replay_2) = evolved_fixture(2.0);
@@ -1943,5 +2911,297 @@ mod tests {
         };
         assert!(relative_rms(&one.thickness_delta, &two.thickness_delta) < 0.10);
         assert!(relative_rms(&two.thickness_delta, &four.thickness_delta) < 0.20);
+    }
+
+    fn lifecycle_result(step_myr: f32) -> ThinSheetFields {
+        let (tessellation, dynamics, replay) = evolved_fixture(step_myr);
+        solve_carrier_lifecycle_replay(&tessellation, &dynamics, &replay, 8.0, Instant::now())
+    }
+
+    #[test]
+    fn lifecycle_is_deterministic_and_closes_all_material_ledgers() {
+        let a = lifecycle_result(2.0);
+        let b = lifecycle_result(2.0);
+        assert_eq!(a.thickness_delta, b.thickness_delta);
+        assert_eq!(a.final_continental, b.final_continental);
+        assert_eq!(a.final_ocean_age_myr, b.final_ocean_age_myr);
+        assert_eq!(a.final_weakness, b.final_weakness);
+        let audit_a = a.lifecycle_audit.as_ref().unwrap();
+        let audit_b = b.lifecycle_audit.as_ref().unwrap();
+        assert_eq!(audit_a.created_ocean_volume, audit_b.created_ocean_volume);
+        assert_eq!(audit_a.consumed_ocean_volume, audit_b.consumed_ocean_volume);
+        assert_eq!(audit_a.plate_merges, audit_b.plate_merges);
+        assert_eq!(audit_a.final_plate_count, audit_b.final_plate_count);
+        assert!(audit_a.material_residual.abs() < 1e-10);
+        assert!(audit_a.continental_material_residual.abs() < 1e-10);
+        assert_eq!(audit_a.final_unresolved_overlaps, 0);
+    }
+
+    #[test]
+    fn lifecycle_ocean_clock_starts_at_zero_and_advances_in_myr() {
+        let mut states = vec![new_lifecycle_ocean(0, 1.0)];
+        assert_eq!(states[0].ocean_age_myr, 0.0);
+        age_lifecycle_ocean(&mut states, 2.0);
+        assert_eq!(states[0].ocean_age_myr, 2.0);
+    }
+
+    #[test]
+    fn rigid_uniform_plate_is_an_exact_lifecycle_invariant() {
+        let (tessellation, dynamics, mut replay) = evolved_fixture(2.0);
+        for plate in &mut replay.snapshots[0].plate_owner {
+            *plate = 0;
+        }
+        for crust in &mut replay.snapshots[0].crust_owner {
+            *crust = CrustType::Oceanic;
+        }
+        let result = solve_carrier_lifecycle_replay(
+            &tessellation,
+            &dynamics,
+            &replay,
+            100.0,
+            Instant::now(),
+        );
+        let max_delta = result
+            .thickness_delta
+            .iter()
+            .map(|value| value.abs())
+            .fold(0.0f32, f32::max);
+        let audit = result.lifecycle_audit.as_ref().unwrap();
+        assert!(
+            max_delta < 1e-5,
+            "rigid rotation made thickness {max_delta}"
+        );
+        assert_eq!(audit.created_ocean_volume, 0.0);
+        assert_eq!(audit.consumed_ocean_volume, 0.0);
+        assert_eq!(audit.magmatic_added_volume, 0.0);
+        assert_eq!(audit.continental_underthrust_volume, 0.0);
+        assert_eq!(audit.plate_merges, 0);
+        assert_eq!(audit.material_residual, 0.0);
+    }
+
+    #[test]
+    fn continental_overlap_creates_suture_without_deleting_mass() {
+        let (_, dynamics, replay) = evolved_fixture(2.0);
+        let mesh = &replay.mesh;
+        let area = mesh.areas[0] as f64;
+        let make = |plate| LifecycleCell {
+            plate,
+            crust: CrustType::Continental,
+            ocean_age_myr: 0.0,
+            continental_volume: CRUST_THICKNESS_CONTINENTAL as f64 * area,
+            ocean_volume: 0.0,
+            magma_volume: 0.0,
+            continental_area: area,
+            ocean_area: 0.0,
+            underthrust_volume: 0.0,
+            weakness: 0.0,
+            fabric: Vec3::ZERO,
+            collision_deposits: 0,
+        };
+        let states = vec![make(0), make(1)];
+        let mut parent: Vec<_> = (0..dynamics.euler_poles.len()).collect();
+        let mut speeds = HashMap::new();
+        let closure_rates = HashMap::from([((0, 1), 50.0)]);
+        let mut audit = LifecycleAudit::default();
+        let result = resolve_lifecycle_overlap(
+            0,
+            &[0, 1],
+            &states,
+            mesh,
+            &dynamics.euler_poles,
+            &mut parent,
+            &closure_rates,
+            &mut speeds,
+            &mut audit,
+        );
+        assert_eq!(
+            result.continental_volume,
+            states[0].continental_volume * 2.0
+        );
+        assert_eq!(result.weakness, 1.0);
+        assert_eq!(
+            audit.continental_underthrust_volume,
+            states[1].continental_volume
+        );
+        assert_eq!(audit.consumed_ocean_volume, 0.0);
+        assert!(!speeds.is_empty());
+    }
+
+    #[test]
+    fn oceanic_overlap_cannot_trigger_plate_merge() {
+        let (_, dynamics, replay) = evolved_fixture(2.0);
+        let mesh = &replay.mesh;
+        let area = mesh.areas[0] as f64;
+        let make = |plate| LifecycleCell {
+            plate,
+            crust: CrustType::Oceanic,
+            ocean_age_myr: 10.0,
+            continental_volume: 0.0,
+            ocean_volume: CRUST_THICKNESS_OCEANIC as f64 * area,
+            magma_volume: 0.0,
+            continental_area: 0.0,
+            ocean_area: area,
+            underthrust_volume: 0.0,
+            weakness: 0.0,
+            fabric: Vec3::ZERO,
+            collision_deposits: 0,
+        };
+        let states = vec![make(0), make(1)];
+        let mut parent: Vec<_> = (0..dynamics.euler_poles.len()).collect();
+        let mut speeds = HashMap::new();
+        let closure_rates = HashMap::new();
+        let mut audit = LifecycleAudit::default();
+        let _ = resolve_lifecycle_overlap(
+            0,
+            &[0, 1],
+            &states,
+            mesh,
+            &dynamics.euler_poles,
+            &mut parent,
+            &closure_rates,
+            &mut speeds,
+            &mut audit,
+        );
+        assert!(speeds.is_empty());
+        assert_eq!(parent, (0..dynamics.euler_poles.len()).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn continental_merge_clock_uses_normal_convergence_not_transform_speed() {
+        let (_, _, replay) = evolved_fixture(2.0);
+        let mesh = &replay.mesh;
+        let edge = mesh.edges[0];
+        let mut states: Vec<_> = (0..mesh.centers.len())
+            .map(|cell| new_lifecycle_ocean(0, mesh.areas[cell] as f64))
+            .collect();
+        for (cell, plate) in [(edge.a, 0), (edge.b, 1)] {
+            states[cell].plate = plate;
+            states[cell].crust = CrustType::Continental;
+            states[cell].continental_volume =
+                CRUST_THICKNESS_CONTINENTAL as f64 * mesh.areas[cell] as f64;
+            states[cell].ocean_volume = 0.0;
+            states[cell].continental_area = mesh.areas[cell] as f64;
+            states[cell].ocean_area = 0.0;
+        }
+        let point = (mesh.centers[edge.a] + mesh.centers[edge.b]).normalize();
+        let tangent = point.cross(edge.normal_a_to_b).normalize();
+        let pole_for_velocity = |velocity: Vec3| EulerPole {
+            axis: point.cross(velocity).normalize(),
+            angular_velocity: 1.0,
+        };
+        let stationary = EulerPole {
+            axis: Vec3::Z,
+            angular_velocity: 0.0,
+        };
+        let transform = continental_pair_closure_rates(
+            mesh,
+            &states,
+            &[pole_for_velocity(tangent), stationary.clone()],
+        );
+        assert!(!transform.contains_key(&(0, 1)));
+        let convergent = continental_pair_closure_rates(
+            mesh,
+            &states,
+            &[pole_for_velocity(edge.normal_a_to_b), stationary],
+        );
+        assert!(convergent.get(&(0, 1)).copied().unwrap_or(0.0) > 0.0);
+    }
+
+    #[test]
+    fn isolated_suture_survives_rigid_pullback_and_time_subdivision() {
+        let (_, dynamics, replay) = evolved_fixture(2.0);
+        let mesh = &replay.mesh;
+        let run = |dt: f32| {
+            let mut states: Vec<_> = (0..mesh.centers.len())
+                .map(|cell| new_lifecycle_ocean(0, mesh.areas[cell] as f64))
+                .collect();
+            states[0].weakness = 1.0;
+            states[0].collision_deposits = 3;
+            states[0].fabric = mesh.centers[0].cross(Vec3::Y).normalize_or_zero();
+            let mut parent = vec![0usize; dynamics.euler_poles.len()];
+            let poles = dynamics.euler_poles.clone();
+            for _ in 0..(8.0 / dt) as usize {
+                let (candidates, admissions) =
+                    lifecycle_pullback_admissions(mesh, &states, &poles, &mut parent, dt);
+                states = admissions
+                    .iter()
+                    .map(|ids| {
+                        assert_eq!(ids.len(), 1);
+                        candidates[ids[0]].clone()
+                    })
+                    .collect();
+            }
+            (
+                states
+                    .iter()
+                    .map(|state| state.weakness)
+                    .fold(0.0f32, f32::max),
+                states
+                    .iter()
+                    .map(|state| state.collision_deposits)
+                    .max()
+                    .unwrap(),
+                states
+                    .iter()
+                    .filter(|state| state.weakness > 0.0)
+                    .map(|state| state.fabric.length())
+                    .fold(0.0f32, f32::max),
+                states
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, state)| state.weakness > 0.0)
+                    .max_by(|(a, state_a), (b, state_b)| {
+                        state_a
+                            .weakness
+                            .total_cmp(&state_b.weakness)
+                            .then_with(|| b.cmp(a))
+                    })
+                    .map(|(cell, _)| mesh.centers[cell])
+                    .unwrap(),
+            )
+        };
+        let one = run(1.0);
+        let two = run(2.0);
+        let four = run(4.0);
+        assert_eq!(one.0, 1.0);
+        assert_eq!(two.0, 1.0);
+        assert_eq!(four.0, 1.0);
+        assert_eq!(one.1, 3);
+        assert_eq!(two.1, 3);
+        assert_eq!(four.1, 3);
+        assert!((one.2 - 1.0).abs() < 1e-5);
+        assert!((two.2 - 1.0).abs() < 1e-5);
+        assert!((four.2 - 1.0).abs() < 1e-5);
+        let expected = Quat::from_axis_angle(
+            dynamics.euler_poles[0].axis,
+            dynamics.euler_poles[0].angular_velocity_rad_per_myr() * 8.0,
+        ) * mesh.centers[0];
+        let tolerance = 2.0 * replay.mean_spacing_km / PLANET_RADIUS_KM;
+        for position in [one.3, two.3, four.3] {
+            assert!(position.dot(expected).clamp(-1.0, 1.0).acos() <= tolerance);
+        }
+        assert!(one.3.dot(two.3).clamp(-1.0, 1.0).acos() <= tolerance);
+        assert!(two.3.dot(four.3).clamp(-1.0, 1.0).acos() <= tolerance);
+        assert_eq!(run(2.0), two);
+    }
+
+    #[test]
+    fn lifecycle_final_state_is_bounded_under_time_subdivision() {
+        let one = lifecycle_result(1.0);
+        let two = lifecycle_result(2.0);
+        let four = lifecycle_result(4.0);
+        let agreement = |a: &ThinSheetFields, b: &ThinSheetFields| {
+            let a = a.final_continental.as_ref().unwrap();
+            let b = b.final_continental.as_ref().unwrap();
+            a.iter().zip(b).filter(|(x, y)| x == y).count() as f32 / a.len() as f32
+        };
+        assert!(agreement(&one, &two) >= 0.70);
+        assert!(agreement(&two, &four) >= 0.65);
+        for result in [&one, &two, &four] {
+            let audit = result.lifecycle_audit.as_ref().unwrap();
+            assert!(audit.material_residual.abs() < 1e-10);
+            assert!(audit.continental_material_residual.abs() < 1e-10);
+            assert_eq!(audit.final_unresolved_overlaps, 0);
+        }
     }
 }

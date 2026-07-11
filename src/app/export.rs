@@ -137,6 +137,10 @@ struct FeatureData {
     tectonic_uplift_rate: Vec<f32>,
     carrier_evolution_seconds: f32,
     carrier_moving_forcing_fraction: f32,
+    lifecycle_final_continental: Option<Vec<bool>>,
+    lifecycle_ocean_age_myr: Vec<f32>,
+    lifecycle_weakness: Vec<f32>,
+    lifecycle_audit: Option<hex3::world::LifecycleAudit>,
 }
 
 #[derive(Serialize)]
@@ -250,6 +254,9 @@ impl WorldExport {
             let map_feature = |field: &[f32]| -> Vec<f32> {
                 fine.coarse_cell().iter().map(|&c| field[c]).collect()
             };
+            let map_bool = |field: &[bool]| -> Vec<bool> {
+                fine.coarse_cell().iter().map(|&c| field[c]).collect()
+            };
             FeatureData {
                 trench: fine.fields().elevation_fields.trench.clone(),
                 arc: map_feature(&features.arc),
@@ -270,6 +277,13 @@ impl WorldExport {
                 tectonic_uplift_rate: map_feature(&features.tectonic_uplift_rate),
                 carrier_evolution_seconds: features.carrier_evolution_seconds,
                 carrier_moving_forcing_fraction: features.carrier_moving_forcing_fraction,
+                lifecycle_final_continental: features
+                    .lifecycle_final_continental
+                    .as_ref()
+                    .map(|field| map_bool(field)),
+                lifecycle_ocean_age_myr: map_feature(&features.lifecycle_ocean_age_myr),
+                lifecycle_weakness: map_feature(&features.lifecycle_weakness),
+                lifecycle_audit: features.lifecycle_audit.clone(),
             }
         } else {
             FeatureData {
@@ -292,6 +306,10 @@ impl WorldExport {
                 tectonic_uplift_rate: features.tectonic_uplift_rate.clone(),
                 carrier_evolution_seconds: features.carrier_evolution_seconds,
                 carrier_moving_forcing_fraction: features.carrier_moving_forcing_fraction,
+                lifecycle_final_continental: features.lifecycle_final_continental.clone(),
+                lifecycle_ocean_age_myr: features.lifecycle_ocean_age_myr.clone(),
+                lifecycle_weakness: features.lifecycle_weakness.clone(),
+                lifecycle_audit: features.lifecycle_audit.clone(),
             }
         };
 

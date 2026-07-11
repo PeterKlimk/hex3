@@ -216,3 +216,87 @@ with time-varying historical Euler motion (finite correlation/reorganization), w
 retains old terrain while preventing one present kinematic regime from being projected
 unchanged through the entire record. Footprint width remains a separate deformation-
 support question.
+
+### Finite-memory Euler motion: authentic tradeoff, not a promotion
+
+The carrier now has an identity-gated historical-motion experiment. Zero coherence
+retains the previous constant Euler path and reproduces seed 12345's established
+13.92 km/47.1% row. Positive coherence creates deterministic continuous-time,
+per-plate reorganization events with exponentially distributed waiting times. Each
+event redraws the Euler vector from the existing isotropic speed prior. Parcel
+backrotation and boundary forcing consume the same event record; trajectories remain
+continuous and common-age snapshots are identical under 2/4 Myr sampling.
+
+At fixed 100 Myr, canonical 8k, and zero denudation:
+
+| mean coherence τ | mean events/plate | median speed fraction | median path rad | median peak | peaks FAIL/WARN/PASS | median mountain-land |
+|---:|---:|---:|---:|---:|:---|---:|
+| constant | 0 | 0.47 | 0.73 | 15.98 km | 6/1/3 | 40.8% |
+| 15 Myr | 6.1 | 0.49 | 0.77 | 10.54 km | 2/1/7 | 47.6% |
+| 30 Myr | 3.2 | 0.47 | 0.74 | 12.26 km | 2/3/5 | 47.1% |
+| 60 Myr | 1.6 | 0.48 | 0.75 | 14.02 km | 5/1/4 | 44.1% |
+
+The path/speed ledgers show this is not a disguised reduction in plate travel. Finite
+memory breaks repeated stacking and reduces peak extremes, but migrated forcing rises
+to roughly 60–86% and spreads inherited work across substantially more land. This
+confirms the coherent-motion causal diagnosis while falsifying motion reorganization
+as a complete terrain fix. Do not choose 15 or 30 Myr by the peak gate. Retain the
+experiment behind its zero default and address deformation support/footprint next.
+
+## Forward lifecycle automaton — causal engine passes, surface response fails
+
+Run the bounded forward lifecycle at the canonical carrier with:
+
+```bash
+cargo run --release --bin tectonic_scorecard -- \
+  --lifecycle --carrier-cells 8192 --no-legacy --no-operator-audit
+```
+
+The first implementation used forward parcel splatting. Although globally conservative,
+it failed the rigid-rotation null: seed 12345 accumulated a 14.43-thickness-unit numerical
+remap maximum and rendered a 51 km peak. That forcing implementation was removed. The
+retained plate-wise inverse-rotation pullback conservatively normalizes every material
+component and preserves a uniform rigid plate within 1e-5 over 100 Myr.
+
+Untuned ten-seed canonical result:
+
+| statistic | result |
+|:---|:---|
+| peak median / range | 14.35 / 1.50–27.93 km |
+| peak gates | 7 FAIL / 1 WARN / 2 PASS |
+| mountain-land median / range | ~0.7% / 0–3.6% |
+| land p50 / p90 / p99 medians | ~0.02 / 0.055 / 0.64 km |
+| final land fraction | 26.4–30.1% |
+| lifecycle solve cost | 0.78–1.08 s |
+
+Material/topology ranges (thickness×steradian except counts):
+
+| ledger | ten-seed range |
+|:---|---:|
+| created ocean volume | 0.047–0.536 |
+| consumed ocean volume | 0.013–0.378 |
+| continental underthrust | 0.0053–0.0606 |
+| retained magma | 0.0019–0.0567 |
+| active sutures | 0–24 |
+| plate merges | 0–6 |
+| final motion domains | 8–13 |
+| plate splits | 0 |
+
+All total-material and continental-material ledgers close near floating-point roundoff;
+there are no unresolved final ownership overlaps. Ocean creation starts at age zero,
+motion changes occur only on derived collision-closure merge events, and ocean-only
+contacts cannot merge plates.
+The merge clock is positive normal convergence averaged over the actual pre-remap
+continental contact; transform-dominated relative path length contributes zero.
+Connected suture weakness/fabric and collision-deposit state receive deterministic
+intensive-field support under pullback, independent of material-volume normalization.
+
+The verdict is deliberately split. The lifecycle/topology/material engine passes its
+causal invariants. The direct surface response is falsified: maximum underthrust columns
+are 1.00–4.03 thickness units while residual pullback/remap maxima are only 0.028–0.786,
+so the remaining excessive peaks are explicit localized roots, not projection or raster
+aliasing. At the same time the mountain footprint is much too small. Buried continental
+mass currently contributes its full column to the local isostatic surface cell. Do not
+retune retention, add a cap, or spread to a target width. The next candidate must first
+specify a conservative critical-taper/underthrust geometry or independently justified
+buried-reservoir coupling, then test it against the standing scorecard.

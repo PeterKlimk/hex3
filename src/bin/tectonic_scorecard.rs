@@ -57,6 +57,16 @@ struct Cli {
     /// Skip the expensive frozen/operator attribution ladder.
     #[arg(long, default_value_t = false)]
     no_operator_audit: bool,
+
+    /// Mean plate-motion coherence time in Myr. Zero keeps the present Euler
+    /// vectors constant through history (the existing/default behavior).
+    #[arg(long, default_value_t = 0.0)]
+    motion_coherence_myr: f32,
+
+    /// Run the forward plate/crust lifecycle instead of the backward-history
+    /// carrier evolution. Identity-gated; legacy rows remain unchanged.
+    #[arg(long, default_value_t = false)]
+    lifecycle: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -65,6 +75,10 @@ struct Metrics {
     model: &'static str,
     carrier_cells: usize,
     lookback_myr: f32,
+    motion_coherence_myr: f32,
+    mean_reorganizations_per_plate: f32,
+    mean_plate_speed_fraction: f32,
+    mean_integrated_rotation_rad: f32,
     wall_s: f32,
     carrier_s: f32,
     evolution_s: f32,
@@ -91,6 +105,15 @@ struct Metrics {
     denudation_rate_km_per_myr: f32,
     material_removed: f64,
     operator: Option<CarrierOperatorAudit>,
+    lifecycle_created_ocean: f64,
+    lifecycle_consumed_ocean: f64,
+    lifecycle_underthrust: f64,
+    lifecycle_magma: f64,
+    lifecycle_sutures: usize,
+    lifecycle_merges: usize,
+    lifecycle_final_plates: usize,
+    lifecycle_max_underthrust: f32,
+    lifecycle_max_remap: f32,
 }
 
 fn main() {
@@ -101,7 +124,7 @@ fn main() {
 
     for &seed in &cli.seeds {
         if !cli.no_legacy {
-            rows.push(run_world(seed, cli.cells, None, None));
+            rows.push(run_world(seed, cli.cells, None, None, false));
         }
         for &carrier_cells in &cli.carrier_cells {
             rows.push(run_world(
@@ -112,8 +135,10 @@ fn main() {
                     step_myr: cli.carrier_step_myr,
                     operator_audit: !cli.no_operator_audit,
                     denudation_rate_km_per_myr: cli.denudation_rate_km_per_myr,
+                    motion_coherence_myr: cli.motion_coherence_myr,
                 }),
                 Some(cli.lookback_myr),
+                cli.lifecycle,
             ));
         }
     }
@@ -121,6 +146,7 @@ fn main() {
     print_rows(&rows);
     print_operator_ladder(&rows, &cli.carrier_cells);
     print_convergence(&rows, &cli.carrier_cells);
+    print_lifecycle_summary(&rows);
     println!(
         "\nscorecard wall time: {:.2}s ({} worlds; rendering/fine erosion excluded)",
         started.elapsed().as_secs_f32(),
@@ -137,6 +163,7 @@ fn validate(cli: &Cli) {
     assert!(cli.carrier_step_myr > 0.0);
     assert!(cli.lookback_myr > 0.0);
     assert!(cli.denudation_rate_km_per_myr >= 0.0);
+    assert!(cli.motion_coherence_myr >= 0.0);
     for &cells in &cli.carrier_cells {
         assert!(
             (64..=u16::MAX as usize).contains(&cells),
@@ -150,11 +177,16 @@ fn run_world(
     cells: usize,
     carrier: Option<TectonicCarrierConfig>,
     lookback_myr: Option<f32>,
+    lifecycle: bool,
 ) -> Metrics {
     let started = Instant::now();
     let mut world = World::new(seed, cells, 1);
     world.orogen_model = if carrier.is_some() {
-        OrogenModel::HistoryCarrierEvolved
+        if lifecycle {
+            OrogenModel::HistoryCarrierLifecycle
+        } else {
+            OrogenModel::HistoryCarrierEvolved
+        }
     } else {
         OrogenModel::Legacy
     };
@@ -287,7 +319,16 @@ fn measure_world(world: &World, wall_s: f32) -> Metrics {
     };
     let inherited_active_cosine = area_weighted_positive_cosine(thickening, uplift, &areas);
 
-    let (carrier_cells, carrier_s, gap_pct, overlap_pct) = world
+    let (
+        carrier_cells,
+        carrier_s,
+        gap_pct,
+        overlap_pct,
+        motion_coherence_myr,
+        mean_reorganizations_per_plate,
+        mean_plate_speed_fraction,
+        mean_integrated_rotation_rad,
+    ) = world
         .tectonic_history
         .as_ref()
         .and_then(|history| history.carrier_replay.as_ref())
@@ -309,9 +350,13 @@ fn measure_world(world: &World, wall_s: f32) -> Metrics {
                 replay.build_seconds,
                 (100.0 * gaps / (snapshots * cells)) as f32,
                 (100.0 * overlaps / (snapshots * cells)) as f32,
+                replay.motion_coherence_myr,
+                replay.mean_reorganizations_per_plate,
+                replay.mean_plate_speed_fraction,
+                replay.mean_integrated_rotation_rad,
             )
         })
-        .unwrap_or((0, 0.0, 0.0, 0.0));
+        .unwrap_or((0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0));
     let residual_denominator = (features.thin_sheet_material_added
         + features.thin_sheet_material_removed)
         .abs()
@@ -321,6 +366,8 @@ fn measure_world(world: &World, wall_s: f32) -> Metrics {
         seed: world.seed,
         model: if world.orogen_model == OrogenModel::Legacy {
             "legacy"
+        } else if world.orogen_model == OrogenModel::HistoryCarrierLifecycle {
+            "lifecycle"
         } else {
             "evolved"
         },
@@ -330,6 +377,10 @@ fn measure_world(world: &World, wall_s: f32) -> Metrics {
             .as_ref()
             .map(|dynamics| dynamics.clock.lookback_myr)
             .unwrap_or(0.0),
+        motion_coherence_myr,
+        mean_reorganizations_per_plate,
+        mean_plate_speed_fraction,
+        mean_integrated_rotation_rad,
         wall_s,
         carrier_s,
         evolution_s: features.carrier_evolution_seconds,
@@ -361,6 +412,77 @@ fn measure_world(world: &World, wall_s: f32) -> Metrics {
             .unwrap_or(0.0),
         material_removed: features.thin_sheet_material_removed,
         operator: features.carrier_operator_audit,
+        lifecycle_created_ocean: features
+            .lifecycle_audit
+            .as_ref()
+            .map(|audit| audit.created_ocean_volume)
+            .unwrap_or(0.0),
+        lifecycle_consumed_ocean: features
+            .lifecycle_audit
+            .as_ref()
+            .map(|audit| audit.consumed_ocean_volume)
+            .unwrap_or(0.0),
+        lifecycle_underthrust: features
+            .lifecycle_audit
+            .as_ref()
+            .map(|audit| audit.continental_underthrust_volume)
+            .unwrap_or(0.0),
+        lifecycle_magma: features
+            .lifecycle_audit
+            .as_ref()
+            .map(|audit| audit.magmatic_added_volume)
+            .unwrap_or(0.0),
+        lifecycle_sutures: features
+            .lifecycle_audit
+            .as_ref()
+            .map(|audit| audit.active_sutures)
+            .unwrap_or(0),
+        lifecycle_merges: features
+            .lifecycle_audit
+            .as_ref()
+            .map(|audit| audit.plate_merges)
+            .unwrap_or(0),
+        lifecycle_final_plates: features
+            .lifecycle_audit
+            .as_ref()
+            .map(|audit| audit.final_plate_count)
+            .unwrap_or(0),
+        lifecycle_max_underthrust: features
+            .lifecycle_audit
+            .as_ref()
+            .map(|audit| audit.max_underthrust_thickness)
+            .unwrap_or(0.0),
+        lifecycle_max_remap: features
+            .lifecycle_audit
+            .as_ref()
+            .map(|audit| audit.max_remap_thickness)
+            .unwrap_or(0.0),
+    }
+}
+
+fn print_lifecycle_summary(rows: &[Metrics]) {
+    let lifecycle: Vec<_> = rows.iter().filter(|row| row.model == "lifecycle").collect();
+    if lifecycle.is_empty() {
+        return;
+    }
+    println!("\n## Forward lifecycle ledgers");
+    println!("\n| seed | created ocean | consumed ocean | underthrust | magma | sutures | merges | final plates | max H underthrust/remap | evolve s |");
+    println!("|---:|---:|---:|---:|---:|---:|---:|---:|:---|---:|");
+    for row in lifecycle {
+        println!(
+            "| {} | {:.3e} | {:.3e} | {:.3e} | {:.3e} | {} | {} | {} | {:.3}/{:.3} | {:.2} |",
+            row.seed,
+            row.lifecycle_created_ocean,
+            row.lifecycle_consumed_ocean,
+            row.lifecycle_underthrust,
+            row.lifecycle_magma,
+            row.lifecycle_sutures,
+            row.lifecycle_merges,
+            row.lifecycle_final_plates,
+            row.lifecycle_max_underthrust,
+            row.lifecycle_max_remap,
+            row.evolution_s,
+        );
     }
 }
 
@@ -368,9 +490,10 @@ fn print_rows(rows: &[Metrics]) {
     println!("# Tectonic promotion scorecard\n");
     println!("Absolute gates: peak >14 km = FAIL, >12 km = WARN; mass residual >1e-4 = FAIL.");
     println!("Magma/+work may exceed 100% when denudation leaves net negative inherited work.");
+    println!("Motion τ=0 denotes the constant-motion/infinite-coherence identity path.");
     println!("Active support is the smallest cell set carrying 90% of positive present uplift.\n");
-    println!("| seed | model | carrier | history Myr | denude km/Myr | peak km | land % | mountain-land % | land p50/p90/p99 km | ranges | width p50 km | elong p50 | cap500 p50 km² | flat-cap p50 % | +work/-work | +work/Myr | removed | magma/+work % | inherited outside active % | inherited·active cos | moved forcing % | gap/overlap % | mass residual | carrier/evolve/wall s | gate |");
-    println!("|---:|:---|---:|---:|---:|---:|---:|---:|:---|---:|---:|---:|---:|---:|:---|---:|---:|---:|---:|---:|---:|:---|---:|:---|:---|");
+    println!("| seed | model | carrier | history Myr | motion τ/reorg/speed/path | denude km/Myr | peak km | land % | mountain-land % | land p50/p90/p99 km | ranges | width p50 km | elong p50 | cap500 p50 km² | flat-cap p50 % | +work/-work | +work/Myr | removed | magma/+work % | inherited outside active % | inherited·active cos | moved forcing % | gap/overlap % | mass residual | carrier/evolve/wall s | gate |");
+    println!("|---:|:---|---:|---:|:---|---:|---:|---:|---:|:---|---:|---:|---:|---:|---:|:---|---:|---:|---:|---:|---:|---:|:---|---:|:---|:---|");
     for row in rows {
         let gate = if row.mass_relative_residual > 1e-4 || row.peak_km > 14.0 {
             "FAIL"
@@ -380,11 +503,15 @@ fn print_rows(rows: &[Metrics]) {
             "PASS"
         };
         println!(
-            "| {} | {} | {} | {:.0} | {:.3} | {:.2} | {:.1} | {:.1} | {:.2}/{:.2}/{:.2} | {} | {:.0} | {:.1} | {:.0} | {:.1} | {:.3e}/{:.3e} | {:.3e} | {:.3e} | {:.1} | {:.1} | {:.3} | {:.1} | {:.1}/{:.1} | {:.2e} | {:.2}/{:.2}/{:.2} | {} |",
+            "| {} | {} | {} | {:.0} | {:.0}/{:.2}/{:.2}/{:.3} | {:.3} | {:.2} | {:.1} | {:.1} | {:.2}/{:.2}/{:.2} | {} | {:.0} | {:.1} | {:.0} | {:.1} | {:.3e}/{:.3e} | {:.3e} | {:.3e} | {:.1} | {:.1} | {:.3} | {:.1} | {:.1}/{:.1} | {:.2e} | {:.2}/{:.2}/{:.2} | {} |",
             row.seed,
             row.model,
             if row.carrier_cells == 0 { "-".to_string() } else { row.carrier_cells.to_string() },
             row.lookback_myr,
+            row.motion_coherence_myr,
+            row.mean_reorganizations_per_plate,
+            row.mean_plate_speed_fraction,
+            row.mean_integrated_rotation_rad,
             row.denudation_rate_km_per_myr,
             row.peak_km,
             row.land_pct,

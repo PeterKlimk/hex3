@@ -78,6 +78,8 @@ pub enum OrogenModel {
     /// Moving-boundary carrier replay with deformation accumulated on material
     /// parcels and projected back to the present terrain mesh.
     HistoryCarrierEvolved,
+    /// Forward plate/crust lifecycle automaton on the fixed tectonic carrier.
+    HistoryCarrierLifecycle,
     /// Velocity/continuity thin-sheet prototype (T0).
     ThinSheet,
 }
@@ -96,6 +98,7 @@ impl std::fmt::Display for OrogenModel {
             Self::HistoryThinSheet => write!(f, "history-thin-sheet"),
             Self::HistoryCarrierThinSheet => write!(f, "history-carrier-thin-sheet"),
             Self::HistoryCarrierEvolved => write!(f, "history-carrier-evolved"),
+            Self::HistoryCarrierLifecycle => write!(f, "history-carrier-lifecycle"),
             Self::ThinSheet => write!(f, "thin-sheet"),
         }
     }
@@ -142,6 +145,9 @@ pub struct ElevationFields {
     pub compression_axis: Vec<Vec3>,
     /// Present physical tectonic thickness tendency (thickness units/Myr).
     pub tectonic_uplift_rate: Vec<f32>,
+    /// Whether source-layout craton noise may enter assembly. Lifecycle worlds
+    /// disable it because their generated layout is the oldest, not final, crust.
+    pub allow_source_craton_macro: bool,
     pub continentality: Vec<f32>,
     pub ridge_age_distance: Vec<f32>,
     pub trench: Vec<f32>,
@@ -759,7 +765,8 @@ pub(crate) fn coarse_elevation_fields(
         OrogenModel::ThinSheet
         | OrogenModel::HistoryThinSheet
         | OrogenModel::HistoryCarrierThinSheet
-        | OrogenModel::HistoryCarrierEvolved => features.thin_sheet_thickness_delta.clone(),
+        | OrogenModel::HistoryCarrierEvolved
+        | OrogenModel::HistoryCarrierLifecycle => features.thin_sheet_thickness_delta.clone(),
     };
 
     let mut crust_thickness = Vec::with_capacity(num_cells);
@@ -773,16 +780,33 @@ pub(crate) fn coarse_elevation_fields(
     // legacy-yield shares the grouping so its sub-yield cells stay bit-equal to
     // legacy at the coarse level.
     let legacy_grouping = matches!(orogen_model, OrogenModel::Legacy | OrogenModel::LegacyYield);
+    let lifecycle = orogen_model == OrogenModel::HistoryCarrierLifecycle;
     #[allow(clippy::needless_range_loop)] // indexes 4 parallel sources; zip obscures
     for i in 0..num_cells {
-        let crust_type = crust.crust_type(i);
-        let continental = crust_type == CrustType::Continental;
-        let convergent = features.convergent[i];
-
-        let cont = continentality(crust.signed_margin_distance[i], convergent);
+        let continental = if lifecycle {
+            features
+                .lifecycle_final_continental
+                .as_ref()
+                .expect("lifecycle final crust projected")[i]
+        } else {
+            crust.crust_type(i) == CrustType::Continental
+        };
+        let cont = if lifecycle {
+            if continental {
+                1.0
+            } else {
+                0.0
+            }
+        } else {
+            continentality(crust.signed_margin_distance[i], features.convergent[i])
+        };
         let base_thickness = CRUST_THICKNESS_OCEANIC
             + cont * (CRUST_THICKNESS_CONTINENTAL - CRUST_THICKNESS_OCEANIC);
-        let rift = features.rift_delta[i] * cont;
+        let rift = if lifecycle {
+            0.0
+        } else {
+            features.rift_delta[i] * cont
+        };
         // Macro craton-thickness is added later, in assembly (it needs craton
         // structure + per-craton RNG), so it stays out of this transferred field.
         let thickness = if legacy_grouping {
@@ -806,16 +830,55 @@ pub(crate) fn coarse_elevation_fields(
         tectonic_strain: features.thin_sheet_strain.clone(),
         compression_axis: features.thin_sheet_compression_axis.clone(),
         tectonic_uplift_rate: features.tectonic_uplift_rate.clone(),
+        allow_source_craton_macro: !lifecycle,
         continentality: continentality_field,
-        ridge_age_distance: features.ridge_age_distance.clone(),
-        trench: features.trench.clone(),
-        ridge: features.ridge.clone(),
-        convergent: features.convergent.clone(),
-        divergent: features.divergent.clone(),
+        ridge_age_distance: if lifecycle {
+            features
+                .lifecycle_ocean_age_myr
+                .iter()
+                .map(|&age| {
+                    age * OCEAN_SPREADING_REFERENCE_RATE * MAX_PLATE_ANGULAR_SPEED_RAD_PER_MYR
+                })
+                .collect()
+        } else {
+            features.ridge_age_distance.clone()
+        },
+        trench: if lifecycle {
+            vec![0.0; num_cells]
+        } else {
+            features.trench.clone()
+        },
+        ridge: if lifecycle {
+            vec![0.0; num_cells]
+        } else {
+            features.ridge.clone()
+        },
+        convergent: if lifecycle {
+            vec![0.0; num_cells]
+        } else {
+            features.convergent.clone()
+        },
+        divergent: if lifecycle {
+            vec![0.0; num_cells]
+        } else {
+            features.divergent.clone()
+        },
         is_continental,
-        arc: features.arc.clone(),
-        collision: features.collision.clone(),
-        rift_delta: features.rift_delta.clone(),
+        arc: if lifecycle {
+            vec![0.0; num_cells]
+        } else {
+            features.arc.clone()
+        },
+        collision: if lifecycle {
+            vec![0.0; num_cells]
+        } else {
+            features.collision.clone()
+        },
+        rift_delta: if lifecycle {
+            vec![0.0; num_cells]
+        } else {
+            features.rift_delta.clone()
+        },
     }
 }
 
@@ -921,7 +984,11 @@ fn assemble_elevation_cell(
 
     // Macro-scale thickness variation: craton-structure cores and interior basins
     // (precomputed per cell; see `macro_craton_thickness`).
-    let macro_dt = macro_field[i];
+    let macro_dt = if fields.allow_source_craton_macro {
+        macro_field[i]
+    } else {
+        0.0
+    };
 
     let thickness = (base_thickness + macro_dt).max(0.05);
 
@@ -950,10 +1017,51 @@ fn assemble_elevation_cell(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::world::{TectonicCarrierConfig, World, NUM_PLATES_DEFAULT};
 
     #[test]
     fn legacy_orogeny_remains_the_product_default() {
         assert_eq!(OrogenModel::default(), OrogenModel::Legacy);
+    }
+
+    #[test]
+    fn lifecycle_elevation_uses_only_evolved_crust_state() {
+        let mut world = World::new(606, 512, 0);
+        world.orogen_model = OrogenModel::HistoryCarrierLifecycle;
+        world.tectonic_carrier_config = TectonicCarrierConfig {
+            cells: 256,
+            step_myr: 2.0,
+            ..TectonicCarrierConfig::default()
+        };
+        world.generate_plates(NUM_PLATES_DEFAULT.min(6));
+        world.generate_crust();
+        world.generate_dynamics();
+        world.dynamics.as_mut().unwrap().clock.lookback_myr = 8.0;
+        world.generate_features();
+        let fields = coarse_elevation_fields(
+            &world.tessellation,
+            world.crust.as_ref().unwrap(),
+            world.features.as_ref().unwrap(),
+            world.orogen_model,
+        );
+        assert!(!fields.allow_source_craton_macro);
+        for field in [
+            &fields.trench,
+            &fields.ridge,
+            &fields.arc,
+            &fields.collision,
+            &fields.rift_delta,
+            &fields.convergent,
+            &fields.divergent,
+        ] {
+            assert!(field.iter().all(|&value| value == 0.0));
+        }
+        assert!(world
+            .features
+            .as_ref()
+            .unwrap()
+            .lifecycle_final_continental
+            .is_some());
     }
 
     #[test]

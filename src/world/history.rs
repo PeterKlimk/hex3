@@ -9,13 +9,14 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Instant;
 
 use super::boundary::{collect_plate_boundaries, BoundaryKind, PlateBoundaryEdge};
+use super::dynamics::{sample_euler_pole, EulerPole};
 use super::{
-    Crust, CrustType, Dynamics, OrogenModel, Plates, Tessellation, PLANET_RADIUS_KM,
-    TECTONIC_CARRIER_CELLS, TECTONIC_CARRIER_STEP_MYR,
+    Crust, CrustType, Dynamics, OrogenModel, Plates, Tessellation, MAX_ANGULAR_VELOCITY,
+    PLANET_RADIUS_KM, TECTONIC_CARRIER_CELLS, TECTONIC_CARRIER_STEP_MYR,
 };
 use crate::geometry::ConvexHull;
 use glam::Quat;
-use rand::SeedableRng;
+use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -24,6 +25,7 @@ pub enum HistoryModel {
     SeedVoronoiBackrotation,
     MaterialRasterBackrotation,
     FixedCarrierBackrotation,
+    ForwardCarrierLifecycle,
 }
 
 /// Runtime carrier resolution for experimental scorecards. Product/default
@@ -37,6 +39,9 @@ pub struct TectonicCarrierConfig {
     /// Coarse surface-lowering capacity in km/Myr. Zero is an identity gate;
     /// positive values enable the experimental same-clock denudation rung.
     pub denudation_rate_km_per_myr: f32,
+    /// Mean time between deterministic historical Euler-vector redraws.
+    /// Zero retains constant present-day motion exactly.
+    pub motion_coherence_myr: f32,
 }
 
 impl Default for TectonicCarrierConfig {
@@ -46,6 +51,7 @@ impl Default for TectonicCarrierConfig {
             step_myr: TECTONIC_CARRIER_STEP_MYR,
             operator_audit: false,
             denudation_rate_km_per_myr: 0.0,
+            motion_coherence_myr: 0.0,
         }
     }
 }
@@ -57,6 +63,10 @@ impl Default for TectonicCarrierConfig {
 #[derive(Clone, Debug, PartialEq)]
 pub struct CarrierSnapshot {
     pub lookback_myr: f32,
+    /// Euler state used for both this snapshot's kinematics and forcing.
+    pub plate_euler_poles: Vec<EulerPole>,
+    /// Material rotation from this historical state back to the present.
+    pub plate_past_to_present: Vec<Quat>,
     pub plate_owner: Vec<u16>,
     pub crust_owner: Vec<CrustType>,
     /// Material parcel exposed at each filled carrier cell. Gap cells inherit
@@ -100,7 +110,47 @@ pub struct CarrierReplay {
     pub build_seconds: f32,
     pub operator_audit: bool,
     pub denudation_rate_km_per_myr: f32,
+    pub motion_coherence_myr: f32,
+    pub mean_reorganizations_per_plate: f32,
+    pub mean_plate_speed_fraction: f32,
+    pub mean_integrated_rotation_rad: f32,
     pub(crate) mesh: CarrierMesh,
+}
+
+#[derive(Clone, Debug, Default, serde::Serialize)]
+pub struct LifecycleAudit {
+    pub initial_material_volume: f64,
+    pub final_material_volume: f64,
+    pub created_ocean_area_sr: f64,
+    pub created_ocean_volume: f64,
+    pub consumed_ocean_area_sr: f64,
+    pub consumed_ocean_volume: f64,
+    pub continental_underthrust_volume: f64,
+    pub magmatic_added_volume: f64,
+    pub material_residual: f64,
+    pub continental_material_residual: f64,
+    pub active_sutures: usize,
+    pub plate_merges: usize,
+    pub plate_splits: usize,
+    pub final_plate_count: usize,
+    pub motion_changes: usize,
+    pub final_unresolved_overlaps: usize,
+    pub final_zero_age_ocean_cells: usize,
+    pub runtime_seconds: f32,
+    pub thickness_p50: f32,
+    pub thickness_p90: f32,
+    pub thickness_p99: f32,
+    pub carrier_max_thickness: f32,
+    pub carrier_max_delta: f32,
+    pub projected_max_delta: f32,
+    pub positive_delta_area_fraction: f32,
+    pub underthrust_positive_volume: f64,
+    pub magma_positive_volume: f64,
+    pub remap_positive_volume: f64,
+    pub max_underthrust_thickness: f32,
+    pub max_magma_thickness: f32,
+    pub max_remap_thickness: f32,
+    pub max_collision_deposits: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -174,7 +224,9 @@ impl TectonicHistory {
                 None,
                 HistoryModel::MaterialRasterBackrotation,
             ),
-            OrogenModel::HistoryCarrierThinSheet | OrogenModel::HistoryCarrierEvolved => {
+            OrogenModel::HistoryCarrierThinSheet
+            | OrogenModel::HistoryCarrierEvolved
+            | OrogenModel::HistoryCarrierLifecycle => {
                 let (ages, replay) = replay_fixed_carrier(
                     seed,
                     tessellation,
@@ -186,8 +238,17 @@ impl TectonicHistory {
                     carrier_config.step_myr,
                     carrier_config.operator_audit,
                     carrier_config.denudation_rate_km_per_myr,
+                    carrier_config.motion_coherence_myr,
                 );
-                (ages, Some(replay), HistoryModel::FixedCarrierBackrotation)
+                (
+                    ages,
+                    Some(replay),
+                    if orogen_model == OrogenModel::HistoryCarrierLifecycle {
+                        HistoryModel::ForwardCarrierLifecycle
+                    } else {
+                        HistoryModel::FixedCarrierBackrotation
+                    },
+                )
             }
             _ => (
                 replay_pair_contact_ages(plates, dynamics, &requested_pairs),
@@ -443,6 +504,124 @@ struct CarrierPairMotion {
     negative_length: f32,
 }
 
+#[derive(Clone, Debug)]
+struct PlateMotionSegment {
+    start_myr: f32,
+    pole: EulerPole,
+}
+
+#[derive(Clone, Debug)]
+struct PlateMotionTimeline {
+    segments: Vec<PlateMotionSegment>,
+}
+
+impl PlateMotionTimeline {
+    fn sample(&self, age_myr: f32) -> (EulerPole, Quat) {
+        let age_myr = age_myr.max(0.0);
+        let mut present_to_past = Quat::IDENTITY;
+        let mut active = self.segments[0].pole.clone();
+        for (index, segment) in self.segments.iter().enumerate() {
+            if segment.start_myr > age_myr {
+                break;
+            }
+            active = segment.pole.clone();
+            let next_start = self
+                .segments
+                .get(index + 1)
+                .map(|next| next.start_myr)
+                .unwrap_or(f32::INFINITY);
+            let end = next_start.min(age_myr);
+            let duration = (end - segment.start_myr).max(0.0);
+            if duration > 0.0 {
+                let backward = Quat::from_axis_angle(
+                    segment.pole.axis,
+                    -segment.pole.angular_velocity_rad_per_myr() * duration,
+                );
+                present_to_past = backward * present_to_past;
+            }
+            if age_myr < next_start {
+                break;
+            }
+        }
+        (active, present_to_past.inverse())
+    }
+
+    fn integrated_rotation_rad(&self, lookback_myr: f32) -> f32 {
+        self.segments
+            .iter()
+            .enumerate()
+            .map(|(index, segment)| {
+                let end = self
+                    .segments
+                    .get(index + 1)
+                    .map(|next| next.start_myr)
+                    .unwrap_or(lookback_myr)
+                    .min(lookback_myr);
+                (end - segment.start_myr).max(0.0)
+                    * segment.pole.angular_velocity_rad_per_myr().abs()
+            })
+            .sum()
+    }
+
+    fn duration_weighted_speed_fraction(&self, lookback_myr: f32) -> f32 {
+        if lookback_myr <= 0.0 {
+            return 0.0;
+        }
+        self.segments
+            .iter()
+            .enumerate()
+            .map(|(index, segment)| {
+                let end = self
+                    .segments
+                    .get(index + 1)
+                    .map(|next| next.start_myr)
+                    .unwrap_or(lookback_myr)
+                    .min(lookback_myr);
+                (end - segment.start_myr).max(0.0) * segment.pole.angular_velocity.abs()
+                    / MAX_ANGULAR_VELOCITY.max(f32::EPSILON)
+            })
+            .sum::<f32>()
+            / lookback_myr
+    }
+}
+
+fn build_plate_motion_timelines(
+    seed: u64,
+    dynamics: &Dynamics,
+    coherence_myr: f32,
+) -> Vec<PlateMotionTimeline> {
+    dynamics
+        .euler_poles
+        .iter()
+        .enumerate()
+        .map(|(plate, present)| {
+            let mut segments = vec![PlateMotionSegment {
+                start_myr: 0.0,
+                pole: present.clone(),
+            }];
+            if coherence_myr > 0.0 {
+                let plate_seed = seed
+                    .wrapping_add(0x6d6f_7469_6f6e_7472)
+                    .wrapping_add((plate as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15));
+                let mut rng = ChaCha8Rng::seed_from_u64(plate_seed);
+                let mut age = 0.0f32;
+                loop {
+                    let u = rng.gen::<f32>().clamp(1e-7, 1.0 - f32::EPSILON);
+                    age += -coherence_myr * (1.0 - u).ln();
+                    if age >= dynamics.clock.lookback_myr {
+                        break;
+                    }
+                    segments.push(PlateMotionSegment {
+                        start_myr: age,
+                        pole: sample_euler_pole(&mut rng),
+                    });
+                }
+            }
+            PlateMotionTimeline { segments }
+        })
+        .collect()
+}
+
 /// Build one immutable low-resolution carrier, transfer present material to it,
 /// and back-rotate those parcels through fixed-time snapshots. This is a domain
 /// reconstruction, not a surface-process integration: it supplies changing
@@ -459,6 +638,7 @@ pub(crate) fn replay_fixed_carrier(
     step_myr: f32,
     operator_audit: bool,
     denudation_rate_km_per_myr: f32,
+    motion_coherence_myr: f32,
 ) -> (HashMap<(usize, usize), f32>, CarrierReplay) {
     let started = Instant::now();
     let mut rng = ChaCha8Rng::seed_from_u64(seed.wrapping_add(0x7465_6374_6f6e_6963));
@@ -466,6 +646,23 @@ pub(crate) fn replay_fixed_carrier(
     let mean_spacing_km =
         PLANET_RADIUS_KM * (4.0 * std::f32::consts::PI / carrier_cells as f32).sqrt();
     let carrier_mesh = build_carrier_mesh(&carrier);
+    let motion_timelines = build_plate_motion_timelines(seed, dynamics, motion_coherence_myr);
+    let plate_count = motion_timelines.len().max(1) as f32;
+    let mean_reorganizations_per_plate = motion_timelines
+        .iter()
+        .map(|timeline| timeline.segments.len().saturating_sub(1) as f32)
+        .sum::<f32>()
+        / plate_count;
+    let mean_plate_speed_fraction = motion_timelines
+        .iter()
+        .map(|timeline| timeline.duration_weighted_speed_fraction(dynamics.clock.lookback_myr))
+        .sum::<f32>()
+        / plate_count;
+    let mean_integrated_rotation_rad = motion_timelines
+        .iter()
+        .map(|timeline| timeline.integrated_rotation_rad(dynamics.clock.lookback_myr))
+        .sum::<f32>()
+        / plate_count;
 
     // Each carrier site represents one present-day material parcel. Coherent
     // walking makes the one-off 8k -> source transfer linear in practice.
@@ -484,6 +681,13 @@ pub(crate) fn replay_fixed_carrier(
     let mut previous_pairs = HashSet::new();
     for step in 0..=steps {
         let t = (step as f32 * step_myr).min(dynamics.clock.lookback_myr);
+        let plate_states: Vec<_> = motion_timelines
+            .iter()
+            .map(|timeline| timeline.sample(t))
+            .collect();
+        let plate_euler_poles: Vec<_> = plate_states.iter().map(|(pole, _)| pole.clone()).collect();
+        let plate_past_to_present: Vec<_> =
+            plate_states.iter().map(|(_, rotation)| *rotation).collect();
         let mut occupancy = vec![0u16; carrier_cells];
         let mut owner = vec![usize::MAX; carrier_cells];
         let mut owner_crust = vec![CrustType::Oceanic; carrier_cells];
@@ -493,10 +697,7 @@ pub(crate) fn replay_fixed_carrier(
 
         for parcel in 0..carrier_cells {
             let plate = parcel_plate[parcel];
-            let pole = dynamics.euler_pole(plate);
-            let position =
-                Quat::from_axis_angle(pole.axis, -pole.angular_velocity_rad_per_myr() * t)
-                    * carrier.cell_center(parcel);
+            let position = plate_past_to_present[plate].inverse() * carrier.cell_center(parcel);
             let cell = nearest_cell_walk(&carrier, position, landing_hint[parcel]);
             landing_hint[parcel] = cell;
             landed_cell[parcel] = cell;
@@ -552,7 +753,7 @@ pub(crate) fn replay_fixed_carrier(
             }
         }
 
-        let (pairs, kinds) = carrier_pair_topology(&carrier, &owner, dynamics);
+        let (pairs, kinds) = carrier_pair_topology(&carrier, &owner, &plate_euler_poles);
         let topology_changes_from_previous = if step == 0 {
             0
         } else {
@@ -563,6 +764,8 @@ pub(crate) fn replay_fixed_carrier(
         let count_kind = |kind| kinds.values().filter(|&&value| value == kind).count();
         snapshots.push(CarrierSnapshot {
             lookback_myr: t,
+            plate_euler_poles,
+            plate_past_to_present,
             plate_owner: owner.iter().map(|&plate| plate as u16).collect(),
             crust_owner: owner_crust,
             surface_parcel: winner_parcel.iter().map(|&parcel| parcel as u16).collect(),
@@ -627,6 +830,10 @@ pub(crate) fn replay_fixed_carrier(
         build_seconds: started.elapsed().as_secs_f32(),
         operator_audit,
         denudation_rate_km_per_myr,
+        motion_coherence_myr,
+        mean_reorganizations_per_plate,
+        mean_plate_speed_fraction,
+        mean_integrated_rotation_rad,
         mesh: carrier_mesh,
     };
     (ages, replay)
@@ -683,7 +890,7 @@ fn build_carrier_mesh(tessellation: &Tessellation) -> CarrierMesh {
 fn carrier_pair_topology(
     carrier: &Tessellation,
     owner: &[usize],
-    dynamics: &Dynamics,
+    plate_euler_poles: &[EulerPole],
 ) -> (
     HashSet<(usize, usize)>,
     HashMap<(usize, usize), BoundaryKind>,
@@ -707,8 +914,8 @@ fn carrier_pair_topology(
             let chord = pos_b - pos_a;
             let normal = (chord - point * chord.dot(point)).normalize_or_zero();
             let along = point.cross(normal).normalize_or_zero();
-            let relative = dynamics.euler_pole(a).velocity_at(point)
-                - dynamics.euler_pole(b).velocity_at(point);
+            let relative =
+                plate_euler_poles[a].velocity_at(point) - plate_euler_poles[b].velocity_at(point);
             let convergence = relative.dot(normal);
             let shear = relative.dot(along).abs();
             let length = carrier.shared_edge_length(cell, next);
@@ -882,6 +1089,7 @@ mod tests {
         assert_eq!(config.step_myr, TECTONIC_CARRIER_STEP_MYR);
         assert!(!config.operator_audit);
         assert_eq!(config.denudation_rate_km_per_myr, 0.0);
+        assert_eq!(config.motion_coherence_myr, 0.0);
     }
 
     fn carrier_fixture() -> (Tessellation, Plates, Crust, Dynamics) {
@@ -912,6 +1120,7 @@ mod tests {
             2.0,
             false,
             0.0,
+            0.0,
         );
         let (_, b) = replay_fixed_carrier(
             12345,
@@ -923,6 +1132,7 @@ mod tests {
             256,
             2.0,
             false,
+            0.0,
             0.0,
         );
         assert_eq!(a.snapshots, b.snapshots);
@@ -952,7 +1162,7 @@ mod tests {
     }
 
     #[test]
-    fn carrier_states_are_invariant_to_time_subdivision() {
+    fn reorganizing_carrier_states_are_invariant_to_time_subdivision() {
         let (tessellation, plates, crust, dynamics) = carrier_fixture();
         let requested = HashSet::new();
         let (_, fine) = replay_fixed_carrier(
@@ -966,6 +1176,7 @@ mod tests {
             2.0,
             false,
             0.0,
+            2.0,
         );
         let (_, coarse) = replay_fixed_carrier(
             777,
@@ -978,6 +1189,7 @@ mod tests {
             4.0,
             false,
             0.0,
+            2.0,
         );
         for (coarse_snapshot, fine_snapshot) in coarse
             .snapshots
@@ -985,10 +1197,23 @@ mod tests {
             .zip(fine.snapshots.iter().step_by(2))
         {
             assert_eq!(coarse_snapshot.lookback_myr, fine_snapshot.lookback_myr);
+            assert_eq!(
+                coarse_snapshot.plate_euler_poles,
+                fine_snapshot.plate_euler_poles
+            );
+            assert_eq!(
+                coarse_snapshot.plate_past_to_present,
+                fine_snapshot.plate_past_to_present
+            );
             assert_eq!(coarse_snapshot.plate_owner, fine_snapshot.plate_owner);
             assert_eq!(coarse_snapshot.crust_owner, fine_snapshot.crust_owner);
             assert_eq!(coarse_snapshot.occupancy, fine_snapshot.occupancy);
             assert_eq!(coarse_snapshot.adjacent_pairs, fine_snapshot.adjacent_pairs);
         }
+        assert!(fine.mean_reorganizations_per_plate > 0.0);
+        assert_eq!(
+            fine.mean_reorganizations_per_plate,
+            coarse.mean_reorganizations_per_plate
+        );
     }
 }

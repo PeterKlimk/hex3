@@ -58,7 +58,7 @@ pub use fine::{
 pub use fine_cache::FineCacheMode;
 pub use history::{
     BoundaryEpisode, CarrierParcelLanding, CarrierReplay, CarrierSnapshot, HistoryModel,
-    TectonicCarrierConfig, TectonicHistory,
+    LifecycleAudit, TectonicCarrierConfig, TectonicHistory,
 };
 pub use hydrology::{
     Basin, CellWaterState, Hydrology, WaterBody, DEFAULT_CLIMATE_RATIO, MIN_LAKE_DEPTH,

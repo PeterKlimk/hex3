@@ -3,7 +3,8 @@
 Status: T0, stationary-topology T1a, seed-Voronoi T1b, full-resolution material-
 raster T1c, and low-resolution fixed-carrier T1d implemented; scalar T2 rungs
 falsified; physical-clock thin-sheet T2c and moving-carrier T2d implemented but not
-promoted; concurrent surface processes pending.
+promoted; bounded forward lifecycle T4a passes material/topology invariants but its
+direct underthrust-to-surface response is falsified; concurrent surface processes pending.
 
 ## Problem
 
@@ -293,11 +294,81 @@ motion over the full 100 Myr is causal for extreme stacking, not for most of the
 footprint. No shorter duration is selected: the next physical-history experiment must
 retain 100 Myr while allowing plate velocities to reorganize through time.
 
+**Finite-memory motion A/B implemented, identity-gated.** Historical Euler vectors can
+now reorganize at deterministic continuous-time Markov events while retaining the same
+isotropic axis/speed prior. Event ages do not depend on carrier snapshot subdivision;
+the same piecewise rotations drive both material positions and boundary forcing. Zero
+means infinite coherence and preserves the previous carrier result. At 15/30/60 Myr
+mean coherence, median integrated rotation remains 0.77/0.74/0.75 rad versus 0.73 for
+constant motion, while median peaks fall to 10.54/12.26/14.02 km. Median mountain-land
+coverage worsens to 47.6/47.1/44.1% versus 40.8%, because authentic forcing migration
+distributes work instead of repeatedly stacking it. No coherence time is selected;
+deformation support must be fixed independently of this history mechanism.
+
 ### T4 — plate lifecycle
 
 Only after T1–T3 work should the model add ridge birth, subduction consumption, plate
 splitting/merging, changing Euler poles, and true oceanic crust ages. This is the full
 plate-cycle rung and will intentionally change every seed again.
+
+**T4a bounded forward carrier lifecycle implemented and falsified.** The identity-gated
+`history-carrier-lifecycle` model treats the generated carrier plate/crust layout as the
+oldest state and evolves it forward for 100 Myr on the immutable 8192-cell mesh. State is
+limited to motion owner, crust class, physical ocean age, component-resolved crust/root
+volume, persistent weakness/fabric, and explicit material/area reservoirs. It does not
+claim sediments, multilayer slab geometry, plate splitting, or a full mantle cycle.
+
+The first forward implementation used parcel splatting plus graph gap fill. It conserved
+global volume but failed a rigid-motion null case and produced a 14.43-thickness-unit
+numerical remap maximum (seed 12345 peak 51 km; 85.7% of land above 2 km). It was removed,
+not calibrated. The retained operator is topology-aware pullback: every destination cell
+is inverse-rotated through every active plate's interval motion and admits a plate only
+when the sampled source belonged to it. Plate/component totals are conservatively
+normalized after sampling. Multiple admissions are genuine boundary overlap; no
+admissions are genuine opening. A single rigid uniform plate now remains uniform within
+1e-5 over 100 Myr with zero lifecycle work.
+
+Lifecycle reactions are deliberately small:
+
+- divergent ocean/ocean openings create zero-age ocean crust and attach it to an adjacent
+  motion domain;
+- oceanic overlap is consumed into an explicit reservoir and only the existing retained
+  magmatic fraction returns to the overriding material;
+- continent/continent overlap conserves both continental volumes as underthrust root and
+  writes persistent suture weakness/fabric;
+- continental pairs merge motion only after edge-length-weighted positive normal
+  convergence on their actual pre-remap continental contact accumulates to one carrier
+  spacing; transform path length contributes zero, and the merged Euler vector is
+  material-area weighted;
+- sub-cell domains receive one deterministic pullback support cell so they disappear only
+  through explicit consumption or merge, never sampling loss. No splits were required in
+  the audited worlds.
+
+The evolved final crust classification, thickness/root, ocean age, fabric/weakness, and
+present thickness tendency project to the 100k terrain mesh. Source-layout trench, arc,
+ridge, collision, rift, and craton-macro fields remain available as diagnostics but are
+explicitly zeroed in lifecycle elevation assembly. They do not force lifecycle terrain.
+
+An untuned ten-seed canonical scorecard gives median peak 14.35 km (range 1.50–27.93;
+7 FAIL / 1 WARN / 2 PASS), median mountain-land coverage about 0.7% (range 0–3.6%), and
+median land p50/p90/p99 about 0.02/0.055/0.64 km. Thus the lifecycle is not promotable:
+it produces localized excessive roots in several seeds while generating too little broad
+mountain area. Pullback removed numerical remap dominance. Maximum underthrust thickness
+is 1.00–4.03 units across seeds versus only 0.028–0.786 residual remap; the remaining
+extremes are now predominantly explicit underthrust columns. Buried continental volume
+currently contributes its full isostatic root at the surface cell rather than occupying a
+resolved multilayer slab/footprint. That architectural simplification is the next causal
+target; no cap or retention coefficient was introduced.
+
+Across the same ten seeds, created/consumed ocean volumes span 0.047–0.536 / 0.013–0.378,
+continental underthrust 0.0053–0.0606, retained magma 0.0019–0.0567, active sutures 0–24,
+merges 0–6, and final motion domains 8–13. Lifecycle solve cost is 0.78–1.08 seconds in
+release (carrier construction separate). All material and continental ledgers close near
+floating-point roundoff; final surface ownership has no ghost overlaps.
+Persistent weakness is transported as an intensive connected-component field: every
+suture retains deterministic support through rigid pullback, damage uses max semantics,
+fabric rotates with its plate, and collision-deposit counts cannot disappear through
+nearest-cell sampling.
 
 ## Required invariants
 

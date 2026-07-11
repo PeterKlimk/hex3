@@ -114,6 +114,12 @@ pub struct FeatureFields {
     pub carrier_evolution_seconds: f32,
     pub carrier_moving_forcing_fraction: f32,
     pub carrier_operator_audit: Option<super::CarrierOperatorAudit>,
+    /// Evolved lifecycle state. None for every pre-lifecycle model, preserving
+    /// their source-layout crust identity.
+    pub lifecycle_final_continental: Option<Vec<bool>>,
+    pub lifecycle_ocean_age_myr: Vec<f32>,
+    pub lifecycle_weakness: Vec<f32>,
+    pub lifecycle_audit: Option<super::LifecycleAudit>,
 
     /// Tectonic activity scalar (0-1).
     /// High near active boundaries, decays into plate interiors.
@@ -952,6 +958,9 @@ impl FeatureFields {
             OrogenModel::HistoryCarrierEvolved => {
                 super::deformation::solve_history_carrier_evolved(tessellation, dynamics, history)
             }
+            OrogenModel::HistoryCarrierLifecycle => {
+                super::deformation::solve_history_carrier_lifecycle(tessellation, dynamics, history)
+            }
             _ => super::deformation::ThinSheetFields {
                 thickness_delta: vec![0.0; num_cells],
                 strain: vec![0.0; num_cells],
@@ -963,6 +972,10 @@ impl FeatureFields {
                 evolution_seconds: 0.0,
                 moving_forcing_fraction: 0.0,
                 operator_audit: None,
+                final_continental: None,
+                final_ocean_age_myr: vec![0.0; num_cells],
+                final_weakness: vec![0.0; num_cells],
+                lifecycle_audit: None,
             },
         };
 
@@ -1011,6 +1024,10 @@ impl FeatureFields {
             carrier_evolution_seconds: thin_sheet.evolution_seconds,
             carrier_moving_forcing_fraction: thin_sheet.moving_forcing_fraction,
             carrier_operator_audit: thin_sheet.operator_audit,
+            lifecycle_final_continental: thin_sheet.final_continental,
+            lifecycle_ocean_age_myr: thin_sheet.final_ocean_age_myr,
+            lifecycle_weakness: thin_sheet.final_weakness,
+            lifecycle_audit: thin_sheet.lifecycle_audit,
             rift_delta,
             activity,
             convergent,

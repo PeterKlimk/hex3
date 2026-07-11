@@ -105,6 +105,7 @@ pub fn fine_base_key(
             OrogenModel::HistoryThinSheet => 9,
             OrogenModel::HistoryCarrierThinSheet => 10,
             OrogenModel::HistoryCarrierEvolved => 11,
+            OrogenModel::HistoryCarrierLifecycle => 12,
         },
     );
     mix_u64(&mut h, max_cells as u64);
@@ -244,10 +245,17 @@ pub fn fine_base_key(
         &features.thin_sheet_thickness_delta,
         &features.thin_sheet_strain,
         &features.tectonic_uplift_rate,
+        &features.lifecycle_ocean_age_myr,
+        &features.lifecycle_weakness,
     ] {
         mix_f32s(&mut h, field);
     }
     mix_vec3s(&mut h, &features.thin_sheet_compression_axis);
+    if let Some(continental) = &features.lifecycle_final_continental {
+        for &value in continental {
+            mix_u64(&mut h, value as u64);
+        }
+    }
     h
 }
 
