@@ -26,6 +26,24 @@ pub enum HistoryModel {
     FixedCarrierBackrotation,
 }
 
+/// Runtime carrier resolution for experimental scorecards. Product/default
+/// generation retains the constants-backed default; exposing this avoids
+/// recompiling three binaries to run a resolution-convergence audit.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TectonicCarrierConfig {
+    pub cells: usize,
+    pub step_myr: f32,
+}
+
+impl Default for TectonicCarrierConfig {
+    fn default() -> Self {
+        Self {
+            cells: TECTONIC_CARRIER_CELLS,
+            step_myr: TECTONIC_CARRIER_STEP_MYR,
+        }
+    }
+}
+
 /// One reconstructed state on the immutable tectonic carrier. `occupancy`
 /// is the pre-fill material ledger: zero entries are raster gaps and entries
 /// above one are overlaps. `plate_owner`/`crust_owner` are the deterministic
@@ -129,6 +147,7 @@ impl TectonicHistory {
         crust: &Crust,
         dynamics: &Dynamics,
         orogen_model: OrogenModel,
+        carrier_config: TectonicCarrierConfig,
     ) -> Self {
         let boundaries = collect_plate_boundaries(tessellation, plates, crust, dynamics);
         let mut history = Self::from_boundaries(
@@ -155,8 +174,8 @@ impl TectonicHistory {
                     crust,
                     dynamics,
                     &requested_pairs,
-                    TECTONIC_CARRIER_CELLS,
-                    TECTONIC_CARRIER_STEP_MYR,
+                    carrier_config.cells,
+                    carrier_config.step_myr,
                 );
                 (ages, Some(replay), HistoryModel::FixedCarrierBackrotation)
             }
@@ -840,6 +859,13 @@ mod tests {
         let duration = kinematic_residence_time_myr(600.0, 60.0, 100.0);
         assert_eq!(duration, 10.0);
         assert_eq!(30.0 * duration, 300.0);
+    }
+
+    #[test]
+    fn carrier_config_default_preserves_product_constants() {
+        let config = TectonicCarrierConfig::default();
+        assert_eq!(config.cells, TECTONIC_CARRIER_CELLS);
+        assert_eq!(config.step_myr, TECTONIC_CARRIER_STEP_MYR);
     }
 
     fn carrier_fixture() -> (Tessellation, Plates, Crust, Dynamics) {

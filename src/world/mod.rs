@@ -57,7 +57,7 @@ pub use fine::{
 pub use fine_cache::FineCacheMode;
 pub use history::{
     BoundaryEpisode, CarrierParcelLanding, CarrierReplay, CarrierSnapshot, HistoryModel,
-    TectonicHistory,
+    TectonicCarrierConfig, TectonicHistory,
 };
 pub use hydrology::{
     Basin, CellWaterState, Hydrology, WaterBody, DEFAULT_CLIMATE_RATIO, MIN_LAKE_DEPTH,
@@ -149,6 +149,10 @@ pub struct World {
     /// Whether fine-mesh base generation reads/writes the on-disk cache.
     pub fine_cache: FineCacheMode,
 
+    /// Runtime carrier configuration used only by experimental moving-history
+    /// models and their convergence scorecards.
+    pub tectonic_carrier_config: TectonicCarrierConfig,
+
     /// Transient view cap for stage back-navigation: the `active_*` accessors and
     /// fine-mesh rendering only expose data up to this stage, so the app can
     /// render an earlier (already-computed) stage without recompute. Defaults to
@@ -206,6 +210,7 @@ impl World {
             fine_density_params: FineDensityParams::default(),
             fine_structure_params: FineStructureParams::default(),
             fine_cache: FineCacheMode::default(),
+            tectonic_carrier_config: TectonicCarrierConfig::default(),
             view_stage: u32::MAX,
         }
     }
@@ -274,6 +279,7 @@ impl World {
             crust,
             dynamics,
             self.orogen_model,
+            self.tectonic_carrier_config,
         ));
         self.features = Some(FeatureFields::compute(
             &self.tessellation,

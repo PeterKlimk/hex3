@@ -288,6 +288,16 @@ plate-cycle rung and will intentionally change every seed again.
   relief statistics.
 - Rendering parameters never enter a generation or acceptance gate.
 
+## Promotion scorecard
+
+The headless `tectonic_scorecard` binary now sweeps seeds and carrier resolution
+independently of the 100k terrain mesh. The first standing audit is recorded in
+`docs/audits/tectonic-promotion-scorecard-2026-07-11.md` and falsifies the moving-
+carrier rung: peak drift is 4.1–19.4 km across 4k/8k/16k carriers, six of ten 8k
+seeds exceed 14 km, and mountain-land coverage reaches 33–51%. Mass conservation
+passes, isolating the failure to deformation concentration/parcel projection rather
+than leakage. T3 erosion is paused until carrier resolution convergence closes.
+
 ## Migration
 
 The 2026-07-11 reset direct-uplift path is the temporary product baseline because it has
