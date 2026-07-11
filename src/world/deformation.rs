@@ -985,6 +985,7 @@ fn solve_carrier_lifecycle_replay(
         let (candidates, admissions) =
             lifecycle_pullback_admissions(mesh, &states, &poles, &mut parent, dt);
         let continental_closure_rates = continental_pair_closure_rates(mesh, &states, &poles);
+        let oceanic_closure_rates = oceanic_pair_closure_rates(mesh, &states, &poles);
 
         let mut resolved: Vec<Option<LifecycleCell>> = vec![None; n];
         let mut underthrust_deposits = Vec::new();
@@ -1002,6 +1003,7 @@ fn solve_carrier_lifecycle_replay(
                 &poles,
                 &mut parent,
                 &continental_closure_rates,
+                &oceanic_closure_rates,
                 &mut step_collision_speed,
                 &mut underthrust_deposits,
                 &mut magmatic_deposits,
@@ -1879,6 +1881,43 @@ fn continental_pair_closure_rates(
         .collect()
 }
 
+/// Positive normal closure on contacts where at least one side is oceanic.
+/// Transform and divergent contacts cannot trigger raster-overlap subduction.
+fn oceanic_pair_closure_rates(
+    mesh: &CarrierMesh,
+    states: &[LifecycleCell],
+    poles: &[EulerPole],
+) -> HashMap<(usize, usize), f32> {
+    let mut sums: HashMap<(usize, usize), (f32, f32)> = HashMap::new();
+    for edge in &mesh.edges {
+        let a = &states[edge.a];
+        let b = &states[edge.b];
+        if (a.crust == CrustType::Continental && b.crust == CrustType::Continental)
+            || a.plate == b.plate
+        {
+            continue;
+        }
+        let point = (mesh.centers[edge.a] + mesh.centers[edge.b]).normalize_or_zero();
+        let relative = poles[a.plate].velocity_at(point) - poles[b.plate].velocity_at(point);
+        let normal = relative.dot(edge.normal_a_to_b);
+        let closure = if normal > TRANSFORM_NORMAL_THRESHOLD {
+            normal * MAX_PLATE_SPEED_KM_PER_MYR
+        } else {
+            0.0
+        };
+        let entry = sums
+            .entry(canonical_plate_pair(a.plate, b.plate))
+            .or_default();
+        entry.0 += closure * edge.face_length;
+        entry.1 += edge.face_length;
+    }
+    sums.into_iter()
+        .filter_map(|(pair, (closure, length))| {
+            (length > 0.0 && closure > 0.0).then_some((pair, closure / length))
+        })
+        .collect()
+}
+
 /// Place continental collision volume into a single normal-thickness buried
 /// sheet. The front fills graph rings away from the suture; convergence
 /// alignment orders cells within each ring. Width therefore follows material
@@ -2121,6 +2160,7 @@ fn resolve_lifecycle_overlap(
     poles: &[EulerPole],
     parent: &mut [usize],
     continental_closure_rates: &HashMap<(usize, usize), f32>,
+    oceanic_closure_rates: &HashMap<(usize, usize), f32>,
     step_collision_speed: &mut HashMap<(usize, usize), f32>,
     underthrust_deposits: &mut Vec<UnderthrustDeposit>,
     magmatic_deposits: &mut Vec<MagmaticDeposit>,
@@ -2154,28 +2194,33 @@ fn resolve_lifecycle_overlap(
             if loser_plate != winner.plate {
                 let pair = canonical_plate_pair(winner.plate, loser_plate);
                 if let Some(&closure_rate) = continental_closure_rates.get(&pair) {
-                    if closure_rate > 0.0 {
-                        step_collision_speed
-                            .entry(pair)
-                            .and_modify(|value| *value = value.max(closure_rate))
-                            .or_insert(closure_rate);
-                    }
+                    step_collision_speed
+                        .entry(pair)
+                        .and_modify(|value| *value = value.max(closure_rate))
+                        .or_insert(closure_rate);
+                    winner.weakness = 1.0;
+                    winner.collision_deposits += 1;
+                    audit.continental_underthrust_volume += loser.continental_volume;
+                    let relative = poles[winner.plate].velocity_km_per_myr_at(mesh.centers[cell])
+                        - poles[loser_plate].velocity_km_per_myr_at(mesh.centers[cell]);
+                    winner.fabric = relative.normalize_or_zero();
+                    underthrust_deposits.push(UnderthrustDeposit {
+                        origin: cell,
+                        receiving_plate: winner.plate,
+                        continental_volume: loser.continental_volume,
+                        continental_area: loser.continental_area,
+                        // The losing plate advances beneath the receiver opposite
+                        // the receiver-minus-loser relative velocity.
+                        direction: (-relative).normalize_or_zero(),
+                    });
+                } else {
+                    // Transform/divergent raster overlap is not a collision.
+                    // Preserve its material explicitly without writing a root,
+                    // suture, or merge-clock event.
+                    winner.continental_volume += loser.continental_volume;
+                    winner.continental_area += loser.continental_area;
+                    winner.underthrust_volume += loser.underthrust_volume;
                 }
-                winner.weakness = 1.0;
-                winner.collision_deposits += 1;
-                audit.continental_underthrust_volume += loser.continental_volume;
-                let relative = poles[winner.plate].velocity_km_per_myr_at(mesh.centers[cell])
-                    - poles[loser_plate].velocity_km_per_myr_at(mesh.centers[cell]);
-                winner.fabric = relative.normalize_or_zero();
-                underthrust_deposits.push(UnderthrustDeposit {
-                    origin: cell,
-                    receiving_plate: winner.plate,
-                    continental_volume: loser.continental_volume,
-                    continental_area: loser.continental_area,
-                    // The losing plate advances beneath the receiver opposite
-                    // the receiver-minus-loser relative velocity.
-                    direction: (-relative).normalize_or_zero(),
-                });
             } else {
                 winner.continental_volume += loser.continental_volume;
                 winner.continental_area += loser.continental_area;
@@ -2193,6 +2238,16 @@ fn resolve_lifecycle_overlap(
             if loser_plate == winner.plate {
                 // Same-motion raster alias: retain material explicitly rather
                 // than pretending it subducted.
+                winner.ocean_volume += loser.ocean_volume;
+                winner.ocean_area += loser.ocean_area;
+                winner.magma_volume += loser.magma_volume;
+                winner.continental_volume += loser.continental_volume;
+                winner.continental_area += loser.continental_area;
+                winner.underthrust_volume += loser.underthrust_volume;
+                continue;
+            }
+            if !oceanic_closure_rates.contains_key(&canonical_plate_pair(winner.plate, loser_plate))
+            {
                 winner.ocean_volume += loser.ocean_volume;
                 winner.ocean_area += loser.ocean_area;
                 winner.magma_volume += loser.magma_volume;
@@ -2239,6 +2294,17 @@ fn resolve_lifecycle_overlap(
             winner.continental_area += loser.continental_area;
             winner.underthrust_volume += loser.underthrust_volume;
         } else {
+            if !oceanic_closure_rates.contains_key(&canonical_plate_pair(winner.plate, loser_plate))
+            {
+                retained_age_moment += loser.ocean_age_myr as f64 * loser.ocean_volume;
+                winner.ocean_volume += loser.ocean_volume;
+                winner.ocean_area += loser.ocean_area;
+                winner.magma_volume += loser.magma_volume;
+                winner.continental_volume += loser.continental_volume;
+                winner.continental_area += loser.continental_area;
+                winner.underthrust_volume += loser.underthrust_volume;
+                continue;
+            }
             winner.continental_volume += loser.continental_volume;
             winner.continental_area += loser.continental_area;
             winner.underthrust_volume += loser.underthrust_volume;
@@ -3339,6 +3405,7 @@ mod tests {
             &dynamics.euler_poles,
             &mut parent,
             &closure_rates,
+            &HashMap::new(),
             &mut speeds,
             &mut deposits,
             &mut magmatic_deposits,
@@ -3384,6 +3451,7 @@ mod tests {
         let mut parent: Vec<_> = (0..dynamics.euler_poles.len()).collect();
         let mut speeds = HashMap::new();
         let closure_rates = HashMap::new();
+        let oceanic_closure_rates = HashMap::from([((0, 1), 50.0)]);
         let mut deposits = Vec::new();
         let mut magmatic_deposits = Vec::new();
         let mut audit = LifecycleAudit::default();
@@ -3395,6 +3463,7 @@ mod tests {
             &dynamics.euler_poles,
             &mut parent,
             &closure_rates,
+            &oceanic_closure_rates,
             &mut speeds,
             &mut deposits,
             &mut magmatic_deposits,
@@ -3410,6 +3479,57 @@ mod tests {
         );
         assert!(speeds.is_empty());
         assert_eq!(parent, (0..dynamics.euler_poles.len()).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn transform_overlap_does_not_write_a_tectonic_reaction() {
+        let (_, dynamics, replay) = evolved_fixture(2.0);
+        let mesh = &replay.mesh;
+        let area = mesh.areas[0] as f64;
+        let make = |plate| LifecycleCell {
+            plate,
+            crust: CrustType::Continental,
+            ocean_age_myr: 0.0,
+            continental_volume: CRUST_THICKNESS_CONTINENTAL as f64 * area,
+            ocean_volume: 0.0,
+            magma_volume: 0.0,
+            continental_area: area,
+            ocean_area: 0.0,
+            underthrust_volume: 0.0,
+            weakness: 0.0,
+            fabric: Vec3::ZERO,
+            collision_deposits: 0,
+        };
+        let states = vec![make(0), make(1)];
+        let mut parent: Vec<_> = (0..dynamics.euler_poles.len()).collect();
+        let mut speeds = HashMap::new();
+        let mut underthrust = Vec::new();
+        let mut magma = Vec::new();
+        let mut audit = LifecycleAudit::default();
+        let result = resolve_lifecycle_overlap(
+            0,
+            &[0, 1],
+            &states,
+            mesh,
+            &dynamics.euler_poles,
+            &mut parent,
+            &HashMap::new(),
+            &HashMap::new(),
+            &mut speeds,
+            &mut underthrust,
+            &mut magma,
+            &mut audit,
+        );
+        assert_eq!(
+            result.continental_volume,
+            states[0].continental_volume + states[1].continental_volume
+        );
+        assert_eq!(result.weakness, 0.0);
+        assert!(underthrust.is_empty());
+        assert!(magma.is_empty());
+        assert!(speeds.is_empty());
+        assert_eq!(audit.continental_underthrust_volume, 0.0);
+        assert_eq!(audit.consumed_ocean_volume, 0.0);
     }
 
     #[test]

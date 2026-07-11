@@ -375,3 +375,35 @@ to 7.10 / 14.17 / 8.12 km but still fails the standing resolution gate. Created 
 consumed ocean, sutures, and topology also vary materially with carrier resolution. The
 next blocker is therefore lifecycle event discretization/convergence, not another local
 terrain-height mechanism.
+
+### Lifecycle resolution attribution: binary-event pullback falsified
+
+The first convergence correction requires positive edge-length-weighted normal closure
+before any raster overlap can write collision, suture, merge-clock, ocean consumption, or
+arc-magmatic work. Transform and divergent overlaps now preserve material but produce no
+tectonic reaction. This is retained as a physical classification invariant. It is nearly
+neutral numerically for seed 12345 (4k/8k unchanged; 16k peak 8.12→8.14 km), so false
+transform reactions were not the resolution failure's first cause.
+
+Two cheap temporal hypotheses were then falsified:
+
+- reducing the fixed remap interval from 2.0 to 0.5 Myr freezes every resolution: all
+  created/consumed ocean, underthrust, magma, sutures, and merges become exactly zero;
+- scaling the interval to roughly one carrier spacing of maximum motion improves seed
+  12345's peak span from 7.07 km to 5.27 km, but still fails and leaves created-ocean
+  volume at 0.780/0.311/0.155 across 4k/8k/16k.
+
+Thus nearest-cell pullback has a spatial dead zone rather than an ordinary timestep
+truncation error. Finer time integration cannot converge it, and a Courant dial only
+moves the cell-crossing thresholds.
+
+A 30-world ensemble audit also rejects the idea that only chaotic same-seed topology is
+failing. Peak medians are superficially close at 7.07/7.53/7.79 km for 4k/8k/16k, but
+median mountain-land coverage rises about 0.55%/2.75%/3.95%; several 4k seeds produce
+almost no tectonic work, while 16k systematically produces more ranges, sutures, merges,
+and event volume. The long-horizon distributions have not converged.
+
+Do not tune the remap interval or weaken the standing gate. The next architectural rung
+must represent fractional plate/material occupancy or conservative face-swept flux so
+sub-cell motion produces proportional work. Whole-cell gaps and overlaps may still
+choose a visible surface owner, but they can no longer be the material-reaction measure.

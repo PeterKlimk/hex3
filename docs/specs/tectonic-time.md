@@ -407,6 +407,27 @@ The lifecycle remains non-promotable on resolution convergence. Seed 12345 was a
 discretization and topology convergence across carrier resolutions, not another local
 height response.
 
+**T4d resolution attribution complete; fractional flux required.** Cross-plate overlap
+now requires positive edge-length-weighted normal closure before it can produce collision
+or subduction work. Transform/divergent overlap is material-conservative but reaction
+free. This classification correction is retained, but seed 12345 remains effectively
+unchanged across 4k/8k/16k, so it is not the convergence solution.
+
+Nearest-cell pullback is formally falsified as the lifecycle event measure. At a 0.5 Myr
+interval it produces exactly zero work at all three resolutions because no carrier center
+crosses a cell threshold. A constant-Courant interval reduces but does not pass the peak
+span and leaves event ledgers strongly resolution dependent. Across ten seeds, peak
+medians are 7.07/7.53/7.79 km at 4k/8k/16k, while median mountain-land coverage rises
+about 0.55%/2.75%/3.95% and topology/event counts increase materially with resolution.
+This is not merely chaotic trajectory divergence.
+
+The next implementation must decouple visible cell ownership from material reaction:
+advect fractional per-plate occupancy/material conservatively across carrier faces and
+integrate collision, subduction, and spreading from swept face area. Binary ownership may
+remain for rendering and topology labels, but whole-cell gap/overlap events cannot create
+or consume the physical ledger. No timestep or terrain-response retuning is authorized by
+this result.
+
 ## Required invariants
 
 - Integrated crustal addition equals boundary flux integrated over time, within solver
