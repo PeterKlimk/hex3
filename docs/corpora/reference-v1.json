@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "corpus_id": "reference-v1",
+  "description": "Standing ten-seed stage-4 product-baseline reference corpus at the accepted 1M fine-cell evaluation cap.",
+  "runs": [
+    { "label": "seed-12345", "seed": 12345, "coarse_cells": 100000, "lloyd_iterations": 1, "stage": 4, "fine_max_cells": 1000000, "fine_scale": 1.0, "backend": "convex-hull", "orogen_model": "legacy", "fine_cache": "disabled" },
+    { "label": "seed-777", "seed": 777, "coarse_cells": 100000, "lloyd_iterations": 1, "stage": 4, "fine_max_cells": 1000000, "fine_scale": 1.0, "backend": "convex-hull", "orogen_model": "legacy", "fine_cache": "disabled" },
+    { "label": "seed-4242", "seed": 4242, "coarse_cells": 100000, "lloyd_iterations": 1, "stage": 4, "fine_max_cells": 1000000, "fine_scale": 1.0, "backend": "convex-hull", "orogen_model": "legacy", "fine_cache": "disabled" },
+    { "label": "seed-9001", "seed": 9001, "coarse_cells": 100000, "lloyd_iterations": 1, "stage": 4, "fine_max_cells": 1000000, "fine_scale": 1.0, "backend": "convex-hull", "orogen_model": "legacy", "fine_cache": "disabled" },
+    { "label": "seed-314159", "seed": 314159, "coarse_cells": 100000, "lloyd_iterations": 1, "stage": 4, "fine_max_cells": 1000000, "fine_scale": 1.0, "backend": "convex-hull", "orogen_model": "legacy", "fine_cache": "disabled" },
+    { "label": "seed-271828", "seed": 271828, "coarse_cells": 100000, "lloyd_iterations": 1, "stage": 4, "fine_max_cells": 1000000, "fine_scale": 1.0, "backend": "convex-hull", "orogen_model": "legacy", "fine_cache": "disabled" },
+    { "label": "seed-8675309", "seed": 8675309, "coarse_cells": 100000, "lloyd_iterations": 1, "stage": 4, "fine_max_cells": 1000000, "fine_scale": 1.0, "backend": "convex-hull", "orogen_model": "legacy", "fine_cache": "disabled" },
+    { "label": "seed-20260711", "seed": 20260711, "coarse_cells": 100000, "lloyd_iterations": 1, "stage": 4, "fine_max_cells": 1000000, "fine_scale": 1.0, "backend": "convex-hull", "orogen_model": "legacy", "fine_cache": "disabled" },
+    { "label": "seed-42", "seed": 42, "coarse_cells": 100000, "lloyd_iterations": 1, "stage": 4, "fine_max_cells": 1000000, "fine_scale": 1.0, "backend": "convex-hull", "orogen_model": "legacy", "fine_cache": "disabled" },
+    { "label": "seed-1001", "seed": 1001, "coarse_cells": 100000, "lloyd_iterations": 1, "stage": 4, "fine_max_cells": 1000000, "fine_scale": 1.0, "backend": "convex-hull", "orogen_model": "legacy", "fine_cache": "disabled" }
+  ]
+}

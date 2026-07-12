@@ -58,3 +58,7 @@ is not a quality corpus and must not support promotion decisions.
 seed across 250k, 1M and 4M fine-cell caps. Its purpose is to choose an
 evaluation budget from runtime and resolution-sensitive metric behavior, not to
 judge population quality.
+
+`reference-v1.json` is the standing ten-seed product-baseline corpus. Its 1M
+fine cap is justified by the
+[reference-budget audit](../audits/reference-budget-2026-07-12.md).

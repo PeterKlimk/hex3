@@ -102,10 +102,12 @@ New random holdout seeds may test overfitting only after thresholds are frozen.
 | Controls | Establish metric response and confounders | fixed seeds with one conceptual input or mechanism changed at a time |
 | Holdout | Detect panel/threshold overfitting | newly sampled seeds after registry and gates freeze |
 
-The practical reference fine resolution and runtime budget are intentionally not
-fixed until baseline timing and cache/storage costs are measured. The product
-guardrail of eight million cells is not automatically the evaluation budget.
-Every result records actual emergent cell counts.
+The reference corpus uses 100,000 coarse cells and an explicit 1,000,000
+fine-cell cap, selected by the
+[reference-budget audit](audits/reference-budget-2026-07-12.md). This is an
+evaluation budget, not a product default or universal convergence claim. The
+product guardrail of eight million cells is not automatically the evaluation
+budget. Every result records actual emergent cell counts.
 
 ### Required pairings
 
@@ -198,4 +200,3 @@ a Hex3-sized mechanism and cost/benefit judgment is incomplete.
 Feature expansion remains paused until the registry and first corpus evaluation
 can identify its opportunity cost. Small instrumentation changes are allowed
 when they expose existing state without changing the generated world.
-
