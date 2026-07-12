@@ -23,3 +23,6 @@ Current synthesized notes:
 - [C0 fixed-support discriminator and minimum C1 contract](c0-support-discriminator-2026-07-13.md)
   — preregisters the corrected unfiltered C0 versus fixed-16-km supported-
   intensity comparison and defines the minimum honest dual channel state.
+- [Minimum C1 manufactured fixture](c1-manufactured-fixture-2026-07-13.md)
+  — freezes the dual channel/interfluve state, volume-mixing operators,
+  non-claims and 8/4/2 analytic gates before any routed C1 prototype.

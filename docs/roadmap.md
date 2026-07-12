@@ -355,6 +355,13 @@ next bounded task is therefore the manufactured minimum C1
 `{z_bar,z_c,f_c}` volume-mixing fixture, not long U/L, filter/K tuning, sediment
 or product integration. Current evidence:
 [C0 support discriminator](audits/c0-support-discriminator-2026-07-13.md).
+That fixture now passes fixed-area, channel-history, export, mean-volume,
+internal-transfer and zero-width gates at 8/4/2 km. The next bounded rung is a
+prescribed conservative receiver network with confluence and reorganization
+controls, retaining the same physical reach area and local C1 mixing. Network
+and width ownership—not sediment, ecology, rendering or a long terrain run—are
+the remaining questions. Current evidence:
+[C1 manufactured fixture](audits/c1-manufactured-fixture-2026-07-13.md).
 The rejected nominal rectangular boundary remains an important scope decision:
 exact cut-cell hex geometry is not currently justified for a testbed intended
 to transfer to a closed sphere. Earlier analytic evidence remains in the

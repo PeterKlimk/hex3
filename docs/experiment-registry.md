@@ -186,6 +186,14 @@ support has no drainage-divide ownership. Status: retain Q16 as diagnostic
 evidence and advance only a manufactured minimum C1 `{z_bar,z_c,f_c}` volume-
 mixing fixture. Long U/L and product integration remain blocked.
 
+The minimum C1 fixture now passes that gate. A 128 km × 0.2 km prescribed reach
+retains identical `sum(wL)=25.6 km²`, channel evolution and `2.56 km³` export
+at 8/4/2 km; cell-mean volume closes, internal compartment transfer cancels and
+zero width is an exact C0 reduction. Status: promote `{z_bar,z_c,f_c}` only as
+the next isolated routed-testbed representation. Network/reach and physical
+width ownership remain absent; sediment, valleys, ecology, long U/L and product
+integration remain blocked.
+
 ### Carrier/lifecycle subexperiments
 
 | Experiment | Status | Outcome |

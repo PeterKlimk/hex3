@@ -6,6 +6,7 @@
 
 mod boundary_fixture;
 mod c0_solver;
+mod c1_fixture;
 mod continuum;
 mod denudation;
 mod filter;
@@ -20,6 +21,10 @@ pub use c0_solver::{
     C0DischargeSupport, C0DischargeSupportArm, C0DischargeSupportDiagnostics,
     C0ElevationVolumeMomentLedger, C0LandscapeError, C0LandscapeParams, C0LandscapeSolver,
     C0LandscapeState, C0OperatorLimits, C0StepDiagnostics, C0TimestepLimiter, C0WaterDiagnostics,
+};
+pub use c1_fixture::{
+    apply_channel_only_excavation, apply_internal_interfluve_channel_transfer, C1CellGeometry,
+    C1CellState, C1ExcavationLedger, C1FixtureError, C1InternalTransferLedger,
 };
 pub use continuum::{ContinuumFlowError, DepressionRoutingSurface, FaceFlowCache, FlowPartition};
 pub use denudation::{

@@ -385,6 +385,21 @@ as evidence. The next bounded representation task is only the manufactured C1
 core `{z_bar, z_c, f_c}` with exact volume mixing and fixed `sum(wL)`—not a
 coupled run, sediment, ecology, tuning or product integration.
 
+The minimum C1 manufactured fixture now passes. For a prescribed 128 km reach
+at fixed 0.2 km width, 8/4/2 km partitions all retain `sum(wL)=25.6 km²`, the
+same channel-surface history and `2.56 km³` export. Mean-surface volume closes
+within `1e-11 km³`, interfluve elevation remains invariant under channel-only
+excavation, internal transfer leaves mean bits unchanged with an exactly
+cancelling ledger, and zero width reduces exactly to C0.
+
+This promotes only the representation `{z_bar,z_c,f_c}` for the isolated
+testbed. It is lean—one additional dynamic f64 per participating cell and local
+`O(N_channel)` mixing—and resolves Q16's missing ownership by attaching support
+to physical reach geometry. Network/reach identity and width ownership are now
+the next missing systems. Do not jump to sediment, valleys, ecology or product
+integration. The next gate is a prescribed conservative receiver network with
+a confluence and reorganization control, still at 8/4/2 km.
+
 ## Settled project-level conclusions
 
 - Hex3 is an authentic systemic world generator using reduced causal models,
