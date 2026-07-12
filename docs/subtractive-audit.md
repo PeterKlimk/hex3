@@ -83,7 +83,7 @@ comes from contact/history inputs, not a separate carrier thin-sheet mechanism.
 Disposition: **remove/rename** the misleading alias unless a maintained ablation
 requires it.
 
-### Stale rendering paths are constructed but unreachable
+### Stale rendering paths were constructed but unreachable
 
 - `LayeredGlobe`/`LayeredMap`, two pipelines, bind groups, `LayeredMesh`,
   `LayeredVertex` and `layered.wgsl` remain implemented. Current app and sweep
@@ -93,8 +93,9 @@ requires it.
   scene passes `None`; the app explicitly labels it legacy
   (`app/state.rs:574`, `app/sweep.rs:251`).
 
-Disposition: **remove**, after one Windows build/runtime verification. This is
-reachability cleanup, not a visual design decision.
+Disposition: **removed** after reachability and full compile/test verification.
+Unified globe/map rendering and GPU wind particles remain. A Windows runtime
+check is still required because WSL cannot validate live wgpu pipeline creation.
 
 ### Invalid numerical interpretations already identified
 
@@ -387,8 +388,8 @@ Future feedback should not be forced into additional numbered stages.
 | Basin/lake integration hacks | Retain/validate sensitivity | Medium-high |
 | Ecology prototype | Quarantine diagnostic | High |
 | Shared water/river semantics | Retain | High |
-| Layered rendering path | Remove after Windows check | High |
-| Legacy CPU wind draw path | Remove | High |
+| Layered rendering path | Removed; Windows runtime check pending | High |
+| Legacy CPU wind draw path | Removed | High |
 | Diagnostic monolith | Split/simplify | High |
 | Full pre/post retained surfaces | Validate memory/payoff | Medium |
 
@@ -396,8 +397,8 @@ Future feedback should not be forced into additional numbered stages.
 
 ### Safe cleanup first
 
-1. Remove layered pipelines/mesh/shader and legacy CPU wind draw after Windows
-   verification.
+1. **Completed:** remove layered pipelines/mesh/shader and legacy CPU wind draw;
+   run the remaining Windows runtime check.
 2. Correct lifecycle/history naming and registry claims.
 3. Hide research orogen rungs and parked erosion/fine controls from product CLI.
 4. Split product feature state from optional experiment outputs.
@@ -427,4 +428,3 @@ byte/metric equivalence.
 No new mechanism should enter product configuration without naming what it
 replaces. Promotion should normally reduce or strengthen the active path. A new
 default added beside every prior owner is accumulation, not progress.
-

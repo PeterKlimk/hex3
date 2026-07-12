@@ -248,7 +248,6 @@ fn render_relief(
         arrows: None,
         pole_markers: None,
         rivers: None,
-        wind_particles: None,
         gpu_particles: None,
     };
 

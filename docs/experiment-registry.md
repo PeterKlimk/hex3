@@ -148,7 +148,8 @@ specs remain experiment history until archived.
 | Screen-space draped river SDF | Implemented and promoted | Product Relief/wind river path; performance/generalization debt remains |
 | Legacy world-space/fixed-texture river width behavior | Corrected | Falsified presentation interpretation; do not restore |
 | Displaced-facet slope shading | Implemented and used by sweeps, not interactive Relief | Selectable internally/incompletely integrated; decision pending |
-| Older layered shader path | Appears unused/stale | Verify, then remove or explicitly revive; not product capability |
+| Older layered shader path | Removed after reachability/compile verification | No product capability; unified and flat paths remain |
+| Legacy CPU wind line draw | Removed after every scene supplied `None` | GPU wind particles remain the active presentation |
 
 ## Promotion requirements
 

@@ -571,7 +571,6 @@ impl AppState {
                 arrows,
                 pole_markers,
                 rivers,
-                wind_particles: None, // Legacy CPU particles no longer used
                 gpu_particles,
             },
         );
