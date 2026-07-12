@@ -11,16 +11,47 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    apply_conservative_hillslope_step, apply_effective_areal_denudation, BoundaryFaceCondition,
-    ConservativeHillslopeError, ConservativeHillslopeParams, DeformationFrame,
-    EffectiveArealDenudationParams, FaceFlowCache, FlowPartition, LandscapeMesh, OutletPortalId,
+    apply_conservative_hillslope_step, apply_effective_areal_denudation,
+    apply_scalar_helmholtz_filter, BoundaryFaceCondition, ConservativeHillslopeError,
+    ConservativeHillslopeParams, DeformationFrame, EffectiveArealDenudationParams, FaceFlowCache,
+    FlowPartition, HelmholtzBoundaryMode, HelmholtzFilterAudit, HelmholtzFilterParams,
+    LandscapeMesh, OutletPortalId,
 };
+
+/// Representation used only for discharge intensity in the denudation closure.
+/// Conservative routing and every raw-water diagnostic remain unfiltered.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+pub enum C0DischargeSupport {
+    #[default]
+    Unfiltered,
+    FixedHelmholtz {
+        alpha_km: f64,
+        relative_tolerance: f64,
+        absolute_tolerance: f64,
+        max_iterations: usize,
+    },
+}
+
+impl C0DischargeSupport {
+    pub fn fixed_helmholtz(alpha_km: f64) -> Self {
+        let defaults = HelmholtzFilterParams::default();
+        Self::FixedHelmholtz {
+            alpha_km,
+            relative_tolerance: defaults.relative_tolerance,
+            absolute_tolerance: defaults.absolute_tolerance,
+            max_iterations: defaults.max_iterations,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct C0LandscapeParams {
     pub effective_areal_denudation: EffectiveArealDenudationParams,
     /// Uniform runoff depth rate; local water supply is this rate times cell area.
     pub runoff_depth_rate_km_myr: f64,
+    /// Optional declared physical support for denudation intensity. Omission
+    /// is exactly the unfiltered C0-V control.
+    pub discharge_support: C0DischargeSupport,
     pub hillslope: ConservativeHillslopeParams,
     /// Accuracy limit, not a stability clamp.
     pub maximum_uplift_depth_km: f64,
@@ -42,6 +73,7 @@ impl Default for C0LandscapeParams {
                 slope_exponent_n: 1.0,
             },
             runoff_depth_rate_km_myr: 500.0,
+            discharge_support: C0DischargeSupport::Unfiltered,
             hillslope: ConservativeHillslopeParams::default(),
             maximum_uplift_depth_km: 0.02,
             maximum_effective_denudation_depth_km: 0.02,
@@ -96,6 +128,28 @@ impl C0LandscapeParams {
             return Err(C0LandscapeError::InvalidParameter(
                 "maximum_adaptive_attempts",
             ));
+        }
+        if let C0DischargeSupport::FixedHelmholtz {
+            alpha_km,
+            relative_tolerance,
+            absolute_tolerance,
+            max_iterations,
+        } = self.discharge_support
+        {
+            if !alpha_km.is_finite() || alpha_km < 0.0 {
+                return Err(C0LandscapeError::InvalidParameter(
+                    "discharge_support.alpha_km",
+                ));
+            }
+            if !relative_tolerance.is_finite()
+                || relative_tolerance < 0.0
+                || !absolute_tolerance.is_finite()
+                || absolute_tolerance < 0.0
+                || (relative_tolerance == 0.0 && absolute_tolerance == 0.0)
+                || max_iterations == 0
+            {
+                return Err(C0LandscapeError::InvalidParameter("discharge_support"));
+            }
         }
         // The hillslope operator owns the complete validation of this bundle;
         // obvious invalid values are rejected here so construction is useful.
@@ -205,6 +259,23 @@ pub struct C0WaterDiagnostics {
     pub unresolved_specific_discharge_cells: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum C0DischargeSupportArm {
+    Unfiltered,
+    FixedHelmholtz,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct C0DischargeSupportDiagnostics {
+    pub arm: C0DischargeSupportArm,
+    pub alpha_km: Option<f64>,
+    pub filter_audit: Option<HelmholtzFilterAudit>,
+    pub raw_maximum_km2_myr: f64,
+    pub effective_maximum_km2_myr: f64,
+    pub raw_area_weighted_integral_km4_myr: f64,
+    pub effective_area_weighted_integral_km4_myr: f64,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct C0StepDiagnostics {
     pub time_start_myr: f64,
@@ -218,6 +289,7 @@ pub struct C0StepDiagnostics {
     pub maximum_effective_denudation_rate_km_myr: f64,
     pub maximum_hillslope_slope_ratio: f64,
     pub regularized_hillslope_faces: usize,
+    pub discharge_support: C0DischargeSupportDiagnostics,
     pub water: C0WaterDiagnostics,
 }
 
@@ -408,9 +480,14 @@ impl C0LandscapeSolver {
             &candidate.mean_bedrock_elevation_km,
             &flow,
         )?;
+        let (effective_specific_discharge, discharge_support) = supported_discharge_intensity(
+            mesh,
+            &flow.specific_discharge_km2_myr,
+            self.params.discharge_support,
+        )?;
         let slope_cfl_limit = effective_denudation_slope_cfl_limit(
             self.params,
-            &flow.specific_discharge_km2_myr,
+            &effective_specific_discharge,
             &flow_grade,
             &directional_length_km,
         );
@@ -424,7 +501,7 @@ impl C0LandscapeSolver {
             self.params.effective_areal_denudation,
             mesh,
             &mut candidate.mean_bedrock_elevation_km,
-            &flow.specific_discharge_km2_myr,
+            &effective_specific_discharge,
             &flow_grade,
             dt_myr,
         )
@@ -505,6 +582,7 @@ impl C0LandscapeSolver {
             maximum_effective_denudation_rate_km_myr: maximum_denudation_rate,
             maximum_hillslope_slope_ratio: hillslope.maximum_slope_ratio,
             regularized_hillslope_faces: hillslope.regularized_internal_faces,
+            discharge_support,
             water: C0WaterDiagnostics {
                 total_supply_km3_myr: flow.total_supply_km3_myr,
                 portal_outflow_km3_myr: flow.portal_outflow_km3_myr,
@@ -524,6 +602,94 @@ enum Trial {
         limit_myr: f64,
         limiter: C0TimestepLimiter,
     },
+}
+
+fn supported_discharge_intensity(
+    mesh: &LandscapeMesh,
+    raw_specific_discharge_km2_myr: &[f64],
+    support: C0DischargeSupport,
+) -> Result<(Vec<f64>, C0DischargeSupportDiagnostics), C0LandscapeError> {
+    if raw_specific_discharge_km2_myr.len() != mesh.cell_count() {
+        return Err(C0LandscapeError::LengthMismatch {
+            field: "raw_specific_discharge_km2_myr",
+            expected: mesh.cell_count(),
+            actual: raw_specific_discharge_km2_myr.len(),
+        });
+    }
+    if raw_specific_discharge_km2_myr
+        .iter()
+        .any(|q| !q.is_finite() || *q < 0.0)
+    {
+        return Err(C0LandscapeError::Operator(
+            "raw specific discharge is non-finite or negative".into(),
+        ));
+    }
+
+    let (effective, arm, alpha_km, filter_audit) = match support {
+        C0DischargeSupport::Unfiltered => (
+            raw_specific_discharge_km2_myr.to_vec(),
+            C0DischargeSupportArm::Unfiltered,
+            None,
+            None,
+        ),
+        C0DischargeSupport::FixedHelmholtz {
+            alpha_km,
+            relative_tolerance,
+            absolute_tolerance,
+            max_iterations,
+        } => {
+            let result = apply_scalar_helmholtz_filter(
+                mesh,
+                raw_specific_discharge_km2_myr,
+                HelmholtzFilterParams {
+                    alpha_km,
+                    relative_tolerance,
+                    absolute_tolerance,
+                    max_iterations,
+                    boundary_mode: HelmholtzBoundaryMode::HomogeneousNeumann,
+                },
+            )
+            .map_err(|error| C0LandscapeError::Operator(error.to_string()))?;
+            if !result.audit.converged {
+                return Err(C0LandscapeError::Operator(format!(
+                    "supported-discharge Helmholtz filter did not converge in {} iterations (residual {} > {})",
+                    result.audit.iterations,
+                    result.audit.final_residual_l2,
+                    result.audit.convergence_threshold_l2
+                )));
+            }
+            (
+                result.field,
+                C0DischargeSupportArm::FixedHelmholtz,
+                Some(alpha_km),
+                Some(result.audit),
+            )
+        }
+    };
+    if effective.iter().any(|q| !q.is_finite() || *q < 0.0) {
+        return Err(C0LandscapeError::Operator(
+            "supported discharge intensity is non-finite or negative".into(),
+        ));
+    }
+
+    let maximum = |field: &[f64]| field.iter().copied().fold(0.0, f64::max);
+    let area_integral = |field: &[f64]| {
+        field
+            .iter()
+            .zip(&mesh.cell_area_km2)
+            .map(|(q, area)| q * area)
+            .sum()
+    };
+    let diagnostics = C0DischargeSupportDiagnostics {
+        arm,
+        alpha_km,
+        filter_audit,
+        raw_maximum_km2_myr: maximum(raw_specific_discharge_km2_myr),
+        effective_maximum_km2_myr: maximum(&effective),
+        raw_area_weighted_integral_km4_myr: area_integral(raw_specific_discharge_km2_myr),
+        effective_area_weighted_integral_km4_myr: area_integral(&effective),
+    };
+    Ok((effective, diagnostics))
 }
 
 /// Physical routed grade and one directional length for every finite volume.
@@ -718,6 +884,221 @@ mod tests {
             },
             ..C0LandscapeParams::default()
         }
+    }
+
+    fn supported_params(alpha_km: f64) -> C0LandscapeParams {
+        C0LandscapeParams {
+            discharge_support: C0DischargeSupport::fixed_helmholtz(alpha_km),
+            hillslope: ConservativeHillslopeParams {
+                diffusivity_km2_myr: 0.0,
+                ..ConservativeHillslopeParams::default()
+            },
+            ..C0LandscapeParams::default()
+        }
+    }
+
+    fn sloping_surface(mesh: &LandscapeMesh) -> Vec<f64> {
+        mesh.cell_center_km
+            .iter()
+            .map(|point| 2.0 - 0.01 * point.y + 0.002 * (0.17 * point.x).sin())
+            .collect()
+    }
+
+    #[test]
+    fn omitted_support_is_exact_unfiltered_identity() {
+        let mesh = mesh();
+        let params = inactive_params();
+        assert_eq!(params.discharge_support, C0DischargeSupport::Unfiltered);
+        let solver = C0LandscapeSolver::new(params).unwrap();
+        let mut state = C0LandscapeState::new(&mesh, sloping_surface(&mesh)).unwrap();
+        let diagnostics = solver
+            .step(&mesh, &frame(&mesh, 0.0), 1.0e-4, &mut state)
+            .unwrap();
+        let support = diagnostics.discharge_support;
+        assert_eq!(support.arm, C0DischargeSupportArm::Unfiltered);
+        assert_eq!(support.alpha_km, None);
+        assert_eq!(support.filter_audit, None);
+        assert_eq!(
+            support.raw_maximum_km2_myr,
+            support.effective_maximum_km2_myr
+        );
+        assert_eq!(
+            support.raw_area_weighted_integral_km4_myr,
+            support.effective_area_weighted_integral_km4_myr
+        );
+    }
+
+    #[test]
+    fn alpha_zero_is_state_exact_and_changes_only_support_metadata() {
+        let mesh = mesh();
+        let initial = sloping_surface(&mesh);
+        let forcing = frame(&mesh, 0.01);
+        let mut raw_params = inactive_params();
+        raw_params.effective_areal_denudation.k = 0.01;
+        raw_params.maximum_uplift_depth_km = 10.0;
+        raw_params.maximum_effective_denudation_depth_km = 10.0;
+        let mut zero_params = raw_params;
+        zero_params.discharge_support = C0DischargeSupport::fixed_helmholtz(0.0);
+        let raw_solver = C0LandscapeSolver::new(raw_params).unwrap();
+        let zero_solver = C0LandscapeSolver::new(zero_params).unwrap();
+        let mut raw = C0LandscapeState::new(&mesh, initial.clone()).unwrap();
+        let mut zero = C0LandscapeState::new(&mesh, initial).unwrap();
+        let raw_diagnostics = raw_solver.step(&mesh, &forcing, 1.0e-4, &mut raw).unwrap();
+        let zero_diagnostics = zero_solver
+            .step(&mesh, &forcing, 1.0e-4, &mut zero)
+            .unwrap();
+        assert_eq!(raw, zero);
+        assert_eq!(raw_diagnostics.water, zero_diagnostics.water);
+        assert_eq!(
+            raw_diagnostics.maximum_effective_denudation_rate_km_myr,
+            zero_diagnostics.maximum_effective_denudation_rate_km_myr
+        );
+        assert_eq!(
+            raw_diagnostics
+                .operator_limits
+                .effective_denudation_slope_cfl_limit_myr,
+            zero_diagnostics
+                .operator_limits
+                .effective_denudation_slope_cfl_limit_myr
+        );
+        assert_eq!(
+            zero_diagnostics.discharge_support.arm,
+            C0DischargeSupportArm::FixedHelmholtz
+        );
+        assert_eq!(zero_diagnostics.discharge_support.alpha_km, Some(0.0));
+        assert!(
+            zero_diagnostics
+                .discharge_support
+                .filter_audit
+                .unwrap()
+                .converged
+        );
+    }
+
+    #[test]
+    fn q16_preserves_first_step_raw_water_diagnostics() {
+        let mesh = mesh();
+        let initial = sloping_surface(&mesh);
+        let mut raw = C0LandscapeState::new(&mesh, initial.clone()).unwrap();
+        let mut supported = C0LandscapeState::new(&mesh, initial).unwrap();
+        let raw_diagnostics = C0LandscapeSolver::new(inactive_params())
+            .unwrap()
+            .step(&mesh, &frame(&mesh, 0.0), 1.0e-4, &mut raw)
+            .unwrap();
+        let supported_diagnostics = C0LandscapeSolver::new(supported_params(16.0))
+            .unwrap()
+            .step(&mesh, &frame(&mesh, 0.0), 1.0e-4, &mut supported)
+            .unwrap();
+        assert_eq!(raw_diagnostics.water, supported_diagnostics.water);
+        assert_eq!(
+            raw_diagnostics.discharge_support.raw_maximum_km2_myr,
+            supported_diagnostics.discharge_support.raw_maximum_km2_myr
+        );
+        assert_eq!(
+            raw_diagnostics
+                .discharge_support
+                .raw_area_weighted_integral_km4_myr,
+            supported_diagnostics
+                .discharge_support
+                .raw_area_weighted_integral_km4_myr
+        );
+    }
+
+    #[test]
+    fn supported_intensity_drives_both_cfl_and_denudation() {
+        let mesh = mesh();
+        let initial = sloping_surface(&mesh);
+        let mut params = supported_params(16.0);
+        params.effective_areal_denudation.k = 0.01;
+        params.maximum_effective_denudation_depth_km = 10.0;
+        params.max_effective_denudation_courant = 1.0;
+        let dt = 1.0e-6;
+        let mut state = C0LandscapeState::new(&mesh, initial.clone()).unwrap();
+        let diagnostics = C0LandscapeSolver::new(params)
+            .unwrap()
+            .step(&mesh, &frame(&mesh, 0.0), dt, &mut state)
+            .unwrap();
+
+        let supply: Vec<_> = mesh
+            .cell_area_km2
+            .iter()
+            .map(|area| params.runoff_depth_rate_km_myr * area)
+            .collect();
+        let flow = FaceFlowCache::route_with_depressions(
+            &mesh,
+            &initial,
+            &supply,
+            FlowPartition::MfdSlope,
+        )
+        .unwrap();
+        let (grade, length) =
+            face_consistent_routed_grade_and_length(&mesh, &initial, &flow).unwrap();
+        let (effective, expected_support) = supported_discharge_intensity(
+            &mesh,
+            &flow.specific_discharge_km2_myr,
+            params.discharge_support,
+        )
+        .unwrap();
+        let expected_cfl =
+            effective_denudation_slope_cfl_limit(params, &effective, &grade, &length);
+        let mut expected = initial;
+        let denudation = apply_effective_areal_denudation(
+            params.effective_areal_denudation,
+            &mesh,
+            &mut expected,
+            &effective,
+            &grade,
+            dt,
+        )
+        .unwrap();
+        assert_eq!(state.mean_bedrock_elevation_km, expected);
+        assert_eq!(diagnostics.discharge_support, expected_support);
+        assert_eq!(
+            diagnostics
+                .operator_limits
+                .effective_denudation_slope_cfl_limit_myr,
+            Some(expected_cfl)
+        );
+        assert_eq!(
+            diagnostics.maximum_effective_denudation_rate_km_myr,
+            denudation.rate_km_myr.iter().copied().fold(0.0, f64::max)
+        );
+    }
+
+    #[test]
+    fn nonconverged_support_filter_is_transactional() {
+        let mesh = mesh();
+        let mut params = supported_params(16.0);
+        params.discharge_support = C0DischargeSupport::FixedHelmholtz {
+            alpha_km: 16.0,
+            relative_tolerance: 0.0,
+            absolute_tolerance: f64::MIN_POSITIVE,
+            max_iterations: 1,
+        };
+        let solver = C0LandscapeSolver::new(params).unwrap();
+        let mut state = C0LandscapeState::new(&mesh, sloping_surface(&mesh)).unwrap();
+        let before = bincode::serialize(&state).unwrap();
+        let error = solver
+            .step(&mesh, &frame(&mesh, 0.5), 1.0e-4, &mut state)
+            .unwrap_err();
+        assert!(error.to_string().contains("did not converge"), "{error}");
+        assert_eq!(bincode::serialize(&state).unwrap(), before);
+    }
+
+    #[test]
+    fn supported_discharge_cannot_erode_flat_below_base_portal_surface() {
+        let mesh = mesh();
+        let elevation = vec![-1.0; mesh.cell_count()];
+        let mut params = supported_params(16.0);
+        params.effective_areal_denudation.k = 100.0;
+        let solver = C0LandscapeSolver::new(params).unwrap();
+        let mut state = C0LandscapeState::new(&mesh, elevation.clone()).unwrap();
+        let diagnostics = solver
+            .step(&mesh, &frame(&mesh, 0.0), 0.01, &mut state)
+            .unwrap();
+        assert_eq!(state.mean_bedrock_elevation_km, elevation);
+        assert_eq!(diagnostics.maximum_effective_denudation_rate_km_myr, 0.0);
+        assert!(diagnostics.discharge_support.effective_maximum_km2_myr > 0.0);
     }
 
     #[test]

@@ -177,6 +177,15 @@ Status: numerical correctness promoted; unregularized local support and compute
 remain open. Next compare one fixed-physical-support C0 arm with the minimum C1
 state before any 1/10 Myr run or parameter tuning.
 
+That comparison is now evaluated under the frozen C0-Q16 preregistration.
+Fixed-16-km supported intensity stabilizes q maxima to within roughly `3–6%`
+per refinement, keeps relief stable and holds export drift below `0.9%`; raw
+water and solid ledgers close. It is not promoted: export changes `20–24%` at
+fixed `K`, 2 km global-filter runtime remains near unfiltered C0, and isotropic
+support has no drainage-divide ownership. Status: retain Q16 as diagnostic
+evidence and advance only a manufactured minimum C1 `{z_bar,z_c,f_c}` volume-
+mixing fixture. Long U/L and product integration remain blocked.
+
 ### Carrier/lifecycle subexperiments
 
 | Experiment | Status | Outcome |

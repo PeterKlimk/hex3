@@ -17,6 +17,7 @@ mod solver;
 
 pub use boundary_fixture::{linear_diffusive_boundary_flux_km3_myr, BoundaryFluxFixtureError};
 pub use c0_solver::{
+    C0DischargeSupport, C0DischargeSupportArm, C0DischargeSupportDiagnostics,
     C0ElevationVolumeMomentLedger, C0LandscapeError, C0LandscapeParams, C0LandscapeSolver,
     C0LandscapeState, C0OperatorLimits, C0StepDiagnostics, C0TimestepLimiter, C0WaterDiagnostics,
 };

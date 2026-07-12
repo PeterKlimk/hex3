@@ -12,8 +12,9 @@ use clap::{Parser, ValueEnum};
 use serde::Serialize;
 
 use hex3::world::landscape::{
-    linked_scenario, uniform_scenario, C0LandscapeParams, C0LandscapeSolver, C0LandscapeState,
-    C0TimestepLimiter, ConservativeHillslopeParams, EffectiveArealDenudationParams, LandscapeMesh,
+    linked_scenario, uniform_scenario, C0DischargeSupport, C0DischargeSupportArm,
+    C0LandscapeParams, C0LandscapeSolver, C0LandscapeState, C0TimestepLimiter,
+    ConservativeHillslopeParams, EffectiveArealDenudationParams, LandscapeMesh,
 };
 
 const WIDTH_KM: f64 = 960.0;
@@ -25,6 +26,21 @@ const TRUTH_LIMIT: &str = "Research smoke only: elevation is a finite-volume cel
 enum CaseArg {
     U,
     L,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, ValueEnum)]
+enum DischargeSupportArg {
+    Unfiltered,
+    Q16,
+}
+
+impl DischargeSupportArg {
+    fn solver_support(self) -> C0DischargeSupport {
+        match self {
+            Self::Unfiltered => C0DischargeSupport::Unfiltered,
+            Self::Q16 => C0DischargeSupport::fixed_helmholtz(16.0),
+        }
+    }
 }
 
 impl CaseArg {
@@ -57,6 +73,10 @@ struct Cli {
     /// Requested maximum integration step in millions of years.
     #[arg(long, default_value_t = 0.01)]
     requested_dt_myr: f64,
+
+    /// Denudation-intensity representation: raw C0-V or preregistered C0-Q16.
+    #[arg(long, value_enum, default_value = "unfiltered")]
+    discharge_support: DischargeSupportArg,
 
     /// Optional path for the complete JSON summary.
     #[arg(long)]
@@ -91,7 +111,7 @@ impl FrozenParameters {
         }
     }
 
-    fn solver_params(&self) -> C0LandscapeParams {
+    fn solver_params(&self, discharge_support: C0DischargeSupport) -> C0LandscapeParams {
         C0LandscapeParams {
             effective_areal_denudation: EffectiveArealDenudationParams {
                 k: self.derived_k_per_km,
@@ -99,6 +119,7 @@ impl FrozenParameters {
                 slope_exponent_n: self.slope_exponent_n,
             },
             runoff_depth_rate_km_myr: self.runoff_depth_rate_km_myr,
+            discharge_support,
             hillslope: ConservativeHillslopeParams {
                 diffusivity_km2_myr: self.hillslope_diffusivity_km2_myr,
                 critical_slope_grade: self.hillslope_critical_slope,
@@ -152,10 +173,29 @@ struct SmokeSummary {
     final_unresolved_specific_discharge_cells: usize,
     maximum_unresolved_specific_discharge_cells: usize,
     maximum_effective_denudation_rate_km_myr: f64,
+    discharge_support: SmokeDischargeSupportDiagnostics,
     maximum_hillslope_slope_ratio: f64,
     runtime_seconds: f64,
     frozen_research_parameters: FrozenParameters,
     truth_limit: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct SmokeDischargeSupportDiagnostics {
+    arm: C0DischargeSupportArm,
+    alpha_km: Option<f64>,
+    final_raw_maximum_km2_myr: f64,
+    final_effective_maximum_km2_myr: f64,
+    maximum_raw_intensity_over_run_km2_myr: f64,
+    maximum_effective_intensity_over_run_km2_myr: f64,
+    final_raw_area_weighted_integral_km4_myr: f64,
+    final_effective_area_weighted_integral_km4_myr: f64,
+    accepted_filter_solves: u64,
+    total_filter_iterations: u64,
+    maximum_filter_iterations: usize,
+    total_filter_true_residual_restarts: u64,
+    maximum_filter_true_residual_restarts: usize,
+    maximum_filter_final_residual_l2: f64,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -197,7 +237,8 @@ fn run(cli: &Cli) -> Result<SmokeSummary, Box<dyn std::error::Error>> {
             / (frozen.reference_specific_discharge_q0_km2_myr * frozen.reference_slope_s0),
         frozen.derived_k_per_km
     );
-    let solver = C0LandscapeSolver::new(frozen.solver_params())?;
+    let solver =
+        C0LandscapeSolver::new(frozen.solver_params(cli.discharge_support.solver_support()))?;
     let mut state = C0LandscapeState::new(&mesh, smooth_initial_surface(&mesh, INITIAL_SEED))?;
 
     let mut steps = 0_u64;
@@ -214,6 +255,29 @@ fn run(cli: &Cli) -> Result<SmokeSummary, Box<dyn std::error::Error>> {
     let mut maximum_unresolved = 0;
     let mut maximum_denudation_rate: f64 = 0.0;
     let mut maximum_slope_ratio: f64 = 0.0;
+    let expected_arm = match cli.discharge_support {
+        DischargeSupportArg::Unfiltered => C0DischargeSupportArm::Unfiltered,
+        DischargeSupportArg::Q16 => C0DischargeSupportArm::FixedHelmholtz,
+    };
+    let mut support_summary = SmokeDischargeSupportDiagnostics {
+        arm: expected_arm,
+        alpha_km: match cli.discharge_support {
+            DischargeSupportArg::Unfiltered => None,
+            DischargeSupportArg::Q16 => Some(16.0),
+        },
+        final_raw_maximum_km2_myr: 0.0,
+        final_effective_maximum_km2_myr: 0.0,
+        maximum_raw_intensity_over_run_km2_myr: 0.0,
+        maximum_effective_intensity_over_run_km2_myr: 0.0,
+        final_raw_area_weighted_integral_km4_myr: 0.0,
+        final_effective_area_weighted_integral_km4_myr: 0.0,
+        accepted_filter_solves: 0,
+        total_filter_iterations: 0,
+        maximum_filter_iterations: 0,
+        total_filter_true_residual_restarts: 0,
+        maximum_filter_true_residual_restarts: 0,
+        maximum_filter_final_residual_l2: 0.0,
+    };
 
     while state.time_myr < cli.end_myr - 16.0 * f64::EPSILON {
         let requested = cli.requested_dt_myr.min(cli.end_myr - state.time_myr);
@@ -246,6 +310,36 @@ fn run(cli: &Cli) -> Result<SmokeSummary, Box<dyn std::error::Error>> {
         maximum_denudation_rate =
             maximum_denudation_rate.max(diagnostics.maximum_effective_denudation_rate_km_myr);
         maximum_slope_ratio = maximum_slope_ratio.max(diagnostics.maximum_hillslope_slope_ratio);
+        let support = diagnostics.discharge_support;
+        debug_assert_eq!(support.arm, support_summary.arm);
+        debug_assert_eq!(support.alpha_km, support_summary.alpha_km);
+        support_summary.final_raw_maximum_km2_myr = support.raw_maximum_km2_myr;
+        support_summary.final_effective_maximum_km2_myr = support.effective_maximum_km2_myr;
+        support_summary.maximum_raw_intensity_over_run_km2_myr = support_summary
+            .maximum_raw_intensity_over_run_km2_myr
+            .max(support.raw_maximum_km2_myr);
+        support_summary.maximum_effective_intensity_over_run_km2_myr = support_summary
+            .maximum_effective_intensity_over_run_km2_myr
+            .max(support.effective_maximum_km2_myr);
+        support_summary.final_raw_area_weighted_integral_km4_myr =
+            support.raw_area_weighted_integral_km4_myr;
+        support_summary.final_effective_area_weighted_integral_km4_myr =
+            support.effective_area_weighted_integral_km4_myr;
+        if let Some(audit) = support.filter_audit {
+            support_summary.accepted_filter_solves += 1;
+            support_summary.total_filter_iterations += audit.iterations as u64;
+            support_summary.maximum_filter_iterations = support_summary
+                .maximum_filter_iterations
+                .max(audit.iterations);
+            support_summary.total_filter_true_residual_restarts +=
+                audit.true_residual_restarts as u64;
+            support_summary.maximum_filter_true_residual_restarts = support_summary
+                .maximum_filter_true_residual_restarts
+                .max(audit.true_residual_restarts);
+            support_summary.maximum_filter_final_residual_l2 = support_summary
+                .maximum_filter_final_residual_l2
+                .max(audit.final_residual_l2);
+        }
     }
 
     let (minimum, maximum) = state
@@ -257,7 +351,7 @@ fn run(cli: &Cli) -> Result<SmokeSummary, Box<dyn std::error::Error>> {
         });
     let ledger = state.elevation_volume_moment_ledger;
     Ok(SmokeSummary {
-        schema: "hex3.c0-orogen-smoke.v1",
+        schema: "hex3.c0-orogen-smoke.v2",
         case: cli.case.id(),
         nominal_width_km: WIDTH_KM,
         nominal_height_km: HEIGHT_KM,
@@ -289,6 +383,7 @@ fn run(cli: &Cli) -> Result<SmokeSummary, Box<dyn std::error::Error>> {
         final_unresolved_specific_discharge_cells: final_unresolved,
         maximum_unresolved_specific_discharge_cells: maximum_unresolved,
         maximum_effective_denudation_rate_km_myr: maximum_denudation_rate,
+        discharge_support: support_summary,
         maximum_hillslope_slope_ratio: maximum_slope_ratio,
         runtime_seconds: started.elapsed().as_secs_f64(),
         frozen_research_parameters: frozen,
@@ -357,6 +452,13 @@ fn print_human_summary(summary: &SmokeSummary) {
         summary.total_adaptive_attempts,
         summary.maximum_attempts_for_one_step
     );
+    println!(
+        "discharge support: {:?} alpha={:?} km; final raw/effective q max {:.6e}/{:.6e} km2/Myr",
+        summary.discharge_support.arm,
+        summary.discharge_support.alpha_km,
+        summary.discharge_support.final_raw_maximum_km2_myr,
+        summary.discharge_support.final_effective_maximum_km2_myr
+    );
     println!("truth limit: {}", summary.truth_limit);
 }
 
@@ -384,9 +486,32 @@ mod tests {
             spacing_km: 0.0,
             end_myr: 0.01,
             requested_dt_myr: 0.001,
+            discharge_support: DischargeSupportArg::Unfiltered,
             output_json: None,
         };
         assert!(validate_cli(&cli).is_err());
+    }
+
+    #[test]
+    fn cli_selects_unfiltered_and_preregistered_q16_cleanly() {
+        let omitted = Cli::try_parse_from(["c0_orogen_smoke", "--end-myr", "0.001"]).unwrap();
+        assert!(matches!(
+            omitted.discharge_support.solver_support(),
+            C0DischargeSupport::Unfiltered
+        ));
+
+        let q16 = Cli::try_parse_from([
+            "c0_orogen_smoke",
+            "--end-myr",
+            "0.001",
+            "--discharge-support",
+            "q16",
+        ])
+        .unwrap();
+        assert_eq!(
+            q16.discharge_support.solver_support(),
+            C0DischargeSupport::fixed_helmholtz(16.0)
+        );
     }
 
     #[test]

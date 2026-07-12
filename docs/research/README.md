@@ -20,3 +20,6 @@ Current synthesized notes:
 - [Channel support, surface meaning and mesh convergence](channel-surface-scaling-2026-07-13.md)
   — resolves the Slice 1 representation ambiguity, selects a cell-mean
   finite-volume continuum for the next rung, and defines the analytic gate.
+- [C0 fixed-support discriminator and minimum C1 contract](c0-support-discriminator-2026-07-13.md)
+  — preregisters the corrected unfiltered C0 versus fixed-16-km supported-
+  intensity comparison and defines the minimum honest dual channel state.

@@ -12,9 +12,10 @@
 //! filtering is deliberately not part of this API.
 
 use super::{BoundaryFaceCondition, LandscapeMesh};
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HelmholtzBoundaryMode {
     /// Zero normal derivative on every exposed face.
     HomogeneousNeumann,
@@ -22,7 +23,7 @@ pub enum HelmholtzBoundaryMode {
     OpenPortalDirichlet,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct HelmholtzFilterParams {
     pub alpha_km: f64,
     pub relative_tolerance: f64,
@@ -43,9 +44,12 @@ impl Default for HelmholtzFilterParams {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct HelmholtzFilterAudit {
     pub iterations: usize,
+    /// Recursive-residual threshold crossings rejected by an independent
+    /// algebraic-residual check. Each causes a deterministic PCG restart.
+    pub true_residual_restarts: usize,
     pub initial_residual_l2: f64,
     pub final_residual_l2: f64,
     pub convergence_threshold_l2: f64,
@@ -86,6 +90,7 @@ pub fn apply_scalar_helmholtz_filter(
             field: input.to_vec(),
             audit: HelmholtzFilterAudit {
                 iterations: 0,
+                true_residual_restarts: 0,
                 initial_residual_l2: 0.0,
                 final_residual_l2: 0.0,
                 convergence_threshold_l2: params.absolute_tolerance,
@@ -138,6 +143,7 @@ pub fn apply_scalar_helmholtz_filter(
             field: solution,
             audit: HelmholtzFilterAudit {
                 iterations: 0,
+                true_residual_restarts: 0,
                 initial_residual_l2: initial_residual,
                 final_residual_l2: initial_residual,
                 convergence_threshold_l2: threshold,
@@ -154,6 +160,7 @@ pub fn apply_scalar_helmholtz_filter(
     let mut direction = preconditioned.clone();
     let mut rz = dot(&residual, &preconditioned);
     let mut iterations = 0;
+    let mut true_residual_restarts = 0;
 
     for iteration in 1..=params.max_iterations {
         apply_operator(mesh, alpha2, &diagonal, &direction, &mut product);
@@ -171,7 +178,34 @@ pub fn apply_scalar_helmholtz_filter(
         iterations = iteration;
         let recursive_residual = l2_norm(&residual);
         if recursive_residual <= threshold {
-            break;
+            // Recursive PCG residuals drift from the algebraic residual under
+            // roundoff. Never accept on the recurrence alone: verify against
+            // A*x and, if the crossing was premature, deterministically
+            // restart the Krylov recurrence from that true residual.
+            let true_residual = replace_with_true_residual(
+                mesh,
+                alpha2,
+                &diagonal,
+                &rhs,
+                &solution,
+                &mut product,
+                &mut residual,
+            );
+            if true_residual <= threshold {
+                break;
+            }
+            true_residual_restarts += 1;
+            for cell in 0..n {
+                preconditioned[cell] = residual[cell] / diagonal[cell];
+            }
+            direction.clone_from(&preconditioned);
+            rz = dot(&residual, &preconditioned);
+            if !rz.is_finite() || rz <= 0.0 {
+                return Err(HelmholtzFilterError(
+                    "non-finite Helmholtz conjugate-gradient restart state".into(),
+                ));
+            }
+            continue;
         }
 
         for cell in 0..n {
@@ -205,6 +239,7 @@ pub fn apply_scalar_helmholtz_filter(
         field: solution,
         audit: HelmholtzFilterAudit {
             iterations,
+            true_residual_restarts,
             initial_residual_l2: initial_residual,
             final_residual_l2: final_residual,
             convergence_threshold_l2: threshold,
@@ -309,6 +344,24 @@ fn dot(left: &[f64], right: &[f64]) -> f64 {
 
 fn l2_norm(values: &[f64]) -> f64 {
     dot(values, values).sqrt()
+}
+
+/// Replace a recursively updated residual with the independently evaluated
+/// algebraic residual `rhs - A*solution` and return its norm.
+fn replace_with_true_residual(
+    mesh: &LandscapeMesh,
+    alpha2: f64,
+    diagonal: &[f64],
+    rhs: &[f64],
+    solution: &[f64],
+    product: &mut [f64],
+    residual: &mut [f64],
+) -> f64 {
+    apply_operator(mesh, alpha2, diagonal, solution, product);
+    for cell in 0..mesh.cell_count() {
+        residual[cell] = rhs[cell] - product[cell];
+    }
+    l2_norm(residual)
 }
 
 #[cfg(test)]
@@ -549,6 +602,54 @@ mod tests {
         )
         .unwrap();
         assert_eq!(first, second);
+    }
+
+    #[test]
+    fn false_recursive_threshold_crossing_replaces_residual_before_restart() {
+        let mesh = LandscapeMesh::uniform_planar_hex(32.0, 24.0, 4.0).unwrap();
+        let alpha2 = 16.0_f64.powi(2);
+        let mut diagonal = mesh.cell_area_km2.clone();
+        for (cell, cell_diagonal) in diagonal.iter_mut().enumerate() {
+            for edge in mesh.edge_offsets[cell] as usize..mesh.edge_offsets[cell + 1] as usize {
+                *cell_diagonal += alpha2 * f64::from(mesh.edge_face_width_km[edge])
+                    / f64::from(mesh.edge_distance_km[edge]);
+            }
+        }
+        let input: Vec<_> = mesh
+            .cell_center_km
+            .iter()
+            .map(|center| 2.0 + (0.3 * center.x).sin() + (0.2 * center.y).cos())
+            .collect();
+        let rhs: Vec<_> = input
+            .iter()
+            .zip(&mesh.cell_area_km2)
+            .map(|(value, area)| value * area)
+            .collect();
+        let solution = vec![0.0; mesh.cell_count()];
+        // Model a recursive residual that has drifted to an apparent exact
+        // zero even though the current solution is not a solution at all.
+        let mut recursive_residual = vec![0.0; mesh.cell_count()];
+        let mut product = vec![f64::NAN; mesh.cell_count()];
+        assert_eq!(l2_norm(&recursive_residual), 0.0);
+        let true_norm = replace_with_true_residual(
+            &mesh,
+            alpha2,
+            &diagonal,
+            &rhs,
+            &solution,
+            &mut product,
+            &mut recursive_residual,
+        );
+        assert!(true_norm > 1.0);
+        assert_eq!(recursive_residual, rhs);
+
+        // A restart from this replaced residual is well-defined and positive.
+        let preconditioned: Vec<_> = recursive_residual
+            .iter()
+            .zip(&diagonal)
+            .map(|(residual, diagonal)| residual / diagonal)
+            .collect();
+        assert!(dot(&recursive_residual, &preconditioned) > 0.0);
     }
 
     #[test]

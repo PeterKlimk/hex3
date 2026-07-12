@@ -346,10 +346,16 @@ implemented without a local fallback, with effective denudation zero pending a
 dimensioned regime; U/L remains blocked until manufactured spatial and temporal
 convergence pass. Manufactured tests pass, but the first unseen 0.1 Myr U/L
 screen fails at 2 km through concentrated denudation and timestep collapse.
-Post-run diagnosis finds a portal physical-grade defect and absent fluvial
-slope CFL, so correction and an unchanged rerun precede any fixed-physical C0
-coarse-graining versus C1 comparison. `K` tuning remains prohibited. The
-rejected nominal rectangular
-boundary is an important scope decision: exact cut-cell hex geometry is not
-currently justified for a testbed intended to transfer to a closed sphere.
-Current evidence: [Slice 1R audit](audits/orogen-testbed-slice1r-2026-07-13.md).
+Post-run diagnosis found a portal physical-grade defect and absent fluvial
+slope CFL; correction and the unchanged rerun remove the false 2 km runaway.
+The subsequent fixed-16-km supported-intensity comparison stabilizes local q
+but is not promoted: it materially changes export, largely replaces explicit
+step cost with global filter cost, and has no drainage-divide ownership. The
+next bounded task is therefore the manufactured minimum C1
+`{z_bar,z_c,f_c}` volume-mixing fixture, not long U/L, filter/K tuning, sediment
+or product integration. Current evidence:
+[C0 support discriminator](audits/c0-support-discriminator-2026-07-13.md).
+The rejected nominal rectangular boundary remains an important scope decision:
+exact cut-cell hex geometry is not currently justified for a testbed intended
+to transfer to a closed sphere. Earlier analytic evidence remains in the
+[Slice 1R audit](audits/orogen-testbed-slice1r-2026-07-13.md).

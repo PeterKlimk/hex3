@@ -367,6 +367,24 @@ but not yet for local intensity, downstream consumers or compute. Do not run
 C1 state required by channels/sediment/valleys/ecology; keep unfiltered C0 as
 the baseline and keep `K` fixed.
 
+That registered comparison is complete. C0-Q16 leaves raw routing/water and
+physical grade unchanged but filters scalar discharge intensity at fixed
+`alpha=16 km` before both CFL and denudation. Supported q maxima at 8/4/2 km
+are `0.589/0.623/0.654 million km²/Myr` for U and
+`0.969/1.029/1.058 million km²/Myr` for L, so fixed support successfully removes
+the one-cell peak divergence. Relief remains stable, export drift stays below
+`0.9%` per refinement, and all ledgers/water close.
+
+Q16 is not promoted. At fixed `K` it raises export about `20–24%` by changing
+q–grade covariance; its global PCG work leaves 2 km runtime near C0-V despite
+far fewer steps; and an isotropic connected-domain filter necessarily transfers
+supported intensity across drainage divides it does not represent. It is a
+useful diagnostic proof that physical support matters, not honest channel,
+valley, sediment or ecology state. Retain C0-V as the regional control and Q16
+as evidence. The next bounded representation task is only the manufactured C1
+core `{z_bar, z_c, f_c}` with exact volume mixing and fixed `sum(wL)`—not a
+coupled run, sediment, ecology, tuning or product integration.
+
 ## Settled project-level conclusions
 
 - Hex3 is an authentic systemic world generator using reduced causal models,
