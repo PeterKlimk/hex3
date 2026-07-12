@@ -1,0 +1,105 @@
+# Metric registry
+
+Status: schema established; implemented-metric inventory in progress.
+
+The first code/document synthesis is recorded in
+[the numerical instrumentation inventory](inventory/numerical-instrumentation.md).
+It identifies current definitions and risks before individual stable IDs are
+assigned.
+
+This registry defines what Hex3 measurements mean and whether they may influence
+decisions. It is not a target sheet. Initial entries will catalogue current code
+and historical gates before any consolidation or new corpus harness is built.
+
+## Entry schema
+
+| Field | Required meaning |
+|---|---|
+| ID | Stable machine-friendly identifier |
+| Name | Human-readable name |
+| Status | current, provisional, historical, superseded or invalid |
+| Class | invariant, field descriptor, feature, relationship, product indicator or gate |
+| Claim | What the metric can legitimately tell us |
+| Operational definition | Exact formula, mask/path/object construction and thresholds |
+| Owner/stage | Source state and computed/viewed stage |
+| Domain | Tectonics, terrain, climate, hydrology, erosion, semantics, presentation or performance |
+| Units | Physical unit, normalized coordinate, ratio or count |
+| Weighting | Area, volume, cell, length, object or other weighting |
+| Aggregation | Per-cell, object, seed, ensemble and reported summaries |
+| Resolution relation | Expected invariant, convergent, scale-dependent or unknown behavior |
+| Control response | Perturbation that should move or preserve it |
+| Confounders | Known ways it can mislead |
+| Reference | Empirical/design comparison and its applicability |
+| Decision role | Descriptive, warning, experiment evidence or promotion gate |
+| Threshold rationale | None, heuristic, empirical range, numerical tolerance or policy |
+| Goodhart risk | What direct optimization could damage or hide |
+| Implementation | Current code/report location |
+| Evidence | Audits/tests that establish or challenge it |
+
+## Registration rules
+
+- IDs describe meaning, not the current function name.
+- Changed definitions receive a new versioned ID unless demonstrably equivalent.
+- Cell-count and area-weighted variants are distinct metrics.
+- Native elevation-per-radian slope and physical grade are distinct metrics.
+- A feature metric must link to its object/mask definition.
+- An absent threshold rationale is recorded as unknown, not reconstructed from
+  a plausible story.
+- Superseded and invalid metrics remain discoverable with their failure reason.
+- Presentation metrics include profile and camera conditions in their identity.
+
+## Initial inventory groups
+
+The first population pass will cover:
+
+1. topology, conservation, determinism and unit invariants;
+2. terrain distributions, peaks, slope, relief, mountains and plateau masks;
+3. tectonic work, range attribution and carrier-resolution behavior;
+4. climate fields, aridity and spatial structure;
+5. drainage, lakes, river topology, grading and erosion response;
+6. coarse-to-fine and pre/post stage survival;
+7. ecological proxy classifications and uncertainty;
+8. generation/runtime/cache cost;
+9. existing pass/warn/fail gates and retired diagnostic artifacts.
+
+## Seed entries: high-risk and decision-relevant metrics
+
+These entries establish identity and status; the next pass should move them to a
+machine-readable registry and complete control/reference fields.
+
+| ID | Status/class | Operational definition | Units / weighting | Decision role and principal confounder |
+|---|---|---|---|---|
+| `terrain.elevation.max_km.v1` | current field descriptor | maximum retained elevation converted with 10 km/unit | km; single cell extreme | anomaly description only; highly resolution/outlier sensitive |
+| `terrain.peak_guard_km.v1` | historical gate | warn above 12 km, fail above 14 km | km; worst cell per world | user-calibrated guard, not empirical Earth target; direct tuning can flatten legitimate extremes |
+| `terrain.mountain_mask_1p5km.v1` | provisional feature mask | retained land elevation at least 1.5 km | area or cell fraction must be named | common range substrate; conflates elevated interiors and orogens |
+| `terrain.significant_range_20kkm2.v1` | provisional feature component | connected 1.5-km mask component at least 20,000 km² | objects; km²/km | descriptive range sampling; threshold rationale remains heuristic |
+| `terrain.summit_cap_500m.v1` | historical feature measurement | area in each significant range within 0.5 km of its own summit | km²; area-weighted object quantiles | broad-summit proxy; moves when one cell changes summit elevation |
+| `terrain.flat_summit_cap_grade1pct.v1` | historical feature measurement | summit-cap cells whose steepest downhill neighboring edge has physical grade below 1% | percent of cap area | plateau proxy; cell-neighbor scale and cap definition affect result |
+| `terrain.high_decile_downslope.v1` | current provisional descriptor | cells in top land-elevation decile and mountain mask, summarized by maximum downhill neighbor slope | native/physical slope variant must be named; sampled cells | roughness/plateau monitor, not a plateau object; adaptive sampling bias |
+| `terrain.local_relief_radius_km.v1` | current field descriptor | max-minus-min elevation within declared physical radius; robust p95-p05 variant is separate | m or km; cell or area quantile named | scale-specific relief; low values can mean smooth terrain or missing resolved structure |
+| `tectonics.material_relative_residual.v1` | current invariant | declared material-ledger closure residual divided by declared reference volume | dimensionless; global ledger | correctness gate once tolerance/reference are registered; says nothing about placement |
+| `tectonics.carrier_peak_span.v1` | experimental gate | max-min peak elevation across 4096/8192/16384 carrier cells on fixed terrain; fail above 2 km | km; per-seed span | claim ambiguous between continuum convergence and procedural-scale robustness |
+| `tectonics.carrier_land_span.v1` | experimental gate | max-min land coverage across carrier resolutions; fail above 2 percentage points | percentage points; area intended | sea-datum response can hide/redistribute deformation |
+| `climate.relative_aridity_index.v1` | current field descriptor | precipitation divided by `0.2+0.8*clamped_temperature`, normalized to area-weighted land mean one | ratio; field is area-normalized | within-world stress pattern only; cannot compare absolute dryness across worlds |
+| `hydrology.semantic_river_cells.v1` | current semantic feature | cells selected by declared `RiverThresholdPolicy`, product default minimum catchment 2,000 km² | cells plus approximate km/km² | renderer/audit shared population; grid-cell path and coarse floor affect geometry |
+| `hydrology.flow_fraction_of_max.v1` | provisional/default descriptor | land cells above 1% of world maximum flow | cells; count-weighted | incompatible with semantic river population and unstable to one extreme |
+| `erosion.river_profile_bow.v1` | historical/current descriptor | median normalized midpoint bow and percent concave over deduplicated long rivers, historically up to 50 and at least 200 km | ratio; object-weighted | useful aggregate grading evidence; selection and lake endpoints matter; no maintained gate |
+| `erosion.population_slope_area_theta.v1` | superseded/invalid | population regression of local channel slope against drainage area | exponent; mixed channel samples | retained negative result only; lakes, mesh edges, bins and mixed regimes invalidate gating |
+| `ecology.biome_transition_area.v1` | provisional semantic descriptor | land area with biome classification confidence below 0.20 | percent land area; area-weighted | exposes classifier ambiguity; threshold/calibration not promoted |
+| `performance.stage_wall_time.v1` | missing product indicator | wall time per declared pipeline stage | seconds; run/platform/build mode | needed for cost/benefit; currently printed but not serialized |
+
+### Immediate semantic splits required
+
+- Create distinct IDs for cell-weighted and area-weighted elevation/climate
+  quantiles rather than silently changing historical values.
+- Register native elevation/radian, elevation/km and physical-grade slope as
+  separate quantities.
+- Give each local-relief radius and robust/non-robust estimator a parameterized
+  identity.
+- Replace generic “river” output labels with the selection policy/metric ID.
+- Treat historical plateau proxies as competing hypotheses until a shared range/
+  plateau semantic object is justified.
+
+The populated registry may be split into machine-readable data and generated
+tables once the inventory establishes the required fields. Until then, this
+document is the authoritative schema and policy boundary.

@@ -38,6 +38,7 @@ documentation must then change with it.
 | System assessment | Physical basis, approximations, cost, payoff, validation and gaps | Updated when a model or its evidence changes materially |
 | Gap analysis | Comparative options, missing couplings and research questions | Updated when evidence changes the option set |
 | Roadmap | Ordered horizons, gates and active priorities | Kept actively curated; not a preservation mandate |
+| Evaluation charter/metric registry | Active corpus, measurement meanings and decision boundaries | Stable during an evaluation pass; revised explicitly between passes |
 | Experiment registry | Status of selectable or proposed alternatives | Updated at every state transition |
 | Decision record | Why a consequential choice was made | Immutable apart from corrections/addenda |
 | Audit/evidence | Results at a named revision and configuration | Immutable, reproducible where possible |

@@ -245,7 +245,12 @@ benefit recommendation, not only a survey.
 
 ## Near-term sequence
 
-Unless new evidence changes priorities:
+Feature expansion is temporarily paused for the evaluation pass defined in the
+[world evaluation charter](evaluation-charter.md). Its metric registry, corpus,
+research synthesis and model-strategy decision supersede the earlier provisional
+ordering below. Preserve that ordering as prior intent until evidence revises it.
+
+Earlier provisional sequence:
 
 1. finish the documentation/archive and contributor-entry work;
 2. implement provenance and the elevation/unit contract;

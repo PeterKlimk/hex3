@@ -27,6 +27,14 @@ experimental, superseded, or awaiting classification.
   hierarchy, and seasonless ecological/biome potentials.
 - [Validation policy](validation.md) — evidence dimensions, controlled A/Bs,
   reproducibility, performance and promotion gates.
+- [World evaluation charter](evaluation-charter.md) — current zoomed-out
+  evaluation questions, canonical corpus, research contract and stop conditions.
+- [Metric registry](metric-registry.md) — measurement schema, decision roles and
+  initial numerical-inventory scope.
+- [Numerical instrumentation inventory](inventory/numerical-instrumentation.md)
+  — implemented diagnostics, definition collisions, weighting and historical gates.
+- [Evaluation tooling inventory](inventory/evaluation-tooling.md) — provenance,
+  exports, comparison/render tooling and corpus-harness gaps.
 - [Gap and Pareto analysis](gaps.md) — missing systems, couplings, rework
   candidates and targeted research questions.
 - [Roadmap](roadmap.md) — ordered horizons, decision gates and near-term

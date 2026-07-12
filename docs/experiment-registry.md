@@ -37,7 +37,7 @@ stated otherwise. Only `legacy` is the default.
 | `history-thin-sheet` | Physical-rate thin-sheet integrated over boundary episodes | Implemented, evaluated, not promoted | Active research rung only |
 | `history-carrier-thin-sheet` | Thin sheet driven by moving low-resolution carrier history | Implemented, evaluated, not promoted | Active research rung only |
 | `history-carrier-evolved` | Deformation accumulated on moving material parcels and projected to present | Implemented; conservation passes but resolution and morphology promotion gates fail | Falsified as product candidate in current form; keep for operator research |
-| `history-carrier-lifecycle` | Forward carrier automaton with discrete ownership, continuous boundary work, underthrust/arc reservoirs and conservative ledgers | Implemented; the post-`9849e4a` worktree improves height behavior and remap causality, while cross-resolution land/peak gates and broad-plateau outliers remain open | Causal engine retained; uncommitted experimental frontier, not promoted |
+| `history-carrier-lifecycle` | Forward carrier automaton with discrete ownership, continuous boundary work, underthrust/arc reservoirs and conservative ledgers | Implemented and checkpointed in `70ba33e`; improves height behavior and remap causality, while cross-resolution land/peak gates and broad-plateau outliers remain open | Causal engine retained; experimental, not promoted |
 
 The experiments above contain reusable mechanisms even where their combined
 terrain hypothesis failed. Conservation success does not override spatial
@@ -58,10 +58,10 @@ acceptance.
 | Binary nearest-cell lifecycle event pullback | Falsified | Resolution-dependent event measure |
 | Fractional face work | Implemented | Better event accounting; lifecycle still not promotable |
 
-### Post-`9849e4a` uncommitted lifecycle frontier
+### Post-`9849e4a` lifecycle checkpoint
 
-The current worktree contains a later hybrid architecture than the committed
-checkpoint `9849e4a` (`Require convergent lifecycle reactions`). It separates:
+Commit `70ba33e` contains a later hybrid architecture than checkpoint `9849e4a`
+(`Require convergent lifecycle reactions`). It separates:
 
 - discrete pullback for surface ownership and plate topology;
 - continuous face-swept collision, subduction and spreading work;
@@ -137,7 +137,7 @@ specs remain experiment history until archived.
 | Climate-ratio lake equilibrium control | Implemented and product-interactive | Modeled hydrology control, not presentation-only |
 | Pluvial overflow selection criterion | Evaluated and rejected | Falsified as default because it over-integrated basins |
 | Mega inland-sea correction | Problem observed; no accepted model | Proposed/open, not implemented product behavior |
-| Wetland classification | TODO only | Proposed/absent |
+| Hydrologic wetland objects | Not implemented | Proposed/absent; ecological semantics now expose only a provisional wetland suitability potential |
 
 ## Presentation experiments
 
