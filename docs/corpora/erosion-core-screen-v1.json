@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "corpus_id": "erosion-core-screen-v1",
+  "description": "Two-seed 250k-cap screening ablation for erosion step count and stream-power slope exponent; not a promotion corpus.",
+  "runs": [
+    { "label": "12345-baseline-200-n2", "seed": 12345, "coarse_cells": 100000, "stage": 4, "fine_max_cells": 250000, "backend": "convex-hull", "orogen_model": "legacy", "fine_cache": "disabled" },
+    { "label": "12345-steps-50-n2", "seed": 12345, "coarse_cells": 100000, "stage": 4, "fine_max_cells": 250000, "backend": "convex-hull", "orogen_model": "legacy", "fine_cache": "disabled", "erosion": { "steps": 50 } },
+    { "label": "12345-steps-100-n2", "seed": 12345, "coarse_cells": 100000, "stage": 4, "fine_max_cells": 250000, "backend": "convex-hull", "orogen_model": "legacy", "fine_cache": "disabled", "erosion": { "steps": 100 } },
+    { "label": "12345-steps-200-n1", "seed": 12345, "coarse_cells": 100000, "stage": 4, "fine_max_cells": 250000, "backend": "convex-hull", "orogen_model": "legacy", "fine_cache": "disabled", "erosion": { "steps": 200, "n": 1.0 } },
+    { "label": "8675309-baseline-200-n2", "seed": 8675309, "coarse_cells": 100000, "stage": 4, "fine_max_cells": 250000, "backend": "convex-hull", "orogen_model": "legacy", "fine_cache": "disabled" },
+    { "label": "8675309-steps-50-n2", "seed": 8675309, "coarse_cells": 100000, "stage": 4, "fine_max_cells": 250000, "backend": "convex-hull", "orogen_model": "legacy", "fine_cache": "disabled", "erosion": { "steps": 50 } },
+    { "label": "8675309-steps-100-n2", "seed": 8675309, "coarse_cells": 100000, "stage": 4, "fine_max_cells": 250000, "backend": "convex-hull", "orogen_model": "legacy", "fine_cache": "disabled", "erosion": { "steps": 100 } },
+    { "label": "8675309-steps-200-n1", "seed": 8675309, "coarse_cells": 100000, "stage": 4, "fine_max_cells": 250000, "backend": "convex-hull", "orogen_model": "legacy", "fine_cache": "disabled", "erosion": { "steps": 200, "n": 1.0 } }
+  ]
+}

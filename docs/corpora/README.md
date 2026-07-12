@@ -62,3 +62,7 @@ judge population quality.
 `reference-v1.json` is the standing ten-seed product-baseline corpus. Its 1M
 fine cap is justified by the
 [reference-budget audit](../audits/reference-budget-2026-07-12.md).
+
+`erosion-core-screen-v1.json` is a deliberately under-resolved, two-seed 250k
+screen for cost/value differences among 50/100/200 steps and `n=1`/`n=2`.
+Only decisive results should be promoted to a 1M confirmation corpus.

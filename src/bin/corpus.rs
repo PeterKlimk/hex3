@@ -67,6 +67,23 @@ struct RunSpec {
     orogen_model: OrogenModel,
     #[serde(default)]
     fine_cache: FineCacheMode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    erosion: Option<ErosionRunSpec>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ErosionRunSpec {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    steps: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    n: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    diffusivity: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    diffusion_iters: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    deposit_fill_fraction: Option<f32>,
 }
 
 fn default_lloyd_iterations() -> usize {
@@ -307,6 +324,18 @@ fn validate_spec(spec: &CorpusSpec) {
                 "stage 3/4 requires explicit fine_max_cells"
             );
         }
+        if let Some(erosion) = &run.erosion {
+            assert_eq!(run.stage, 4, "erosion overrides require stage 4");
+            if let Some(steps) = erosion.steps {
+                assert!(steps > 0, "erosion steps must be positive");
+            }
+            if let Some(n) = erosion.n {
+                assert!(n.is_finite() && n > 0.0, "erosion n must be positive");
+            }
+            if let Some(diffusivity) = erosion.diffusivity {
+                assert!(diffusivity.is_finite() && diffusivity >= 0.0);
+            }
+        }
     }
 }
 
@@ -412,6 +441,23 @@ fn generate_run(run: &RunSpec) -> (World, Vec<MetricRecord>, Vec<TimingRecord>) 
     );
     world.orogen_model = run.orogen_model;
     world.fine_cache = run.fine_cache;
+    if let Some(erosion) = &run.erosion {
+        if let Some(value) = erosion.steps {
+            world.erosion_params.steps = value;
+        }
+        if let Some(value) = erosion.n {
+            world.erosion_params.n = value;
+        }
+        if let Some(value) = erosion.diffusivity {
+            world.erosion_params.diffusivity = value;
+        }
+        if let Some(value) = erosion.diffusion_iters {
+            world.erosion_params.diffusion_iters = value;
+        }
+        if let Some(value) = erosion.deposit_fill_fraction {
+            world.erosion_params.deposit_fill_fraction = value;
+        }
+    }
     if (run.fine_scale - 1.0).abs() > f32::EPSILON {
         world.fine_density_params.plains_km *= run.fine_scale;
         world.fine_density_params.mountain_km *= run.fine_scale;
@@ -816,6 +862,7 @@ mod tests {
             backend: VoronoiBackend::ConvexHull,
             orogen_model: OrogenModel::Legacy,
             fine_cache: FineCacheMode::Disabled,
+            erosion: None,
         }
     }
 
@@ -829,6 +876,12 @@ mod tests {
         let mut relabeled = run();
         relabeled.label = "renamed".into();
         assert_eq!(stable_run_id(&original), stable_run_id(&relabeled));
+        let mut erosion_changed = run();
+        erosion_changed.erosion = Some(ErosionRunSpec {
+            steps: Some(100),
+            ..ErosionRunSpec::default()
+        });
+        assert_ne!(stable_run_id(&original), stable_run_id(&erosion_changed));
     }
 
     #[test]
