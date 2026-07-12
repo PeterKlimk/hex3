@@ -248,14 +248,22 @@ fn apply_knob(ov: &mut ErosionOverrides, name: &str, v: f64) -> Result<(), Strin
     Ok(())
 }
 
+fn selected_orogen_model(default: OrogenModel, overrides: &ErosionOverrides) -> OrogenModel {
+    overrides.orogen_model.unwrap_or(default)
+}
+
 /// Generate a fully-staged world for one tile's knob values.
 fn generate_tile_world(opts: &SweepOptions, overrides: &ErosionOverrides) -> World {
+    // Stage 1 owns the orogen model, so resolve a swept categorical override
+    // before constructing the world. Applying it only afterward leaves feature
+    // and elevation fields from the baseline model under a mismatched manifest.
+    let orogen_model = selected_orogen_model(opts.orogen_model, overrides);
     let mut world = create_world_with_orogen_model(
         opts.seed,
         opts.cells,
         opts.voronoi_backend,
         opts.fine_cache,
-        opts.orogen_model,
+        orogen_model,
     );
     overrides.apply(&mut world);
 
@@ -739,6 +747,36 @@ fn build_stack_tiles(
         (o, label.to_string(), fname.to_string())
     };
     match name {
+        // O3A architecture probe: identical product erosion over three
+        // pre-hydrology substrates. The isotropic amplitude was measured on
+        // seed 12345/100k/250k to match the MassifCorridor arm's 44 m
+        // area-weighted structural RMS over the fixed tectonic footprint.
+        "o3a" => {
+            let arm = |interior: f32, meso_base: f32, label: &str, fname: &str| {
+                let mut o = *base;
+                o.fault_scarp_height = Some(0.0);
+                o.interior_relief = Some(interior);
+                o.front_strike_weight = Some(0.0);
+                o.margin_contrast = Some(0.0);
+                o.emergent_lambda = Some(0.0);
+                o.emergent_structured = Some(0.0);
+                o.meso_relief = Some(0.0);
+                o.meso_base_relief = Some(meso_base);
+                o.meso_style = Some(1);
+                o.meso_wavelength_km = Some(25.0);
+                (o, label.to_string(), fname.to_string())
+            };
+            vec![
+                arm(0.0, 0.0, "legacy substrate (0 m RMS)", "0_legacy"),
+                arm(0.0611, 0.0, "isotropic P1a (44 m RMS)", "1_isotropic_44m"),
+                arm(
+                    0.0,
+                    0.05,
+                    "MassifCorridor base (44 m RMS)",
+                    "2_massif_corridor_44m",
+                ),
+            ]
+        }
         // erosion-v2 Phase 1: flat interpolant → +interior grain → +strike → +margin.
         "p1" => vec![
             tile(0.0, 0.0, 0.0, "baseline (P1 off)", "0_baseline"),
@@ -784,7 +822,7 @@ fn build_stack_tiles(
                 meso(0.9, "m0.9 s50 (362 m, 12.4 km, borderline)", "2_max_m09"),
             ]
         }
-        other => panic!("unknown --sweep-stack '{other}'; known: p1, v3, o0, meso"),
+        other => panic!("unknown --sweep-stack '{other}'; known: o3a, p1, v3, o0, meso"),
     }
 }
 
@@ -944,7 +982,7 @@ fn run_range_ancestry(opts: &SweepOptions) {
         "range-ancestry requires exactly three explicit --sweep-target dossier range cameras"
     );
     assert_eq!(
-        opts.orogen_model,
+        selected_orogen_model(opts.orogen_model, &opts.base_erosion),
         OrogenModel::Legacy,
         "range-ancestry reconstructs the default legacy uplift source only"
     );
@@ -1402,7 +1440,9 @@ pub fn run_sweep(opts: SweepOptions) {
 
 #[cfg(test)]
 mod tests {
-    use super::{robust_scale, SweepTarget};
+    use super::{apply_knob, build_stack_tiles, robust_scale, selected_orogen_model, SweepTarget};
+    use crate::app::world::ErosionOverrides;
+    use hex3::world::OrogenModel;
 
     #[test]
     fn parses_dossier_target_in_project_coordinates() {
@@ -1436,5 +1476,36 @@ mod tests {
         let (lo, hi) = robust_scale(&[4.0; 8]);
         assert_eq!(lo, 4.0);
         assert!(hi > lo);
+    }
+
+    #[test]
+    fn swept_orogen_model_is_selected_before_stage_one() {
+        let mut overrides = ErosionOverrides::default();
+        apply_knob(&mut overrides, "orogen_model", 1.0).unwrap();
+        assert_eq!(
+            selected_orogen_model(OrogenModel::Legacy, &overrides),
+            OrogenModel::LegacyYield
+        );
+    }
+
+    #[test]
+    fn o3a_stack_is_isolated_and_energy_matched_by_declared_controls() {
+        let arms = build_stack_tiles("o3a", &ErosionOverrides::default());
+        assert_eq!(arms.len(), 3);
+        assert_eq!(arms[0].0.interior_relief, Some(0.0));
+        assert_eq!(arms[0].0.meso_base_relief, Some(0.0));
+        assert_eq!(arms[1].0.interior_relief, Some(0.0611));
+        assert_eq!(arms[1].0.meso_base_relief, Some(0.0));
+        assert_eq!(arms[2].0.interior_relief, Some(0.0));
+        assert_eq!(arms[2].0.meso_base_relief, Some(0.05));
+        for (arm, _, _) in arms {
+            assert_eq!(arm.front_strike_weight, Some(0.0));
+            assert_eq!(arm.margin_contrast, Some(0.0));
+            assert_eq!(arm.emergent_lambda, Some(0.0));
+            assert_eq!(arm.emergent_structured, Some(0.0));
+            assert_eq!(arm.meso_relief, Some(0.0));
+            assert_eq!(arm.meso_style, Some(1));
+            assert_eq!(arm.meso_wavelength_km, Some(25.0));
+        }
     }
 }

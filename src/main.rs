@@ -374,7 +374,7 @@ struct Cli {
     #[arg(long)]
     sweep: Option<String>,
 
-    /// Cumulative-stack preset (p1, v3, o0, meso), or the special
+    /// Cumulative-stack preset (o3a, p1, v3, o0, meso), or the special
     /// `range-ancestry` diagnostic packet (requires exactly three explicit
     /// --sweep-target values and stage 4). Ignores --sweep/--sweep-values.
     #[arg(long)]

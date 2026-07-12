@@ -309,5 +309,47 @@ The first range-ancestry packet and binary repeated-uplift control now locate
 the flat-plateau defect upstream of erosion: the coarse distance-band envelope
 is already table-like, fine structural synthesis is a no-op at product defaults,
 and repeated uplift amplifies rather than originates the grammar. The next
-bounded comparison should test segment-varying source geometry and a causal
-crest/divide skeleton at fixed height/volume budget.
+decision is no longer another fixed-height mountain comparison. The
+[mountain-system design basis](research/mountain-system-design-basis-2026-07-13.md)
+finds that the current path collapses tectonic forcing into terrain height before
+drainage can coevolve with it. The next bounded implementation is therefore the
+[orogen organization testbed](research/orogen-testbed-spec-2026-07-13.md): a
+dimensioned, time-resolved uplift–drainage–hillslope system compared against
+locked hold-and-carve, synthetic-topology and explicit-skeleton controls. It
+must pass linked-segment, forcing-reorganization and wet/dry causal cases before
+any global-seed tuning or product-pipeline replacement.
+
+Slice 1 of that testbed is now implemented. Its deterministic forcing, routing,
+water/solid ledgers, timestep smoke and full-run stability pass, but its erosion
+budget and post-relaxation relief do not converge with mesh spacing. The
+[channel/surface scaling decision](research/channel-surface-scaling-2026-07-13.md)
+now selects an explicitly cell-mean finite-volume continuum, effective areal
+fluvial denudation driven by validated specific discharge, and fixed physical
+outlet portals. The next build is its analytic boundary/routing/denudation gate,
+not a channel-width patch, Slice 2 semantics, global tuning or product
+integration. Current numerical evidence:
+[Slice 1 audit](audits/orogen-testbed-slice1-2026-07-13.md).
+
+The first Slice 1R analytic rung now passes the isolated pathway law, genuine
+full-hex boundary geometry, interior MFD plane/ridge convergence and
+manufactured areal denudation. Portal balance, a separately derived
+depression/flat potential and the exact linear Dirichlet fixture also pass their
+first analytic controls. Physical mean-surface gradient reconstruction now also
+passes affine and smooth-radial cases, and the genuine-boundary hillslope
+operator now closes internal/portal volume without pinned cells. Radial and
+one-sided convergent fields converge, and flow-aligned physical grade passes,
+but `|q_vector|` retains only 16.1% of two-sided convergence-line strength.
+That exact sink has no unique local continuum vector; RMS/L1/cell-width
+fallbacks are not invariant substitutes. The resolved downstream-reach and
+integrated-cut follow-up passes. A separate transactional C0 arm is now
+implemented without a local fallback, with effective denudation zero pending a
+dimensioned regime; U/L remains blocked until manufactured spatial and temporal
+convergence pass. Manufactured tests pass, but the first unseen 0.1 Myr U/L
+screen fails at 2 km through concentrated denudation and timestep collapse.
+Post-run diagnosis finds a portal physical-grade defect and absent fluvial
+slope CFL, so correction and an unchanged rerun precede any fixed-physical C0
+coarse-graining versus C1 comparison. `K` tuning remains prohibited. The
+rejected nominal rectangular
+boundary is an important scope decision: exact cut-cell hex geometry is not
+currently justified for a testbed intended to transfer to a closed sphere.
+Current evidence: [Slice 1R audit](audits/orogen-testbed-slice1r-2026-07-13.md).

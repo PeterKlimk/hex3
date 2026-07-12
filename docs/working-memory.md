@@ -1,6 +1,6 @@
 # Hex3 working memory
 
-Status: **active, non-authoritative scratchpad**. Last consolidated 2026-07-12.
+Status: **active, non-authoritative scratchpad**. Last consolidated 2026-07-13.
 
 This document preserves medium-term context across evaluation passes so the
 active investigation does not erase other important findings. It is a queue of
@@ -55,10 +55,317 @@ The ownership order is therefore:
 3. **Secondary amplifier:** repeated broad legacy uplift during erosion;
 4. **Not primary:** hydrologic integration or relief presentation.
 
-The next architecture comparison should preserve height/volume budgets while
-testing organized range form: first a segment-varying boundary source against
-the current smooth distance band, then a minimal causal crest/divide skeleton
-inside the same broad envelope. Do not tune uplift gain or add undirected noise.
+The defect is not the existence of broad plateaus; those are valid outcomes for
+some tectonic, erosional and climatic histories. It is the smooth, capped,
+approximately equal-width response acting as the generic collision grammar.
+
+The next architecture comparisons preserve total positive tectonic work and
+land hypsometry while isolating: (O1) peaked/asymmetric cross-section geometry
+from (O2) along-strike segmentation. Only then test (O3) a zero-net causal
+crest/divide redistribution against equally powered isotropic structure. The
+erosion-only O4 control remains useful but secondary. See the
+[orogen-organization research note](research/orogen-organization-2026-07-12.md).
+Do not tune uplift gain or add undirected noise.
+
+### O1 first result
+
+The tested O1 rung, `legacy-peaked`, replaced continental arc/collision Gaussians
+with compact peaked profiles while preserving positive work independently per
+plate and feature type. Oceanic arcs, erosion and presentation were unchanged.
+
+At seed 12345/100k coarse/250k fine it is a negative discrimination:
+
+- final peak remains plausible (9.03 → 8.88 km) and mountain land is nearly
+  unchanged (6.6 → 6.5%);
+- eroded 25/50/100-km p95–p05 relief increases modestly;
+- median/p90 0.5-km summit-cap area grows from 8,558/19,724 to
+  10,970/30,316 km², and low-grade cap coverage does not improve;
+- mountain and trunk flow orientation barely move;
+- matched relief and ancestry views remain visually very similar.
+
+Changing the normal cross-section alone therefore does not break the range
+grammar in this rung. Human review agreed with rejection. The implementation
+was removed rather than retained as another parked model; its numeric record and
+matched artifacts remain. O2 along-strike organization is the next independent
+hypothesis.
+
+### O2 first result
+
+The first O2 rung, `legacy-segmented`, preserves the legacy Gaussian
+cross-section and modulates only continental arc/collision strength along real
+connected boundary episodes. Its driver is smoothed local convergence
+orthogonality, not noise; response work is conserved separately per episode,
+feature type and receiving plate side.
+
+An initial implementation conserved each eligible front fragment separately and
+was invalid as a discrimination: 54% of those fragments were single edges, so
+their modifiers cancelled. Moving the budget owner to the already-retained
+connected boundary episode is the accepted experiment definition, not gain
+tuning.
+
+At seed 12345/100k coarse/250k fine the corrected rung finds genuine causal
+variation but does not repair range grammar:
+
+- episode-kind orthogonality spans are substantial (p50/p90 0.57/0.92);
+- effective eligible response varies about −4%/+4% at p02/p98, reaches 10.3%
+  maximum deviation and changes 95.9% of eligible response cells;
+- peak and mountain land remain essentially fixed (9.03 → 9.01 km; 6.6%);
+- summit-cap results are mixed rather than improved: median 0.5/1.0-km caps
+  grow, while their p90 sizes shrink;
+- elongation worsens slightly and relief/drainage orientation barely change;
+- matched views show only subtle segment-strength changes and retain the broad
+  plateau/tableland grammar.
+
+This rejects **present-day orthogonality-driven strength segmentation alone**,
+not all along-strike organization. Human review agreed; the implementation was
+removed rather than retained. Do not respond by amplifying its mapping.
+
+### Zoomed-out organization decision
+
+Do not implement a literal crest-only O3 next. Git history shows that adjacent
+ideas already exist under several names:
+
+- P1/fold trains added positive ridge fabric but read as corduroy/dunes and did
+  not organize authoritative drainage;
+- O0 added a front crest and scalar segmentation, not an internal hierarchy;
+- the parked `MassifCorridor` sampler authored unequal massifs plus branching
+  negative-space corridors before hydrology and passed numerical gates, but
+  never received a clean current visual/ownership disposition;
+- A4 burned in drainage, extracted major trunks and redistributed uplift between
+  trunks/interfluves before a frozen final epoch. It is the closest functional
+  drainage-first precursor, but is coupled to the parked emergent/O0 stack and
+  likewise lacks decisive visual/promotion evidence.
+
+The next gate is therefore **who owns regional mountain organization**, not
+“which crest algorithm?” Compare, under one envelope and budget:
+
+1. simplified legacy/process-only control (substantially covered by the completed
+   no-repeated-uplift ablation);
+2. equally powered isotropic redistribution/texture control;
+3. structure-first joint massif/saddle/corridor organization, beginning by
+   re-evaluating the existing `meso_base_relief` `MassifCorridor` path alone;
+4. drainage-first frozen organization, beginning with an isolated interpretation
+   of the existing A4 mechanism rather than accepting its full coupled stack.
+
+Judge extracted crest/channel topology, passes, basin hierarchy, crossings and
+at least one climate-barrier consequence—not peak count or relief alone. A new
+explicit skeleton is justified only if the existing structure-first probe shows
+the right functional class but lacks stable graph semantics, or if neither
+existing arm can make a valid isolated comparison.
+
+### O3A first result
+
+The existing structure-first path has now been re-evaluated without the old
+emergent/O0/gain stack. Three seed-12345 arms share product erosion, integration
+and presentation: unchanged legacy, isotropic P1a base relief at `0.0611`, and
+`MassifCorridor` base relief at `0.05` with style 1/25 km. The perturbed arms are
+matched at 44 m area-weighted structural RMS over the fixed arc+collision
+process footprint; this is an energy control, not a knob-value comparison.
+
+`MassifCorridor` shows some structure-specific signal. Low-grade cap coverage
+is better than baseline and isotropic at p50/p90 (9.6/36.5% versus 10.5/53.0%
+and 12.5/45.4%), and it creates fewer fine drainage basins than isotropic
+structure (33 versus 39; baseline 29). But it does not win the functional gate:
+
+- final 25/50/100-km relief is 134/578/1,214 m versus isotropic
+  133/621/1,255 m and baseline 125/562/1,212 m;
+- mountain and major-trunk orientation are effectively the same as isotropic;
+- pass counts and river hierarchy show no consistent structured advantage;
+- matched views retain the broad tableland grammar; ancestry shows both seeded
+  fields clearly in the fine base, after which common erosion substantially
+  reduces their distinction.
+
+This is provisionally negative for the **existing** MassifCorridor construction,
+not proof that structure-first ownership is impossible. Do not tune its amplitude
+before human review. The immediate provisional conclusion was to isolate A4;
+the broader research pass below supersedes that sequence while retaining A4 as
+a control.
+
+### Research reframe after O3A
+
+The next step is no longer to implement A4 as the presumptive O3B candidate.
+The [mountain-system design basis](research/mountain-system-design-basis-2026-07-13.md)
+finds that the current experiment family collapses the physical problem too
+early: tectonic work becomes direct terrain height, while drainage and linear
+hillslope evolution operate downstream under a repeated static rebuild.
+
+The stronger prior is:
+
+```text
+plate history + inherited weak/material structure
+  -> persistent linked deformation episodes
+  -> rock-uplift/advection forcing
+  <-> evolving drainage, divide migration and capture
+  <-> nonlinear hillslope failure and finite sediment transport
+  -> surface elevation
+```
+
+This does not require continuum geodynamics, explicit fault meshes or full
+stratigraphy. A reduced version can retain linked/tapered segments, shared
+geological provinces, a time-varying uplift field, threshold hillslopes and at
+most one mobile sediment/cover quantity.
+
+Before another planet sweep, compare organization **representations** in a
+bounded idealized testbed: legacy hold-and-carve, synthetic drainage-first,
+coupled uplift/drainage/hillslopes, that coupled model with shared provinces, and
+an explicit ridge/valley skeleton upper bound. A4 is the synthetic-topology
+control, not the assumed solution. Tune only after a representation passes
+causal forcing/reorganization cases.
+
+### Orogen testbed contract
+
+The bounded testbed is now specified in
+[research/orogen-testbed-spec-2026-07-13.md](research/orogen-testbed-spec-2026-07-13.md).
+It uses a uniform planar physical surface graph for cheap convergence, with the
+same routing/incision/hillslope interface later adapted to the spherical mesh.
+This is deliberately not a `World`/`FineWorld` path and not a wrapper around the
+current prescribed-height erosion function.
+
+The first implementation slice is restricted to:
+
+- dimensioned `LandscapeMesh`, state, forcing, routing and ledger contracts;
+- uniform and linked-segment U/L cases;
+- vertical rock-uplift rates rather than direct mountain height;
+- evolving drainage, implicit incision and nonlinear conservative hillslopes;
+- no sediment, advection, isostasy, integration cuts, climate feedback,
+  glaciers or renderer controls;
+- determinism, conservation, timestep and 8/4-km convergence evidence.
+
+The cheap full-sphere prescribed-envelope harness was considered and rejected
+as the primary test: it would be easy to reuse but would ask the already-failed
+shape-ablation question. It may return later only as the locked H control.
+
+### Slice 1 implementation result
+
+The dimensioned coupled U/L harness is implemented in `world::landscape` and
+the CPU-only `orogen_testbed` binary. It passes forcing normalization,
+determinism, routing/water invariants, solid-volume closure, timestep halving
+and full 10-Myr stability. U and L produce distinct surfaces at the same
+integrated rock-volume forcing.
+
+It does **not** pass resolution promotion. At 1 Myr, relief converges closely
+from 8→4→2 km but incision export falls from roughly 1,570→1,150→820 km³. By
+10 Myr the accumulated mismatch leaves final relief about 50% higher at 4 km
+than 8 km. Algebraic ledgers close near `1e-13`; the modeled quantity itself is
+resolution-dependent.
+
+The diagnosis is representational but more specific than a missing width: one
+elevation field is being used both as a one-dimensional channel/path sample and
+as finite-volume mean solid surface. Its path incision is applied over the
+whole cell, while refinement also changes incision-eligible SFD headwaters,
+outlet multiplicity and the pinned base-level strip. Do not compensate by
+scaling `K`.
+
+The principled next representation is now selected in
+[research/channel-surface-scaling-2026-07-13.md](research/channel-surface-scaling-2026-07-13.md):
+
+- C0 owns a cell-mean bedrock surface and an honest cell-volume ledger;
+- finite-volume face routing must yield a convergent specific-discharge field,
+  with MFD as the research default;
+- fluvial lowering is explicitly effective areal denudation, not a resolved
+  channel bed or valley;
+- fixed physical outlet portals and boundary-face/ghost conditions replace one
+  outlet and one base-level reservoir per boundary cell;
+- the existing path law remains a non-volumetric analytic control;
+- dual mean/bed/width/reach state is deferred until C0 fails for a reason that
+  requires bed–interfluve disequilibrium; sediment cannot repair support
+  ambiguity.
+
+Before U/L is rerun, pass the ordered analytic ladder: fixed 1D path profile,
+boundary/portal flux, plane/radial/rotated specific discharge, depression/flat
+routing without surface mutation, and manufactured C0 denudation at 8/4/2 km.
+Slice 2 stays blocked. Evidence:
+[audits/orogen-testbed-slice1-2026-07-13.md](audits/orogen-testbed-slice1-2026-07-13.md).
+
+### Slice 1R analytic progress
+
+The first representation-repair rung is implemented without changing U/L:
+
+- the old implicit law passes a fixed-network analytic equilibrium only as a
+  non-volumetric pathway model;
+- nominal rectangular boundary faces were implemented, found geometrically
+  inconsistent with full-hex cell areas, and replaced before use;
+- the retained domain is the conservative union of complete hex cells around a
+  target rectangle, with genuine missing-neighbor faces and stable projected
+  portal spans;
+- an isolated unfilled MFD operator closes water and converges on fixed-mask
+  plane/ridge specific discharge at several lattice angles;
+- a separate C0 operator closes `sum(E × A × dt)` and its smooth manufactured
+  area integral converges strongly at 8/4/2 km.
+
+This is numerical infrastructure, not a terrain result. Depression/flat routing
+now has a separate portal-seeded fill and BFS potential: exact-flat 8/4/2 and
+nested-sill cases route deterministically without modifying physical elevation.
+The exact linear Dirichlet fixture also passes. A physical mean-surface gradient
+now reproduces affine planes near roundoff and converges on a smooth radial
+surface without consuming routing elevation. C0 still needs a defensible scalar
+water-intensity reduction and a new coupled timestep/ledger; routing and
+denudation are not yet a solver. Do not rerun U/L until those contracts pass.
+Evidence:
+[audits/orogen-testbed-slice1r-2026-07-13.md](audits/orogen-testbed-slice1r-2026-07-13.md).
+
+The genuine-boundary hillslope operator now also passes: reciprocal nonlinear
+internal flux is conservative, closed faces are no-flux, open portals use the
+explicitly limited linear Dirichlet control, and no cell is pinned. The next
+representation risk is discharge-vector cancellation under convergent flow.
+Require radial-divergent/convergent tests and a flow-aligned physical grade
+before building the coupled solver; do not compensate a failed scalar support
+with denudation `K`.
+
+That gate now has a discriminating result. Radial divergence and one-sided
+convergent probes converge to roughly 2–2.5% error at 2 km, but at the
+convergence line the magnitude of the least-squares net vector retains only
+16.1% of the analytic two-sided sink strength. Opposing inflows cancel. The
+flow-aligned physical-grade helper passes and remains useful for direction, but
+`|q_vector|` cannot be interpreted as pointwise two-sided throughput there.
+Research and numerical comparison reject silently substituting RMS/L1 or cell-
+width reductions: their normalization is a new constitutive choice and becomes
+orientation/support dependent at the singularity. Retain the consistent LS
+vector/magnitude on resolved smooth flow, validate integrated flux across a
+fixed cut and a broad downstream reach, and treat the exact sink as a C0 truth
+limit. No `K` compensation or local fallback.
+
+The resolved broad-reach follow-up passes: integrated downstream cut flux closes
+to `1.2e-8` relative or better, and support-corrected local LS vector/magnitude
+errors are below 0.5% at 2 km in aligned and rotated cases. C0 therefore retains
+the consistent LS vector/magnitude for resolved flow and treats the exact line
+sink as a declared singular truth limit. The separate coupled solver can now be
+built without a local scalar fallback.
+
+The separate transactional `C0LandscapeSolver` is now implemented. It composes
+uplift, depression-aware face flow, physical gradient/flow alignment, C0-V
+areal denudation and genuine-boundary hillslopes on scratch state, then closes
+an explicitly named elevation-volume-moment ledger and commits once. Unit
+composition, retry/resampling, no-pinning and ledger tests pass. Its C0 `K`
+defaults to zero pending a justified dimensioned regime, and diagnostics expose
+the fluvial slope CFL and cancelling-junction cells. Do not interpret
+implementation as product promotion or rerun long U/L yet.
+
+The first unseen frozen-regime 0.1 Myr U/L screen fails spatially. At 8/4 km,
+relief remains about 32–35 m and maximum effective denudation is
+0.035–0.112 km/Myr. At 2 km, U/L relief reaches 87/180 m, maximum denudation
+7.8/19.3 km/Myr and accepted steps collapse to `0.0010/0.00024 Myr`. Ledgers
+and water still close, with no sinks or zero-vector cancellation cells. Deeper
+diagnosis finds a portal-grade defect and absent fluvial slope CFL: below-base
+portal cells are still routed outward while a gradient omitting the Dirichlet
+face keeps incising them. Smaller dt eventually runs away too. Initial/interior
+q still doubles from 4→2 at similar catchment supply, so support narrowing
+remains real. The face-consistent portal grade and CFL therefore had to precede
+any support decision. Never rescale `K` by resolution.
+
+That corrected frozen 0.1 Myr rerun now passes the correctness discriminator.
+U relief at 8/4/2 km is `31.126/31.252/31.284 m`; L is
+`31.910/31.976/32.013 m`. Solid ledgers close within `1.9e-10 km³`, portal
+water is stable, and there are no sinks or unresolved-q cells. The old 2 km
+runaway was a boundary/timestep defect, not evidence for a filter.
+
+The remaining evidence is more specific: peak cellwise denudation grows
+`4.4–5.1×` from 8→2 km, export drifts more at 4→2 than at 8→4, and the stable
+timestep scales as `h²`. C0 is therefore robust for short-run integrated relief
+but not yet for local intensity, downstream consumers or compute. Do not run
+1 Myr next. Compare a single fixed-physical-support C0 closure with the minimum
+C1 state required by channels/sediment/valleys/ecology; keep unfiltered C0 as
+the baseline and keep `K` fixed.
 
 ## Settled project-level conclusions
 
@@ -208,11 +515,30 @@ inside the same broad envelope. Do not tune uplift gain or add undirected noise.
   `artifacts/captures/seed-12345-range-ancestry/` (11 layers × 3 cameras)
 - Binary legacy-uplift control:
   `artifacts/captures/seed-12345-uplift-ablation/`
+- O1 final-relief A/B:
+  `artifacts/captures/seed-12345-o1-peaked-ab/` (legacy top, O1 bottom)
+- O1 range ancestry:
+  `artifacts/captures/seed-12345-o1-peaked-range-ancestry/`
+- O2 final-relief A/B:
+  `artifacts/captures/seed-12345-o2-segmented-ab/` (legacy top, O2 bottom)
+- O2 range ancestry and causal modifier:
+  `artifacts/captures/seed-12345-o2-segmented-range-ancestry/`
+- O3A energy-matched relief packet:
+  `artifacts/captures/seed-12345-o3a-organization/` (legacy, isotropic,
+  MassifCorridor)
+- O3A ancestry:
+  `artifacts/captures/seed-12345-o3a-isotropic-ancestry/` and
+  `artifacts/captures/seed-12345-o3a-massif-corridor-ancestry/`
 
 ## Focus guardrails
 
 - Do not let the active mountain investigation erase the lake, river, climate,
   coast, repair-provenance or presentation findings above.
+- For every important failure mode, ask **“how does reality avoid this, and how
+  do higher-fidelity simulations preserve that mechanism?”** Build the causal
+  graph before choosing its compression. Hex3 need not afford the full process,
+  but its reduced model or authentic hack should preserve the consequences that
+  matter to morphology, coupling and downstream stages.
 - Do not treat every observed defect as a tuning problem.
 - Do not infer physical failure from exaggerated geometry alone.
 - Do not infer physical success from attractive cartography or Earth-like

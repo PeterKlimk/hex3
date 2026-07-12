@@ -44,6 +44,7 @@ mod fine;
 mod fine_cache;
 mod history;
 mod hydrology;
+pub mod landscape;
 mod moisture;
 mod plates;
 mod provenance;

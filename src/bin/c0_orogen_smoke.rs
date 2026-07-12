@@ -1,0 +1,412 @@
+//! Minimal CPU-only C0 U/L research smoke run.
+//!
+//! This executable deliberately freezes a provisional, dimensioned response
+//! regime without changing the zero-denudation C0 library default. It is not a
+//! rendering path or a promoted product model.
+
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::time::Instant;
+
+use clap::{Parser, ValueEnum};
+use serde::Serialize;
+
+use hex3::world::landscape::{
+    linked_scenario, uniform_scenario, C0LandscapeParams, C0LandscapeSolver, C0LandscapeState,
+    C0TimestepLimiter, ConservativeHillslopeParams, EffectiveArealDenudationParams, LandscapeMesh,
+};
+
+const WIDTH_KM: f64 = 960.0;
+const HEIGHT_KM: f64 = 640.0;
+const INITIAL_SEED: u64 = 12_345;
+const TRUTH_LIMIT: &str = "Research smoke only: elevation is a finite-volume cell mean and fluvial lowering is coarse-grained effective areal denudation. Channels, channel beds and widths, gorges, sediment, lateral erosion, and valley geometry are unresolved; K is provisional and the C0 library/product default remains zero.";
+
+#[derive(Clone, Copy, Debug, Serialize, ValueEnum)]
+enum CaseArg {
+    U,
+    L,
+}
+
+impl CaseArg {
+    fn id(self) -> &'static str {
+        match self {
+            Self::U => "U",
+            Self::L => "L",
+        }
+    }
+}
+
+#[derive(Debug, Parser)]
+#[command(
+    name = "c0_orogen_smoke",
+    about = "Run an isolated CPU-only C0 U/L research smoke"
+)]
+struct Cli {
+    /// Causal forcing case: U (uniform block) or L (linked segments).
+    #[arg(long = "case", value_enum, ignore_case = true, default_value = "L")]
+    case: CaseArg,
+
+    /// Approximate full-hex center spacing in kilometres.
+    #[arg(long, default_value_t = 8.0)]
+    spacing_km: f64,
+
+    /// Simulated end time in millions of years.
+    #[arg(long, default_value_t = 1.0)]
+    end_myr: f64,
+
+    /// Requested maximum integration step in millions of years.
+    #[arg(long, default_value_t = 0.01)]
+    requested_dt_myr: f64,
+
+    /// Optional path for the complete JSON summary.
+    #[arg(long)]
+    output_json: Option<PathBuf>,
+}
+
+#[derive(Debug, Serialize)]
+struct FrozenParameters {
+    runoff_depth_rate_km_myr: f64,
+    discharge_exponent_m: f64,
+    slope_exponent_n: f64,
+    reference_specific_discharge_q0_km2_myr: f64,
+    reference_slope_s0: f64,
+    reference_denudation_e0_km_myr: f64,
+    derived_k_per_km: f64,
+    hillslope_diffusivity_km2_myr: f64,
+    hillslope_critical_slope: f64,
+}
+
+impl FrozenParameters {
+    fn values() -> Self {
+        Self {
+            runoff_depth_rate_km_myr: 500.0,
+            discharge_exponent_m: 1.0,
+            slope_exponent_n: 1.0,
+            reference_specific_discharge_q0_km2_myr: 50_000.0,
+            reference_slope_s0: 0.02,
+            reference_denudation_e0_km_myr: 0.1,
+            derived_k_per_km: 1.0e-4,
+            hillslope_diffusivity_km2_myr: 0.1,
+            hillslope_critical_slope: 0.7,
+        }
+    }
+
+    fn solver_params(&self) -> C0LandscapeParams {
+        C0LandscapeParams {
+            effective_areal_denudation: EffectiveArealDenudationParams {
+                k: self.derived_k_per_km,
+                discharge_exponent_m: self.discharge_exponent_m,
+                slope_exponent_n: self.slope_exponent_n,
+            },
+            runoff_depth_rate_km_myr: self.runoff_depth_rate_km_myr,
+            hillslope: ConservativeHillslopeParams {
+                diffusivity_km2_myr: self.hillslope_diffusivity_km2_myr,
+                critical_slope_grade: self.hillslope_critical_slope,
+                ..ConservativeHillslopeParams::default()
+            },
+            ..C0LandscapeParams::default()
+        }
+    }
+}
+
+#[derive(Debug, Default, Serialize)]
+struct LimiterCounts {
+    requested: u64,
+    uplift_accuracy: u64,
+    effective_denudation_accuracy: u64,
+    effective_denudation_slope_courant: u64,
+    hillslope_stability: u64,
+}
+
+#[derive(Debug, Serialize)]
+struct SmokeSummary {
+    schema: &'static str,
+    case: &'static str,
+    nominal_width_km: f64,
+    nominal_height_km: f64,
+    spacing_km: f64,
+    cell_count: usize,
+    actual_domain_area_km2: f64,
+    initial_seed: u64,
+    final_time_myr: f64,
+    requested_dt_myr: f64,
+    accepted_steps: u64,
+    accepted_dt_min_myr: f64,
+    accepted_dt_max_myr: f64,
+    total_adaptive_attempts: u64,
+    maximum_attempts_for_one_step: u32,
+    limiter_counts: LimiterCounts,
+    minimum_elevation_km: f64,
+    maximum_elevation_km: f64,
+    relief_km: f64,
+    initial_elevation_volume_moment_km3: f64,
+    rock_uplift_moment_km3: f64,
+    effective_areal_denudation_export_km3: f64,
+    hillslope_portal_transfer_km3: f64,
+    final_elevation_volume_moment_km3: f64,
+    ledger_closure_error_km3: f64,
+    final_portal_water_outflow_km3_myr: f64,
+    final_sink_water_storage_km3_myr: f64,
+    integrated_portal_water_outflow_km3: f64,
+    integrated_sink_water_storage_km3: f64,
+    final_unresolved_specific_discharge_cells: usize,
+    maximum_unresolved_specific_discharge_cells: usize,
+    maximum_effective_denudation_rate_km_myr: f64,
+    maximum_hillslope_slope_ratio: f64,
+    runtime_seconds: f64,
+    frozen_research_parameters: FrozenParameters,
+    truth_limit: &'static str,
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let cli = Cli::parse();
+    validate_cli(&cli)?;
+    let summary = run(&cli)?;
+    print_human_summary(&summary);
+    if let Some(path) = &cli.output_json {
+        write_json(path, &summary)?;
+        eprintln!("wrote {}", path.display());
+    }
+    Ok(())
+}
+
+fn validate_cli(cli: &Cli) -> Result<(), String> {
+    for (name, value) in [
+        ("spacing-km", cli.spacing_km),
+        ("end-myr", cli.end_myr),
+        ("requested-dt-myr", cli.requested_dt_myr),
+    ] {
+        if !value.is_finite() || value <= 0.0 {
+            return Err(format!("--{name} must be finite and greater than zero"));
+        }
+    }
+    Ok(())
+}
+
+fn run(cli: &Cli) -> Result<SmokeSummary, Box<dyn std::error::Error>> {
+    let started = Instant::now();
+    let mesh = LandscapeMesh::uniform_planar_hex(WIDTH_KM, HEIGHT_KM, cli.spacing_km)?;
+    let scenario = match cli.case {
+        CaseArg::U => uniform_scenario(),
+        CaseArg::L => linked_scenario(),
+    };
+    let evaluator = scenario.compile(&mesh)?;
+    let frozen = FrozenParameters::values();
+    debug_assert_eq!(
+        frozen.reference_denudation_e0_km_myr
+            / (frozen.reference_specific_discharge_q0_km2_myr * frozen.reference_slope_s0),
+        frozen.derived_k_per_km
+    );
+    let solver = C0LandscapeSolver::new(frozen.solver_params())?;
+    let mut state = C0LandscapeState::new(&mesh, smooth_initial_surface(&mesh, INITIAL_SEED))?;
+
+    let mut steps = 0_u64;
+    let mut minimum_dt = f64::INFINITY;
+    let mut maximum_dt: f64 = 0.0;
+    let mut total_attempts = 0_u64;
+    let mut maximum_attempts = 0_u32;
+    let mut limiter_counts = LimiterCounts::default();
+    let mut integrated_portal = 0.0;
+    let mut integrated_sink = 0.0;
+    let mut final_portal = 0.0;
+    let mut final_sink = 0.0;
+    let mut final_unresolved = 0;
+    let mut maximum_unresolved = 0;
+    let mut maximum_denudation_rate: f64 = 0.0;
+    let mut maximum_slope_ratio: f64 = 0.0;
+
+    while state.time_myr < cli.end_myr - 16.0 * f64::EPSILON {
+        let requested = cli.requested_dt_myr.min(cli.end_myr - state.time_myr);
+        let diagnostics = solver.step_with_forcing(&mesh, requested, &mut state, |midpoint| {
+            evaluator.evaluate(midpoint)
+        })?;
+        let accepted = diagnostics.operator_limits.accepted_dt_myr;
+        steps += 1;
+        minimum_dt = minimum_dt.min(accepted);
+        maximum_dt = maximum_dt.max(accepted);
+        total_attempts += u64::from(diagnostics.operator_limits.attempted_steps);
+        maximum_attempts = maximum_attempts.max(diagnostics.operator_limits.attempted_steps);
+        match diagnostics.operator_limits.limiting_operator {
+            C0TimestepLimiter::Requested => limiter_counts.requested += 1,
+            C0TimestepLimiter::UpliftAccuracy => limiter_counts.uplift_accuracy += 1,
+            C0TimestepLimiter::EffectiveDenudationAccuracy => {
+                limiter_counts.effective_denudation_accuracy += 1
+            }
+            C0TimestepLimiter::EffectiveDenudationSlopeCourant => {
+                limiter_counts.effective_denudation_slope_courant += 1
+            }
+            C0TimestepLimiter::HillslopeStability => limiter_counts.hillslope_stability += 1,
+        }
+        final_portal = diagnostics.water.total_portal_outflow_km3_myr;
+        final_sink = diagnostics.water.total_sink_storage_km3_myr;
+        integrated_portal += final_portal * accepted;
+        integrated_sink += final_sink * accepted;
+        final_unresolved = diagnostics.water.unresolved_specific_discharge_cells;
+        maximum_unresolved = maximum_unresolved.max(final_unresolved);
+        maximum_denudation_rate =
+            maximum_denudation_rate.max(diagnostics.maximum_effective_denudation_rate_km_myr);
+        maximum_slope_ratio = maximum_slope_ratio.max(diagnostics.maximum_hillslope_slope_ratio);
+    }
+
+    let (minimum, maximum) = state
+        .mean_bedrock_elevation_km
+        .iter()
+        .copied()
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(low, high), z| {
+            (low.min(z), high.max(z))
+        });
+    let ledger = state.elevation_volume_moment_ledger;
+    Ok(SmokeSummary {
+        schema: "hex3.c0-orogen-smoke.v1",
+        case: cli.case.id(),
+        nominal_width_km: WIDTH_KM,
+        nominal_height_km: HEIGHT_KM,
+        spacing_km: cli.spacing_km,
+        cell_count: mesh.cell_count(),
+        actual_domain_area_km2: mesh.actual_domain_area_km2(),
+        initial_seed: INITIAL_SEED,
+        final_time_myr: state.time_myr,
+        requested_dt_myr: cli.requested_dt_myr,
+        accepted_steps: steps,
+        accepted_dt_min_myr: minimum_dt,
+        accepted_dt_max_myr: maximum_dt,
+        total_adaptive_attempts: total_attempts,
+        maximum_attempts_for_one_step: maximum_attempts,
+        limiter_counts,
+        minimum_elevation_km: minimum,
+        maximum_elevation_km: maximum,
+        relief_km: maximum - minimum,
+        initial_elevation_volume_moment_km3: ledger.initial_elevation_volume_moment_km3,
+        rock_uplift_moment_km3: ledger.rock_uplift_moment_km3,
+        effective_areal_denudation_export_km3: ledger.effective_areal_denudation_export_km3,
+        hillslope_portal_transfer_km3: ledger.hillslope_portal_transfer_km3,
+        final_elevation_volume_moment_km3: ledger.final_elevation_volume_moment_km3,
+        ledger_closure_error_km3: ledger.closure_error_km3,
+        final_portal_water_outflow_km3_myr: final_portal,
+        final_sink_water_storage_km3_myr: final_sink,
+        integrated_portal_water_outflow_km3: integrated_portal,
+        integrated_sink_water_storage_km3: integrated_sink,
+        final_unresolved_specific_discharge_cells: final_unresolved,
+        maximum_unresolved_specific_discharge_cells: maximum_unresolved,
+        maximum_effective_denudation_rate_km_myr: maximum_denudation_rate,
+        maximum_hillslope_slope_ratio: maximum_slope_ratio,
+        runtime_seconds: started.elapsed().as_secs_f64(),
+        frozen_research_parameters: frozen,
+        truth_limit: TRUTH_LIMIT,
+    })
+}
+
+/// Smooth, coordinate-defined initial surface shared by every refinement.
+/// Its broad central divide drains toward the two portal boundaries; the
+/// deterministic perturbation breaks perfect symmetry without cell noise.
+fn smooth_initial_surface(mesh: &LandscapeMesh, seed: u64) -> Vec<f64> {
+    let phase = |stream: u64| {
+        let random = splitmix64(seed ^ stream.wrapping_mul(0x9e37_79b9_7f4a_7c15));
+        let unit = (random >> 11) as f64 / ((1_u64 << 53) as f64);
+        unit * std::f64::consts::TAU
+    };
+    let phases = [phase(1), phase(2), phase(3)];
+    mesh.cell_center_km
+        .iter()
+        .map(|center| {
+            let y = (2.0 * center.y / HEIGHT_KM).clamp(-1.0, 1.0);
+            let taper = (1.0 - y * y).max(0.0);
+            let perturbation = 0.0020 * (0.071 * center.x + 0.043 * center.y + phases[0]).sin()
+                + 0.0015 * (-0.038 * center.x + 0.063 * center.y + phases[1]).sin()
+                + 0.0010 * (0.027 * center.x - 0.052 * center.y + phases[2]).sin();
+            taper * (0.020 + perturbation)
+        })
+        .collect()
+}
+
+fn splitmix64(mut value: u64) -> u64 {
+    value = value.wrapping_add(0x9e37_79b9_7f4a_7c15);
+    value = (value ^ (value >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    value = (value ^ (value >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    value ^ (value >> 31)
+}
+
+fn print_human_summary(summary: &SmokeSummary) {
+    println!(
+        "C0 {} smoke: {} cells, {:.3} km2 actual area, {:.6} Myr in {} accepted steps ({:.3}s)",
+        summary.case,
+        summary.cell_count,
+        summary.actual_domain_area_km2,
+        summary.final_time_myr,
+        summary.accepted_steps,
+        summary.runtime_seconds
+    );
+    println!(
+        "surface: min {:.6} km, max {:.6} km, relief {:.6} km; ledger residual {:.3e} km3",
+        summary.minimum_elevation_km,
+        summary.maximum_elevation_km,
+        summary.relief_km,
+        summary.ledger_closure_error_km3
+    );
+    println!(
+        "water: portal {:.6e} km3/Myr, sinks {:.6e} km3/Myr; unresolved q cells {} (max {})",
+        summary.final_portal_water_outflow_km3_myr,
+        summary.final_sink_water_storage_km3_myr,
+        summary.final_unresolved_specific_discharge_cells,
+        summary.maximum_unresolved_specific_discharge_cells
+    );
+    println!(
+        "accepted dt: {:.6e}..{:.6e} Myr; {} adaptive attempts (max {})",
+        summary.accepted_dt_min_myr,
+        summary.accepted_dt_max_myr,
+        summary.total_adaptive_attempts,
+        summary.maximum_attempts_for_one_step
+    );
+    println!("truth limit: {}", summary.truth_limit);
+}
+
+fn write_json(path: &Path, summary: &SmokeSummary) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        fs::create_dir_all(parent)?;
+    }
+    let mut bytes = serde_json::to_vec_pretty(summary)?;
+    bytes.push(b'\n');
+    fs::write(path, bytes)?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_nonphysical_cli_values() {
+        let cli = Cli {
+            case: CaseArg::U,
+            spacing_km: 0.0,
+            end_myr: 0.01,
+            requested_dt_myr: 0.001,
+            output_json: None,
+        };
+        assert!(validate_cli(&cli).is_err());
+    }
+
+    #[test]
+    fn initial_surface_is_deterministic_and_refinement_continuous() {
+        let mesh = LandscapeMesh::uniform_planar_hex(48.0, 32.0, 4.0).unwrap();
+        let first = smooth_initial_surface(&mesh, INITIAL_SEED);
+        let second = smooth_initial_surface(&mesh, INITIAL_SEED);
+        assert_eq!(first, second);
+        assert!(first.iter().all(|z| z.is_finite() && *z >= 0.0));
+    }
+
+    #[test]
+    fn frozen_reference_values_derive_k() {
+        let p = FrozenParameters::values();
+        let derived = p.reference_denudation_e0_km_myr
+            / (p.reference_specific_discharge_q0_km2_myr * p.reference_slope_s0);
+        assert!((derived - p.derived_k_per_km).abs() < f64::EPSILON);
+        assert_eq!(
+            C0LandscapeParams::default().effective_areal_denudation.k,
+            0.0
+        );
+    }
+}

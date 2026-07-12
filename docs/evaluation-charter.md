@@ -76,6 +76,9 @@ interpretation; dated audit records remain immutable historical evidence.
 ### Causal structure
 
 - Do features occur where their claimed causes predict?
+- When a failure is absent in reality or a higher-fidelity simulation, what
+  mechanism prevents it there? Which observable and downstream consequences of
+  that mechanism must survive in a reduced model?
 - Does a control change its intended response while preserving declared
   invariants?
 - Does information survive coarse-to-fine transfer and later processing?
@@ -190,7 +193,8 @@ the source run.
 External research is divided by domain but uses one output template:
 
 1. problem and Hex3 decision it informs;
-2. mechanism used in scientific models, simulations, games or rendering;
+2. how reality avoids or resolves the failure, followed by the mechanism used
+   in scientific models, simulations, games or rendering;
 3. fidelity class and deliberate approximations;
 4. state, inputs, outputs, coupling and characteristic scales;
 5. compute and implementation cost;
@@ -203,6 +207,12 @@ External research is divided by domain but uses one output template:
 Research should prefer primary scientific/technical sources and direct
 developer documentation or talks for game/rendering techniques. A survey without
 a Hex3-sized mechanism and cost/benefit judgment is incomplete.
+
+The full causal account is useful even when it is computationally infeasible.
+It acts as the reference model against which a simpler latent model or authentic
+hack is judged: simplification may discard internal process, but should do so
+deliberately and retain the causal signatures needed by visible geography and
+future consumers.
 
 ## Sequence and stop conditions
 

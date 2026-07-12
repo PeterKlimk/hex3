@@ -1,7 +1,7 @@
 # Experiment registry
 
 This registry separates current product behavior from implemented alternatives.
-It summarizes code and recorded evidence as of 2026-07-12; it is not a substitute
+It summarizes code and recorded evidence as of 2026-07-13; it is not a substitute
 for the linked audits. Status terms follow the
 [documentation policy](documentation-policy.md).
 
@@ -43,6 +43,139 @@ The experiments above contain reusable mechanisms even where their combined
 terrain hypothesis failed. Conservation success does not override spatial
 non-convergence, excessive relief, fragmented morphology or missing visual
 acceptance.
+
+### Orogen-organization proposals
+
+These experiments address the diagnosed product morphology without assuming
+that all broad plateaus are defects. Their implementation and disposition are
+tracked independently below; none is promoted product behavior.
+
+| ID | Isolated hypothesis | Required budget/control | Status |
+|---|---|---|---|
+| O1 | A peaked or asymmetric convergent-belt cross-section prevents the smooth cap from becoming the universal range grammar | Tested `legacy-peaked`: compact continental arc/collision profiles, positive work conserved separately per plate and feature type; oceanic arcs, erosion and presentation unchanged | Rejected after numerical and human visual review; implementation removed, evidence retained |
+| O2 | Causally conditioned along-strike variation creates legitimate saddles and differentiated segments | Tested `legacy-segmented`: exact legacy cross-section; deterministic 400-km-smoothed convergence-orthogonality strength modifier; response conserved per connected boundary episode, feature type and receiver plate | Rejected after numerical and human visual review; implementation removed, evidence retained |
+| O3A | Regional organization needs a structure-first joint massif/saddle/corridor scaffold rather than more scalar-envelope variation | Existing `MassifCorridor` base path alone at 0.05 versus legacy and P1a 0.0611; perturbed arms matched at 44 m structural RMS; unchanged common erosion/integration/presentation | Implemented/evaluated on seed 12345; provisionally negative pending human review: improves flat-cap coverage but does not beat isotropic on drainage organization or final relief |
+| O3B | Regional organization should emerge from a frozen drainage-first scaffold | Isolate the existing A4 burn-in/trunk/interfluve idea from its parked emergent/O0 stack; compare the same objects/budgets as O3A | Paused as a product candidate after research reframe; retain as a synthetic-topology control for the organization-owner testbed |
+| O3C | An explicit persistent crest/divide graph is necessary | Joint positive and negative objects, zero-net authoritative redistribution, not crest-only; compare with O3A/O3B | Reframed as the explicit-skeleton structural upper bound in the organization-owner testbed, not a presumptive product implementation |
+| O4 | Existing erosion can dismantle a broad cap when repeated rebuild no longer suppresses reorganization | Fixed current cap; rebuild off/reduced; bounded drainage/base-level perturbation | Folded into the locked hold-and-carve/control family; secondary to the coupled representation decision |
+
+Success requires authoritative pre/final morphology and at least one downstream
+hydrology or climate organization signature to improve under the declared
+budget. Peak count or render appeal alone is not sufficient. Research basis:
+[`research/orogen-organization-2026-07-12.md`](research/orogen-organization-2026-07-12.md).
+
+The first O1 run at 100k coarse/250k fine preserves peak and mountain-area
+plausibility and modestly increases 25–100-km relief, but increases median/p90
+summit-cap area and barely changes drainage orientation. It should not be tuned
+or promoted on this evidence. Human visual review agreed; the selectable rung
+was removed to avoid accumulating failed models. Matched packets are recorded in
+`artifacts/captures/seed-12345-o1-peaked-ab/` and
+`artifacts/captures/seed-12345-o1-peaked-range-ancestry/`.
+
+The corrected first O2 run uses connected boundary episodes as its work owner;
+an earlier per-fragment ledger was discarded because singleton fragments
+cancelled their own modifiers. The retained experiment changes 95.9% of eligible
+continental response cells, with p02/p98 effective multipliers near 0.959/1.041
+and maximum deviation 10.3%. Despite that causal signal, cap metrics are mixed,
+elongation declines slightly, drainage orientation is stable and matched terrain
+remains very similar. Human review agreed; the rung was removed rather than
+parked. Evidence:
+`artifacts/captures/seed-12345-o2-segmented-ab/` and
+`artifacts/captures/seed-12345-o2-segmented-range-ancestry/`.
+
+The first O3A run isolates prescribed base geometry from the historical
+emergent/O0/gain stack. `MassifCorridor=0.05` and isotropic P1a `0.0611` each
+produce 44 m area-weighted structural RMS over the same process footprint.
+MassifCorridor improves low-grade cap coverage and fragments basin topology less
+than isotropic structure, but final relief, passes, river hierarchy and
+strike-relative drainage do not show a consistent structured advantage. Matched
+ancestry confirms the candidate exists in the pre-hydrology base and that common
+erosion reduces the distinction. Evidence:
+`artifacts/captures/seed-12345-o3a-organization/`,
+`artifacts/captures/seed-12345-o3a-isotropic-ancestry/` and
+`artifacts/captures/seed-12345-o3a-massif-corridor-ancestry/`.
+
+The subsequent [mountain-system design basis](research/mountain-system-design-basis-2026-07-13.md)
+changes the next decision. O3B should not be tuned or promoted in isolation:
+reality and successful reduced terrain systems organize mountains through
+heterogeneous time-varying forcing coupled to drainage, hillslopes and inherited
+materials. Historical A4 remains useful as the cheap synthetic-topology control
+against a reduced coupled landscape architecture and an explicit skeleton upper
+bound.
+
+The comparison contract is now frozen at the design level in the
+[bounded orogen organization testbed](research/orogen-testbed-spec-2026-07-13.md).
+It compares five representation families under common deformation work,
+boundaries, runoff, material inputs and time: hold-and-carve, synthetic
+drainage-first, reduced coupled landscape evolution, coupled evolution with a
+shared province, and an explicit joint skeleton. The first implementation slice
+contains only the dimensioned coupled U/L null cases and numerical ledgers; it
+does not constitute an O3 promotion attempt.
+
+Slice 1 is now implemented and screened. U/L forcing budgets, deterministic
+routing, timestep response and ledgers pass, and full 10-Myr runs remain stable.
+The representation fails its resolution gate: incision export decreases
+strongly from 8→4→2 km and the discrepancy accumulates into roughly 50% final
+relief differences between 8 and 4 km. The subsequent
+[channel/surface decision](research/channel-surface-scaling-2026-07-13.md)
+identifies a path-elevation/cell-mean semantic collision rather than a missing
+calibration constant. The registered next rung is C0: cell-mean finite-volume
+surface, face-flux/MFD routing, specific-discharge-driven effective areal
+denudation, and resolution-stable outlet portals. It must pass analytic
+boundary, routing, depression and manufactured-denudation tests before U/L is
+rerun. Slice 2 remains blocked. See the
+[Slice 1 audit](audits/orogen-testbed-slice1-2026-07-13.md).
+
+Slice 1R has now implemented the first analytic pieces without changing U/L.
+The P/pathway equilibrium, genuine full-hex boundary geometry, unfilled MFD
+water conservation, plane/ridge specific-discharge convergence and isolated C0
+manufactured denudation pass. The exact-rectangle boundary attempt was rejected
+before use because its nominal faces did not match the full-cell finite-volume
+domain. A separate portal-seeded fill and BFS flat potential now pass exact-flat
+and nested-sill controls without mutating physical elevation; the exact linear
+Dirichlet fixture also passes. Physical mean-surface gradients now pass affine
+and smooth-radial controls. Genuine-boundary hillslope conservation now passes
+with an explicitly linear external Dirichlet control. Radial/convergent
+specific discharge, flow-aligned physical grade and coupled C0 remain blocked.
+See the
+[Slice 1R audit](audits/orogen-testbed-slice1r-2026-07-13.md).
+
+The radial/convergent gate now passes away from the convergence locus but
+shows that `|q_vector|` is not pointwise two-sided throughput there: it retains
+only 16.1% of the chosen line-sink strength at 2 km. Candidate RMS/L1/support-
+width replacements lack an invariant normalization at that singularity and are
+not promoted. Retain the consistent LS vector/magnitude for resolved continuum
+flow, validate integrated cut flux and a broad downstream reach, and record the
+exact sink as a C0 truth limit. Do not tune `K` or introduce a local fallback.
+
+The resolved broad downstream-reach control then passes: integrated cut flux
+closes and local support-corrected vector/magnitude errors fall below 0.5% at
+2 km in aligned/rotated cases. C0-V is retained for resolved continuum flow;
+the exact line sink remains a declared truth limit. A separate coupled C0 arm
+may now proceed without RMS/L1/cell-width switching.
+
+That separate C0 solver is now implemented and passes transactional composition,
+retry, no-pinning and elevation-volume-moment ledger controls. Its effective
+denudation coefficient remains zero by default pending a dimensioned regime;
+manufactured spatial/temporal convergence and a fluvial slope-response limit
+remain prerequisites for short U/L. Implementation is not promotion.
+
+The first frozen-regime 0.1 Myr U/L spatial screen fails. The 8/4 km responses
+remain near 32–35 m relief, but 2 km reaches 87 m (U) and 180 m (L), with
+maximum effective denudation increasing to 7.8/19.3 km/Myr and adaptive steps
+collapsing. Water and solid ledgers close and no sinks occur. Cell diagnostics
+then locate an open-base physical-grade defect and the already disclosed absent
+fluvial slope CFL; smaller dt does not fix the boundary feedback. This invalid
+screen is retained as diagnostic evidence rather than a C0 falsification.
+
+The unchanged corrected rerun uses face-consistent portal grade and an enforced
+slope Courant limit. U/L relief is tightly stable across 8/4/2 km (about
+31–32 m), ledgers close within `1.9e-10 km³`, water closes and the 2 km runaway
+is absent. Peak cellwise denudation nevertheless grows `4.4–5.1×`, export is
+not yet asymptotic, and the accepted timestep scales approximately as `h²`.
+Status: numerical correctness promoted; unregularized local support and compute
+remain open. Next compare one fixed-physical-support C0 arm with the minimum C1
+state before any 1/10 Myr run or parameter tuning.
 
 ### Carrier/lifecycle subexperiments
 
