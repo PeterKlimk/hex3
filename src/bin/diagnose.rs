@@ -89,6 +89,10 @@ struct Cli {
     /// length/sinuosity/profile table with Earth references.
     #[arg(long, default_value_t = false)]
     river_audit: bool,
+    /// Audit seasonless ecological semantics and exit: area-weighted biome mix,
+    /// continuous potentials, transition coverage, and coherent regions.
+    #[arg(long, default_value_t = false)]
+    biome_audit: bool,
     /// Fine-mesh cell cap (the emergent count is coarsened to fit). Lower it to
     /// iterate faster on erosion/roughness probes. 0 = use the FINE_MAX_CELLS default.
     #[arg(long, default_value_t = 0)]
@@ -505,6 +509,10 @@ fn main() {
     }
     if cli.river_audit {
         run_river_audit(&world, cli.seed, cli.top);
+        audited = true;
+    }
+    if cli.biome_audit {
+        run_biome_audit(&world, cli.seed);
         audited = true;
     }
     if audited {
@@ -3737,6 +3745,89 @@ fn run_mountain_audit(world: &World, seed: u64, top: usize) {
 // so these numbers describe the rivers the user sees. Structure (Strahler/
 // Horton), coverage (drainage density, mouth census), and the top trunks
 // (length, sinuosity, long-profile shape). Earth refs inline.
+
+fn run_biome_audit(world: &World, seed: u64) {
+    use hex3::world::{BiomeKind, EcologySemantics};
+
+    let tess = world.active_tessellation();
+    let ecology = EcologySemantics::build(
+        tess,
+        &world.active_elevation().expect("elevation").values,
+        world.active_temperature().expect("temperature"),
+        world.active_precipitation().expect("precipitation"),
+        world.active_hydrology(),
+    );
+    let areas = tess.cell_areas();
+    let is_land = |kind: BiomeKind| !matches!(kind, BiomeKind::Ocean | BiomeKind::Lake);
+    let land_area: f64 = ecology
+        .cells
+        .iter()
+        .enumerate()
+        .filter(|(_, cell)| is_land(cell.biome))
+        .map(|(i, _)| areas[i] as f64)
+        .sum();
+    let mut sums = [0.0f64; 5];
+    let mut transition_area = 0.0f64;
+    for (i, cell) in ecology
+        .cells
+        .iter()
+        .enumerate()
+        .filter(|(_, cell)| is_land(cell.biome))
+    {
+        let area = areas[i] as f64;
+        sums[0] += area * cell.potentials.heat as f64;
+        sums[1] += area * cell.potentials.moisture as f64;
+        sums[2] += area * cell.potentials.vegetation as f64;
+        sums[3] += area * cell.potentials.tree as f64;
+        sums[4] += area * cell.potentials.wetland as f64;
+        if cell.classification_confidence < 0.20 {
+            transition_area += area;
+        }
+    }
+
+    println!("\n================ BIOME AUDIT seed={seed} ================");
+    println!("(seasonless ecological potentials; calibrated proxies, not Köppen classes)");
+    println!(
+        "  land-mean raw P/demand normalization: {:.3}",
+        ecology.land_mean_raw_aridity
+    );
+    println!(
+        "  mean potentials heat/moisture/vegetation/tree/wetland: {:.2} / {:.2} / {:.2} / {:.2} / {:.2}",
+        sums[0] / land_area.max(1e-30),
+        sums[1] / land_area.max(1e-30),
+        sums[2] / land_area.max(1e-30),
+        sums[3] / land_area.max(1e-30),
+        sums[4] / land_area.max(1e-30),
+    );
+    println!(
+        "  transition area (confidence <0.20): {:.1}% of land",
+        100.0 * transition_area / land_area.max(1e-30)
+    );
+    println!("\n  biome                 land%  regions  largest_km²  largest_extent_km");
+    for kind in BiomeKind::LAND_KINDS {
+        let mask: Vec<bool> = ecology
+            .cells
+            .iter()
+            .map(|cell| cell.biome == kind)
+            .collect();
+        let area: f64 = mask
+            .iter()
+            .enumerate()
+            .filter(|(_, included)| **included)
+            .map(|(i, _)| areas[i] as f64)
+            .sum();
+        let components = measure_components(tess, &mask);
+        let largest = components.first();
+        println!(
+            "  {:<20?} {:6.1}  {:7}  {:11.0}  {:17.0}",
+            kind,
+            (100.0 * area / land_area.max(1e-30)).max(0.0),
+            components.len(),
+            largest.map(|c| c.area_km2).unwrap_or(0.0),
+            largest.map(|c| c.length_km).unwrap_or(0.0),
+        );
+    }
+}
 
 fn run_river_audit(world: &World, seed: u64, top: usize) {
     use hex3::world::{RiverNetwork, RiverThresholdPolicy, WaterBodySemantics};

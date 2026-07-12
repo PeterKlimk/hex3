@@ -65,6 +65,8 @@ The coarse world owns:
 - `TectonicHistory` and `FeatureFields`: boundary history and tectonic response;
 - `Elevation`: coarse terrain/bathymetry;
 - `Atmosphere`: temperature, pressure, wind, uplift and precipitation.
+- `EcologySemantics`: derived seasonless ecological constraints and broad biome
+  labels; interpretive and replaceable, not physical pipeline state.
 
 `FineWorld` owns the adaptive tessellation, transferred fields and two retained
 surfaces:
@@ -138,14 +140,17 @@ across world, app and diagnostic code:
 - material derivation identifies land/water/snow-like rendering classes;
 - feature fields and boundary aggregation identify tectonic regimes;
 - coloring derives thematic interpretations of elevation, climate and flow;
+- ecological potentials derive inspectable living-world constraints without
+  yet owning vegetation placement or presentation;
 - diagnostics derive connected objects, ranges and structural measurements;
 - visualization derives arrows, pole markers and boundary colors.
 
-The first extraction is now implemented in `world::semantics`: shared
-[water-body and river objects](semantics.md) define stable per-stage water
-identity, All/Major river selection, hierarchy, reaches and mouths. Rendering
-consumes the lightweight semantic selection; hydrology audits consume the same
-object definitions. Other semantic responsibilities remain distributed.
+The first extractions are now implemented in `world::semantics` and
+`world::ecology`: shared [semantic objects](semantics.md) define per-stage water
+identity, river selection/hierarchy and provisional ecological potentials.
+Rendering consumes lightweight river selection; audits consume the same water,
+river and ecology definitions. Other semantic responsibilities remain
+distributed.
 
 These operations should be documented as interpretation rather than physical
 state or raw drawing. A future explicit semantic layer can support consistent

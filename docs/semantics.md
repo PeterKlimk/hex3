@@ -1,10 +1,17 @@
-# Hydrology semantic objects
+# Semantic objects
+
+Semantic layers interpret retained modeled state without changing it. They are
+replaceable, derived products: changing their thresholds cannot alter tectonics,
+terrain, climate or hydrologic flow.
+
+## Hydrology
 
 This document describes the first implemented semantic-object slice: water
 bodies and river networks. These objects interpret modeled hydrology without
 changing it and contain no camera, relief, color or stroke settings.
 
-The implementation lives in `src/world/semantics.rs`.
+Hydrology semantics live in `src/world/semantics.rs`; ecological semantics live
+in `src/world/ecology.rs`.
 
 ## Water bodies
 
@@ -97,3 +104,34 @@ modeled input changed.
 - River generalization still selects cells; geometry simplification and
   zoom-dependent reach aggregation remain future cartographic work.
 
+## Ecology and biome proxies
+
+`EcologySemantics` is the first living-world semantic prototype. It consumes
+one retained tessellation, elevation, temperature, precipitation and optional
+hydrology surface. It derives continuous per-cell potentials for heat,
+moisture, vegetation, trees and wetlands, plus cold, water, alpine and terrain
+stress and freshwater access.
+
+Moisture uses `precipitation / temperature-dependent demand`, normalized to an
+area-weighted land mean of one. Terrain stress uses physical grade, alpine
+stress uses elevation in kilometres, and freshwater access is graph distance
+from semantic rivers and non-ocean water in kilometres.
+
+Each cell also receives a broad `BiomeKind` and classification confidence.
+Confidence measures dominance over the runner-up label; low confidence is an
+explicit transition zone. Oceans and retained lake water come directly from
+hydrology.
+
+These labels are calibrated, seasonless ecological proxies. They are **not**
+Köppen classes or claims about real vegetation. The climate has no seasonality,
+precipitation has no calibrated physical unit, and the model lacks soil,
+substrate, disturbance, ecological history and interspecies dynamics.
+Continuous potentials should drive future coverage and rendering; labels are
+primarily for inspection, summaries and region identity.
+
+The `--biome-audit` diagnostic reports area-weighted potential means, biome
+coverage, transition coverage and region coherence. No biome palette or
+vegetation renderer is authoritative yet. Initial audit output may legitimately
+show broad transition coverage or unused labels; cross-seed calibration and
+control-response validation remain promotion gates, not reasons for hidden
+single-seed tuning.

@@ -1,6 +1,7 @@
 use hex3::world::{
-    ErosionParams, FineCacheMode, FineCacheOutcome, FineDensityParams, FineStructureParams,
-    FineWorld, OrogenFronts, RiverNetwork, RiverThresholdPolicy, WaterBodySemantics, World,
+    BiomeKind, EcologySemantics, ErosionParams, FineCacheMode, FineCacheOutcome, FineDensityParams,
+    FineStructureParams, FineWorld, OrogenFronts, RiverNetwork, RiverThresholdPolicy,
+    WaterBodySemantics, World,
 };
 
 /// Build a tiny coarse world through stage 2 (atmosphere) — shared setup for the
@@ -126,6 +127,28 @@ fn fine_mesh_pipeline_smoke() {
         }
     }
     assert!((0..n).all(|cell| !rivers.all_cells[cell] || covered[cell]));
+
+    let ecology = EcologySemantics::build(
+        tess,
+        &fine.pre.elevation.values,
+        &fine.pre.temperature,
+        &fine.pre.precipitation,
+        Some(&fine.pre.hydrology),
+    );
+    assert_eq!(ecology.cells.len(), n);
+    assert!(ecology.cells.iter().all(|cell| {
+        cell.classification_confidence.is_finite()
+            && (0.0..=1.0).contains(&cell.classification_confidence)
+            && cell.potentials.vegetation.is_finite()
+            && (0.0..=1.0).contains(&cell.potentials.vegetation)
+    }));
+    for (i, cell) in ecology.cells.iter().enumerate() {
+        if fine.pre.hydrology.is_ocean(i) {
+            assert_eq!(cell.biome, BiomeKind::Ocean);
+        } else if fine.pre.hydrology.is_lake_water(i) {
+            assert_eq!(cell.biome, BiomeKind::Lake);
+        }
+    }
 }
 
 /// Stage 4 exercises the whole erosion path: fluvial incision + transport-aware

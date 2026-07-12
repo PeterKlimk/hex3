@@ -108,10 +108,10 @@ richness using existing terrain, climate and water.
 
 ### 2A. Biome/ecological constraint prototype
 
-- derive limiting factors from temperature, precipitation, seasonless moisture
+- **Prototype implemented:** derive limiting factors from temperature, precipitation, seasonless moisture
   availability, elevation, water proximity and terrain;
-- produce continuous ecological potentials before categorical biome labels;
-- classify stable semantic regions with uncertainty/transition zones;
+- **Prototype implemented:** produce continuous ecological potentials before categorical biome labels;
+- **Prototype implemented:** classify semantic cells with uncertainty/transition zones;
 - validate geographic coherence and control response across seeds;
 - make deliberate approximations explicit where seasons/soils are absent.
 

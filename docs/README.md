@@ -23,8 +23,8 @@ experimental, superseded, or awaiting classification.
 - [Semantic and presentation architecture](semantic-presentation.md) — derived
   meaning, scale hierarchy, generalization, presentation profiles and rendering
   ownership.
-- [Hydrology semantic objects](semantics.md) — implemented water-body identity,
-  river selection, hierarchy, reaches and ownership.
+- [Semantic objects](semantics.md) — implemented water-body identity, river
+  hierarchy, and seasonless ecological/biome potentials.
 - [Validation policy](validation.md) — evidence dimensions, controlled A/Bs,
   reproducibility, performance and promotion gates.
 - [Gap and Pareto analysis](gaps.md) — missing systems, couplings, rework
