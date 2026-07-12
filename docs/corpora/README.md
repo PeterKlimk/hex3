@@ -65,4 +65,5 @@ fine cap is justified by the
 
 `erosion-core-screen-v1.json` is a deliberately under-resolved, two-seed 250k
 screen for cost/value differences among 50/100/200 steps and `n=1`/`n=2`.
-Only decisive results should be promoted to a 1M confirmation corpus.
+The [result](../audits/erosion-core-screen-2026-07-12.md) found large
+morphological differences, so none was promoted as an equivalent 1M candidate.

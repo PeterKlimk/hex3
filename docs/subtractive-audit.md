@@ -405,8 +405,11 @@ Future feedback should not be forced into additional numbered stages.
 
 ### Cost/value ablations
 
-1. Erosion steps 50/100/200 on seed 12345 plus plateau/low-relief candidates.
-2. Stream exponent `n=1` versus `n=2`.
+1. **Screened:** erosion steps 50/100/200 on seed 12345 and 8675309. The
+   [screening audit](audits/erosion-core-screen-2026-07-12.md) rejects 50/100 as
+   neutral simplifications.
+2. **Screened:** stream exponent `n=1` versus `n=2`; it is a materially different
+   morphology, not a drop-in speed optimization.
 3. Diffusion off/default and 2 versus 6 Jacobi sweeps.
 4. Geological erodibility strength zero versus default.
 5. Sink deposition zero versus default.
