@@ -34,7 +34,8 @@ artifacts/evaluation/<corpus-id>/<run-id>/
 ```
 
 The corpus root also contains `index.json`, an atomically updated ledger of all
-declared run IDs and their pending/completed/failed state.
+declared run IDs and their pending/completed/failed state. `summary.json`
+flattens completed run configuration, metrics and timings for comparison.
 
 `manifest.json` binds the effective world manifest to corpus/run identity and
 schema versions. Metrics carry stable IDs plus value, unit, weighting,
@@ -52,3 +53,8 @@ logs, memory use and matched visual evidence are not part of artifact v1.
 
 `smoke-v1.json` uses tiny stage-4 worlds for schema, resume and cost testing. It
 is not a quality corpus and must not support promotion decisions.
+
+`reference-budget-v1.json` holds product coarse resolution and sweeps one fixed
+seed across 250k, 1M and 4M fine-cell caps. Its purpose is to choose an
+evaluation budget from runtime and resolution-sensitive metric behavior, not to
+judge population quality.

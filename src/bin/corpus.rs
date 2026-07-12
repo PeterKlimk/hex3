@@ -12,13 +12,14 @@ use std::time::Instant;
 
 use clap::Parser;
 use hex3::world::{
-    elevation_to_km, BiomeKind, EcologySemantics, FineCacheMode, OrogenModel, RiverSelection,
-    RiverThresholdPolicy, RunManifest, VoronoiBackend, World, NUM_PLATES_DEFAULT,
+    elevation_per_radian_to_grade, elevation_to_km, BiomeKind, EcologySemantics, FineCacheMode,
+    OrogenModel, RiverSelection, RiverThresholdPolicy, RunManifest, VoronoiBackend, World,
+    ELEVATION_UNIT_KM, NUM_PLATES_DEFAULT, PLANET_RADIUS_KM,
 };
 use serde::{Deserialize, Serialize};
 
 const ARTIFACT_SCHEMA_VERSION: u32 = 1;
-const METRIC_REGISTRY_VERSION: u32 = 1;
+const METRIC_REGISTRY_VERSION: u32 = 3;
 
 #[derive(Parser, Debug)]
 #[command(name = "corpus", about = "Run a declarative Hex3 evaluation corpus")]
@@ -139,6 +140,38 @@ struct IndexEntry {
     state: &'static str,
 }
 
+#[derive(Debug, Serialize)]
+struct CorpusSummary<'a> {
+    artifact_schema_version: u32,
+    metric_registry_version: u32,
+    corpus_id: &'a str,
+    rows: Vec<SummaryRow>,
+}
+
+#[derive(Debug, Serialize)]
+struct SummaryRow {
+    run_id: String,
+    label: String,
+    seed: u64,
+    coarse_cells: usize,
+    fine_max_cells: usize,
+    fine_scale: f32,
+    metrics: BTreeMap<String, f64>,
+    timings_seconds: BTreeMap<String, f64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct StoredMetric {
+    id: String,
+    value: f64,
+}
+
+#[derive(Debug, Deserialize)]
+struct StoredTiming {
+    stage: String,
+    seconds: f64,
+}
+
 fn main() {
     env_logger::init();
     let cli = Cli::parse();
@@ -168,11 +201,53 @@ fn main() {
             failures += 1;
         }
     }
+    if cli.dry_run {
+        return;
+    }
     write_corpus_index(&root, &spec).expect("write corpus index");
+    write_corpus_summary(&root, &spec).expect("write corpus summary");
     if failures > 0 {
         eprintln!("corpus completed with {failures} failed run(s)");
         std::process::exit(1);
     }
+}
+
+fn write_corpus_summary(root: &Path, spec: &CorpusSpec) -> Result<(), String> {
+    let mut rows = Vec::new();
+    for run in &spec.runs {
+        let run_id = stable_run_id(run);
+        let artifact = root.join(&run_id);
+        if !artifact.join("status.json").is_file() {
+            continue;
+        }
+        let metric_records: Vec<StoredMetric> = read_json(&artifact.join("metrics.json"))?;
+        let timing_records: Vec<StoredTiming> = read_json(&artifact.join("timings.json"))?;
+        rows.push(SummaryRow {
+            run_id,
+            label: run.label.clone(),
+            seed: run.seed,
+            coarse_cells: run.coarse_cells,
+            fine_max_cells: run.fine_max_cells,
+            fine_scale: run.fine_scale,
+            metrics: metric_records
+                .into_iter()
+                .map(|metric| (metric.id, metric.value))
+                .collect(),
+            timings_seconds: timing_records
+                .into_iter()
+                .map(|timing| (timing.stage, timing.seconds))
+                .collect(),
+        });
+    }
+    let summary = CorpusSummary {
+        artifact_schema_version: ARTIFACT_SCHEMA_VERSION,
+        metric_registry_version: METRIC_REGISTRY_VERSION,
+        corpus_id: &spec.corpus_id,
+        rows,
+    };
+    let temp = root.join(format!(".summary.tmp-{}", std::process::id()));
+    write_json(&temp, &summary)?;
+    fs::rename(temp, root.join("summary.json")).map_err(|error| error.to_string())
 }
 
 fn write_corpus_index(root: &Path, spec: &CorpusSpec) -> Result<(), String> {
@@ -432,17 +507,94 @@ fn collect_metrics(world: &World) -> Vec<MetricRecord> {
             stage,
         ),
     ];
-    for (id, quantile) in [
-        ("terrain.land_elevation_area_p50_km.v1", 0.50),
-        ("terrain.land_elevation_area_p90_km.v1", 0.90),
-        ("terrain.land_elevation_area_p99_km.v1", 0.99),
+    let land_elevation_quantiles =
+        weighted_quantiles(elevation, &areas, &submerged, &[0.50, 0.90, 0.99]);
+    for (id, value) in [
+        (
+            "terrain.land_elevation_area_p50_km.v1",
+            land_elevation_quantiles[0],
+        ),
+        (
+            "terrain.land_elevation_area_p90_km.v1",
+            land_elevation_quantiles[1],
+        ),
+        (
+            "terrain.land_elevation_area_p99_km.v1",
+            land_elevation_quantiles[2],
+        ),
     ] {
         metrics.push(metric(
             id,
-            elevation_to_km(weighted_quantile(elevation, &areas, &submerged, quantile)) as f64,
+            elevation_to_km(value) as f64,
             "km",
             "land-area",
             "world-quantile",
+            stage,
+        ));
+    }
+
+    let physical_grade: Vec<f32> = (0..tessellation.num_cells())
+        .map(|cell| {
+            let center = tessellation.cell_center(cell);
+            tessellation
+                .neighbors(cell)
+                .iter()
+                .map(|&neighbor| {
+                    let chord = (center - tessellation.cell_center(neighbor)).length();
+                    let radians = (2.0 * (0.5 * chord).clamp(0.0, 1.0).asin()).max(1e-8);
+                    elevation_per_radian_to_grade(
+                        (elevation[cell] - elevation[neighbor]).abs() / radians,
+                    )
+                })
+                .fold(0.0, f32::max)
+        })
+        .collect();
+    let grade_quantiles =
+        weighted_quantiles(&physical_grade, &areas, &submerged, &[0.50, 0.90, 0.99]);
+    for (id, value) in [
+        (
+            "terrain.land_max_neighbor_grade_area_p50.v1",
+            grade_quantiles[0],
+        ),
+        (
+            "terrain.land_max_neighbor_grade_area_p90.v1",
+            grade_quantiles[1],
+        ),
+        (
+            "terrain.land_max_neighbor_grade_area_p99.v1",
+            grade_quantiles[2],
+        ),
+    ] {
+        metrics.push(metric(
+            id,
+            value as f64,
+            "grade",
+            "land-area",
+            "world-quantile",
+            stage,
+        ));
+    }
+    let local_relief = sampled_mountain_local_relief(tessellation, elevation);
+    for (id, value) in [
+        (
+            "terrain.mountain_local_relief_r10km_sample_p90_m.v1",
+            local_relief[0],
+        ),
+        (
+            "terrain.mountain_local_relief_r25km_sample_p50_m.v1",
+            local_relief[1],
+        ),
+        (
+            "terrain.mountain_local_relief_r25km_sample_p90_m.v1",
+            local_relief[2],
+        ),
+    ] {
+        metrics.push(metric(
+            id,
+            value as f64,
+            "m",
+            "deterministic-cell-sample",
+            "sample-quantile",
             stage,
         ));
     }
@@ -525,7 +677,12 @@ fn metric(
     }
 }
 
-fn weighted_quantile(values: &[f32], weights: &[f32], excluded: &[bool], quantile: f64) -> f32 {
+fn weighted_quantiles(
+    values: &[f32],
+    weights: &[f32],
+    excluded: &[bool],
+    quantiles: &[f64],
+) -> Vec<f32> {
     let mut pairs: Vec<(f32, f64)> = values
         .iter()
         .zip(weights)
@@ -535,15 +692,79 @@ fn weighted_quantile(values: &[f32], weights: &[f32], excluded: &[bool], quantil
         .collect();
     pairs.sort_by(|a, b| a.0.total_cmp(&b.0));
     let total: f64 = pairs.iter().map(|pair| pair.1).sum();
-    let target = quantile.clamp(0.0, 1.0) * total;
-    let mut cumulative = 0.0;
-    for (value, weight) in &pairs {
-        cumulative += weight;
-        if cumulative >= target {
-            return *value;
-        }
+    quantiles
+        .iter()
+        .map(|&quantile| {
+            let target = quantile.clamp(0.0, 1.0) * total;
+            let mut cumulative = 0.0;
+            for (value, weight) in &pairs {
+                cumulative += weight;
+                if cumulative >= target {
+                    return *value;
+                }
+            }
+            pairs.last().map(|pair| pair.0).unwrap_or(0.0)
+        })
+        .collect()
+}
+
+fn sampled_mountain_local_relief(
+    tessellation: &hex3::world::Tessellation,
+    elevation: &[f32],
+) -> [f32; 3] {
+    use kiddo::{KdTree, SquaredEuclidean};
+
+    const MOUNTAIN_ELEVATION: f32 = 0.15;
+    const MAX_SAMPLES: usize = 20_000;
+    let entries: Vec<[f32; 3]> = (0..tessellation.num_cells())
+        .map(|cell| tessellation.cell_center(cell).to_array())
+        .collect();
+    let mut tree = KdTree::<f32, 3>::with_capacity(entries.len());
+    for (cell, entry) in entries.iter().enumerate() {
+        tree.add(entry, cell as u64);
     }
-    pairs.last().map(|pair| pair.0).unwrap_or(0.0)
+    let mountain_cells: Vec<usize> = (0..tessellation.num_cells())
+        .filter(|&cell| elevation[cell] >= MOUNTAIN_ELEVATION)
+        .collect();
+    let stride = (mountain_cells.len() / MAX_SAMPLES).max(1);
+    let mut distributions: Vec<Vec<f32>> = [10.0f32, 25.0]
+        .into_iter()
+        .map(|radius_km| {
+            let angle = radius_km / PLANET_RADIUS_KM;
+            let chord_sq = (2.0 * (0.5 * angle).sin()).powi(2);
+            mountain_cells
+                .iter()
+                .step_by(stride)
+                .map(|&cell| {
+                    let mut low = f32::INFINITY;
+                    let mut high = f32::NEG_INFINITY;
+                    for neighbor in
+                        tree.within_unsorted::<SquaredEuclidean>(&entries[cell], chord_sq)
+                    {
+                        let value = elevation[neighbor.item as usize];
+                        low = low.min(value);
+                        high = high.max(value);
+                    }
+                    (high - low).max(0.0) * ELEVATION_UNIT_KM * 1_000.0
+                })
+                .collect()
+        })
+        .collect();
+    for distribution in &mut distributions {
+        distribution.sort_by(f32::total_cmp);
+    }
+    let quantile = |distribution: &[f32], q: f32| {
+        if distribution.is_empty() {
+            0.0
+        } else {
+            distribution[((distribution.len() - 1) as f32 * q) as usize]
+        }
+    };
+    [
+        quantile(&distributions[0], 0.90),
+        quantile(&distributions[1], 0.50),
+        quantile(&distributions[1], 0.90),
+    ]
 }
 
 fn lake_area_fraction(hydrology: &hex3::world::Hydrology, areas: &[f32]) -> f64 {
@@ -614,10 +835,13 @@ mod tests {
     fn weighted_quantile_uses_area_and_exclusion() {
         let values = [1.0, 2.0, 3.0];
         let weights = [1.0, 8.0, 1.0];
-        assert_eq!(weighted_quantile(&values, &weights, &[false; 3], 0.5), 2.0);
         assert_eq!(
-            weighted_quantile(&values, &weights, &[false, true, false], 0.5),
-            1.0
+            weighted_quantiles(&values, &weights, &[false; 3], &[0.5]),
+            vec![2.0]
+        );
+        assert_eq!(
+            weighted_quantiles(&values, &weights, &[false, true, false], &[0.5]),
+            vec![1.0]
         );
     }
 }

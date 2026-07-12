@@ -204,11 +204,8 @@ fn max_physical_grade(tessellation: &Tessellation, elevation: &[f32], cell: usiz
         .neighbors(cell)
         .iter()
         .map(|&neighbor| {
-            let radians = center
-                .dot(tessellation.cell_center(neighbor))
-                .clamp(-1.0, 1.0)
-                .acos()
-                .max(1e-8);
+            let chord = (center - tessellation.cell_center(neighbor)).length();
+            let radians = (2.0 * (0.5 * chord).clamp(0.0, 1.0).asin()).max(1e-8);
             elevation_per_radian_to_grade((elevation[cell] - elevation[neighbor]).abs() / radians)
         })
         .fold(0.0, f32::max)
