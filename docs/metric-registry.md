@@ -70,6 +70,10 @@ machine-readable registry and complete control/reference fields.
 | ID | Status/class | Operational definition | Units / weighting | Decision role and principal confounder |
 |---|---|---|---|---|
 | `terrain.elevation.max_km.v1` | current field descriptor | maximum retained elevation converted with 10 km/unit | km; single cell extreme | anomaly description only; highly resolution/outlier sensitive |
+| `terrain.land_area_fraction.v1` | current field descriptor | dry, non-submerged area divided by total sphere area on the retained surface | fraction; area-weighted | descriptive; datum and lake state affect it |
+| `terrain.land_elevation_area_p50_km.v1` | current field descriptor | weighted median elevation over dry land | km; land-area weighted | stable distribution center; excludes submerged lake cells |
+| `terrain.land_elevation_area_p90_km.v1` | current field descriptor | weighted 90th percentile elevation over dry land | km; land-area weighted | upper terrain envelope, not mountain morphology |
+| `terrain.land_elevation_area_p99_km.v1` | current field descriptor | weighted 99th percentile elevation over dry land | km; land-area weighted | tail descriptor less fragile than maximum but still resolution-sensitive |
 | `terrain.peak_guard_km.v1` | historical gate | warn above 12 km, fail above 14 km | km; worst cell per world | user-calibrated guard, not empirical Earth target; direct tuning can flatten legitimate extremes |
 | `terrain.mountain_mask_1p5km.v1` | provisional feature mask | retained land elevation at least 1.5 km | area or cell fraction must be named | common range substrate; conflates elevated interiors and orogens |
 | `terrain.significant_range_20kkm2.v1` | provisional feature component | connected 1.5-km mask component at least 20,000 km² | objects; km²/km | descriptive range sampling; threshold rationale remains heuristic |
@@ -82,11 +86,13 @@ machine-readable registry and complete control/reference fields.
 | `tectonics.carrier_land_span.v1` | experimental gate | max-min land coverage across carrier resolutions; fail above 2 percentage points | percentage points; area intended | sea-datum response can hide/redistribute deformation |
 | `climate.relative_aridity_index.v1` | current field descriptor | precipitation divided by `0.2+0.8*clamped_temperature`, normalized to area-weighted land mean one | ratio; field is area-normalized | within-world stress pattern only; cannot compare absolute dryness across worlds |
 | `hydrology.semantic_river_cells.v1` | current semantic feature | cells selected by declared `RiverThresholdPolicy`, product default minimum catchment 2,000 km² | cells plus approximate km/km² | renderer/audit shared population; grid-cell path and coarse floor affect geometry |
+| `hydrology.lake_area_fraction_of_terrestrial.v1` | current field/object descriptor | retained lake-water area divided by all non-ocean terrestrial area, including lakes | fraction; area-weighted | distinguishes lake coverage from dry-land denominator; climate ratio and minimum lake rules apply |
 | `hydrology.flow_fraction_of_max.v1` | provisional/default descriptor | land cells above 1% of world maximum flow | cells; count-weighted | incompatible with semantic river population and unstable to one extreme |
 | `erosion.river_profile_bow.v1` | historical/current descriptor | median normalized midpoint bow and percent concave over deduplicated long rivers, historically up to 50 and at least 200 km | ratio; object-weighted | useful aggregate grading evidence; selection and lake endpoints matter; no maintained gate |
 | `erosion.population_slope_area_theta.v1` | superseded/invalid | population regression of local channel slope against drainage area | exponent; mixed channel samples | retained negative result only; lakes, mesh edges, bins and mixed regimes invalidate gating |
 | `ecology.biome_transition_area.v1` | provisional semantic descriptor | land area with biome classification confidence below 0.20 | percent land area; area-weighted | exposes classifier ambiguity; threshold/calibration not promoted |
-| `performance.stage_wall_time.v1` | missing product indicator | wall time per declared pipeline stage | seconds; run/platform/build mode | needed for cost/benefit; currently printed but not serialized |
+| `performance.stage_wall_time.v1` | current product indicator | wall time per declared pipeline stage and total in corpus artifacts | seconds; run/platform/build mode | initial cost evidence; process memory and hardware normalization remain absent |
+| `mesh.active_cells.v1` | current run descriptor | number of cells exposed at the retained viewed/computed stage | count | required resolution context; never a quality metric |
 
 ### Immediate semantic splits required
 

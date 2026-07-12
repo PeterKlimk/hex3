@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "corpus_id": "smoke-v1",
+  "description": "Schema and artifact-contract smoke tier; deliberately not a quality or promotion corpus.",
+  "runs": [
+    {
+      "label": "seed-42-small-stage4",
+      "seed": 42,
+      "coarse_cells": 1200,
+      "lloyd_iterations": 1,
+      "stage": 4,
+      "fine_max_cells": 4000,
+      "fine_scale": 1.0,
+      "backend": "convex-hull",
+      "orogen_model": "legacy",
+      "fine_cache": "disabled"
+    },
+    {
+      "label": "seed-12345-small-stage4",
+      "seed": 12345,
+      "coarse_cells": 1200,
+      "lloyd_iterations": 1,
+      "stage": 4,
+      "fine_max_cells": 4000,
+      "fine_scale": 1.0,
+      "backend": "convex-hull",
+      "orogen_model": "legacy",
+      "fine_cache": "disabled"
+    }
+  ]
+}

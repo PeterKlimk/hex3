@@ -35,6 +35,8 @@ experimental, superseded, or awaiting classification.
   — implemented diagnostics, definition collisions, weighting and historical gates.
 - [Evaluation tooling inventory](inventory/evaluation-tooling.md) — provenance,
   exports, comparison/render tooling and corpus-harness gaps.
+- [Evaluation corpora](corpora/README.md) — declarative corpus format, smoke
+  specification and atomic artifact contract.
 - [Gap and Pareto analysis](gaps.md) — missing systems, couplings, rework
   candidates and targeted research questions.
 - [Roadmap](roadmap.md) — ordered horizons, decision gates and near-term

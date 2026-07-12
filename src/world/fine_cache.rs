@@ -58,7 +58,7 @@ use super::{Atmosphere, Crust, Elevation, FeatureFields, OrogenModel, Tessellati
 pub(crate) const FINE_BASE_CACHE_VERSION: u32 = 13;
 
 /// How the fine-mesh base should use the on-disk cache.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum FineCacheMode {
     /// Never read or write the cache (always regenerate).

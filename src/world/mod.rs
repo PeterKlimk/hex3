@@ -96,7 +96,7 @@ use rand_chacha::ChaCha8Rng;
 use std::fmt;
 
 /// Backend used to compute the spherical Voronoi diagram.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum VoronoiBackend {
     /// Exact convex-hull duality (slower, robust).

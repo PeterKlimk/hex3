@@ -49,10 +49,12 @@ exports, but they are analysis views rather than product-render evidence.
 
 ## Missing corpus harness capabilities
 
-- declarative seeds × resolutions × configurations × stages specification;
-- resumable ledger with pending/running/completed/failed states;
-- atomic per-run artifact bundles and selective reruns;
-- structured metrics from `diagnose` and scorecards;
+The first foundation is now implemented by `src/bin/corpus.rs` and
+`docs/corpora/smoke-v1.json`: declarative runs, stable IDs, atomic/resumable
+artifacts, effective manifests, structured initial metrics, stage timings and
+failure records. Remaining gaps are:
+
+- migration of detailed `diagnose` and scorecard metrics into structured adapters;
 - metric-registry/schema versions in outputs;
 - automatic verification that an A/B differs only on declared axes;
 - generic manifest-aware comparisons;
@@ -66,6 +68,9 @@ not suitable as a corpus runner.
 
 ## Minimal implementation implication
 
+The minimum below now describes the implemented v1 boundary; expansion should
+remain incremental.
+
 Do not begin by replacing all analysis code. The smallest useful foundation is:
 
 1. a declarative corpus specification with stable run IDs;
@@ -77,4 +82,3 @@ Do not begin by replacing all analysis code. The smallest useful foundation is:
 The reference fine resolution should be chosen only after smoke-tier timing and
 artifact-size measurement. The eight-million-cell product cap is a guardrail,
 not an automatic evaluation budget.
-
