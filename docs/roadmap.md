@@ -250,6 +250,17 @@ Feature expansion is temporarily paused for the evaluation pass defined in the
 research synthesis and model-strategy decision supersede the earlier provisional
 ordering below. Preserve that ordering as prior intent until evidence revises it.
 
+Current evaluation sequence, from the
+[first corpus synthesis](evaluation-synthesis.md):
+
+1. extract provisional range/plateau/ridge/divide/peak/pass semantics;
+2. inspect seeds 8675309, 9001 and 12345 in matched physical, cartographic and
+   hillshade-led views with complete transform provenance;
+3. run controlled correspondence batteries for climate, uplift–erosion,
+   hydrology and remapping;
+4. add object/relationship metrics and assess cost per meaningful feature;
+5. write the model-strategy decision before resuming feature expansion.
+
 Earlier provisional sequence:
 
 1. finish the documentation/archive and contributor-entry work;

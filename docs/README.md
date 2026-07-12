@@ -29,6 +29,8 @@ experimental, superseded, or awaiting classification.
   reproducibility, performance and promotion gates.
 - [World evaluation charter](evaluation-charter.md) — current zoomed-out
   evaluation questions, canonical corpus, research contract and stop conditions.
+- [World evaluation synthesis](evaluation-synthesis.md) — first ten-seed
+  numerical, correspondence and outlier assessment.
 - [Metric registry](metric-registry.md) — measurement schema, decision roles and
   initial numerical-inventory scope.
 - [Numerical instrumentation inventory](inventory/numerical-instrumentation.md)

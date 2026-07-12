@@ -33,6 +33,10 @@ The pass should leave five durable products:
 - comparable external research briefs;
 - a model-strategy decision that revises system assessments and the roadmap.
 
+The first corpus/research synthesis is maintained in
+[evaluation-synthesis.md](evaluation-synthesis.md); it remains provisional until
+feature correspondence and matched visual inspection are added.
+
 Raw reports and images are evidence. The synthesis documents own current
 interpretation; dated audit records remain immutable historical evidence.
 

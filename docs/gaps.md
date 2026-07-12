@@ -32,13 +32,16 @@ visible consequences.
 
 | Candidate | Visible payoff | Emergence / reach | Cost / readiness | Provisional Pareto view |
 |---|---|---|---|---|
+| Landform semantics: ranges, plateaus, ridges, valleys, divides and passes | High through inspection and feature-aware rendering | Very high across causal validation, cartography, ecology and later culture | Medium; diagnostics contain prototypes but definitions conflict | **Highest-priority evaluation extraction** |
+| Controlled correspondence batteries for current systems | Indirect visually; prevents expensive false confidence | Very high across tectonics, climate, hydrology, erosion and remapping | Low–medium; idealized cases and ablations | **Do before mechanism expansion** |
+| Presentation transform ledger plus matched physical/cartographic views | High clarity and prevents false geometric inference | High diagnostic and rendering leverage | Low; physical/cartographic split already exists | **Immediate** |
 | Explicit semantic objects and regions | High through inspection, cartography and later gameplay | Very high; reused by rendering, validation, ecology and civilization | Low–medium; much logic already exists implicitly | **Do early** |
 | Presentation profiles, legends and capture metadata | High clarity; moderate spectacle | High diagnostic and decision value | Low; ready now | **Do early** |
 | Consistent scale-dependent rivers/overlays | High at globe/map scales | Medium; improves all thematic views | Medium; semantic generalization needed first | **Early** |
 | Elevation/unit/scale contract | Indirect visually, critical diagnostically | Very high across terrain, erosion and rendering | Low–medium; requires careful normalization audit | **Do early** |
 | Unified experiment/config provenance | Indirect but prevents invalid decisions | Very high across all development | Low–medium | **Do early** |
-| Biome constraints and ecological regions | Very high recognizability and world identity | High; consumes climate, water, elevation and future soils/resources | Medium; current inputs are usable but incomplete | **Early prototype** |
-| Vegetation coverage and scale-aware forest rendering | Very high spectacle and board/globe richness | Medium–high; feeds ecology, resources and settlement | Medium; split state from tree rendering | **Early after biome semantics** |
+| Biome constraints and ecological regions | Very high recognizability and world identity | High; consumes climate, water, elevation and future soils/resources | Medium; prototype exposes 14–40% transition coverage and unvalidated climate inputs | **Paused pending climate/landform correspondence** |
+| Vegetation coverage and scale-aware forest rendering | Very high spectacle and board/globe richness | Medium–high; feeds ecology, resources and settlement | Medium; split state from tree rendering | **Paused behind evaluation** |
 | Persistent sediment budget v0 | High potential at rivers, basins, coasts and range surroundings | Very high coupling across erosion, lithology, flexure and hydrology | Medium–high; time/material ownership needed | **Research then bounded prototype** |
 | Soil/moisture substrate | Moderate directly, high through vegetation/agriculture | High for ecology and civilization | Medium; depends partly on sediment/weathering choices | **After biome prototype clarifies need** |
 | Same-clock tectonics and erosion | Potentially high terrain authenticity | Very high if stable; connects mountain age, uplift and denudation | High; tectonic carrier operators currently fail convergence | **Research gate, not product rewrite yet** |
@@ -74,7 +77,7 @@ The first semantic work should reuse existing derivations rather than begin with
 a generic entity framework. Rivers/water bodies and ranges are the best initial
 objects because their topology and diagnostics already exist.
 
-## Highest-leverage new visible domain: living surface
+## High-leverage visible domain, currently paused: living surface
 
 Biomes and vegetation can produce a large visual and semantic jump using current
 temperature, precipitation, elevation, continentality, water and terrain state.
@@ -90,6 +93,11 @@ The first version should not simulate individual trees or full succession. It
 should make forests, grasslands, deserts, wetlands and alpine/polar zones arise
 from coherent inputs, expose why a region received its state, and preserve room
 for later soils, fire, disturbance or human land use.
+
+The first corpus shows provisional biome transition coverage ranging from about
+14% to 40% across seeds. This does not diagnose climate quality, but it confirms
+that calibration should not advance before climate controls and landform
+semantics are evaluated.
 
 Risks include producing a climate lookup-table painted over terrain, allowing
 noisy cell classifications, or treating rendered trees as ecological state.
@@ -190,4 +198,3 @@ Before major implementation, targeted external research should compare:
 
 Research should return mechanism, payoff, compute, failure modes and a proposed
 Hex3-scale approximation—not a survey of maximum-fidelity simulations.
-
