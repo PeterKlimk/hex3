@@ -299,3 +299,8 @@ The [subtractive architecture audit](subtractive-audit.md) remains evidence,
 not a standing optimization queue. Cleanup, ablation or performance work enters
 this sequence only when it resolves an identified geographic or iteration-cost
 decision.
+
+Seed 12345 now has a first spatial dossier packet with diverse mountain, lake
+and river targets and exact drainage-integration provenance. This is evidence
+toward steps 1–2, not completion: range/plateau/divide semantics and matched
+diagnostic-layer Windows captures remain open.

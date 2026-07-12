@@ -13,3 +13,9 @@ Current dossiers:
 
 - [Seed 12345](seed-12345.md) — reference/high-relief world; first vertical
   slice establishing the method and identifying the next evidence packet.
+
+CPU spatial packets are generated with the `dossier` binary. Their JSON
+artifacts contain exact run manifests and selected-object coordinates but are
+ignored by Git; maintained interpretation belongs in the dossier documents.
+Matched relief captures use the Windows sweep renderer with repeated
+`--sweep-target id:lat:lon` arguments and emit a `capture.json` sidecar.

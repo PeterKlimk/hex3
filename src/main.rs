@@ -425,6 +425,11 @@ struct Cli {
     #[arg(long, default_value_t = 0.3)]
     sweep_zoom_alt: f32,
 
+    /// Stable close-up target as id:latitude_degrees:longitude_degrees. Repeat
+    /// for matched dossier captures. Explicit targets replace auto highlands.
+    #[arg(long, value_name = "ID:LAT_DEG:LON_DEG")]
+    sweep_target: Vec<app::sweep::SweepTarget>,
+
     /// Rivers in sweep tiles: off, major, or all.
     #[arg(long, default_value = "major")]
     sweep_rivers: String,
@@ -550,6 +555,7 @@ fn main() {
             seed: cli.seed.unwrap_or_else(rand::random),
             cells: cli.cells,
             fine_scale: cli.fine_scale,
+            fine_max: cli.fine_max,
             // Sweeps are about erosion, so default to the erosion stage.
             target_stage: cli.stage.unwrap_or(4),
             voronoi_backend: backend,
@@ -569,7 +575,14 @@ fn main() {
             distance: cli.sweep_distance,
             zoom_views: cli.sweep_zoom_views,
             zoom_alt: cli.sweep_zoom_alt,
+            targets: cli.sweep_target,
             river_mode,
+            river_threshold_policy: if cli.river_legacy {
+                "legacy-count-equivalent".to_string()
+            } else {
+                "catchment-km2".to_string()
+            },
+            river_min_catchment_km2: (!cli.river_legacy).then_some(cli.river_min_catchment_km2),
         };
         app::sweep::run_sweep(opts);
     } else if cli.headless {

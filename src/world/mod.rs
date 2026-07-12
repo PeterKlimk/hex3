@@ -34,6 +34,7 @@ mod constants;
 mod crust;
 mod deformation;
 pub mod diagnostics;
+mod dossier;
 mod dynamics;
 mod ecology;
 mod elevation;
@@ -58,6 +59,7 @@ pub use crust::{Crust, CrustType};
 /// Default plate count used by the app and diagnostic tooling.
 pub const NUM_PLATES_DEFAULT: usize = 14;
 pub use deformation::CarrierOperatorAudit;
+pub use dossier::{DossierPacket, DOSSIER_SCHEMA_VERSION};
 pub use dynamics::{Dynamics, EulerPole, TectonicClock};
 pub use ecology::{BiomeKind, EcologicalCell, EcologicalPotentials, EcologySemantics};
 pub use elevation::{Elevation, NoiseLayerData, OrogenModel};

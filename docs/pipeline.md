@@ -84,6 +84,13 @@ uplift and optional experimental processes. It applies bounded fine climate
 feedback and derives hydrology again on the eroded terrain. The resulting
 surface is retained as `FineWorld.eroded`; Stage 3 is not destroyed.
 
+Hydrology may lower outlet-path cells during its explicit drainage-integration
+hack. Each `Hydrology` now retains sparse exact records of those cuts and a
+bitset of source-basin cells selected for breaching. The final surface remains
+the post-integration authoritative terrain, but diagnostics can reconstruct the
+terrain supplied to hydrology and distinguish erosion from integration cuts
+without retaining a second full elevation array.
+
 `rerun_fine_eroded` replaces only the eroded surface using current erosion
 parameters. It deliberately avoids regenerating the expensive fine base, making
 controlled erosion comparisons practical.

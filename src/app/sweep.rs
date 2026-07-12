@@ -14,8 +14,10 @@
 
 use std::io::BufWriter;
 use std::path::PathBuf;
+use std::str::FromStr;
 
 use glam::{Mat4, Vec3};
+use serde::Serialize;
 
 use hex3::render::{
     FillPipelineKind, GpuContext, IndexedDraw, OrbitCamera, RenderScene, Renderer, Uniforms,
@@ -24,8 +26,8 @@ use hex3::world::{FineCacheMode, OrogenModel, VoronoiBackend, World, RELIEF_SCAL
 
 use super::view::RiverMode;
 use super::world::{
-    advance_to_stage_2, advance_to_stage_3, advance_to_stage_4, create_world_with_orogen_model,
-    generate_world_buffers, ErosionOverrides,
+    advance_to_stage_2, advance_to_stage_3, advance_to_stage_3_with_cap, advance_to_stage_4,
+    create_world_with_orogen_model, generate_world_buffers, ErosionOverrides,
 };
 
 /// Knobs the sweep can vary, mapped onto [`ErosionOverrides`] fields.
@@ -72,11 +74,73 @@ pub const SWEEP_KNOBS: &[&str] = &[
     "orogen_model",
 ];
 
+/// A stable, human-named camera target supplied as `id:lat_deg:lon_deg`.
+///
+/// Hex3 uses Y as the polar axis and longitude `atan2(z, x)`: longitude zero is
+/// +X and positive longitude rotates toward +Z.
+#[derive(Clone, Debug, Serialize)]
+pub struct SweepTarget {
+    pub id: String,
+    pub latitude_deg: f32,
+    pub longitude_deg: f32,
+}
+
+impl SweepTarget {
+    fn unit_position(&self) -> Vec3 {
+        let lat = self.latitude_deg.to_radians();
+        let lon = self.longitude_deg.to_radians();
+        Vec3::new(lat.cos() * lon.cos(), lat.sin(), lat.cos() * lon.sin())
+    }
+}
+
+impl FromStr for SweepTarget {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let mut fields = value.split(':');
+        let id = fields.next().unwrap_or_default();
+        let latitude = fields.next();
+        let longitude = fields.next();
+        if id.is_empty() || latitude.is_none() || longitude.is_none() || fields.next().is_some() {
+            return Err("expected id:lat_deg:lon_deg".to_string());
+        }
+        if !id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+        {
+            return Err(
+                "target id may contain only ASCII letters, digits, '-' and '_'".to_string(),
+            );
+        }
+        let latitude_deg = latitude
+            .unwrap()
+            .parse::<f32>()
+            .map_err(|_| "latitude must be a number in degrees".to_string())?;
+        let longitude_deg = longitude
+            .unwrap()
+            .parse::<f32>()
+            .map_err(|_| "longitude must be a number in degrees".to_string())?;
+        if !latitude_deg.is_finite() || !(-90.0..=90.0).contains(&latitude_deg) {
+            return Err("latitude must be finite and between -90 and 90 degrees".to_string());
+        }
+        if !longitude_deg.is_finite() || !(-180.0..=180.0).contains(&longitude_deg) {
+            return Err("longitude must be finite and between -180 and 180 degrees".to_string());
+        }
+        Ok(Self {
+            id: id.to_string(),
+            latitude_deg,
+            longitude_deg,
+        })
+    }
+}
+
 /// Options for a sweep run, assembled from the CLI.
 pub struct SweepOptions {
     pub seed: u64,
     pub cells: usize,
     pub fine_scale: f32,
+    /// Fine-mesh cell guardrail. Zero uses the product/default budget.
+    pub fine_max: usize,
     pub target_stage: u32,
     pub voronoi_backend: VoronoiBackend,
     pub orogen_model: OrogenModel,
@@ -106,7 +170,12 @@ pub struct SweepOptions {
     pub zoom_views: usize,
     /// Close-up camera altitude above the target (smaller = tighter zoom).
     pub zoom_alt: f32,
+    /// Stable dossier targets. When non-empty these replace automatically
+    /// selected highland close-ups; the globe overview is still included.
+    pub targets: Vec<SweepTarget>,
     pub river_mode: RiverMode,
+    pub river_threshold_policy: String,
+    pub river_min_catchment_km2: Option<f32>,
 }
 
 /// Apply one knob=value onto the overrides. Errors on an unknown knob name.
@@ -198,7 +267,11 @@ fn generate_tile_world(opts: &SweepOptions, overrides: &ErosionOverrides) -> Wor
         advance_to_stage_2(&mut world);
     }
     if opts.target_stage >= 3 {
-        advance_to_stage_3(&mut world);
+        if opts.fine_max > 0 {
+            advance_to_stage_3_with_cap(&mut world, opts.fine_max);
+        } else {
+            advance_to_stage_3(&mut world);
+        }
     }
     if opts.target_stage >= 4 {
         advance_to_stage_4(&mut world);
@@ -421,10 +494,115 @@ fn target_camera(center_unit: Vec3, aspect: f32, alt: f32) -> (Mat4, Vec3) {
     (proj * view, eye)
 }
 
+#[derive(Debug)]
+struct CaptureView {
+    view_proj: Mat4,
+    eye: Vec3,
+    label: String,
+    sidecar: ViewRecord,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct ViewRecord {
+    id: String,
+    kind: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    target: Option<SweepTarget>,
+    camera: CameraRecord,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct CameraRecord {
+    eye_xyz: [f32; 3],
+    aim_xyz: [f32; 3],
+    up_xyz: [f32; 3],
+    vertical_fov_deg: f32,
+    aspect: f32,
+    near: f32,
+    far: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    target_altitude: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    orbit_yaw_deg: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    orbit_pitch_deg: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    orbit_distance: Option<f32>,
+}
+
+#[derive(Debug, Serialize)]
+struct CaptureSidecar {
+    schema_version: u32,
+    coordinate_convention: &'static str,
+    config: CaptureConfig,
+    views: Vec<ViewRecord>,
+    tiles: Vec<TileRecord>,
+    montage_filename: &'static str,
+    future_layers: [&'static str; 1],
+}
+
+#[derive(Debug, Serialize)]
+struct CaptureConfig {
+    seed: u64,
+    requested_coarse_cells: usize,
+    fine_scale: f32,
+    fine_max: usize,
+    target_stage: u32,
+    voronoi_backend: VoronoiBackend,
+    orogen_model: OrogenModel,
+    fine_cache: FineCacheMode,
+    viewport_width: u32,
+    viewport_height: u32,
+    sweep_stack: Option<String>,
+    primary_knob: String,
+    primary_values: Vec<f64>,
+    secondary_knob: Option<String>,
+    secondary_values: Vec<f64>,
+    overview_yaw_deg: f32,
+    overview_pitch_deg: f32,
+    overview_distance: f32,
+    closeup_altitude: f32,
+    explicit_targets: Vec<SweepTarget>,
+    automatic_zoom_views_if_no_targets: usize,
+    river_mode: &'static str,
+    river_threshold_policy: String,
+    river_min_catchment_km2: Option<f32>,
+}
+
+#[derive(Debug, Serialize)]
+struct TileRecord {
+    index: usize,
+    label: String,
+    filename_stem: String,
+    knob_values: Vec<KnobValue>,
+    relief_scale: f32,
+    river_width_scale: f32,
+    image_filenames: Vec<String>,
+    world_manifest: hex3::world::RunManifest,
+}
+
+#[derive(Debug, Serialize)]
+struct KnobValue {
+    name: String,
+    value: f64,
+}
+
+fn vec3_array(v: Vec3) -> [f32; 3] {
+    [v.x, v.y, v.z]
+}
+
+fn river_mode_label(mode: RiverMode) -> &'static str {
+    match mode {
+        RiverMode::Off => "off",
+        RiverMode::Major => "major",
+        RiverMode::All => "all",
+    }
+}
+
 /// Build the per-tile view set: a globe overview plus `zoom_views` close-ups
 /// aimed at the highest land in `world`. The same set is reused for every tile so
 /// each montage column shows the same region/angle across knob values.
-fn build_views(world: &World, opts: &SweepOptions) -> Vec<(Mat4, Vec3, String)> {
+fn build_views(world: &World, opts: &SweepOptions) -> Vec<CaptureView> {
     let aspect = opts.width as f32 / opts.height as f32;
     let mut views = Vec::new();
 
@@ -433,15 +611,76 @@ fn build_views(world: &World, opts: &SweepOptions) -> Vec<(Mat4, Vec3, String)> 
     cam.pitch = opts.pitch_deg.to_radians();
     cam.distance = opts.distance;
     cam.aspect = aspect;
-    views.push((
-        cam.view_projection(),
-        cam.eye_position(),
-        "globe".to_string(),
-    ));
+    let eye = cam.eye_position();
+    views.push(CaptureView {
+        view_proj: cam.view_projection(),
+        eye,
+        label: "globe".to_string(),
+        sidecar: ViewRecord {
+            id: "globe".to_string(),
+            kind: "overview",
+            target: None,
+            camera: CameraRecord {
+                eye_xyz: vec3_array(eye),
+                aim_xyz: [0.0, 0.0, 0.0],
+                up_xyz: [0.0, 1.0, 0.0],
+                vertical_fov_deg: 45.0,
+                aspect,
+                near: 0.01,
+                far: 10.0,
+                target_altitude: None,
+                orbit_yaw_deg: Some(opts.yaw_deg),
+                orbit_pitch_deg: Some(opts.pitch_deg),
+                orbit_distance: Some(opts.distance),
+            },
+        },
+    });
 
-    for (i, t) in pick_targets(world, opts.zoom_views).iter().enumerate() {
-        let (vp, eye) = target_camera(*t, aspect, opts.zoom_alt);
-        views.push((vp, eye, format!("zoom{}", i + 1)));
+    let targets: Vec<SweepTarget> = if opts.targets.is_empty() {
+        pick_targets(world, opts.zoom_views)
+            .into_iter()
+            .enumerate()
+            .map(|(i, p)| SweepTarget {
+                id: format!("zoom{}", i + 1),
+                latitude_deg: p.y.clamp(-1.0, 1.0).asin().to_degrees(),
+                longitude_deg: p.z.atan2(p.x).to_degrees(),
+            })
+            .collect()
+    } else {
+        opts.targets.clone()
+    };
+    for target in targets {
+        let center = target.unit_position();
+        let (vp, eye) = target_camera(center, aspect, opts.zoom_alt);
+        let n = center.normalize();
+        let aim = n * 1.08;
+        views.push(CaptureView {
+            view_proj: vp,
+            eye,
+            label: target.id.clone(),
+            sidecar: ViewRecord {
+                id: target.id.clone(),
+                kind: if opts.targets.is_empty() {
+                    "automatic-highland"
+                } else {
+                    "explicit-dossier-target"
+                },
+                target: Some(target),
+                camera: CameraRecord {
+                    eye_xyz: vec3_array(eye),
+                    aim_xyz: vec3_array(aim),
+                    up_xyz: vec3_array(n),
+                    vertical_fov_deg: 45.0,
+                    aspect,
+                    near: 0.01,
+                    far: 10.0,
+                    target_altitude: Some(opts.zoom_alt),
+                    orbit_yaw_deg: None,
+                    orbit_pitch_deg: None,
+                    orbit_distance: None,
+                },
+            },
+        });
     }
     views
 }
@@ -548,6 +787,15 @@ fn build_stack_tiles(
 /// Run the sweep: generate + render every knob combination to PNG tiles and a
 /// stitched montage in `opts.out_dir`.
 pub fn run_sweep(opts: SweepOptions) {
+    if !opts.zoom_alt.is_finite() || opts.zoom_alt <= 0.0 {
+        panic!("--sweep-zoom-alt must be finite and greater than zero");
+    }
+    let mut target_ids = std::collections::HashSet::new();
+    for target in &opts.targets {
+        if !target_ids.insert(target.id.as_str()) {
+            panic!("duplicate --sweep-target id '{}'", target.id);
+        }
+    }
     // Validate knob names up front so a typo fails before any (slow) generation
     // (knob sweeps only; a stack preset uses fixed, pre-validated knobs).
     if opts.stack.is_none() {
@@ -563,31 +811,43 @@ pub fn run_sweep(opts: SweepOptions) {
 
     // Tile list: a cumulative stack preset, or the flattened knob grid (row-major:
     // knob2 outer, knob1 inner).
-    let tiles: Vec<(ErosionOverrides, String, String)> = if let Some(stack) = &opts.stack {
-        build_stack_tiles(stack, &opts.base_erosion)
-    } else {
-        let rows: Vec<Option<f64>> = if opts.knob2.is_some() && !opts.values2.is_empty() {
-            opts.values2.iter().map(|&v| Some(v)).collect()
+    let tiles: Vec<(ErosionOverrides, String, String, Vec<KnobValue>)> =
+        if let Some(stack) = &opts.stack {
+            build_stack_tiles(stack, &opts.base_erosion)
+                .into_iter()
+                .map(|(overrides, label, fname)| (overrides, label, fname, Vec::new()))
+                .collect()
         } else {
-            vec![None]
-        };
-        let mut tiles = Vec::new();
-        for row_val in &rows {
-            for &v1 in &opts.values1 {
-                let mut overrides = opts.base_erosion;
-                apply_knob(&mut overrides, &opts.knob1, v1).unwrap();
-                let mut label = format!("{}={}", opts.knob1, fmt_value(v1));
-                let mut fname = format!("{}_{}", opts.knob1, fmt_value(v1));
-                if let (Some(k2), Some(v2)) = (&opts.knob2, row_val) {
-                    apply_knob(&mut overrides, k2, *v2).unwrap();
-                    label = format!("{label}, {}={}", k2, fmt_value(*v2));
-                    fname = format!("{fname}__{}_{}", k2, fmt_value(*v2));
+            let rows: Vec<Option<f64>> = if opts.knob2.is_some() && !opts.values2.is_empty() {
+                opts.values2.iter().map(|&v| Some(v)).collect()
+            } else {
+                vec![None]
+            };
+            let mut tiles = Vec::new();
+            for row_val in &rows {
+                for &v1 in &opts.values1 {
+                    let mut overrides = opts.base_erosion;
+                    apply_knob(&mut overrides, &opts.knob1, v1).unwrap();
+                    let mut label = format!("{}={}", opts.knob1, fmt_value(v1));
+                    let mut fname = format!("{}_{}", opts.knob1, fmt_value(v1));
+                    let mut knob_values = vec![KnobValue {
+                        name: opts.knob1.clone(),
+                        value: v1,
+                    }];
+                    if let (Some(k2), Some(v2)) = (&opts.knob2, row_val) {
+                        apply_knob(&mut overrides, k2, *v2).unwrap();
+                        label = format!("{label}, {}={}", k2, fmt_value(*v2));
+                        fname = format!("{fname}__{}_{}", k2, fmt_value(*v2));
+                        knob_values.push(KnobValue {
+                            name: k2.clone(),
+                            value: *v2,
+                        });
+                    }
+                    tiles.push((overrides, label, fname, knob_values));
                 }
-                tiles.push((overrides, label, fname));
             }
-        }
-        tiles
-    };
+            tiles
+        };
     let n_tiles = tiles.len();
 
     let what = if let Some(stack) = &opts.stack {
@@ -607,7 +867,11 @@ pub fn run_sweep(opts: SweepOptions) {
         "Sweep: {} -> {} tiles x {} views at {}x{}, stage {}, seed {}",
         what,
         n_tiles,
-        1 + opts.zoom_views,
+        1 + if opts.targets.is_empty() {
+            opts.zoom_views
+        } else {
+            opts.targets.len()
+        },
         opts.width,
         opts.height,
         opts.target_stage,
@@ -639,9 +903,10 @@ pub fn run_sweep(opts: SweepOptions) {
     // tile, so each montage column is the same region/angle across knob values
     // (the macro-geography is fixed by the seed; erosion knobs don't relocate it).
     // Montage rows = tiles, columns = views.
-    let mut views: Vec<(Mat4, Vec3, String)> = Vec::new();
+    let mut views: Vec<CaptureView> = Vec::new();
     let mut montage: Vec<u8> = Vec::new();
     let mut montage_w = 0u32;
+    let mut tile_records = Vec::with_capacity(n_tiles);
 
     // Presentation sweeps are renderer-only: generate the terrain and GPU
     // buffers once so every row differs only in drawing policy.
@@ -654,7 +919,7 @@ pub fn run_sweep(opts: SweepOptions) {
         .as_ref()
         .map(|world| generate_world_buffers(&gpu.device, &gpu.queue, world));
 
-    for (ti, (overrides, label, fname)) in tiles.iter().enumerate() {
+    for (ti, (overrides, label, fname, knob_values)) in tiles.iter().enumerate() {
         print!("[{}/{}] {label} ... ", ti + 1, n_tiles);
         use std::io::Write;
         let _ = std::io::stdout().flush();
@@ -680,21 +945,24 @@ pub fn run_sweep(opts: SweepOptions) {
             .as_ref()
             .or(owned_buffers.as_ref())
             .expect("sweep buffers");
-        for (vi, (view_proj, eye, vlabel)) in views.iter().enumerate() {
+        let mut image_filenames = Vec::with_capacity(views.len());
+        for (vi, view) in views.iter().enumerate() {
             render_relief(
                 &gpu,
                 &mut renderer,
                 &color_view,
                 &buffers,
-                *view_proj,
-                *eye,
+                view.view_proj,
+                view.eye,
                 opts.river_mode,
                 overrides.relief_scale.unwrap_or(RELIEF_SCALE),
                 overrides.river_width_scale.unwrap_or(1.0),
             );
             let rgba = read_back_rgba(&gpu, &color_tex, opts.width, opts.height);
-            let tile_path = opts.out_dir.join(format!("{fname}_{vlabel}.png"));
+            let filename = format!("{fname}_{}.png", view.label);
+            let tile_path = opts.out_dir.join(&filename);
             write_png(&tile_path, &rgba, opts.width, opts.height);
+            image_filenames.push(filename);
             blit_tile(
                 &mut montage,
                 montage_w,
@@ -705,6 +973,22 @@ pub fn run_sweep(opts: SweepOptions) {
                 ti as u32,
             );
         }
+        tile_records.push(TileRecord {
+            index: ti,
+            label: label.clone(),
+            filename_stem: fname.clone(),
+            knob_values: knob_values
+                .iter()
+                .map(|kv| KnobValue {
+                    name: kv.name.clone(),
+                    value: kv.value,
+                })
+                .collect(),
+            relief_scale: overrides.relief_scale.unwrap_or(RELIEF_SCALE),
+            river_width_scale: overrides.river_width_scale.unwrap_or(1.0),
+            image_filenames,
+            world_manifest: world.manifest(),
+        });
 
         println!("{:.1}s", t0.elapsed().as_secs_f64());
     }
@@ -712,10 +996,72 @@ pub fn run_sweep(opts: SweepOptions) {
     let montage_h = opts.height * n_tiles as u32;
     let montage_path = opts.out_dir.join("montage.png");
     write_png(&montage_path, &montage, montage_w, montage_h);
+    let sidecar = CaptureSidecar {
+        schema_version: 1,
+        coordinate_convention: "latitude=asin(y); longitude=atan2(z,x); degrees; positive longitude rotates +X toward +Z",
+        config: CaptureConfig {
+            seed: opts.seed,
+            requested_coarse_cells: opts.cells,
+            fine_scale: opts.fine_scale,
+            fine_max: opts.fine_max,
+            target_stage: opts.target_stage,
+            voronoi_backend: opts.voronoi_backend,
+            orogen_model: opts.orogen_model,
+            fine_cache: opts.fine_cache,
+            viewport_width: opts.width,
+            viewport_height: opts.height,
+            sweep_stack: opts.stack.clone(),
+            primary_knob: opts.knob1.clone(),
+            primary_values: opts.values1.clone(),
+            secondary_knob: opts.knob2.clone(),
+            secondary_values: opts.values2.clone(),
+            overview_yaw_deg: opts.yaw_deg,
+            overview_pitch_deg: opts.pitch_deg,
+            overview_distance: opts.distance,
+            closeup_altitude: opts.zoom_alt,
+            explicit_targets: opts.targets.clone(),
+            automatic_zoom_views_if_no_targets: opts.zoom_views,
+            river_mode: river_mode_label(opts.river_mode),
+            river_threshold_policy: opts.river_threshold_policy.clone(),
+            river_min_catchment_km2: opts.river_min_catchment_km2,
+        },
+        views: views.iter().map(|view| view.sidecar.clone()).collect(),
+        tiles: tile_records,
+        montage_filename: "montage.png",
+        future_layers: ["Diagnostic-layer captures are not implemented in this packet."],
+    };
+    let sidecar_path = opts.out_dir.join("capture.json");
+    let sidecar_file = std::fs::File::create(&sidecar_path)
+        .unwrap_or_else(|e| panic!("create {}: {e}", sidecar_path.display()));
+    serde_json::to_writer_pretty(BufWriter::new(sidecar_file), &sidecar)
+        .expect("write capture sidecar");
     println!(
-        "Done: {} tiles x {} views + montage -> {}",
+        "Done: {} tiles x {} views + montage + capture.json -> {}",
         n_tiles,
         views.len(),
         montage_path.display()
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SweepTarget;
+
+    #[test]
+    fn parses_dossier_target_in_project_coordinates() {
+        let target: SweepTarget = "range_a:30:90".parse().unwrap();
+        let p = target.unit_position();
+        assert!((p.x - 0.0).abs() < 1.0e-6);
+        assert!((p.y - 0.5).abs() < 1.0e-6);
+        assert!((p.z - 30.0_f32.to_radians().cos()).abs() < 1.0e-6);
+    }
+
+    #[test]
+    fn rejects_invalid_dossier_targets() {
+        assert!("missing-fields".parse::<SweepTarget>().is_err());
+        assert!("bad/id:0:0".parse::<SweepTarget>().is_err());
+        assert!("north:91:0".parse::<SweepTarget>().is_err());
+        assert!("wrap:0:181".parse::<SweepTarget>().is_err());
+        assert!("nan:NaN:0".parse::<SweepTarget>().is_err());
+    }
 }

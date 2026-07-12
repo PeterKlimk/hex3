@@ -42,8 +42,9 @@ further parameter optimization.
 
 The first application is the preliminary
 [seed-12345 planet dossier](dossiers/seed-12345.md). It records causal lineage
-and object probes, explicitly separating current findings from the spatial and
-matched-view evidence still required.
+and object probes. A CPU packet now selects diverse named mountain, lake and
+river targets with sparse drainage-repair provenance; matched Windows views and
+diagnostic overlays remain required.
 
 The first corpus/research synthesis is maintained in
 [evaluation-synthesis.md](evaluation-synthesis.md); it remains provisional until

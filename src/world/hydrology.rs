@@ -109,8 +109,23 @@ pub struct WaterBody {
 
 /// Hydrology data for the world.
 pub struct Hydrology {
-    /// Elevation used for hydrology calculations.
+    /// Effective elevation used for hydrology calculations after drainage
+    /// integration. Use the integration provenance query methods to recover the
+    /// supplied elevation or identify carved outlet cells.
     pub elevation: Vec<f32>,
+
+    /// Sorted cell indices lowered by drainage integration. Kept sparse because
+    /// outlet cuts normally affect only a tiny fraction of a fine surface.
+    integration_cut_cells: Vec<usize>,
+
+    /// Exact supplied elevations for `integration_cut_cells`, before carving.
+    /// The effective values live in `elevation` at the corresponding cell.
+    integration_cut_source_elevations: Vec<f32>,
+
+    /// Cells belonging to a pre-integration basin selected for breaching.
+    /// This is source/catchment provenance, not a changed-cell mask: only some
+    /// cells on an outlet path are actually lowered.
+    pub integration_breached_source: Vec<bool>,
 
     /// Depression-filled elevation (every cell can drain to ocean).
     pub filled_elevation: Vec<f32>,
@@ -196,6 +211,31 @@ const CARVE_SLOPE: f32 = 0.0002;
 /// This is checked per water body (connected component), not per basin.
 pub const MIN_LAKE_DEPTH: f32 = 0.01;
 
+#[inline]
+fn lowering_depth(source_elevation: f32, effective_elevation: f32) -> f32 {
+    (source_elevation - effective_elevation).max(0.0)
+}
+
+#[inline]
+fn elevation_was_lowered(source_elevation: f32, effective_elevation: f32) -> bool {
+    effective_elevation < source_elevation
+}
+
+fn collect_integration_cuts(source: &[f32], effective: &[f32]) -> (Vec<usize>, Vec<f32>) {
+    debug_assert_eq!(source.len(), effective.len());
+    let mut cells = Vec::new();
+    let mut source_elevations = Vec::new();
+    for (cell, (&source_elevation, &effective_elevation)) in
+        source.iter().zip(effective).enumerate()
+    {
+        if elevation_was_lowered(source_elevation, effective_elevation) {
+            cells.push(cell);
+            source_elevations.push(source_elevation);
+        }
+    }
+    (cells, source_elevations)
+}
+
 impl Hydrology {
     /// Generate hydrology from elevation, crust, and precipitation.
     ///
@@ -251,6 +291,8 @@ impl Hydrology {
         let t0 = Instant::now();
         let (integrated_elevation, breached_cell) =
             integrate_basins(tessellation, raw_elevation, &areas, &is_ocean);
+        let (integration_cut_cells, integration_cut_source_elevations) =
+            collect_integration_cuts(raw_elevation, &integrated_elevation);
         let raw_elevation: &[f32] = &integrated_elevation;
         log::info!("hydrology: drainage integration {:.2?}", t0.elapsed());
 
@@ -386,6 +428,9 @@ impl Hydrology {
 
         Self {
             elevation: raw_elevation.to_vec(),
+            integration_cut_cells,
+            integration_cut_source_elevations,
+            integration_breached_source: breached_cell,
             filled_elevation,
             drainage_dir,
             flow_accumulation,
@@ -397,6 +442,44 @@ impl Hydrology {
             climate_ratio,
             mean_cell_discharge,
         }
+    }
+
+    /// Depth by which drainage integration lowered this cell. Zero means the
+    /// source terrain was left unchanged.
+    pub fn integration_cut_depth(&self, cell_idx: usize) -> f32 {
+        lowering_depth(
+            self.pre_integration_elevation(cell_idx),
+            self.elevation[cell_idx],
+        )
+    }
+
+    /// Whether drainage integration changed this cell's elevation.
+    pub fn was_lowered_by_integration(&self, cell_idx: usize) -> bool {
+        self.integration_cut_cells.binary_search(&cell_idx).is_ok()
+    }
+
+    /// Elevation supplied to hydrology before drainage integration. Unchanged
+    /// cells require no stored record and therefore return their effective value.
+    pub fn pre_integration_elevation(&self, cell_idx: usize) -> f32 {
+        match self.integration_cut_cells.binary_search(&cell_idx) {
+            Ok(index) => self.integration_cut_source_elevations[index],
+            Err(_) => self.elevation[cell_idx],
+        }
+    }
+
+    /// Number of cells actually lowered by drainage integration.
+    pub fn integration_cut_count(&self) -> usize {
+        self.integration_cut_cells.len()
+    }
+
+    /// Iterate over `(cell, source elevation, effective elevation)` records for
+    /// every cell actually lowered by drainage integration, in cell order.
+    pub fn integration_cuts(&self) -> impl Iterator<Item = (usize, f32, f32)> + '_ {
+        self.integration_cut_cells
+            .iter()
+            .copied()
+            .zip(self.integration_cut_source_elevations.iter().copied())
+            .map(|(cell, source)| (cell, source, self.elevation[cell]))
     }
 
     /// Get the water state of a cell.
@@ -1665,6 +1748,28 @@ fn extract_water_bodies(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sparse_integration_cuts_reconstruct_source_elevation() {
+        let source = vec![0.2_f32, 0.1375, -0.1, 0.4];
+        let effective = vec![0.2_f32, 0.08125, -0.1, 0.35];
+        let (cells, source_elevations) = collect_integration_cuts(&source, &effective);
+
+        assert_eq!(cells, vec![1, 3]);
+        assert_eq!(source_elevations, vec![source[1], source[3]]);
+        for (&cell, &source_elevation) in cells.iter().zip(&source_elevations) {
+            let cut = lowering_depth(source_elevation, effective[cell]);
+            assert!((effective[cell] + cut - source[cell]).abs() <= f32::EPSILON);
+        }
+    }
+
+    #[test]
+    fn integration_provenance_reports_unchanged_elevation_without_a_cut() {
+        let elevation = -0.225_f32;
+
+        assert!(!elevation_was_lowered(elevation, elevation));
+        assert_eq!(lowering_depth(elevation, elevation), 0.0);
+    }
 
     fn test_basin(evaporation_factor: f32) -> Basin {
         Basin {

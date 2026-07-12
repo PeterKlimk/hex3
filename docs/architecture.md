@@ -130,6 +130,10 @@ flow, constructs basin/overflow relationships, and derives equilibrium lakes
 and rivers. Pre-erosion hydrology supplies routing and base levels to erosion;
 post-erosion hydrology describes the final retained surface.
 
+Drainage integration is a declared terrain-repair operator inside hydrology,
+not erosion. Its sparse cut/source provenance is retained so water gaps and
+river paths can disclose when this authentic hack changed their terrain.
+
 ## Semantic derivation
 
 There is not yet one semantic-model module. Its responsibilities are distributed
