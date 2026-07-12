@@ -303,4 +303,11 @@ decision.
 Seed 12345 now has a first spatial dossier packet with diverse mountain, lake
 and river targets and exact drainage-integration provenance. This is evidence
 toward steps 1–2, not completion: range/plateau/divide semantics and matched
-diagnostic-layer Windows captures remain open.
+diagnostic layers outside the completed range-ancestry packet remain open.
+
+The first range-ancestry packet and binary repeated-uplift control now locate
+the flat-plateau defect upstream of erosion: the coarse distance-band envelope
+is already table-like, fine structural synthesis is a no-op at product defaults,
+and repeated uplift amplifies rather than originates the grammar. The next
+bounded comparison should test segment-varying source geometry and a causal
+crest/divide skeleton at fixed height/volume budget.

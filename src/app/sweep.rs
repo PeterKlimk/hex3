@@ -20,9 +20,13 @@ use glam::{Mat4, Vec3};
 use serde::Serialize;
 
 use hex3::render::{
-    FillPipelineKind, GpuContext, IndexedDraw, OrbitCamera, RenderScene, Renderer, Uniforms,
+    create_index_buffer, create_vertex_buffer, FillPipelineKind, GpuContext, IndexedDraw,
+    OrbitCamera, RenderScene, Renderer, Uniforms,
 };
-use hex3::world::{FineCacheMode, OrogenModel, VoronoiBackend, World, RELIEF_SCALE};
+use hex3::{
+    geometry::{Material, UnifiedMesh},
+    world::{FineCacheMode, OrogenModel, Tessellation, VoronoiBackend, World, RELIEF_SCALE},
+};
 
 use super::view::RiverMode;
 use super::world::{
@@ -784,6 +788,355 @@ fn build_stack_tiles(
     }
 }
 
+#[derive(Debug, Serialize)]
+struct RangeAncestrySidecar {
+    schema_version: u32,
+    purpose: &'static str,
+    coordinate_convention: &'static str,
+    color_sampling: &'static str,
+    world_manifest: hex3::world::RunManifest,
+    cameras: Vec<ViewRecord>,
+    layers: Vec<RangeLayerRecord>,
+    montage_filename: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct RangeLayerRecord {
+    index: usize,
+    id: &'static str,
+    label: &'static str,
+    topology: &'static str,
+    role: &'static str,
+    source: &'static str,
+    units: &'static str,
+    relief_scale: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    robust_color_min: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    robust_color_max: Option<f32>,
+    image_filenames: Vec<String>,
+}
+
+struct DiagnosticMeshBuffers {
+    vertices: wgpu::Buffer,
+    indices: wgpu::Buffer,
+    index_count: u32,
+}
+
+fn robust_scale(values: &[f32]) -> (f32, f32) {
+    let mut finite: Vec<f32> = values.iter().copied().filter(|v| v.is_finite()).collect();
+    assert!(!finite.is_empty(), "diagnostic layer has no finite values");
+    finite.sort_unstable_by(f32::total_cmp);
+    let quantile = |q: f32| {
+        let i = (q * (finite.len() - 1) as f32).round() as usize;
+        finite[i]
+    };
+    let lo = quantile(0.02);
+    let mut hi = quantile(0.98);
+    if hi <= lo {
+        hi = finite[finite.len() - 1];
+    }
+    if hi <= lo {
+        hi = lo + 1.0;
+    }
+    (lo, hi)
+}
+
+fn scalar_gray(value: f32, lo: f32, hi: f32) -> Vec3 {
+    let t = ((value - lo) / (hi - lo)).clamp(0.0, 1.0);
+    // Keep both ends away from black/white so lighting and mesh facets remain legible.
+    Vec3::splat(0.12 + 0.76 * t)
+}
+
+fn diagnostic_mesh(
+    device: &wgpu::Device,
+    tess: &Tessellation,
+    elevation: &[f32],
+    color_values: Option<(&[f32], f32, f32)>,
+) -> DiagnosticMeshBuffers {
+    assert_eq!(tess.num_cells(), elevation.len());
+    if let Some((values, _, _)) = color_values {
+        assert_eq!(tess.num_cells(), values.len());
+    }
+    let color = |i: usize| match color_values {
+        Some((values, lo, hi)) => scalar_gray(values[i], lo, hi),
+        None => Vec3::splat(0.52),
+    };
+    // Use the same shared-vertex interpolation for coarse and fine layers. A
+    // per-cell coarse mesh would introduce flat facets absent from the fine rows
+    // and confound the ancestry comparison. Scalar colors are consequently
+    // vertex-averaged too, providing topology-consistent anti-aliasing.
+    let mesh = UnifiedMesh::from_voronoi_shared_vertices(
+        &tess.voronoi,
+        color,
+        |_| Material::Land,
+        |i| elevation[i].max(0.0),
+    );
+    DiagnosticMeshBuffers {
+        vertices: create_vertex_buffer(device, &mesh.vertices, "range_ancestry_vertices"),
+        indices: create_index_buffer(device, &mesh.indices, "range_ancestry_indices"),
+        index_count: mesh.indices.len() as u32,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_diagnostic(
+    gpu: &GpuContext,
+    renderer: &mut Renderer,
+    color_view: &wgpu::TextureView,
+    buffers: &DiagnosticMeshBuffers,
+    river_bind_group: &wgpu::BindGroup,
+    view_proj: Mat4,
+    cam_pos: Vec3,
+    relief_scale: f32,
+    slope_shading: bool,
+) {
+    let uniforms = Uniforms::new(view_proj, cam_pos, Vec3::new(0.5, 1.0, 0.3).normalize())
+        .with_relief_scale(relief_scale)
+        .with_slope_shading(slope_shading)
+        .with_hemisphere_lighting(false)
+        .with_map_mode(false)
+        .with_rivers(false);
+    renderer.render_to_view(
+        &gpu.device,
+        &gpu.queue,
+        color_view,
+        &uniforms,
+        RenderScene {
+            fill_pipeline: FillPipelineKind::UnifiedGlobe,
+            fill: IndexedDraw {
+                vertex_buffer: &buffers.vertices,
+                index_buffer: &buffers.indices,
+                index_count: buffers.index_count,
+            },
+            river_texture_bind_group: Some(river_bind_group),
+            edges: None,
+            arrows: None,
+            pole_markers: None,
+            rivers: None,
+            gpu_particles: None,
+        },
+    );
+}
+
+fn terrain_slope(tess: &Tessellation, elevation: &[f32]) -> Vec<f32> {
+    (0..tess.num_cells())
+        .map(|i| {
+            let p = tess.cell_center(i);
+            tess.neighbors(i)
+                .iter()
+                .map(|&j| {
+                    let arc = p.dot(tess.cell_center(j)).clamp(-1.0, 1.0).acos();
+                    (elevation[j] - elevation[i]).abs() / arc.max(1e-7)
+                })
+                .fold(0.0, f32::max)
+        })
+        .collect()
+}
+
+/// Produce the one-world, matched-camera packet that discriminates where broad,
+/// flat-topped mountain morphology enters the product pipeline.
+fn run_range_ancestry(opts: &SweepOptions) {
+    assert_eq!(opts.target_stage, 4, "range-ancestry requires --stage 4");
+    assert_eq!(
+        opts.targets.len(),
+        3,
+        "range-ancestry requires exactly three explicit --sweep-target dossier range cameras"
+    );
+    assert_eq!(
+        opts.orogen_model,
+        OrogenModel::Legacy,
+        "range-ancestry reconstructs the default legacy uplift source only"
+    );
+
+    let world = generate_tile_world(opts, &opts.base_erosion);
+    let fine = world
+        .fine
+        .as_ref()
+        .expect("range-ancestry requires fine stage 4");
+    let final_surface = fine
+        .eroded
+        .as_ref()
+        .expect("range-ancestry requires eroded surface");
+    assert_eq!(
+        fine.base.emergent_lambda, 0.0,
+        "range-ancestry legacy uplift reconstruction requires emergent_lambda=0"
+    );
+    assert!(
+        fine.base.fields.elevation_fields.legacy_uplift_source,
+        "selected elevation fields do not authorize legacy repeated uplift"
+    );
+    assert_eq!(
+        world.erosion_params.uplift_smooth_km, 0.0,
+        "range-ancestry can exactly reconstruct only the default unsmoothed legacy uplift source"
+    );
+
+    std::fs::create_dir_all(&opts.out_dir)
+        .unwrap_or_else(|e| panic!("create {}: {e}", opts.out_dir.display()));
+    let gpu = pollster::block_on(GpuContext::new_headless(opts.width, opts.height));
+    let mut renderer = Renderer::new(&gpu, &Uniforms::new(Mat4::IDENTITY, Vec3::ZERO, Vec3::Y));
+    let color_tex = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("range_ancestry_color"),
+        size: wgpu::Extent3d {
+            width: opts.width,
+            height: opts.height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: gpu.format,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let color_view = color_tex.create_view(&Default::default());
+    // Reuse its transparent/disabled river binding; diagnostic meshes have no rivers.
+    let product_buffers = generate_world_buffers(&gpu.device, &gpu.queue, &world);
+    let views: Vec<CaptureView> = build_views(&world, opts).into_iter().skip(1).collect();
+
+    let coarse = &world.tessellation;
+    let coarse_elevation = &world.elevation.as_ref().expect("coarse elevation").values;
+    let fine_tess = &fine.base.tessellation;
+    let raw_eroded: Vec<f32> = (0..fine_tess.num_cells())
+        .map(|i| final_surface.hydrology.pre_integration_elevation(i))
+        .collect();
+    let final_elevation = &final_surface.hydrology.elevation;
+    let pre_integrated = &fine.pre.hydrology.elevation;
+    let ef = &fine.base.fields.elevation_fields;
+    let legacy_uplift: Vec<f32> = (0..fine_tess.num_cells())
+        .map(|i| {
+            if fine.base.base_elevation[i] < 0.0 {
+                0.0
+            } else {
+                world.erosion_params.uplift_scale * (ef.tectonic_thickening[i] + ef.rift_delta[i])
+            }
+        })
+        .collect();
+    let slope = terrain_slope(fine_tess, final_elevation);
+    let log_flow: Vec<f32> = final_surface
+        .hydrology
+        .flow_accumulation
+        .iter()
+        .map(|&v| v.max(0.0).ln_1p())
+        .collect();
+    let cuts: Vec<f32> = (0..fine_tess.num_cells())
+        .map(|i| final_surface.hydrology.integration_cut_depth(i))
+        .collect();
+
+    struct Layer<'a> {
+        id: &'static str,
+        label: &'static str,
+        tess: &'a Tessellation,
+        elevation: &'a [f32],
+        scalar: Option<&'a [f32]>,
+        role: &'static str,
+        source: &'static str,
+        units: &'static str,
+        relief: f32,
+    }
+    let layers = vec![
+        Layer { id: "coarse-elevation", label: "coarse elevation", tess: coarse, elevation: coarse_elevation, scalar: None, role: "terrain", source: "World::elevation.values", units: "elevation units", relief: 0.04 },
+        Layer { id: "fine-coarse-interpolant", label: "fine coarse interpolant", tess: fine_tess, elevation: &fine.base.coarse_base_elevation, scalar: None, role: "terrain", source: "FineBase::coarse_base_elevation", units: "elevation units", relief: 0.04 },
+        Layer { id: "fine-base", label: "fine pre-erosion base", tess: fine_tess, elevation: &fine.base.base_elevation, scalar: None, role: "terrain", source: "FineBase::base_elevation", units: "elevation units", relief: 0.04 },
+        Layer { id: "pre-erosion-integrated", label: "pre-erosion post-integration", tess: fine_tess, elevation: pre_integrated, scalar: None, role: "terrain", source: "FineWorld::pre.hydrology.elevation", units: "elevation units", relief: 0.04 },
+        Layer { id: "raw-eroded", label: "raw eroded pre-integration", tess: fine_tess, elevation: &raw_eroded, scalar: None, role: "terrain", source: "FineWorld::eroded.hydrology.pre_integration_elevation", units: "elevation units", relief: 0.04 },
+        Layer { id: "final", label: "final post-integration", tess: fine_tess, elevation: final_elevation, scalar: None, role: "terrain", source: "FineWorld::eroded.hydrology.elevation", units: "elevation units", relief: 0.04 },
+        Layer { id: "tectonic-thickening", label: "tectonic thickening", tess: fine_tess, elevation: final_elevation, scalar: Some(&ef.tectonic_thickening), role: "scalar", source: "FineFields::elevation_fields.tectonic_thickening", units: "crust-thickness units", relief: 0.0 },
+        Layer { id: "legacy-repeated-uplift", label: "exact default legacy repeated-uplift source", tess: fine_tess, elevation: final_elevation, scalar: Some(&legacy_uplift), role: "scalar", source: "uplift_scale * (tectonic_thickening + rift_delta), base-land gated; unsmoothed default", units: "thickness units per erosion step", relief: 0.0 },
+        Layer { id: "final-slope", label: "final slope", tess: fine_tess, elevation: final_elevation, scalar: Some(&slope), role: "scalar", source: "max neighbor |delta elevation| / arc radians on final integrated terrain", units: "elevation units per radian", relief: 0.0 },
+        Layer { id: "log-flow", label: "log flow / drainage", tess: fine_tess, elevation: final_elevation, scalar: Some(&log_flow), role: "scalar", source: "ln(1 + FineWorld::eroded.hydrology.flow_accumulation)", units: "log(1 + precipitation-weighted steradians)", relief: 0.0 },
+        Layer { id: "integration-cut", label: "integration cut depth", tess: fine_tess, elevation: final_elevation, scalar: Some(&cuts), role: "scalar", source: "Hydrology::integration_cut_depth", units: "elevation units", relief: 0.0 },
+    ];
+
+    let montage_w = opts.width * views.len() as u32;
+    let montage_h = opts.height * layers.len() as u32;
+    let mut montage = vec![0; (montage_w * montage_h * 4) as usize];
+    let mut records = Vec::with_capacity(layers.len());
+    for (li, layer) in layers.iter().enumerate() {
+        let scale = layer.scalar.map(robust_scale);
+        let mesh = diagnostic_mesh(
+            &gpu.device,
+            layer.tess,
+            layer.elevation,
+            layer
+                .scalar
+                .zip(scale)
+                .map(|(values, (lo, hi))| (values, lo, hi)),
+        );
+        let mut filenames = Vec::with_capacity(views.len());
+        for (vi, view) in views.iter().enumerate() {
+            render_diagnostic(
+                &gpu,
+                &mut renderer,
+                &color_view,
+                &mesh,
+                &product_buffers.river_bind_group,
+                view.view_proj,
+                view.eye,
+                layer.relief,
+                layer.scalar.is_none(),
+            );
+            let rgba = read_back_rgba(&gpu, &color_tex, opts.width, opts.height);
+            let filename = format!("{:02}_{}_{}.png", li + 1, layer.id, view.label);
+            write_png(
+                &opts.out_dir.join(&filename),
+                &rgba,
+                opts.width,
+                opts.height,
+            );
+            blit_tile(
+                &mut montage,
+                montage_w,
+                &rgba,
+                opts.width,
+                opts.height,
+                vi as u32,
+                li as u32,
+            );
+            filenames.push(filename);
+        }
+        records.push(RangeLayerRecord {
+            index: li,
+            id: layer.id,
+            label: layer.label,
+            topology: if layer.tess.num_cells() == coarse.num_cells() {
+                "coarse"
+            } else {
+                "fine"
+            },
+            role: layer.role,
+            source: layer.source,
+            units: layer.units,
+            relief_scale: layer.relief,
+            robust_color_min: scale.map(|s| s.0),
+            robust_color_max: scale.map(|s| s.1),
+            image_filenames: filenames,
+        });
+        println!("[{}/{}] {}", li + 1, layers.len(), layer.label);
+    }
+    write_png(
+        &opts.out_dir.join("montage.png"),
+        &montage,
+        montage_w,
+        montage_h,
+    );
+    let sidecar = RangeAncestrySidecar {
+        schema_version: 1,
+        purpose: "matched-camera terrain ancestry for diagnosing broad, flat-topped mountain systems",
+        coordinate_convention: "latitude=asin(y); longitude=atan2(z,x); degrees; positive longitude rotates +X toward +Z",
+        color_sampling: "cell scalars are averaged onto shared Voronoi vertices for topology-consistent anti-aliasing; coarse and fine terrain use the same shared-vertex interpolation",
+        world_manifest: world.manifest(),
+        cameras: views.iter().map(|v| v.sidecar.clone()).collect(),
+        layers: records,
+        montage_filename: "montage.png",
+    };
+    let file = std::fs::File::create(opts.out_dir.join("range-ancestry.json"))
+        .expect("create range-ancestry.json");
+    serde_json::to_writer_pretty(BufWriter::new(file), &sidecar)
+        .expect("write range-ancestry.json");
+    println!("Done: range ancestry packet -> {}", opts.out_dir.display());
+}
+
 /// Run the sweep: generate + render every knob combination to PNG tiles and a
 /// stitched montage in `opts.out_dir`.
 pub fn run_sweep(opts: SweepOptions) {
@@ -795,6 +1148,10 @@ pub fn run_sweep(opts: SweepOptions) {
         if !target_ids.insert(target.id.as_str()) {
             panic!("duplicate --sweep-target id '{}'", target.id);
         }
+    }
+    if opts.stack.as_deref() == Some("range-ancestry") {
+        run_range_ancestry(&opts);
+        return;
     }
     // Validate knob names up front so a typo fails before any (slow) generation
     // (knob sweeps only; a stack preset uses fixed, pre-validated knobs).
@@ -1045,7 +1402,7 @@ pub fn run_sweep(opts: SweepOptions) {
 
 #[cfg(test)]
 mod tests {
-    use super::SweepTarget;
+    use super::{robust_scale, SweepTarget};
 
     #[test]
     fn parses_dossier_target_in_project_coordinates() {
@@ -1063,5 +1420,21 @@ mod tests {
         assert!("north:91:0".parse::<SweepTarget>().is_err());
         assert!("wrap:0:181".parse::<SweepTarget>().is_err());
         assert!("nan:NaN:0".parse::<SweepTarget>().is_err());
+    }
+
+    #[test]
+    fn robust_scale_ignores_non_finite_values_and_outliers() {
+        let mut values: Vec<f32> = (0..100).map(|i| i as f32).collect();
+        values.extend([f32::NAN, f32::INFINITY, 100_000.0]);
+        let (lo, hi) = robust_scale(&values);
+        assert_eq!(lo, 2.0);
+        assert_eq!(hi, 98.0);
+    }
+
+    #[test]
+    fn robust_scale_expands_constant_fields() {
+        let (lo, hi) = robust_scale(&[4.0; 8]);
+        assert_eq!(lo, 4.0);
+        assert!(hi > lo);
     }
 }

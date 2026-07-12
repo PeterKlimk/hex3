@@ -52,6 +52,12 @@ experimental, superseded, or awaiting classification.
 - [Presentation contract](presentation.md) — physical state versus cartographic
   relief and river presentation currently implemented by the renderer.
 
+## Active working memory
+
+- [Working memory](working-memory.md) — active, non-authoritative medium-term
+  findings and focus guardrails; prevents one investigation from hiding other
+  unresolved system questions.
+
 ## Working inventory
 
 - [Documentation inventory](inventory/documentation.md)
