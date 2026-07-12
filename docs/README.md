@@ -33,6 +33,8 @@ experimental, superseded, or awaiting classification.
   evaluation questions, canonical corpus, research contract and stop conditions.
 - [World evaluation synthesis](evaluation-synthesis.md) — first ten-seed
   numerical, correspondence and outlier assessment.
+- [Planet dossiers](dossiers/README.md) — end-to-end generated-world autopsies
+  connecting geographic objects, causes, presentation and system dispositions.
 - [Subtractive architecture audit](subtractive-audit.md) — retain, validate,
   simplify, quarantine and removal dispositions for current systems.
 - [Metric registry](metric-registry.md) — measurement schema, decision roles and

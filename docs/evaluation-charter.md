@@ -40,6 +40,11 @@ and matched physical/cartographic inspection the next evidence target. This
 charter remains active for that correspondence pass; it is not a mandate for
 further parameter optimization.
 
+The first application is the preliminary
+[seed-12345 planet dossier](dossiers/seed-12345.md). It records causal lineage
+and object probes, explicitly separating current findings from the spatial and
+matched-view evidence still required.
+
 The first corpus/research synthesis is maintained in
 [evaluation-synthesis.md](evaluation-synthesis.md); it remains provisional until
 feature correspondence and matched visual inspection are added.
