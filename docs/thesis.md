@@ -3,6 +3,11 @@
 Hex3 is a procedural planet system built to create worlds that are visually
 compelling because they are grounded in coherent planetary processes.
 
+The maintained implementation strategy for this thesis is the
+[hybrid causal world-model decision](model-strategy.md). It states the truth
+promised by each domain and prevents either maximal simulation or local metric
+optimization from becoming the project goal by default.
+
 It combines aspects of a globe simulator, a cartographic model, a strategy-game
 world, and a real-time planet demo. Its target is not scientific prediction or
 an exact reconstruction of Earth. Its target is a world whose large-scale form,

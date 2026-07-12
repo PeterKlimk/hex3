@@ -8,6 +8,8 @@ experimental, superseded, or awaiting classification.
 
 - [Project thesis](thesis.md) — goals, physical grounding, spectacle and
   project-level decision principles.
+- [Model strategy](model-strategy.md) — chosen hybrid causal world-generator
+  identity, domain truth contracts and gates against local optimization.
 - [Documentation policy](documentation-policy.md) — authority, status,
   terminology, evidence and lifecycle rules.
 - [Current architecture](architecture.md) — accepted system ownership and data

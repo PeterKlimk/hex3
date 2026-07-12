@@ -1,6 +1,7 @@
 # World evaluation charter
 
-Status: active evaluation framework, 2026-07-12.
+Status: strategy decision reached; geographic correspondence pass active,
+2026-07-12.
 
 This pass pauses feature expansion to determine what Hex3 currently generates,
 which systems earn their complexity, where authenticity breaks, and which model
@@ -32,6 +33,12 @@ The pass should leave five durable products:
 - a failure-mode catalogue linking observations to layers and candidate causes;
 - comparable external research briefs;
 - a model-strategy decision that revises system assessments and the roadmap.
+
+The [model-strategy decision](model-strategy.md) is now complete. It selects a
+hybrid authentic systemic world generator and makes coherent geographic objects
+and matched physical/cartographic inspection the next evidence target. This
+charter remains active for that correspondence pass; it is not a mandate for
+further parameter optimization.
 
 The first corpus/research synthesis is maintained in
 [evaluation-synthesis.md](evaluation-synthesis.md); it remains provisional until
@@ -199,8 +206,13 @@ a Hex3-sized mechanism and cost/benefit judgment is incomplete.
 4. run smoke, reference, convergence and control tiers;
 5. inspect numerical outliers with matched views;
 6. synthesize focused external research;
-7. write the model-strategy decision and revise the roadmap.
+7. **Complete:** write the model-strategy decision and revise the roadmap;
+8. extract geographic objects, inspect matched views and make final system
+   dispositions before choosing another stage.
 
-Feature expansion remains paused until the registry and first corpus evaluation
-can identify its opportunity cost. Small instrumentation changes are allowed
-when they expose existing state without changing the generated world.
+Feature expansion remains paused until geographic objects, causal
+correspondence and matched views can identify its opportunity cost. Small
+instrumentation or semantic extraction changes are allowed when they expose
+existing state without tuning the generated world. Local ablations require a
+specific object-level decision and stop condition; producing another optimizable
+metric is not sufficient reason.

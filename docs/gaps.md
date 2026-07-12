@@ -1,5 +1,10 @@
 # Gap and Pareto analysis
 
+This catalogue supplies candidates to the [model strategy](model-strategy.md)
+and [roadmap](roadmap.md). It is not a queue. Missing systems compete with
+repairing, simplifying or removing implemented systems, and the active
+geographic-coherence pass precedes feature expansion.
+
 This document compares missing capabilities, weak couplings and possible
 fundamental reworks. It asks what would most improve coherent emergence, visual
 appeal, semantic richness and future extensibility per unit of compute and

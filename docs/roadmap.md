@@ -1,9 +1,10 @@
 # Hex3 roadmap
 
-This roadmap turns the [project thesis](thesis.md),
-[system assessments](system-assessments.md), and [gap analysis](gaps.md) into an
-ordered decision process. It is intentionally revisable: evidence may reorder
-work or justify fundamental rework of any current system.
+This roadmap turns the [project thesis](thesis.md), chosen
+[model strategy](model-strategy.md), [system assessments](system-assessments.md),
+and [gap analysis](gaps.md) into an ordered decision process. It is intentionally
+revisable: evidence may reorder work or justify fundamental rework of any
+current system.
 
 The roadmap optimizes for coherent emergence, visual appeal, explanatory depth,
 iteration speed and “wow” value—not for completing a conventional list of
@@ -21,10 +22,12 @@ planet subsystems.
 6. Promotion requires the [validation policy](validation.md); implementation
    alone does not advance roadmap status.
 7. Retire or park overlapping mechanisms when a new owner is promoted.
+8. Require an object-level or relationship-level product question before local
+   tuning or deeper simulation becomes roadmap work.
 
 ## Horizon 0: documentation and decision substrate
 
-Status: **substantially complete; cleanup validation in progress**.
+Status: **complete enough to govern the next pass**.
 
 Purpose: establish a trustworthy account of the current system before choosing
 large reworks or new stages.
@@ -40,6 +43,7 @@ Completed in this sprint:
 - semantic/presentation architecture;
 - validation and reproducibility policy;
 - gap analysis and this roadmap.
+- explicit hybrid causal world-model strategy and domain truth contracts.
 
 Remaining:
 
@@ -101,43 +105,75 @@ or range, and objects can explain their modeled causes.
 Exit gate: presentation choices are reproducible profile state, and no visual
 mode is mistaken for physical evidence.
 
-## Horizon 2: living-world vertical slice
+## Horizon 2: geographic coherence decision
 
-Purpose: deliver the largest near-term expansion in world identity and visual
-richness using existing terrain, climate and water.
+Status: **active**.
 
-### 2A. Biome/ecological constraint prototype
+Purpose: determine whether the current pipeline creates coherent, memorable
+geography before adding another domain or optimizing an isolated mechanism.
 
-- **Prototype implemented:** derive limiting factors from temperature, precipitation, seasonless moisture
-  availability, elevation, water proximity and terrain;
-- **Prototype implemented:** produce continuous ecological potentials before categorical biome labels;
-- **Prototype implemented:** classify semantic cells with uncertainty/transition zones;
-- validate geographic coherence and control response across seeds;
-- make deliberate approximations explicit where seasons/soils are absent.
+### 2A. Geographic objects
 
-### 2B. Vegetation coverage and rendering
+- extract scale-aware ranges, plateaus, passes, valleys, divides and coast
+  hierarchy, complementing existing river and water-body identity;
+- distinguish durable semantic objects from masks, diagnostic samples and
+  presentation primitives;
+- record object measurements, uncertainty, provenance and importance;
+- characterize diversity within worlds and across the reference panel.
 
-- derive vegetation form/coverage/density separately from biome name;
-- render planet-scale coverage and regional forest structure;
-- add individual/tree-cluster instances only where camera scale justifies them;
-- keep placement deterministic and bounded by semantic coverage;
-- evaluate memory, draw cost, silhouette and transition behavior.
+### 2B. Causal correspondence
 
-### 2C. Minimal disturbance, only if needed
+- test whether geographic objects occur where their claimed tectonic,
+  erosional, climatic and hydrologic causes predict;
+- use controls and counterexamples to assess sign, ordering, topology, scale and
+  downstream consequence—not Earth-like marginal distributions alone;
+- identify missing relationships as well as wrong, overbuilt or redundant
+  mechanisms;
+- make the legacy product path and major experimental paths answer the same
+  object-level questions where comparison is useful.
 
-Evaluate whether static equilibrium looks too painted. If so, prototype one
-bounded disturbance/history mechanism—such as moisture variability, fire age or
-successional patchiness—rather than a full ecosystem simulation.
+### 2C. Matched presentation
 
-Exit gate: living regions are caused by current world state, visually transform
-the globe, remain explainable, and do not require individual-organism simulation.
+- implement reproducible Physical, Diagnostic, Cartographic and Dramatic
+  profiles sufficient for controlled inspection;
+- record relief, river, color, lighting, camera and generalization state;
+- inspect the same objects across numerical state and presented form;
+- judge legibility, identity and spectacle as product outcomes without using
+  them as physical validation.
 
-## Horizon 3: surface-material coupling decision
+### 2D. System disposition
 
-Purpose: determine whether persistent sediment is the next major emergence
-engine or whether present erosion/hydrology should remain simpler.
+Update every material system to **retain**, **simplify**, **replace**,
+**quarantine**, **remove** or **research**. Each decision must name its truth
+contract, visible/downstream payoff, evidence, cost and cheaper alternative.
 
-### 3A. Research and design gate
+Exit gate: representative worlds can be discussed in terms of geographic
+objects and causes; physical and cartographic judgments cannot be confused; and
+the next build/rework choice follows from a cross-system comparison rather than
+the availability of a tunable subsystem.
+
+## Horizon 3: choose the next world expansion
+
+Purpose: choose among missing systems and fundamental reworks using the Horizon
+2 evidence. No candidate is the default merely because an early prototype or
+research note exists.
+
+Candidate vertical slices include:
+
+- living surface: ecological constraints, vegetation coverage and bounded
+  disturbance;
+- source-to-sink geography: sediment, floodplains, basin fill and deltas;
+- climate/water repair: seasonality, ocean heat shortcut, storage or wetlands;
+- tectonic/landform repair: a cheaper history representation or shared forcing
+  where object correspondence demonstrates the need;
+- coast, ice or soil systems where they unlock several visible consequences;
+- semantic geography for resources, traversability, settlement and routes.
+
+Selection requires a bounded authentic model, at least one striking visible
+outcome, meaningful downstream leverage, explicit cost and a discriminating
+vertical-slice test.
+
+### Sediment candidate: research and design gate
 
 - compare reduced sediment-routing/landscape-evolution approaches;
 - define state, units, time relation and mass ledger;
@@ -146,7 +182,7 @@ engine or whether present erosion/hydrology should remain simpler.
 - budget fine-graph memory and update cost;
 - define interaction with current deposition and hydrology ownership.
 
-### 3B. Bounded sediment v0, conditional
+### Sediment candidate: bounded v0, conditional
 
 If the design gate is favorable:
 
@@ -245,38 +281,21 @@ benefit recommendation, not only a survey.
 
 ## Near-term sequence
 
-Feature expansion is temporarily paused for the evaluation pass defined in the
-[world evaluation charter](evaluation-charter.md). Its metric registry, corpus,
-research synthesis and model-strategy decision supersede the earlier provisional
-ordering below. Preserve that ordering as prior intent until evidence revises it.
-
-Current evaluation sequence, from the
-[first corpus synthesis](evaluation-synthesis.md):
+Feature expansion is paused for Horizon 2. The corpus, research synthesis and
+[model-strategy decision](model-strategy.md) have already established the
+evaluation substrate; the current sequence is:
 
 1. extract provisional range/plateau/ridge/divide/peak/pass semantics;
-2. inspect seeds 8675309, 9001 and 12345 in matched physical, cartographic and
-   hillshade-led views with complete transform provenance;
-3. run controlled correspondence batteries for climate, uplift–erosion,
-   hydrology and remapping;
-4. add object/relationship metrics and assess cost per meaningful feature;
-5. write the model-strategy decision before resuming feature expansion.
+2. produce matched Physical, Diagnostic, Cartographic and Dramatic inspections
+   for a small representative/outlier panel;
+3. assess causal correspondence for those objects, including absent or
+   contradictory relationships;
+4. give current systems and high-leverage missing systems comparable
+   dispositions;
+5. choose one bounded rework or expansion—or deliberately choose subtraction—
+   from the resulting cross-system case.
 
-In parallel, apply the [subtractive architecture audit](subtractive-audit.md):
-remove demonstrated stale paths, quarantine research ladders, and run cost/value
-ablations before adding new system owners.
-
-Earlier provisional sequence:
-
-1. finish the documentation/archive and contributor-entry work;
-2. implement provenance and the elevation/unit contract;
-3. extract river/water-body semantics, then range semantics;
-4. establish presentation profiles, legends and consistent map/globe
-   generalization;
-5. research and prototype biome constraints;
-6. build scale-aware vegetation presentation;
-7. run the sediment v0 design/research gate;
-8. choose the next deep coupling from measured prerequisites and payoff.
-
-This sequence deliberately alternates infrastructure, visible payoff and deeper
-physical work. It should produce useful product improvements without closing off
-larger reworks.
+The [subtractive architecture audit](subtractive-audit.md) remains evidence,
+not a standing optimization queue. Cleanup, ablation or performance work enters
+this sequence only when it resolves an identified geographic or iteration-cost
+decision.
