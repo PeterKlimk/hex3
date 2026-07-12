@@ -261,6 +261,10 @@ Current evaluation sequence, from the
 4. add object/relationship metrics and assess cost per meaningful feature;
 5. write the model-strategy decision before resuming feature expansion.
 
+In parallel, apply the [subtractive architecture audit](subtractive-audit.md):
+remove demonstrated stale paths, quarantine research ladders, and run cost/value
+ablations before adding new system owners.
+
 Earlier provisional sequence:
 
 1. finish the documentation/archive and contributor-entry work;

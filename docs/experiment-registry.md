@@ -52,7 +52,7 @@ acceptance.
 | Exact boundary-velocity constraint | Falsified and reverted | Increased resolution divergence and peak concentration |
 | Fixed-width boundary band | Falsified and reverted | Did not close promotion behavior |
 | Same-clock coarse denudation | Implemented behind zero-default carrier control; evaluated | Bounded but insufficient; not a promoted erosion model |
-| Finite-memory/coherent Euler motion | Implemented behind zero default; evaluated | Useful causal experiment, not a promotion; hard cutoff/reorganization shortcuts rejected |
+| Finite-memory/coherent Euler motion | Implemented behind zero default; evaluated in evolved-carrier replay | Useful causal experiment for evolved replay, not consumed by the lifecycle solver; hard cutoff/reorganization shortcuts rejected |
 | Forward lifecycle material automaton | Implemented and invariant-tested | Material/topology causal engine passes; direct full-column surface expression fails |
 | Capacity-limited underthrust and arc sheets | Implemented and retained in lifecycle research | Improves causal allocation but does not close convergence/promotion gates |
 | Binary nearest-cell lifecycle event pullback | Falsified | Resolution-dependent event measure |

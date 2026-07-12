@@ -7,6 +7,8 @@ to review as evidence and project priorities change.
 
 Prioritization based on these assessments lives in the
 [gap analysis](gaps.md) and [roadmap](roadmap.md).
+Implementation/code dispositions live in the
+[subtractive architecture audit](subtractive-audit.md).
 
 No “Foundation” or “Retain” label protects a system from fundamental rework. It
 means the capability is valuable under current evidence, not that its present
