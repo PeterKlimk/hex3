@@ -7,7 +7,9 @@
 **Later checkpoint:** Exact inputs, immutable routing and the visited-cell rank-
 conflict subgate subsequently passed; see the
 [input/rank audit](channel-extraction-r1a-input-rank-precheck-2026-07-13.md).
-This audit retains the narrower status of the geometry checkpoint it records.
+The later [path audit](channel-extraction-r1a-path-2026-07-14.md) rejected both
+receiver arms. This audit retains the narrower status of the geometry
+checkpoint it records.
 
 ## Verdict
 

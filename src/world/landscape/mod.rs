@@ -9,6 +9,7 @@ mod c0_solver;
 mod c1_fixture;
 mod c1_network_fixture;
 mod channel_extraction_r1a_fixture;
+mod channel_extraction_r1a_path;
 mod channel_ownership_fixture;
 mod continuum;
 mod denudation;
@@ -38,9 +39,13 @@ pub use c1_network_fixture::{
 };
 pub use channel_extraction_r1a_fixture::{
     build_r1_registered_case, R1CaseAudit, R1CaseConfig, R1CaseError, R1HeadOwner, R1LocalRank,
-    R1LocalRankObservation, R1RegisteredCase, R1SelectedFace, R1SurfaceKind,
+    R1LocalRankObservation, R1RankTieDecision, R1RegisteredCase, R1SelectedFace, R1SurfaceKind,
     R1_BROAD_HALF_WIDTH_KM, R1_HEAD_ALONG_TRACK_KM, R1_HEAD_BOUNDARY_CROSS_TOLERANCE_FACTOR,
     R1_RUNOFF_DEPTH_RATE_KM_MYR,
+};
+pub use channel_extraction_r1a_path::{
+    trace_r1_path, R1FailedTrace, R1PathGeometry, R1PathMetrics, R1ReceiverArm, R1TraceContext,
+    R1TraceOutcome, R1TraceStep, R1TraceTermination, R1TracedPath,
 };
 pub use channel_ownership_fixture::{
     snapshot_reaches, ChannelCandidateId, ChannelCorrespondenceAudit, ChannelLineageEvent,

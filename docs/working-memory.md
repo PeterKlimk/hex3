@@ -549,10 +549,20 @@ explicit persistent skeleton, or a physical channel-initiation threshold.
   pass across the 8/4/2 km matrix. P0 and M0 disagree for roughly 14–23% of
   donors, and six A/V cases disagree at the prescribed head. Because both arms
   must visit that head, the anti-alias visited-cell subgate passes. Small local
-  margins remain diagnostics, not physical confidence. This still is not an
-  extraction result: tracers, portal termination and F0 path gates remain
-  pending. See the [G0 audit](audits/channel-extraction-r1a-g0-2026-07-13.md)
-  and [input/rank audit](audits/channel-extraction-r1a-input-rank-precheck-2026-07-13.md).
+  margins remain diagnostics, not physical confidence.
+- R1a extraction is complete and selects neither P0 nor M0. P0 has 6/12 affine
+  portal failures; M0 has 4/12. Successful finest-grid affine paths still miss
+  cross-track and length gates. V terminates reliably, but P0's worst 2 km
+  cross-track is `3.205 km`; M0 reaches `3.220 km` and also misses length.
+  Backtracking and build-index ties are zero, and failure prefixes have positive
+  margins. The principal issue is exact polygon means attached to generator-
+  based two-point geometry, not F0 midpoint styling. Do not tune V or add RT0
+  over inconsistent fluxes. See the
+  [path audit](audits/channel-extraction-r1a-path-2026-07-14.md).
+- The next causal question is operator consistency, not another river feature:
+  use generator-point affine values only as a diagnostic, then test a polygon-
+  mean linear-exact gradient receiver; earn a conservative non-orthogonal face
+  flux before considering continuous `H(div)`/RT0 crossings.
 
 ### Drainage-integration repair
 

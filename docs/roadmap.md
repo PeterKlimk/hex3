@@ -397,17 +397,22 @@ merge and share a suffix. The cap geometry substrate now passes its 8/4/2 km
 determinism, reciprocal-face, projection and guard-independence gates. The
 exact-input rung also passes: polygon-mean A/V/B inputs feed one immutable
 conservative route per case, domain ranks differ materially, and six A/V head
-cells provide a necessary visited-cell P0/M0 conflict witness. The next bounded
-step is only local P0/M0 tracing and C0/F0 geometry over those frozen cases,
-followed by connectivity, portal-termination and preregistered physical path
-gates. This is not initiation, persistence, sediment or ecology. Current
-evidence:
+cells provide a necessary visited-cell P0/M0 conflict witness. The completed
+path rung rejects both arms. Rotated affine traces can reach real sinks, and
+even successful A paths drift kilometres because exact polygon means are
+interpreted through generator-based two-point geometry. V is closer but cannot
+rescue a rule that fails A. Before any richer tracer, preregister a causal
+operator-consistency ladder: generator-point A as a non-promotable control,
+then a polygon-mean linear-exact local gradient, and only if justified a shared
+conservative non-orthogonal face flux. This is not initiation, persistence,
+sediment or ecology. Current evidence:
 [seeded channel extraction R0](research/channel-extraction-r0-2026-07-13.md)
 and [R0 audit](audits/channel-extraction-r0-2026-07-13.md),
 [centreline geometry basis](research/channel-centerline-geometry-basis-2026-07-13.md),
 [R1a specification](research/channel-extraction-r1a-2026-07-13.md),
 [R1a G0 audit](audits/channel-extraction-r1a-g0-2026-07-13.md) and
-[R1a input/rank audit](audits/channel-extraction-r1a-input-rank-precheck-2026-07-13.md).
+[R1a input/rank audit](audits/channel-extraction-r1a-input-rank-precheck-2026-07-13.md),
+and [R1a path audit](audits/channel-extraction-r1a-path-2026-07-14.md).
 The rejected nominal rectangular boundary remains an important scope decision:
 exact cut-cell hex geometry is not currently justified for a testbed intended
 to transfer to a closed sphere. Earlier analytic evidence remains in the

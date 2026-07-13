@@ -1,7 +1,7 @@
 # Irregular-Voronoi seeded channel extraction R1a
 
 **Date:** 2026-07-13
-**Status:** preregistered; G0 and exact input/rank-conflict subgate passed; extraction pending
+**Status:** completed; both P0 and M0 fail; select neither
 **Predecessor:** [invalidated planar R0](../audits/channel-extraction-r0-2026-07-13.md)
 **Design basis:** [centreline geometry and confluence basis](channel-centerline-geometry-basis-2026-07-13.md)
 
@@ -22,16 +22,14 @@ M1 cumulative maximum-product routing is ineligible. R0 did not falsify it, but
 no evidence earns a full-domain pass before the two path-local rules are validly
 compared.
 
-Implementation checkpoint: the guarded product-backend cap and its planar
-finite-volume adapter pass the 8/4/2 km geometry, projection, determinism and
-eight-versus-ten-guard gates. Exact polygon-mean A/V/B inputs, one immutable
-conservative route per case and local P0/M0 ranks now also pass their invariant
-and determinism checks. Six A/V cases have a rank conflict at the prescribed
-head, which every eventual arm must visit, so the visited-cell anti-alias
-subgate passes. Path extraction, portal termination and F0 physical gates
-remain unimplemented; R1a has not selected an arm. See the
+Final checkpoint: the guarded product-backend cap, exact polygon-mean A/V/B
+inputs, immutable conservative routes and visited-cell anti-alias subgate all
+pass. Path-local P0/M0 extraction is now implemented and audited over the full
+8/4/2 km matrix. Both arms fail the required A plus V contract, so R1a selects
+neither and authorizes no product mechanism. See the
 [G0 audit](../audits/channel-extraction-r1a-g0-2026-07-13.md) and
-[input/rank audit](../audits/channel-extraction-r1a-input-rank-precheck-2026-07-13.md).
+[input/rank audit](../audits/channel-extraction-r1a-input-rank-precheck-2026-07-13.md),
+then the [path audit](../audits/channel-extraction-r1a-path-2026-07-14.md).
 
 ## Scope correction from R0
 
@@ -207,7 +205,8 @@ A/V spacing × angle × translation matrix and require at least one P0/M0 winner
 conflict. This cheap necessary precheck passes. The stronger visited-cell
 witness also already passes because six A/V cases disagree at the prescribed
 head, and both eventual arms necessarily visit their head. This establishes
-only the anti-alias subgate: path validity and physical scoring remain pending.
+only the anti-alias subgate; the later path audit separately evaluates and
+rejects both arms on validity/physical scoring.
 One routed case means one spacing, angle, translation and surface; B's two
 heads share the same immutable route.
 
@@ -302,6 +301,11 @@ B has no geometry gate. Exact or large-margin routing on B cannot manufacture a
 physically unique thalweg.
 
 ## Frozen interpretation
+
+Observed result: both arms fail. P0 fails A termination/cross-track/length and
+V cross-track. M0 fails A termination/cross-track/length and V cross-track/
+length. The clauses below remain the preregistered decision rule that produced
+that result.
 
 - If G0 fails or P0/M0 never differ, invalidate the fixture and stop.
 - If P0 passes every A/V F0 gate, retain P0 unless M0 is required to pass a gate

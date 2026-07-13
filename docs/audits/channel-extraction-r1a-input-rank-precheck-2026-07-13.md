@@ -5,6 +5,10 @@
 **Specification:** [Irregular-Voronoi seeded extraction R1a](../research/channel-extraction-r1a-2026-07-13.md)
 **Geometry substrate:** [R1a G0 audit](channel-extraction-r1a-g0-2026-07-13.md)
 
+**Later checkpoint:** Path extraction subsequently rejected both P0 and M0;
+see the [path audit](channel-extraction-r1a-path-2026-07-14.md). This audit
+retains the narrower passing status of the input/rank rung it records.
+
 ## Verdict
 
 The registered affine A, resolved-valley V and broad-control B surfaces now

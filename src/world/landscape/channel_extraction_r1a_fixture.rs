@@ -62,7 +62,19 @@ pub struct R1LocalRank {
     pub score: f64,
     pub second_score: f64,
     pub normalized_margin: f64,
+    pub tie_decision: R1RankTieDecision,
     pub midpoint_km: DVec3,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum R1RankTieDecision {
+    SoleEligibleFace,
+    Score,
+    MidpointX,
+    MidpointY,
+    MidpointZ,
+    PortalKey,
+    CombinedFaceIndex,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -634,26 +646,106 @@ fn face_candidates(
     Ok(candidates)
 }
 
+/// Recompute both registered local ranks from only one visited cell's faces.
+pub(super) fn rank_r1_case_cell(
+    cap: &VoronoiCapFixture,
+    case: &R1RegisteredCase,
+    boundary_faces: &[usize],
+    cell: usize,
+) -> Result<Option<R1LocalRankObservation>, R1CaseError> {
+    if cell >= cap.mesh.cell_count()
+        || case.elevation_km.len() != cap.mesh.cell_count()
+        || case.flow.directed_edge_fraction.len() != cap.mesh.edge_neighbor.len()
+        || case.flow.boundary_face_fraction.len() != cap.mesh.boundary_faces.len()
+    {
+        return Err(R1CaseError(
+            "routed case geometry is incompatible with the tracing cap".into(),
+        ));
+    }
+    if boundary_faces.iter().any(|&face_index| {
+        cap.mesh
+            .boundary_faces
+            .get(face_index)
+            .is_none_or(|face| face.cell as usize != cell)
+    }) {
+        return Err(R1CaseError(format!(
+            "cell {cell} tracing context contains a foreign boundary face"
+        )));
+    }
+    let candidates = face_candidates(cap, &case.flow, &case.elevation_km, boundary_faces, cell)?;
+    if candidates.is_empty() {
+        return Ok(None);
+    }
+    let p0 = rank_candidates(&candidates, |candidate| candidate.physical_grade);
+    let m0 = rank_candidates(&candidates, |candidate| candidate.mfd_fraction);
+    Ok(Some(R1LocalRankObservation {
+        winners_conflict: p0.face != m0.face,
+        p0_physical_grade: p0,
+        m0_mfd_fraction: m0,
+    }))
+}
+
 fn rank_candidates(
     candidates: &[FaceCandidate],
     score: impl Fn(&FaceCandidate) -> f64,
 ) -> R1LocalRank {
-    let mut order: Vec<_> = (0..candidates.len()).collect();
-    order.sort_by(|&a, &b| {
+    debug_assert!(!candidates.is_empty());
+    let preference = |a: usize, b: usize| {
         score(&candidates[b])
             .total_cmp(&score(&candidates[a]))
             .then_with(|| face_key_cmp(&candidates[a], &candidates[b]))
-    });
-    let best = &candidates[order[0]];
-    let best_score = score(best);
-    let second_score = order.get(1).map_or(0.0, |&index| score(&candidates[index]));
+    };
+    let mut best = 0usize;
+    let mut second = None;
+    for candidate in 1..candidates.len() {
+        if preference(candidate, best) == Ordering::Less {
+            second = Some(best);
+            best = candidate;
+        } else if second.is_none_or(|runner_up| preference(candidate, runner_up) == Ordering::Less)
+        {
+            second = Some(candidate);
+        }
+    }
+    let best_candidate = &candidates[best];
+    let best_score = score(best_candidate);
+    let second_score = second.map_or(0.0, |index| score(&candidates[index]));
     R1LocalRank {
-        face: best.face,
+        face: best_candidate.face,
         score: best_score,
         second_score,
         normalized_margin: (best_score - second_score) / best_score.abs().max(f64::MIN_POSITIVE),
-        midpoint_km: best.midpoint_km,
+        tie_decision: rank_tie_decision(candidates, best, second, &score),
+        midpoint_km: best_candidate.midpoint_km,
     }
+}
+
+fn rank_tie_decision(
+    candidates: &[FaceCandidate],
+    best: usize,
+    second: Option<usize>,
+    score: &impl Fn(&FaceCandidate) -> f64,
+) -> R1RankTieDecision {
+    let Some(second) = second else {
+        return R1RankTieDecision::SoleEligibleFace;
+    };
+    let best = &candidates[best];
+    let second = &candidates[second];
+    if score(best).total_cmp(&score(second)) != Ordering::Equal {
+        return R1RankTieDecision::Score;
+    }
+    if best.midpoint_km.x.total_cmp(&second.midpoint_km.x) != Ordering::Equal {
+        return R1RankTieDecision::MidpointX;
+    }
+    if best.midpoint_km.y.total_cmp(&second.midpoint_km.y) != Ordering::Equal {
+        return R1RankTieDecision::MidpointY;
+    }
+    if best.midpoint_km.z.total_cmp(&second.midpoint_km.z) != Ordering::Equal {
+        return R1RankTieDecision::MidpointZ;
+    }
+    if best.portal_key != second.portal_key {
+        return R1RankTieDecision::PortalKey;
+    }
+    R1RankTieDecision::CombinedFaceIndex
 }
 
 fn face_key_cmp(a: &FaceCandidate, b: &FaceCandidate) -> Ordering {
@@ -959,6 +1051,45 @@ mod tests {
                 .is_err()
         );
         assert!(locate_unique_head(&[square], DVec2::new(2.0, 0.5), 1.0e-12).is_err());
+    }
+
+    #[test]
+    fn local_rank_records_the_decisive_tie_key() {
+        let candidate = |edge, midpoint_x, grade| FaceCandidate {
+            face: R1SelectedFace::Internal {
+                directed_edge: edge,
+                neighbor: edge + 10,
+            },
+            midpoint_km: DVec3::new(midpoint_x, 2.0, 0.0),
+            portal_key: u32::MAX,
+            combined_face_index: edge,
+            physical_grade: grade,
+            mfd_fraction: grade,
+        };
+
+        let sole = rank_candidates(&[candidate(1, 1.0, 2.0)], |face| face.physical_grade);
+        assert_eq!(sole.tie_decision, R1RankTieDecision::SoleEligibleFace);
+
+        let score = rank_candidates(&[candidate(1, 1.0, 2.0), candidate(2, 0.0, 1.0)], |face| {
+            face.physical_grade
+        });
+        assert_eq!(score.tie_decision, R1RankTieDecision::Score);
+
+        let midpoint = rank_candidates(&[candidate(1, 1.0, 2.0), candidate(2, 0.0, 2.0)], |face| {
+            face.physical_grade
+        });
+        assert_eq!(midpoint.face, candidate(2, 0.0, 2.0).face);
+        assert_eq!(midpoint.tie_decision, R1RankTieDecision::MidpointX);
+
+        let build_index =
+            rank_candidates(&[candidate(2, 1.0, 2.0), candidate(1, 1.0, 2.0)], |face| {
+                face.physical_grade
+            });
+        assert_eq!(build_index.face, candidate(1, 1.0, 2.0).face);
+        assert_eq!(
+            build_index.tie_decision,
+            R1RankTieDecision::CombinedFaceIndex
+        );
     }
 
     #[test]
