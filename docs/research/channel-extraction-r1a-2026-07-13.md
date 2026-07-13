@@ -157,8 +157,11 @@ z(s,n) = 1 km + 0.01 s
        + 0.0008 km⁻¹ max(|n| - 12 km, 0)²
 ```
 
-Trace prescribed heads at `n = -8` and `+8 km`. Report path spread and margins;
-do not score either path against a privileged centreline.
+Trace prescribed heads at `s = 176 km`, `n = -8` and `+8 km`, using the same
+unique-containment rule as A/V. Report each labeled head's signed transverse
+range and endpoint plus their union's transverse envelope; do not invent a
+pairwise correspondence scalar or score either path against a privileged
+centreline.
 
 ## Registered receiver arms
 
@@ -191,6 +194,14 @@ indices in one combined index space. The reported normalized margin is
 zero second score. These conventions resolve numerical identity only and do
 not make a near-tie physically decisive.
 
+For every selected receiver, also record the first key component that made it
+strictly preferable to the runner-up: score, midpoint x/y/z, portal key or
+combined face index. A sole eligible face is recorded separately. Reaching the
+final combined-face-index component means a build-index tie. Any A/V F0 path
+containing such a selection is ineligible for promotion; exact score ties
+resolved earlier by distinct physical midpoint keys remain disclosed but are
+not build-index ties.
+
 Before path tracers are implemented, scan every eligible donor in the complete
 A/V spacing × angle × translation matrix and require at least one P0/M0 winner
 conflict. This cheap necessary precheck passes. The stronger visited-cell
@@ -204,8 +215,11 @@ heads share the same immutable route.
 
 ### C0 — cell-centre diagnostic
 
-Generator centre to generator centre, followed by the outlet-face midpoint.
-Report cross-track error and length but never use C0 for promotion.
+Begin at the owning head cell's generator centre, then connect visited generator
+centre to visited generator centre and finish at the outlet-face midpoint. Do
+not prepend the physical head. Report cross-track error and length against the
+same analytic reference, with the seed-generator offset therefore visible in
+the diagnostic; never use C0 for promotion.
 
 ### F0 — selected-face midpoint baseline
 
@@ -250,19 +264,39 @@ Cross-track maxima and arclength are exact for the stored polyline. They replace
 R0's sampled Hausdorff claim. The analytic endpoint error is reported
 separately rather than hidden inside a sampled symmetric distance.
 
+Executable metric clarification frozen before tracing: for ordered vertices
+`p[0..m]`, use tangent-plane Euclidean segment lengths over the complete stored
+polyline and define
+
+```text
+L = sum_i |p[i+1] - p[i]|
+relative arclength error = |L - 176 km| / 176 km
+backtracking = sum_i max(s(p[i+1]) - s(p[i]), 0)
+outlet error = |p[m] - o|
+```
+
+The F0 sums include the head-to-first-face and final-face-to-portal segments.
+Report the terminal signed `s` and `n` alongside Euclidean outlet error. For B,
+retain each head's signed minimum/maximum `n` and the union envelope, but apply
+no A/V geometry gate.
+
 ### Frozen F0 gates
 
-For each eligible arm on both A and V:
+For each eligible arm separately on A and V, aggregate each spacing over its
+four labeled orientation/translation registrations. Gates use the worst case,
+while all four cases and their minimum/spread remain reported:
 
-1. finest-grid maximum cross-track error is at most `3 km` and decreases in net
-   from 8 to 2 km;
-2. finest-grid arclength error is below `5%`;
-3. finest-grid total along-track backtracking is at most `2 km`;
-4. finest-grid maximum cross-track error may not exceed twice its minimum
-   solely through orientation/translation when the absolute spread also
-   exceeds `2 km`; and
-5. no gate is passed solely by a build-index tie. Near-tie paths remain
-   numerically valid but their physical ambiguity is disclosed.
+1. the worst 2 km maximum cross-track error is at most `3 km` and is strictly
+   less than the worst 8 km value; 4 km is report-only for the net-convergence
+   gate;
+2. the worst 2 km relative arclength error is below `5%`;
+3. the worst 2 km total along-track backtracking is at most `2 km`;
+4. fail the orientation/translation robustness gate exactly when the 2 km
+   maximum cross-track error exceeds twice its four-case minimum **and** their
+   absolute difference exceeds `2 km`; and
+5. every promotion-relevant path contains zero selections decided by the final
+   combined-face-index key. Near-tie paths remain numerically valid but their
+   physical ambiguity is disclosed.
 
 B has no geometry gate. Exact or large-margin routing on B cannot manufacture a
 physically unique thalweg.
