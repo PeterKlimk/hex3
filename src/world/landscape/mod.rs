@@ -7,6 +7,7 @@
 mod boundary_fixture;
 mod c0_solver;
 mod c1_fixture;
+mod c1_network_fixture;
 mod continuum;
 mod denudation;
 mod filter;
@@ -25,6 +26,12 @@ pub use c0_solver::{
 pub use c1_fixture::{
     apply_channel_only_excavation, apply_internal_interfluve_channel_transfer, C1CellGeometry,
     C1CellState, C1ExcavationLedger, C1FixtureError, C1InternalTransferLedger,
+};
+pub use c1_network_fixture::{
+    apply_internal_transfer_per_reach_length, apply_unit_stream_power_response, network_moments,
+    remap_c1_state_by_reach_overlap, C1NetworkError, C1NetworkMoments, C1ReachAudit,
+    C1ReachNetwork, C1ReachSpec, C1ResponseAudit, C1RoutedFixture, C1RoutingAudit, C1Segment,
+    C1SegmentFlow, ReachId, REGISTERED_C1_DT_MYR, REGISTERED_C1_K_PER_KM,
 };
 pub use continuum::{ContinuumFlowError, DepressionRoutingSurface, FaceFlowCache, FlowPartition};
 pub use denudation::{

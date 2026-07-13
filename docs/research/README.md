@@ -26,3 +26,6 @@ Current synthesized notes:
 - [Minimum C1 manufactured fixture](c1-manufactured-fixture-2026-07-13.md)
   — freezes the dual channel/interfluve state, volume-mixing operators,
   non-claims and 8/4/2 analytic gates before any routed C1 prototype.
+- [Routed C1 ownership and remapping fixture](c1-routed-fixture-2026-07-13.md)
+  — preregisters stable semantic reaches, conservative confluence routing,
+  overlap remapping and a controlled receiver-reorganization gate.

@@ -362,6 +362,12 @@ controls, retaining the same physical reach area and local C1 mixing. Network
 and width ownership—not sediment, ecology, rendering or a long terrain run—are
 the remaining questions. Current evidence:
 [C1 manufactured fixture](audits/c1-manufactured-fixture-2026-07-13.md).
+The prescribed routed follow-up now also passes stable reach identity,
+conservative confluence/capture routing, C1 response and overlap-remap gates at
+8/4/2 km. The next project decision is not another local operator: select the
+owner of persistent drainage reaches among continuum extraction, an explicit
+skeleton and a physical initiation threshold. Current evidence:
+[Routed C1 fixture](audits/c1-routed-fixture-2026-07-13.md).
 The rejected nominal rectangular boundary remains an important scope decision:
 exact cut-cell hex geometry is not currently justified for a testbed intended
 to transfer to a closed sphere. Earlier analytic evidence remains in the

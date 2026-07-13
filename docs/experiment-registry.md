@@ -194,6 +194,15 @@ the next isolated routed-testbed representation. Network/reach and physical
 width ownership remain absent; sediment, valleys, ecology, long U/L and product
 integration remain blocked.
 
+The prescribed routed C1 fixture also passes. At 8/4/2 km it retains 288 km of
+stable reach identity, 48 km² channel area, exact registered outlet allocation
+and invariant `0.0002018352 km³` manufactured export. A B:C→D capture preserves
+all C1 state bits and shifts only downstream C/D flow/response; overlap remap
+preserves compartment moments without cross-reach transfer. Status: semantic
+receiver graphs are a viable isolated C1 state owner. Network generation and
+width evolution remain unselected; long U/L, sediment/ecology and product
+integration remain blocked pending that owner decision.
+
 ### Carrier/lifecycle subexperiments
 
 | Experiment | Status | Outcome |

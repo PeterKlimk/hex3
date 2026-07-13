@@ -400,6 +400,22 @@ the next missing systems. Do not jump to sediment, valleys, ecology or product
 integration. The next gate is a prescribed conservative receiver network with
 a confluence and reorganization control, still at 8/4/2 km.
 
+That routed manufactured gate now passes. Stable semantic ReachIds own 288 km
+of prescribed physical intervals and 48 km² of active channel at 8/4/2 km.
+Water closes to `5e-14`; pre-capture C/D outlets are `18.54/3.95` and
+post-capture `13.70/8.79 km³/Myr`; total flow remains `22.49`. Manufactured
+channel export is exactly `0.0002018352 km³` across refinement. B's receiver
+change preserves all reach/segment geometry and C1 state bits while only C/D
+downstream response changes.
+
+Overlap remapping preserves global and per-reach channel/interfluve moments
+without cross-reach transfer, and per-length internal transfer still cancels.
+Routing/remap are segment-linear with deterministic reach overhead. This
+promotes stable semantic receiver graphs as viable C1 owners in the isolated
+testbed, not any network-generation algorithm. Zoom out before more mechanics:
+the next decision is whether reaches come from continuum-flow extraction, an
+explicit persistent skeleton, or a physical channel-initiation threshold.
+
 ## Settled project-level conclusions
 
 - Hex3 is an authentic systemic world generator using reduced causal models,
