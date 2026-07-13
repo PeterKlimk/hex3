@@ -159,6 +159,57 @@ contact, and saddle elevation error must be no more than
 every resolution; it is not fitted to the observed 8 km miss. No topology,
 surface, phase, threshold or final morphology-accuracy gate changes.
 
+## Preregistered amendment E: product-geometry adapter authority
+
+**Date:** 2026-07-14, before the spherical product or projected irregular-cap
+G0 adapters were implemented.
+
+Adapter inventory found three authority conflicts that must be resolved before
+code can produce canonical evidence.
+
+First, spherical source vertex IDs are available only while adapting a product
+`Tessellation`, while `EvaluationSurfaceGraphV0` stores physical coordinates
+and cannot later validate ID-based polygon rotation. Canonical polygon starts
+therefore use the lexicographically smallest canonical physical
+`(x_bits,y_bits,z_bits)` vertex in every domain. Source vertex IDs remain the
+authoritative way to discover shared edges, but do not enter evidence identity.
+This also makes the hash invariant to a harmless renumbering of one shared
+source vertex table.
+
+Second, product adjacency equality means **validated neighbor-set equality**.
+The adapter rejects out-of-range, self or duplicate stored neighbors, sorts a
+copy, and requires exact equality with adjacency rebuilt from two-owner
+consecutive polygon edges. Raw source neighbor order is not semantic and does
+not have to equal canonical G0 CSR order. A nearest-generator orphan repair has
+no polygon edge and therefore still fails `NonPhysicalAdjacency`.
+
+Third, spherical point-radius checks use `endpoint_match_abs_km`. Stored cell
+area is exactly the adapter's recomputed signed-`f64` solid-angle area; cached
+`f32` product area is not a second authority. Per-cell winding/positive-area
+validation precedes the registered closed-sphere sum against
+`4*pi*radius_km^2`. Full-sphere G0 has no boundary segments. This checkpoint
+implements and validates only G0; `build_surface_hierarchy_v0` continues to
+reject spherical input until the separately underspecified morphology,
+gradient and relief rules receive an executable amendment.
+
+For the planar companion seam, native finite-volume measures remain evidence:
+
+- retain `LandscapeMesh.cell_area_km2` after requiring it to match the explicit
+  polygon's signed shoelace area within `planar_area_match_relative`;
+- retain each native `f32` internal face width and distance only after requiring
+  agreement with the explicit chord and center distance within two `f32`
+  relative epsilons;
+- require each boundary face center and width to match its explicit directed
+  endpoints within `endpoint_match_abs_km`; and
+- keep the native operator direction check against center displacement, but do
+  not require a general projected polygon chord to be perpendicular to that
+  displacement. Orthogonality remains a separately proven property of the
+  regular-hex companion, not a property of arbitrary projected Voronoi cells.
+
+The tangent-projected irregular cap must retain its exact directed endpoints at
+their existing source-edge construction sites. Reconstructing them from a
+midpoint, width and assumed perpendicular is forbidden.
+
 ## Decision
 
 Implement only the common physical surface graph (**G0**) and the independent
@@ -287,10 +338,10 @@ shared control-volume face is not physical adjacency and returns
 
 Cell polygons have at least three vertices and no repeated closing vertex.
 Planar polygons are counter-clockwise in `(x,y)`. Spherical polygons are
-counter-clockwise as viewed from outside the sphere. Their first vertex is the
-lowest source vertex ID where one exists, otherwise the lexicographically
-smallest canonical `(x_bits,y_bits,z_bits)` vertex. Face endpoints are stored
-in the directed polygon order. Reciprocal endpoints therefore reverse.
+counter-clockwise as viewed from outside the sphere. Under amendment E, every
+polygon's first vertex is the lexicographically smallest canonical
+`(x_bits,y_bits,z_bits)` vertex. Face endpoints are stored in the directed
+polygon order. Reciprocal endpoints therefore reverse.
 
 ### Planar `LandscapeMesh` adapter
 
@@ -338,9 +389,10 @@ Generators and Voronoi vertices are normalized in `f64` and multiplied by the
 canonical planet radius. Cell vertex order comes from the source Voronoi cell.
 For adjacent cells, the shared face is the exactly two consecutive shared
 Voronoi vertex IDs. Anything else returns `NonPhysicalAdjacency`.
-Canonical adjacency is rebuilt from polygon-edge ownership and must equal the
-stored tessellation adjacency exactly; a nearest-generator orphan repair is
-therefore exposed as non-geometric instead of silently entering S0.
+Canonical adjacency is rebuilt from polygon-edge ownership and its neighbor
+sets must equal the validated stored tessellation neighbor sets exactly; a
+nearest-generator orphan repair is therefore exposed as non-geometric instead
+of silently entering S0.
 
 Distances and face widths use the robust great-circle formula:
 

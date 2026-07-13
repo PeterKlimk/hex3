@@ -71,6 +71,14 @@ ellipse-width error, and topology, retention, buffers and cap ordering are
 stable. This validates the common planar instrument on prescribed landforms;
 it says nothing yet about product terrain quality or which H/C/G owner wins.
 
+Product-adapter inventory found enough authoritative spherical and irregular
+geometry to proceed, but also caught source-ID/canonical-hash and projected-face
+authority conflicts. Amendment E freezes coordinate-canonical spherical
+polygons, adjacency set equality, explicit radius/area authority, native planar
+measure closure and exact retained cap endpoints. The next checkpoint is G0
+only; spherical S0 stays rejected until its morphology and boundary-distance
+semantics are operationally frozen.
+
 The seed-12345 mountain ancestry remains the strongest current causal example.
 Human review found long, flat-topped tablelands—“a giant long Uluru”—rather
 than internally organized ranges. Relief exaggeration makes them usable and
