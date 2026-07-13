@@ -2,11 +2,11 @@
 //!
 //! This is a partial planar structural G0/S0 slice of the packet preregistered
 //! in `docs/research/landform-object-packet-g0s0-2026-07-14.md`. It implements
-//! the common graph types, the explicit planar adapter and the exact-level
-//! peak-saddle split forest. It is not the complete packet: spherical product
-//! adaptation and the frozen morphology/measurement outputs remain absent.
-//! Inputs are limited to physical geometry, elevation, a scored mask and the
-//! frozen extractor configuration.
+//! the common graph types, the explicit planar adapter, the exact-level
+//! peak-saddle split forest and planar reference-highland measurements. It is
+//! not the complete packet: spherical product adaptation and spherical
+//! morphology remain absent. Inputs are limited to physical geometry,
+//! elevation, a scored mask and the frozen extractor configuration.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
@@ -176,30 +176,77 @@ pub enum LandformError {
     NonPositiveMeasure,
     MalformedCsr,
     MalformedPolygonOffsets,
-    InvalidPolygon { cell: usize },
-    InvalidPolygonWinding { cell: usize },
+    InvalidPolygon {
+        cell: usize,
+    },
+    InvalidPolygonWinding {
+        cell: usize,
+    },
     NonCanonicalGeometry,
-    PlanarAreaMismatch { cell: usize },
-    SelfEdge { cell: usize },
-    DuplicateNeighbor { cell: usize, neighbor: usize },
-    MissingReciprocal { cell: usize, neighbor: usize },
-    NonUniqueReciprocal { cell: usize, neighbor: usize },
-    ReciprocalGeometryMismatch { cell: usize, neighbor: usize },
-    FaceNotBackedByPolygon { cell: usize, neighbor: usize },
-    MissingPolygonEdgeBacking { cell: usize, edge: usize },
-    OverlappingPolygonEdgeBacking { cell: usize, edge: usize },
-    InvalidBoundarySegment { segment: usize },
+    PlanarAreaMismatch {
+        cell: usize,
+    },
+    SelfEdge {
+        cell: usize,
+    },
+    DuplicateNeighbor {
+        cell: usize,
+        neighbor: usize,
+    },
+    MissingReciprocal {
+        cell: usize,
+        neighbor: usize,
+    },
+    NonUniqueReciprocal {
+        cell: usize,
+        neighbor: usize,
+    },
+    ReciprocalGeometryMismatch {
+        cell: usize,
+        neighbor: usize,
+    },
+    FaceNotBackedByPolygon {
+        cell: usize,
+        neighbor: usize,
+    },
+    MissingPolygonEdgeBacking {
+        cell: usize,
+        edge: usize,
+    },
+    OverlappingPolygonEdgeBacking {
+        cell: usize,
+        edge: usize,
+    },
+    InvalidBoundarySegment {
+        segment: usize,
+    },
     DuplicateBoundarySegment,
     MissingControlVolumeGeometry,
     NonRegularHexGeometry,
     NonPhysicalAdjacency,
     InvalidSphericalGeometry,
+    UnsupportedDomain,
     SphereAreaClosure,
+    OperatorGeometryMismatch {
+        cell: usize,
+        neighbor: usize,
+    },
+    NonFiniteDerived {
+        measurement: &'static str,
+        cell: usize,
+    },
     Overflow,
     NegativePersistence,
-    MultipleExclusiveOwners { cell: usize },
+    MultipleExclusiveOwners {
+        cell: usize,
+    },
     CyclicParentage,
-    FootprintAreaMismatch { peak: usize },
+    FootprintAreaMismatch {
+        peak: usize,
+    },
+    InvalidPlanarMoments {
+        peak: usize,
+    },
     Serialization(String),
 }
 
@@ -536,11 +583,35 @@ pub fn adapt_landscape_graph_v0(
     for cell in 0..n {
         let mut records = Vec::new();
         for source_edge in edge_range(&mesh.edge_offsets, cell) {
+            let neighbor = mesh.edge_neighbor[source_edge] as usize;
+            let displacement = mesh.cell_center_km[neighbor] - mesh.cell_center_km[cell];
+            let physical_distance = displacement.length();
+            let stored_distance = f64::from(mesh.edge_distance_km[source_edge]);
+            let stored_normal = mesh.edge_outward_tangent[source_edge].as_dvec3();
+            let distance_tolerance =
+                2.0 * f64::from(f32::EPSILON) * physical_distance.abs().max(f64::MIN_POSITIVE);
+            let direction_tolerance = 8.0 * f64::from(f32::EPSILON);
+            if !physical_distance.is_finite()
+                || physical_distance <= 0.0
+                || (stored_distance - physical_distance).abs() > distance_tolerance
+                || stored_normal.distance(displacement / physical_distance) > direction_tolerance
+            {
+                return Err(LandformError::OperatorGeometryMismatch { cell, neighbor });
+            }
             let endpoints = controls.edge_face_endpoints_km[source_edge].map(canonical_point);
+            let face = endpoints[1] - endpoints[0];
+            let face_length = face.length();
+            let endpoint_outward_normal = DVec3::new(face.y, -face.x, 0.0) / face_length;
+            if !face_length.is_finite()
+                || face_length <= 0.0
+                || endpoint_outward_normal.distance(stored_normal) > direction_tolerance
+            {
+                return Err(LandformError::OperatorGeometryMismatch { cell, neighbor });
+            }
             records.push(EdgeRecord {
                 neighbor: mesh.edge_neighbor[source_edge],
-                distance: f64::from(mesh.edge_distance_km[source_edge]),
-                width: endpoints[0].distance(endpoints[1]),
+                distance: stored_distance,
+                width: face_length,
                 endpoints,
             });
         }
@@ -838,6 +909,24 @@ fn validate_graph(
             if (endpoint_width - graph.edge_shared_width_km[edge]).abs() > tolerance {
                 return Err(LandformError::ReciprocalGeometryMismatch { cell, neighbor });
             }
+            if matches!(graph.domain, EvaluationDomainV0::Planar) {
+                let displacement = graph.cell_center_km[neighbor] - graph.cell_center_km[cell];
+                let physical_distance = displacement.length();
+                let face =
+                    graph.edge_face_endpoints_km[edge][1] - graph.edge_face_endpoints_km[edge][0];
+                let endpoint_outward_normal = DVec3::new(face.y, -face.x, 0.0) / endpoint_width;
+                let distance_tolerance =
+                    2.0 * f64::from(f32::EPSILON) * physical_distance.abs().max(f64::MIN_POSITIVE);
+                let direction_tolerance = 8.0 * f64::from(f32::EPSILON);
+                if !physical_distance.is_finite()
+                    || physical_distance <= 0.0
+                    || (graph.edge_distance_km[edge] - physical_distance).abs() > distance_tolerance
+                    || endpoint_outward_normal.distance(displacement / physical_distance)
+                        > direction_tolerance
+                {
+                    return Err(LandformError::OperatorGeometryMismatch { cell, neighbor });
+                }
+            }
         }
     }
 
@@ -962,11 +1051,77 @@ pub struct HighlandPopulationsV0 {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlanarFootprintGeometryV0 {
+    pub area_km2: f64,
+    pub centroid_km: DVec3,
+    /// Row-major planar area covariance `[xx, xy, yx, yy]`.
+    pub covariance_km2: [f64; 4],
+    pub equivalent_ellipse_length_km: f64,
+    pub equivalent_ellipse_width_km: f64,
+    pub anisotropy: f64,
+    /// Sign-canonical principal eigenvector in the physical XY frame.
+    pub principal_axis: DVec3,
+    pub orientation_ambiguous: bool,
+    pub two_sweep_extent_km: Option<f64>,
+    pub mean_width_km: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LocalReliefSummaryV0 {
+    pub radius_km: f64,
+    pub area_weighted_p50_km: f64,
+    pub area_weighted_p90_km: f64,
+    /// Footprint members whose registered-radius neighborhood intersects a
+    /// physical or scored-domain boundary.
+    pub truncated_member_cells: Vec<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GentleFractionV0 {
+    pub grade_threshold: f64,
+    pub fraction: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SummitCapSummaryV0 {
+    pub depth_km: f64,
+    pub area_km2: f64,
+    pub fraction: f64,
+    pub valid_grade_fraction: f64,
+    pub gentle_fractions: Vec<GentleFractionV0>,
+    pub cap_merge_censored: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlanarHighlandMeasurementsV0 {
+    pub footprint_geometry: PlanarFootprintGeometryV0,
+    pub local_relief: Vec<LocalReliefSummaryV0>,
+    /// Footprint members whose face-weighted least-squares gradient is
+    /// unavailable because its normal matrix is rank deficient.
+    pub rank_deficient_grade_cells: Vec<u32>,
+    pub summit_caps: Vec<SummitCapSummaryV0>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum HighlandMeasurementsV0 {
+    Planar(Box<PlanarHighlandMeasurementsV0>),
+    /// The structural feature is valid, but this partial slice does not yet
+    /// implement the preregistered spherical morphology backend.
+    SphericalUnavailable,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HighlandFeatureV0 {
+    pub peak_id: u32,
+    pub measurements: HighlandMeasurementsV0,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 /// Structural peak-saddle output for the current partial planar slice.
 ///
-/// This is not yet the complete G0/S0 landform object packet: morphology,
-/// measurement/classification records and spherical product adaptation are not
-/// represented by this type.
+/// This is not yet the complete G0/S0 landform object packet: planar reference
+/// morphology is present, while spherical product adaptation and spherical
+/// morphology remain explicitly unavailable.
 pub struct SurfaceHierarchyV0 {
     pub schema_version: String,
     pub hash_version: String,
@@ -977,6 +1132,7 @@ pub struct SurfaceHierarchyV0 {
     /// `None`.
     pub cell_peak_owner: Vec<Option<u32>>,
     pub populations: HighlandPopulationsV0,
+    pub reference_highlands: Vec<HighlandFeatureV0>,
     pub derived_evidence_hash: u64,
 }
 
@@ -1050,6 +1206,9 @@ pub fn build_surface_hierarchy_v0(
     mut config: SurfaceHierarchyConfigV0,
 ) -> Result<SurfaceHierarchyV0, LandformError> {
     config.closure_level_km = canonical_zero(config.closure_level_km);
+    if matches!(graph.domain, EvaluationDomainV0::Spherical { .. }) {
+        return Err(LandformError::UnsupportedDomain);
+    }
     graph.validate(&config)?;
     config.validate()?;
     let n = graph.cell_count();
@@ -1487,6 +1646,14 @@ fn canonicalize_hierarchy(
     roots.sort_unstable();
 
     let populations = build_populations(&peaks, config);
+    let reference_highlands = build_reference_highlands(
+        graph,
+        elevation,
+        scored_cell,
+        config,
+        &peaks,
+        &populations.reference,
+    )?;
     let mut hierarchy = SurfaceHierarchyV0 {
         schema_version: config.schema_version.to_owned(),
         hash_version: config.hash_version.to_owned(),
@@ -1495,6 +1662,7 @@ fn canonicalize_hierarchy(
         roots,
         cell_peak_owner,
         populations,
+        reference_highlands,
         derived_evidence_hash: 0,
     };
     let first = canonical_hierarchy_bytes(graph, elevation, scored_cell, config, &hierarchy)?;
@@ -1543,6 +1711,500 @@ fn build_populations(
     }
 }
 
+fn planar_polygon_raw_moments_about(polygon: &[DVec3], origin: DVec3) -> [f64; 6] {
+    let mut area_twice = 0.0;
+    let mut first_x_six = 0.0;
+    let mut first_y_six = 0.0;
+    let mut second_x_twelve = 0.0;
+    let mut second_y_twelve = 0.0;
+    let mut second_xy_twenty_four = 0.0;
+    for (a, b) in polygon
+        .iter()
+        .copied()
+        .zip(polygon.iter().copied().cycle().skip(1))
+        .take(polygon.len())
+    {
+        let a = a - origin;
+        let b = b - origin;
+        let cross = a.x * b.y - b.x * a.y;
+        area_twice += cross;
+        first_x_six += (a.x + b.x) * cross;
+        first_y_six += (a.y + b.y) * cross;
+        second_x_twelve += (a.x * a.x + a.x * b.x + b.x * b.x) * cross;
+        second_y_twelve += (a.y * a.y + a.y * b.y + b.y * b.y) * cross;
+        second_xy_twenty_four +=
+            (2.0 * a.x * a.y + a.x * b.y + b.x * a.y + 2.0 * b.x * b.y) * cross;
+    }
+    [
+        0.5 * area_twice,
+        first_x_six / 6.0,
+        first_y_six / 6.0,
+        second_x_twelve / 12.0,
+        second_xy_twenty_four / 24.0,
+        second_y_twelve / 12.0,
+    ]
+}
+
+#[cfg(test)]
+fn planar_polygon_raw_moments(polygon: &[DVec3]) -> [f64; 6] {
+    let origin = polygon.first().copied().unwrap_or(DVec3::ZERO);
+    let local = planar_polygon_raw_moments_about(polygon, origin);
+    let area = local[0];
+    let first_x = local[1] + origin.x * area;
+    let first_y = local[2] + origin.y * area;
+    [
+        area,
+        first_x,
+        first_y,
+        local[3] + 2.0 * origin.x * local[1] + origin.x * origin.x * area,
+        local[4] + origin.x * local[2] + origin.y * local[1] + origin.x * origin.y * area,
+        local[5] + 2.0 * origin.y * local[2] + origin.y * origin.y * area,
+    ]
+}
+
+fn measure_planar_footprint(
+    graph: &EvaluationSurfaceGraphV0,
+    members: &[u32],
+    config: &SurfaceHierarchyConfigV0,
+    peak_id: usize,
+) -> Result<PlanarFootprintGeometryV0, LandformError> {
+    let origin_cell = members.iter().copied().min().unwrap() as usize;
+    let origin = graph.cell_center_km[origin_cell];
+    let mut raw = [0.0; 6];
+    for &cell in members {
+        let moments = planar_polygon_raw_moments_about(graph.polygon(cell as usize), origin);
+        for (sum, value) in raw.iter_mut().zip(moments) {
+            *sum += value;
+        }
+    }
+    let area = raw[0];
+    if !area.is_finite() || area <= 0.0 || raw.iter().any(|value| !value.is_finite()) {
+        return Err(LandformError::InvalidPlanarMoments { peak: peak_id });
+    }
+    let authoritative_area = members
+        .iter()
+        .map(|&cell| graph.cell_area_km2[cell as usize])
+        .sum::<f64>();
+    let area_relative_error =
+        (area - authoritative_area).abs() / authoritative_area.max(f64::MIN_POSITIVE);
+    if area_relative_error > config.planar_area_match_relative {
+        return Err(LandformError::FootprintAreaMismatch { peak: peak_id });
+    }
+    let local_centroid_x = raw[1] / area;
+    let local_centroid_y = raw[2] / area;
+    let raw_second_x = raw[3] / area;
+    let raw_second_y = raw[5] / area;
+    let numeric_scale = raw_second_x
+        .abs()
+        .max(raw_second_y.abs())
+        .max(f64::MIN_POSITIVE);
+    let negative_tolerance = config.linear_rank_relative * numeric_scale;
+    let clamp_covariance = |value: f64| {
+        if value < -negative_tolerance {
+            Err(LandformError::InvalidPlanarMoments { peak: peak_id })
+        } else {
+            Ok(value.max(0.0))
+        }
+    };
+    let covariance_xx = clamp_covariance(raw_second_x - local_centroid_x * local_centroid_x)?;
+    let covariance_xy = raw[4] / area - local_centroid_x * local_centroid_y;
+    let covariance_yy = clamp_covariance(raw_second_y - local_centroid_y * local_centroid_y)?;
+    let trace = covariance_xx + covariance_yy;
+    let discriminant = (covariance_xx - covariance_yy).hypot(2.0 * covariance_xy);
+    let lambda_1 = 0.5 * (trace + discriminant);
+    let mut lambda_2 = 0.5 * (trace - discriminant);
+    let eigenvalue_tolerance = config.linear_rank_relative * lambda_1.max(numeric_scale);
+    if lambda_2 < -eigenvalue_tolerance {
+        return Err(LandformError::InvalidPlanarMoments { peak: peak_id });
+    }
+    if lambda_2 < 0.0 {
+        lambda_2 = 0.0;
+    }
+    if !lambda_1.is_finite() || !lambda_2.is_finite() || lambda_1 <= 0.0 {
+        return Err(LandformError::InvalidPlanarMoments { peak: peak_id });
+    }
+    let anisotropy = canonical_zero((lambda_1 - lambda_2) / (lambda_1 + lambda_2));
+    let candidate_a = DVec3::new(covariance_xy, lambda_1 - covariance_xx, 0.0);
+    let candidate_b = DVec3::new(lambda_1 - covariance_yy, covariance_xy, 0.0);
+    let mut principal = if candidate_a.length_squared() > candidate_b.length_squared()
+        && candidate_a.length_squared() > 0.0
+    {
+        candidate_a.normalize()
+    } else if candidate_b.length_squared() > 0.0 {
+        candidate_b.normalize()
+    } else if covariance_xx >= covariance_yy {
+        DVec3::X
+    } else {
+        DVec3::Y
+    };
+    if principal.x < 0.0 || (principal.x == 0.0 && principal.y < 0.0) {
+        principal = -principal;
+    }
+    principal = canonical_point(principal);
+
+    let start = members.iter().copied().min().unwrap() as usize;
+    let farthest = |origin: usize| {
+        let mut selected = members[0] as usize;
+        let mut selected_distance = -1.0;
+        for &candidate_u32 in members {
+            let candidate = candidate_u32 as usize;
+            let distance =
+                graph.cell_center_km[origin].distance_squared(graph.cell_center_km[candidate]);
+            if distance > selected_distance
+                || (distance.to_bits() == selected_distance.to_bits() && candidate < selected)
+            {
+                selected = candidate;
+                selected_distance = distance;
+            }
+        }
+        selected
+    };
+    let first = farthest(start);
+    let second = farthest(first);
+    let extent = canonical_zero(graph.cell_center_km[first].distance(graph.cell_center_km[second]));
+    let (two_sweep_extent_km, mean_width_km) = if extent > 0.0 {
+        (Some(extent), Some(canonical_zero(area / extent)))
+    } else {
+        (None, None)
+    };
+
+    Ok(PlanarFootprintGeometryV0 {
+        area_km2: canonical_zero(area),
+        centroid_km: canonical_point(DVec3::new(
+            origin.x + local_centroid_x,
+            origin.y + local_centroid_y,
+            0.0,
+        )),
+        covariance_km2: [
+            canonical_zero(covariance_xx),
+            canonical_zero(covariance_xy),
+            canonical_zero(covariance_xy),
+            canonical_zero(covariance_yy),
+        ],
+        equivalent_ellipse_length_km: canonical_zero(4.0 * lambda_1.sqrt()),
+        equivalent_ellipse_width_km: canonical_zero(4.0 * lambda_2.sqrt()),
+        anisotropy,
+        principal_axis: principal,
+        orientation_ambiguous: anisotropy < config.orientation_ambiguity_anisotropy,
+        two_sweep_extent_km,
+        mean_width_km,
+    })
+}
+
+fn planar_grades(
+    graph: &EvaluationSurfaceGraphV0,
+    elevation: &[f64],
+    scored_cell: &[bool],
+    config: &SurfaceHierarchyConfigV0,
+) -> Result<Vec<Option<f64>>, LandformError> {
+    let mut grades = vec![None; graph.cell_count()];
+    for cell in 0..graph.cell_count() {
+        if !scored_cell[cell] {
+            continue;
+        }
+        let mut matrix_xx = 0.0;
+        let mut matrix_xy = 0.0;
+        let mut matrix_yy = 0.0;
+        let mut rhs_x = 0.0;
+        let mut rhs_y = 0.0;
+        for edge in edge_range(&graph.edge_offsets, cell) {
+            let neighbor = graph.edge_neighbor[edge] as usize;
+            if !scored_cell[neighbor] {
+                continue;
+            }
+            let displacement = graph.cell_center_km[neighbor] - graph.cell_center_km[cell];
+            let weight = graph.edge_shared_width_km[edge] / graph.edge_distance_km[edge];
+            let dz = elevation[neighbor] - elevation[cell];
+            matrix_xx += weight * displacement.x * displacement.x;
+            matrix_xy += weight * displacement.x * displacement.y;
+            matrix_yy += weight * displacement.y * displacement.y;
+            rhs_x += weight * displacement.x * dz;
+            rhs_y += weight * displacement.y * dz;
+        }
+        let trace = matrix_xx + matrix_yy;
+        let discriminant = (matrix_xx - matrix_yy).hypot(2.0 * matrix_xy);
+        let larger = 0.5 * (trace + discriminant);
+        let smaller = 0.5 * (trace - discriminant);
+        if !matrix_xx.is_finite()
+            || !matrix_xy.is_finite()
+            || !matrix_yy.is_finite()
+            || !rhs_x.is_finite()
+            || !rhs_y.is_finite()
+            || !larger.is_finite()
+            || !smaller.is_finite()
+        {
+            return Err(LandformError::NonFiniteDerived {
+                measurement: "planar_grade",
+                cell,
+            });
+        }
+        if larger <= 0.0 || smaller <= config.linear_rank_relative * larger {
+            continue;
+        }
+        let determinant = matrix_xx * matrix_yy - matrix_xy * matrix_xy;
+        if !determinant.is_finite() || determinant <= 0.0 {
+            return Err(LandformError::NonFiniteDerived {
+                measurement: "planar_grade",
+                cell,
+            });
+        }
+        let gradient_x = (matrix_yy * rhs_x - matrix_xy * rhs_y) / determinant;
+        let gradient_y = (matrix_xx * rhs_y - matrix_xy * rhs_x) / determinant;
+        let grade = canonical_zero(gradient_x.hypot(gradient_y));
+        if !grade.is_finite() {
+            return Err(LandformError::NonFiniteDerived {
+                measurement: "planar_grade",
+                cell,
+            });
+        }
+        grades[cell] = Some(grade);
+    }
+    Ok(grades)
+}
+
+fn point_segment_distance(point: DVec3, endpoints: [DVec3; 2]) -> f64 {
+    let segment = endpoints[1] - endpoints[0];
+    let length_squared = segment.length_squared();
+    if length_squared == 0.0 {
+        return point.distance(endpoints[0]);
+    }
+    let t = ((point - endpoints[0]).dot(segment) / length_squared).clamp(0.0, 1.0);
+    point.distance(endpoints[0] + t * segment)
+}
+
+struct PlanarReliefFields {
+    relief_by_radius: Vec<Vec<Option<f64>>>,
+    truncated_by_radius: Vec<Vec<bool>>,
+}
+
+fn planar_relief_fields(
+    graph: &EvaluationSurfaceGraphV0,
+    elevation: &[f64],
+    scored_cell: &[bool],
+    config: &SurfaceHierarchyConfigV0,
+) -> PlanarReliefFields {
+    let radii = config.local_relief_radii_km;
+    let bucket_size = radii[0];
+    let mut buckets = BTreeMap::<(i64, i64), Vec<usize>>::new();
+    for (cell, &scored) in scored_cell.iter().enumerate() {
+        if scored {
+            let center = graph.cell_center_km[cell];
+            buckets
+                .entry((
+                    (center.x / bucket_size).floor() as i64,
+                    (center.y / bucket_size).floor() as i64,
+                ))
+                .or_default()
+                .push(cell);
+        }
+    }
+    let mut scored_boundaries = graph
+        .boundary_segments
+        .iter()
+        .map(|segment| segment.endpoints_km)
+        .collect::<Vec<_>>();
+    for cell in 0..graph.cell_count() {
+        if !scored_cell[cell] {
+            continue;
+        }
+        for edge in edge_range(&graph.edge_offsets, cell) {
+            let neighbor = graph.edge_neighbor[edge] as usize;
+            if !scored_cell[neighbor] {
+                scored_boundaries.push(graph.edge_face_endpoints_km[edge]);
+            }
+        }
+    }
+
+    let mut relief_by_radius = vec![vec![None; graph.cell_count()]; radii.len()];
+    let mut truncated_by_radius = vec![vec![false; graph.cell_count()]; radii.len()];
+    for cell in 0..graph.cell_count() {
+        if !scored_cell[cell] {
+            continue;
+        }
+        let center = graph.cell_center_km[cell];
+        let bucket = (
+            (center.x / bucket_size).floor() as i64,
+            (center.y / bucket_size).floor() as i64,
+        );
+        let boundary_distance = scored_boundaries
+            .iter()
+            .map(|&segment| point_segment_distance(center, segment))
+            .fold(f64::INFINITY, f64::min);
+        for (radius_index, &radius) in radii.iter().enumerate() {
+            let reach = (radius / bucket_size).ceil() as i64;
+            let mut minimum = f64::INFINITY;
+            let mut maximum = f64::NEG_INFINITY;
+            for bx in bucket.0 - reach..=bucket.0 + reach {
+                for by in bucket.1 - reach..=bucket.1 + reach {
+                    if let Some(candidates) = buckets.get(&(bx, by)) {
+                        for &candidate in candidates {
+                            if center.distance(graph.cell_center_km[candidate]) <= radius {
+                                minimum = minimum.min(elevation[candidate]);
+                                maximum = maximum.max(elevation[candidate]);
+                            }
+                        }
+                    }
+                }
+            }
+            relief_by_radius[radius_index][cell] = Some(canonical_zero(maximum - minimum));
+            truncated_by_radius[radius_index][cell] = boundary_distance <= radius;
+        }
+    }
+    PlanarReliefFields {
+        relief_by_radius,
+        truncated_by_radius,
+    }
+}
+
+fn weighted_quantile(mut values: Vec<(f64, u32, f64)>, fraction: f64) -> f64 {
+    values.sort_by(|a, b| a.0.total_cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+    let target = fraction * values.iter().map(|value| value.2).sum::<f64>();
+    let mut cumulative = 0.0;
+    for (value, _, area) in values {
+        cumulative += area;
+        if cumulative >= target {
+            return canonical_zero(value);
+        }
+    }
+    unreachable!("a nonempty weighted sample reaches its total area")
+}
+
+fn summit_cap_summaries(
+    graph: &EvaluationSurfaceGraphV0,
+    elevation: &[f64],
+    grades: &[Option<f64>],
+    peak: &PeakBranchV0,
+    config: &SurfaceHierarchyConfigV0,
+) -> Vec<SummitCapSummaryV0> {
+    config
+        .summit_cap_depths_km
+        .iter()
+        .map(|&depth| {
+            let cap = peak
+                .footprint_members
+                .iter()
+                .copied()
+                .filter(|&cell| elevation[cell as usize] >= peak.peak_elevation_km - depth)
+                .collect::<Vec<_>>();
+            let cap_area = cap
+                .iter()
+                .map(|&cell| graph.cell_area_km2[cell as usize])
+                .sum::<f64>();
+            let valid_area = cap
+                .iter()
+                .filter(|&&cell| grades[cell as usize].is_some())
+                .map(|&cell| graph.cell_area_km2[cell as usize])
+                .sum::<f64>();
+            let gentle_fractions = config
+                .gentle_grade_thresholds
+                .iter()
+                .map(|&threshold| {
+                    let gentle_area = cap
+                        .iter()
+                        .filter(|&&cell| {
+                            grades[cell as usize].is_some_and(|grade| grade <= threshold)
+                        })
+                        .map(|&cell| graph.cell_area_km2[cell as usize])
+                        .sum::<f64>();
+                    GentleFractionV0 {
+                        grade_threshold: threshold,
+                        fraction: canonical_zero(gentle_area / cap_area),
+                    }
+                })
+                .collect();
+            SummitCapSummaryV0 {
+                depth_km: depth,
+                area_km2: canonical_zero(cap_area),
+                fraction: canonical_zero(cap_area / peak.footprint_area_km2),
+                valid_grade_fraction: canonical_zero(valid_area / cap_area),
+                gentle_fractions,
+                cap_merge_censored: depth >= peak.persistence_km,
+            }
+        })
+        .collect()
+}
+
+fn build_reference_highlands(
+    graph: &EvaluationSurfaceGraphV0,
+    elevation: &[f64],
+    scored_cell: &[bool],
+    config: &SurfaceHierarchyConfigV0,
+    peaks: &[PeakBranchV0],
+    reference: &[u32],
+) -> Result<Vec<HighlandFeatureV0>, LandformError> {
+    if matches!(graph.domain, EvaluationDomainV0::Spherical { .. }) {
+        return Ok(reference
+            .iter()
+            .map(|&peak_id| HighlandFeatureV0 {
+                peak_id,
+                measurements: HighlandMeasurementsV0::SphericalUnavailable,
+            })
+            .collect());
+    }
+    if reference.is_empty() {
+        return Ok(Vec::new());
+    }
+    let grades = planar_grades(graph, elevation, scored_cell, config)?;
+    let relief = planar_relief_fields(graph, elevation, scored_cell, config);
+    reference
+        .iter()
+        .map(|&peak_id| {
+            let peak = &peaks[peak_id as usize];
+            let footprint_geometry =
+                measure_planar_footprint(graph, &peak.footprint_members, config, peak_id as usize)?;
+            let local_relief = config
+                .local_relief_radii_km
+                .iter()
+                .enumerate()
+                .map(|(radius_index, &radius)| {
+                    let samples = peak
+                        .footprint_members
+                        .iter()
+                        .map(|&cell| {
+                            (
+                                relief.relief_by_radius[radius_index][cell as usize]
+                                    .expect("active footprint cells are scored"),
+                                cell,
+                                graph.cell_area_km2[cell as usize],
+                            )
+                        })
+                        .collect::<Vec<_>>();
+                    let truncated_member_cells = peak
+                        .footprint_members
+                        .iter()
+                        .copied()
+                        .filter(|&cell| relief.truncated_by_radius[radius_index][cell as usize])
+                        .collect();
+                    LocalReliefSummaryV0 {
+                        radius_km: radius,
+                        area_weighted_p50_km: weighted_quantile(samples.clone(), 0.50),
+                        area_weighted_p90_km: weighted_quantile(samples, 0.90),
+                        truncated_member_cells,
+                    }
+                })
+                .collect();
+            let rank_deficient_grade_cells = peak
+                .footprint_members
+                .iter()
+                .copied()
+                .filter(|&cell| grades[cell as usize].is_none())
+                .collect();
+            let summit_caps = summit_cap_summaries(graph, elevation, &grades, peak, config);
+            Ok(HighlandFeatureV0 {
+                peak_id,
+                measurements: HighlandMeasurementsV0::Planar(Box::new(
+                    PlanarHighlandMeasurementsV0 {
+                        footprint_geometry,
+                        local_relief,
+                        rank_deficient_grade_cells,
+                        summit_caps,
+                    },
+                )),
+            })
+        })
+        .collect()
+}
+
 fn canonical_hierarchy_bytes(
     graph: &EvaluationSurfaceGraphV0,
     elevation: &[f64],
@@ -1565,6 +2227,7 @@ fn canonical_hierarchy_bytes(
             &hierarchy.roots,
             &hierarchy.cell_peak_owner,
             &hierarchy.populations,
+            &hierarchy.reference_highlands,
         ))
         .map_err(|error| LandformError::Serialization(error.to_string()))
 }
@@ -1802,6 +2465,56 @@ mod tests {
         }
     }
 
+    fn single_polygon_graph(mut polygon: Vec<DVec3>) -> EvaluationSurfaceGraphV0 {
+        if planar_polygon_signed_area(&polygon) < 0.0 {
+            polygon.reverse();
+        }
+        for point in &mut polygon {
+            *point = canonical_point(*point);
+        }
+        rotate_polygon_to_canonical_start(&mut polygon);
+        let moments = planar_polygon_raw_moments(&polygon);
+        let center = DVec3::new(moments[1] / moments[0], moments[2] / moments[0], 0.0);
+        let mut boundary_segments = polygon
+            .iter()
+            .copied()
+            .zip(polygon.iter().copied().cycle().skip(1))
+            .take(polygon.len())
+            .map(|(a, b)| EvaluationBoundarySegmentV0 {
+                id: 0,
+                owner_cell: 0,
+                endpoints_km: [a, b],
+                physical_length_km: a.distance(b),
+                projected_span_km: None,
+                condition: EvaluationBoundaryConditionV0::Closed,
+            })
+            .collect::<Vec<_>>();
+        boundary_segments.sort_by_key(|segment| {
+            (
+                segment.owner_cell,
+                point_key(segment.endpoints_km[0]),
+                point_key(segment.endpoints_km[1]),
+            )
+        });
+        for (id, segment) in boundary_segments.iter_mut().enumerate() {
+            segment.id = id as u32;
+        }
+        EvaluationSurfaceGraphV0 {
+            domain: EvaluationDomainV0::Planar,
+            cell_center_km: vec![canonical_point(center)],
+            cell_area_km2: vec![moments[0]],
+            cell_polygon_offsets: vec![0, polygon.len() as u32],
+            cell_polygon_vertices_km: polygon,
+            edge_offsets: vec![0, 0],
+            edge_neighbor: Vec::new(),
+            edge_reciprocal: Vec::new(),
+            edge_distance_km: Vec::new(),
+            edge_shared_width_km: Vec::new(),
+            edge_face_endpoints_km: Vec::new(),
+            boundary_segments,
+        }
+    }
+
     fn hierarchy(elevation: &[f64]) -> SurfaceHierarchyV0 {
         let graph = chain_graph(elevation.len(), 60.0);
         build_surface_hierarchy_v0(
@@ -1826,6 +2539,18 @@ mod tests {
         assert_eq!(result.peaks[0].footprint_members, vec![0, 1, 2]);
         assert_eq!(result.cell_peak_owner, vec![Some(0), Some(0), Some(1)]);
         assert_eq!(result.populations.reference, vec![0, 1]);
+        assert_eq!(result.reference_highlands.len(), 2);
+        let HighlandMeasurementsV0::Planar(measurements) =
+            &result.reference_highlands[0].measurements
+        else {
+            panic!("planar fixture must produce planar measurements");
+        };
+        assert_eq!(measurements.local_relief.len(), 3);
+        assert_eq!(measurements.summit_caps.len(), 3);
+        assert!(measurements
+            .summit_caps
+            .iter()
+            .all(|cap| cap.gentle_fractions.len() == 3));
     }
 
     #[test]
@@ -1959,6 +2684,157 @@ mod tests {
     }
 
     #[test]
+    fn planar_rectangle_moments_rotate_and_disk_orientation_is_ambiguous() {
+        let config = SurfaceHierarchyConfigV0::default();
+        let rectangle = [
+            DVec3::new(-4.0, -1.0, 0.0),
+            DVec3::new(4.0, -1.0, 0.0),
+            DVec3::new(4.0, 1.0, 0.0),
+            DVec3::new(-4.0, 1.0, 0.0),
+        ];
+        let graph = single_polygon_graph(rectangle.to_vec());
+        graph.validate(&config).unwrap();
+        let axis_aligned = measure_planar_footprint(&graph, &[0], &config, 0).unwrap();
+        assert!((axis_aligned.area_km2 - 16.0).abs() < 1.0e-12);
+        assert!(axis_aligned.centroid_km.length() < 1.0e-12);
+        assert!((axis_aligned.covariance_km2[0] - 64.0 / 12.0).abs() < 1.0e-12);
+        assert!((axis_aligned.covariance_km2[3] - 4.0 / 12.0).abs() < 1.0e-12);
+        assert_eq!(axis_aligned.principal_axis, DVec3::X);
+        assert!(!axis_aligned.orientation_ambiguous);
+
+        let angle = std::f64::consts::PI / 6.0;
+        let (sin, cos) = angle.sin_cos();
+        let rotated_polygon = rectangle.map(|point| {
+            DVec3::new(
+                cos * point.x - sin * point.y,
+                sin * point.x + cos * point.y,
+                0.0,
+            )
+        });
+        let rotated_graph = single_polygon_graph(rotated_polygon.to_vec());
+        rotated_graph.validate(&config).unwrap();
+        let rotated = measure_planar_footprint(&rotated_graph, &[0], &config, 0).unwrap();
+        assert!((rotated.area_km2 - axis_aligned.area_km2).abs() < 1.0e-12);
+        assert!(
+            (rotated.equivalent_ellipse_length_km - axis_aligned.equivalent_ellipse_length_km)
+                .abs()
+                < 1.0e-12
+        );
+        assert!(
+            (rotated.equivalent_ellipse_width_km - axis_aligned.equivalent_ellipse_width_km).abs()
+                < 1.0e-12
+        );
+        assert!(rotated.principal_axis.dot(DVec3::new(cos, sin, 0.0)) > 1.0 - 1.0e-12);
+
+        let translation = DVec3::new(100_000_000.0, -200_000_000.0, 0.0);
+        let translated_graph =
+            single_polygon_graph(rectangle.map(|point| point + translation).to_vec());
+        let translated = measure_planar_footprint(&translated_graph, &[0], &config, 0).unwrap();
+        assert!((translated.area_km2 - axis_aligned.area_km2).abs() < 1.0e-12);
+        assert!(translated.centroid_km.distance(translation) < 1.0e-12);
+        assert_eq!(translated.covariance_km2, axis_aligned.covariance_km2);
+        assert_eq!(
+            translated.equivalent_ellipse_length_km,
+            axis_aligned.equivalent_ellipse_length_km
+        );
+        assert_eq!(
+            translated.equivalent_ellipse_width_km,
+            axis_aligned.equivalent_ellipse_width_km
+        );
+
+        let disk_polygon = (0..128)
+            .map(|index| {
+                let angle = std::f64::consts::TAU * index as f64 / 128.0;
+                DVec3::new(5.0 * angle.cos(), 5.0 * angle.sin(), 0.0)
+            })
+            .collect();
+        let disk_graph = single_polygon_graph(disk_polygon);
+        disk_graph.validate(&config).unwrap();
+        let disk = measure_planar_footprint(&disk_graph, &[0], &config, 0).unwrap();
+        assert!(disk.anisotropy < 1.0e-12);
+        assert!(disk.orientation_ambiguous);
+        assert!(
+            (disk.equivalent_ellipse_length_km - disk.equivalent_ellipse_width_km).abs() < 1.0e-12
+        );
+    }
+
+    #[test]
+    fn face_weighted_least_squares_reconstructs_affine_grade() {
+        let graph = square_cycle_graph([0, 1, 2, 3]);
+        let elevation = graph
+            .cell_center_km
+            .iter()
+            .map(|center| 0.006 * center.x + 0.008 * center.y + 2.0)
+            .collect::<Vec<_>>();
+        let grades = planar_grades(
+            &graph,
+            &elevation,
+            &[true; 4],
+            &SurfaceHierarchyConfigV0::default(),
+        )
+        .unwrap();
+        assert!(grades
+            .iter()
+            .all(|grade| (grade.unwrap() - 0.010).abs() < 1.0e-12));
+    }
+
+    #[test]
+    fn broad_cap_has_more_area_and_gentle_surface_than_narrow_cap() {
+        fn fixture_peak() -> PeakBranchV0 {
+            PeakBranchV0 {
+                id: 0,
+                peak_elevation_km: 2.0,
+                anchor_cell: 0,
+                flat_centroid_km: DVec3::new(0.5, 0.5, 0.0),
+                flat_maximum_cells: vec![0],
+                parent_peak: None,
+                key_saddle: None,
+                persistence_km: 0.5,
+                root_closure: true,
+                equal_elder_ambiguous: false,
+                exclusive_cells: vec![0, 1, 2, 3],
+                footprint_members: vec![0, 1, 2, 3],
+                footprint_area_km2: 4.0,
+                union_boundary_edges: Vec::new(),
+                physical_boundary_segments: Vec::new(),
+                scored_boundary_contact: false,
+            }
+        }
+        let graph = square_cycle_graph([0, 1, 2, 3]);
+        let config = SurfaceHierarchyConfigV0::default();
+        let peak = fixture_peak();
+        let narrow = summit_cap_summaries(
+            &graph,
+            &[2.0, 1.4, 0.8, 1.4],
+            &[Some(0.015); 4],
+            &peak,
+            &config,
+        );
+        let broad = summit_cap_summaries(
+            &graph,
+            &[2.0, 1.9, 1.8, 1.9],
+            &[Some(0.0), Some(0.005), Some(0.008), Some(0.005)],
+            &peak,
+            &config,
+        );
+        for (narrow_cap, broad_cap) in narrow.iter().zip(&broad) {
+            assert!(broad_cap.area_km2 > narrow_cap.area_km2);
+            assert!(
+                broad_cap.gentle_fractions[0].fraction > narrow_cap.gentle_fractions[0].fraction
+            );
+            assert!(
+                broad_cap.gentle_fractions[1].fraction > narrow_cap.gentle_fractions[1].fraction
+            );
+            assert!(
+                broad_cap.gentle_fractions[2].fraction >= narrow_cap.gentle_fractions[2].fraction
+            );
+        }
+        assert!(!broad[0].cap_merge_censored);
+        assert!(broad[1].cap_merge_censored);
+        assert!(broad[2].cap_merge_censored);
+    }
+
+    #[test]
     fn regular_hex_companion_round_trips_through_general_adapter() {
         let config = SurfaceHierarchyConfigV0::default();
         let mesh = LandscapeMesh::uniform_planar_hex_with_portals(48.0, 40.0, 4.0, &[]).unwrap();
@@ -1967,6 +2843,64 @@ mod tests {
         assert_eq!(graph.cell_count(), mesh.cell_count());
         assert_eq!(graph.edge_neighbor.len(), mesh.edge_neighbor.len());
         graph.validate(&config).unwrap();
+    }
+
+    #[test]
+    fn planar_operator_geometry_is_secured_before_measurement() {
+        let config = SurfaceHierarchyConfigV0::default();
+        let mesh = LandscapeMesh::uniform_planar_hex_with_portals(48.0, 40.0, 4.0, &[]).unwrap();
+        let controls = build_regular_hex_control_volumes_v0(&mesh, &config).unwrap();
+
+        let mut bad_distance = mesh.clone();
+        bad_distance.edge_distance_km[0] *= 1.01;
+        assert!(matches!(
+            adapt_landscape_graph_v0(&bad_distance, &controls, &config),
+            Err(LandformError::OperatorGeometryMismatch { .. })
+        ));
+
+        let mut bad_normal = mesh.clone();
+        bad_normal.edge_outward_tangent[0] = -bad_normal.edge_outward_tangent[0];
+        assert!(matches!(
+            adapt_landscape_graph_v0(&bad_normal, &controls, &config),
+            Err(LandformError::OperatorGeometryMismatch { .. })
+        ));
+
+        let mut direct_graph = adapt_landscape_graph_v0(&mesh, &controls, &config).unwrap();
+        let reciprocal = direct_graph.edge_reciprocal[0] as usize;
+        direct_graph.edge_distance_km[0] *= 1.01;
+        direct_graph.edge_distance_km[reciprocal] *= 1.01;
+        assert!(matches!(
+            direct_graph.validate(&config),
+            Err(LandformError::OperatorGeometryMismatch { .. })
+        ));
+    }
+
+    #[test]
+    fn numerical_grade_failure_is_not_rank_deficiency() {
+        let graph = square_cycle_graph([0, 1, 2, 3]);
+        assert!(matches!(
+            planar_grades(
+                &graph,
+                &[f64::MAX, -f64::MAX, f64::MAX, -f64::MAX],
+                &[true; 4],
+                &SurfaceHierarchyConfigV0::default(),
+            ),
+            Err(LandformError::NonFiniteDerived {
+                measurement: "planar_grade",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn spherical_builder_is_explicitly_unavailable_until_g0_exists() {
+        let config = SurfaceHierarchyConfigV0::default();
+        let mut graph = chain_graph(2, 60.0);
+        graph.domain = EvaluationDomainV0::Spherical { radius_km: 6371.0 };
+        assert_eq!(
+            build_surface_hierarchy_v0(&graph, &[2.0, 1.0], &[true; 2], config),
+            Err(LandformError::UnsupportedDomain)
+        );
     }
 
     #[test]

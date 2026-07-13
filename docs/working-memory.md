@@ -35,11 +35,14 @@ evidence. The active task is its manufactured implementation and 8/4/2
 evaluation. Do not let product diagnostics, G's authored graph or renderer
 state leak into the instrument; competitive terrain arms remain out of scope.
 
-The first planar structural implementation now passes. It validates explicit
-control-volume faces, canonical hashes, simultaneous equal-level saddle events,
-compact nested footprints and the frozen persistence/area populations. This is
-not the full rung: spherical adaptation, local-relief/grade/cap morphology and
-the analytic 8/4/2 gates remain before D0 or any H/C/G arm.
+The planar structural and unit-morphology implementations now pass. They cover
+explicit control-volume faces, canonical hashes, simultaneous equal-level
+saddle events, nested footprints, physical polygon moments, fixed-radius
+relief, least-squares grade and summit-cap evidence. Review also forced native
+operator geometry validation, fatal numerical-error semantics and explicit
+rejection of spherical inputs until their G0 adapter exists. This is not the
+full rung: the analytic 8/4/2 gates and spherical/product geometry remain before
+D0 or any H/C/G arm.
 
 The seed-12345 mountain ancestry remains the strongest current causal example.
 Human review found long, flat-topped tablelands—“a giant long Uluru”—rather
