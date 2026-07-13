@@ -1,9 +1,14 @@
 # R1a affine generator-point causal control
 
 **Date:** 2026-07-14
-**Status:** preregistered; not yet evaluated
+**Status:** evaluated; alternate sampling is insufficient and both arms reject
 **Parent experiment:** [Irregular-Voronoi seeded extraction R1a](channel-extraction-r1a-2026-07-13.md)
 **Motivation:** [R1a path audit](../audits/channel-extraction-r1a-path-2026-07-14.md)
+
+**Result:** The generator control repairs zero terminations. P0 retains six
+rotated-case failures and M0 increases from four to six; both also miss the
+affine cross-track and length gates. See the
+[control audit](../audits/channel-extraction-r1a-generator-control-2026-07-14.md).
 
 ## Decision
 

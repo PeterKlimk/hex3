@@ -86,8 +86,11 @@ Current bounded research decision:
   — P0 and M0 both fail the affine-plus-valley gates; identifies polygon-mean/
   generator-geometry inconsistency before any richer path reconstruction.
 - [R1a affine generator-point causal control](research/channel-extraction-r1a-generator-control-2026-07-14.md)
-  — preregisters a report-only paired intervention to test the diagnosed state-
-  placement/operator interaction before adding a new mechanism.
+  — evaluated report-only intervention; generator sampling materially changes
+  P0 but repairs no termination and both local receivers still reject.
+- [R1a affine generator-point control audit](audits/channel-extraction-r1a-generator-control-2026-07-14.md)
+  — records the negative causal result and redirects the next discriminator
+  from another face score to entry-point-aware continuous crossing.
 
 ## Working inventory
 

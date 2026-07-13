@@ -37,5 +37,5 @@ Current synthesized notes:
   mesh discriminator and separate face-crossing geometry gate; completed
   experiment rejects both P0 and M0 on the required affine-plus-valley matrix.
 - [R1a affine generator-point causal control](channel-extraction-r1a-generator-control-2026-07-14.md)
-  — freezes a non-promotable paired affine intervention that changes only
-  state sampling before any new gradient or flux operator is attempted.
+  — evaluated non-promotable paired affine intervention; state sampling is
+  numerically material but insufficient, and both maximum-face arms still fail.

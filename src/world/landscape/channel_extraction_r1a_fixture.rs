@@ -111,6 +111,16 @@ pub struct R1RegisteredCase {
     pub audit: R1CaseAudit,
 }
 
+/// Test-only counterfactual whose affine state is sampled at mesh generators.
+///
+/// The wrapper prevents this deliberately lower-fidelity input from being
+/// mistaken for a registered exact polygon-mean case at a call site.
+#[cfg(test)]
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct R1AffineGeneratorPointControl {
+    pub(super) case: R1RegisteredCase,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct R1CaseError(pub String);
 
@@ -173,6 +183,54 @@ pub fn build_r1_registered_case(
         }
         elevation_km.push(surface_mean(config.surface, &transformed, moments)?);
     }
+
+    assemble_r1_registered_case(cap, config, elevation_km)
+}
+
+/// Build the preregistered affine generator-point counterfactual.
+///
+/// This seam exists only to test whether the exact polygon-mean state is the
+/// source of an observed path response. It is not a selectable product input.
+#[cfg(test)]
+pub(super) fn build_r1_affine_generator_point_control(
+    cap: &VoronoiCapFixture,
+    config: R1CaseConfig,
+) -> Result<R1AffineGeneratorPointControl, R1CaseError> {
+    validate_case_config(cap, config)?;
+    if config.surface != R1SurfaceKind::Affine {
+        return Err(R1CaseError(
+            "generator-point control is defined only for the affine surface".into(),
+        ));
+    }
+    let (outlet, along, _) = case_frame(config);
+    let elevation_km = cap
+        .mesh
+        .cell_center_km
+        .iter()
+        .map(|center| {
+            let point = DVec2::new(center.x, center.y);
+            let s = (point - outlet).dot(along);
+            R1_BASE_ELEVATION_KM + R1_ALONG_TRACK_GRADE * s
+        })
+        .collect();
+    Ok(R1AffineGeneratorPointControl {
+        case: assemble_r1_registered_case(cap, config, elevation_km)?,
+    })
+}
+
+fn assemble_r1_registered_case(
+    cap: &VoronoiCapFixture,
+    config: R1CaseConfig,
+    elevation_km: Vec<f64>,
+) -> Result<R1RegisteredCase, R1CaseError> {
+    if elevation_km.len() != cap.mesh.cell_count()
+        || elevation_km.iter().any(|elevation| !elevation.is_finite())
+    {
+        return Err(R1CaseError(
+            "assembled R1 elevation must contain one finite value per cell".into(),
+        ));
+    }
+    let (outlet, along, transverse) = case_frame(config);
 
     let head_offsets: &[f64] = match config.surface {
         R1SurfaceKind::Affine | R1SurfaceKind::Valley => &[0.0],
@@ -1090,6 +1148,57 @@ mod tests {
             build_index.tie_decision,
             R1RankTieDecision::CombinedFaceIndex
         );
+    }
+
+    #[test]
+    fn affine_generator_point_control_is_explicit_deterministic_and_conservative() {
+        let cap = build_r1_voronoi_cap(VoronoiCapConfig::r1(8.0)).unwrap();
+        let config = R1CaseConfig {
+            spacing_km: 8.0,
+            theta_rad: 0.31,
+            outlet_offset_km: 0.7,
+            surface: R1SurfaceKind::Affine,
+        };
+        let first = build_r1_affine_generator_point_control(&cap, config).unwrap();
+        let second = build_r1_affine_generator_point_control(&cap, config).unwrap();
+        assert_eq!(first, second);
+
+        let (outlet, along, _) = case_frame(config);
+        for (cell, center) in cap.mesh.cell_center_km.iter().enumerate() {
+            let point = DVec2::new(center.x, center.y);
+            let expected =
+                R1_BASE_ELEVATION_KM + R1_ALONG_TRACK_GRADE * (point - outlet).dot(along);
+            assert_eq!(first.case.elevation_km[cell], expected);
+        }
+        assert_eq!(
+            first.case.flow.routing_elevation_km,
+            first.case.elevation_km
+        );
+        assert_eq!(
+            first.case.flow.local_supply_km3_myr,
+            first.case.local_supply_km3_myr
+        );
+        assert!(first.case.flow.flat_potential.iter().all(Option::is_none));
+        assert!(first.case.audit.water_balance_relative_error <= 1.0e-12);
+        assert!(first.case.audit.maximum_fraction_sum_error <= 1.0e-12);
+
+        let registered = build_r1_registered_case(&cap, config).unwrap();
+        assert!(first
+            .case
+            .elevation_km
+            .iter()
+            .zip(&registered.elevation_km)
+            .any(|(generator, polygon_mean)| generator.to_bits() != polygon_mean.to_bits()));
+
+        let error = build_r1_affine_generator_point_control(
+            &cap,
+            R1CaseConfig {
+                surface: R1SurfaceKind::Valley,
+                ..config
+            },
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("only for the affine surface"));
     }
 
     #[test]

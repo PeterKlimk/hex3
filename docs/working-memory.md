@@ -555,20 +555,20 @@ explicit persistent skeleton, or a physical channel-initiation threshold.
   cross-track and length gates. V terminates reliably, but P0's worst 2 km
   cross-track is `3.205 km`; M0 reaches `3.220 km` and also misses length.
   Backtracking and build-index ties are zero, and failure prefixes have positive
-  margins. The principal issue is exact polygon means attached to generator-
-  based two-point geometry, not F0 midpoint styling. Do not tune V or add RT0
-  over inconsistent fluxes. See the
+  margins. The path audit's initial state/operator diagnosis motivated the
+  controlled intervention below; do not tune V or add RT0 over untrusted
+  fluxes. See the
   [path audit](audits/channel-extraction-r1a-path-2026-07-14.md).
-- The next causal question is operator consistency, not another river feature:
-  use generator-point affine values only as a diagnostic, then test a polygon-
-  mean linear-exact gradient receiver; earn a conservative non-orthogonal face
-  flux before considering continuous `H(div)`/RT0 crossings.
-- The generator-point rung is now frozen as a paired, report-only A control.
-  It changes only exact affine state placement, reuses the existing TPFA/MFD/
-  tracer stack and interprets each old A subgate separately. It cannot promote
-  P0/M0 or replace polygon means, and the checkpoint must stop before a new
-  gradient is implemented. See the
-  [control specification](research/channel-extraction-r1a-generator-control-2026-07-14.md).
+- The generator control is now evaluated and repairs zero terminations. P0
+  remains at 6/12 rotated failures; M0 worsens from 4/12 to 6/12. Successful P0
+  paths improve materially but still fail finest cross-track/length, while M0
+  is mostly worse. The mismatch is a secondary error contribution, not an
+  established cause of the frozen rejection. Failure prefixes overshoot the
+  outlet and drift `36.6–120.3 km` transversely into closed cuts. Another
+  linear-exact maximum-face P0 is redundant on A; the next nonredundant question
+  is entry-point-aware continuous polygon crossing. See the
+  [control specification](research/channel-extraction-r1a-generator-control-2026-07-14.md)
+  and [audit](audits/channel-extraction-r1a-generator-control-2026-07-14.md).
 
 ### Drainage-integration repair
 

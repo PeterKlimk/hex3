@@ -9,6 +9,8 @@ mod c0_solver;
 mod c1_fixture;
 mod c1_network_fixture;
 mod channel_extraction_r1a_fixture;
+#[cfg(test)]
+mod channel_extraction_r1a_generator_control;
 mod channel_extraction_r1a_path;
 mod channel_ownership_fixture;
 mod continuum;

@@ -153,3 +153,9 @@ Preregister a compact causal ladder before more implementation:
 This sequence distinguishes state placement, flux consistency and sparse path
 extraction without weakening the polygon-mean physical state or paying for a
 richer mechanism before its causal need is established.
+
+Later evidence: the first control is now
+[evaluated](channel-extraction-r1a-generator-control-2026-07-14.md). Generator
+sampling repairs no termination and both arms still fail A. The result makes a
+linear-exact gradient feeding the same affine maximum-face P0 redundant and
+redirects the next discriminator toward entry-point-aware continuous crossing.
