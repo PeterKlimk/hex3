@@ -4,6 +4,25 @@
 **Status:** preregistered; not implemented or evaluated  
 **Parent:** [Landform object packet v0](landform-object-packet-v0-2026-07-14.md)
 
+## Preregistered amendment A: regular-hex width quantization
+
+**Date:** 2026-07-14, before any H/C/G surface or packet was generated.
+
+The first manufactured regular-hex closure check exposed a representation
+detail in existing `LandscapeMesh`: centers and cell areas are `f64`, while
+internal operator face widths are stored as `f32`. Reconstructing physical
+vertices from the quantized width misses the exact center/area regular hex by
+nanometres and cannot satisfy the already registered `1e-10` area gate.
+
+For the verified uniform regular-hex companion only, derive physical face width
+as `center_distance / sqrt(3)` in `f64` and build its vertices from that width.
+The builder must separately verify that the stored operator width is the nearest
+`f32` representation within two `f32` ulps. G0 stores the derived physical face
+width; the source operator value remains solver provenance, not a second
+control-volume geometry. General planar adapters still copy their explicit
+companion geometry and may not apply this repair. No tolerance, terrain
+threshold or arm result changes.
+
 ## Decision
 
 Implement only the common physical surface graph (**G0**) and the independent
@@ -150,6 +169,9 @@ tangent = (-normal.y, normal.x, 0)
 face_center = 0.5 * (center[i] + center[j])
 endpoints = face_center +/- 0.5 * shared_width * tangent
 ```
+
+Under amendment A, `shared_width = center_distance / sqrt(3)`; the stored `f32`
+operator width must pass the separate quantization check.
 
 Endpoint order is chosen to follow the owning cell counter-clockwise. Boundary
 segment endpoints are reconstructed from `LandscapeBoundaryFace.center_km`,
