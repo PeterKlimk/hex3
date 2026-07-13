@@ -368,11 +368,20 @@ conservative confluence/capture routing, C1 response and overlap-remap gates at
 as exclusive owners. Conservative continuum flow owns instantaneous supply; a
 dimensioned discharge-slope/resistance rule proposes channel support; a sparse
 active/dormant graph owns C1 state and lineage; semantic and presentation
-networks remain derived. The next bounded task is the preregistered snapshot
-versus persistent-memory discriminator under receiver jitter and one genuine
-capture—not product integration or initiation/width tuning. Current evidence:
+networks remain derived. It preregisters a snapshot-versus-persistent-memory
+discriminator under receiver jitter and one genuine capture—not product
+integration or initiation/width tuning. That decision is recorded in:
 [Routed C1 fixture](audits/c1-routed-fixture-2026-07-13.md) and
 [drainage-network ownership](research/drainage-network-ownership-2026-07-13.md).
+The narrower M0 mechanism rung now passes on prescribed physical observations,
+including hysteretic retention across a manufactured threshold dip, exactly
+one capture and transactional composition with unchanged C1 intervals. It does
+not execute the preregistered discriminator: S0 loses the marginal reach by
+construction, and the MFD-to-thalweg extraction rule remains absent. The
+next decision is therefore that extraction rung and its comparison with current
+production SFD semantics—not birth/retirement, sediment, long U/L or product
+integration. Current evidence:
+[M0 ownership audit](audits/channel-ownership-memory-m0-2026-07-13.md).
 The rejected nominal rectangular boundary remains an important scope decision:
 exact cut-cell hex geometry is not currently justified for a testbed intended
 to transfer to a closed sphere. Earlier analytic evidence remains in the

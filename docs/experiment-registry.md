@@ -215,6 +215,18 @@ as the upper-bound control. Physical initiation parameters, width evolution,
 long U/L, sediment/ecology and product integration remain blocked. See the
 [drainage-network ownership decision](research/drainage-network-ownership-2026-07-13.md).
 
+The narrower M0 implementation now passes prescribed-observation hysteresis,
+unique-anchor correspondence, one-capture, invalid-cycle and unchanged-interval
+C1 composition controls at 8/4/2 km. It deliberately stops before reach
+birth/retirement because those require explicit attached-state ledgers. Status:
+retain as isolated mechanism evidence only. Since channel support and physical
+anchors are prescribed and S0 crosses the initiation threshold by construction,
+M0 does not execute the preregistered discriminator, demonstrate continuum-
+derived network convergence or show that persistence earns its cost. The next
+decision is the MFD-to-sparse-candidate extraction rung, compared with
+production SFD extraction and the prescribed control. Evidence:
+[M0 audit](audits/channel-ownership-memory-m0-2026-07-13.md).
+
 ### Carrier/lifecycle subexperiments
 
 | Experiment | Status | Outcome |

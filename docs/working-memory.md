@@ -507,6 +507,17 @@ explicit persistent skeleton, or a physical channel-initiation threshold.
   hysteretic promotion/correspondence on one jitter-plus-capture manufactured
   case. A prescribed graph is only the topology upper-bound control. See the
   [ownership decision](research/drainage-network-ownership-2026-07-13.md).
+- The implemented M0 rung proves only that a narrow hysteresis/unique-anchor
+  mechanism and one capture compose transactionally with unchanged routed-C1
+  intervals. It consumes prescribed physical observations, and S0 loses B
+  because B deliberately crosses `I_on`. Exact `288 km` length and `48 km²`
+  channel area are fixture inputs. Do not describe M0 as the preregistered
+  discriminator, a terrain-derived network, moved-footprint conservation or
+  proof that persistence earns its cost.
+- M0 stops before channel birth/retirement rather than inventing state. The next
+  principled question is how MFD face flux becomes a sparse thalweg/reach
+  candidate with physical overlap, compared against production SFD extraction
+  and a prescribed graph control.
 
 ### Drainage-integration repair
 

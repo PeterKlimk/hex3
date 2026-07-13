@@ -135,6 +135,20 @@ lowland planform layer, not global mountain-channel genesis.
 
 ## Preregistered memory discriminator
 
+### Execution split
+
+Before implementation, this discriminator was split into two evidence rungs.
+M0 consumes prescribed physical channel observations and checks only the
+mechanics of hysteresis, unique-anchor correspondence, topology transactions
+and composition with unchanged routed-C1 intervals. It deliberately crosses
+the initiation threshold, so it does not execute the frozen jitter comparison
+below or show that memory is necessary. Non-coupling to water/terrain is by API
+construction, not a tested feedback boundary. Directly extracting reaches from
+the MFD face graph would first add an unvalidated thalweg/confluence algorithm
+and confound extraction error with memory error. M1 retains the smooth
+moving-surface comparison below and remains unpassed. See the
+[M0 audit](../audits/channel-ownership-memory-m0-2026-07-13.md).
+
 ### Question
 
 Does persistent, hysteretic reach ownership materially outperform snapshot
@@ -232,4 +246,3 @@ passive observer/process carrier: it may not alter flow or cell-mean terrain.
   coarse/fine product pipeline;
 - lateral migration, floodplains, avulsion, deltas and sediment provenance;
 - semantic hierarchy, naming and scale-dependent cartographic selection.
-
