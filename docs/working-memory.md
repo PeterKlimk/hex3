@@ -35,6 +35,12 @@ evidence. The active task is its manufactured implementation and 8/4/2
 evaluation. Do not let product diagnostics, G's authored graph or renderer
 state leak into the instrument; competitive terrain arms remain out of scope.
 
+The first planar structural implementation now passes. It validates explicit
+control-volume faces, canonical hashes, simultaneous equal-level saddle events,
+compact nested footprints and the frozen persistence/area populations. This is
+not the full rung: spherical adaptation, local-relief/grade/cap morphology and
+the analytic 8/4/2 gates remain before D0 or any H/C/G arm.
+
 The seed-12345 mountain ancestry remains the strongest current causal example.
 Human review found long, flat-topped tablelands—“a giant long Uluru”—rather
 than internally organized ranges. Relief exaggeration makes them usable and

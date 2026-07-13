@@ -15,7 +15,8 @@ Current synthesized notes:
   an implemented extractor or executable rung specification.
 - [Landform G0/S0 executable contract](landform-object-packet-g0s0-2026-07-14.md)
   — frozen common graph, split-tree, physical morphology, neutrality and
-  8/4/2 manufactured gates for the first evidence-packet implementation rung.
+  8/4/2 manufactured gates for the first evidence-packet implementation rung;
+  its planar structural slice passes, while the full rung remains incomplete.
 - [Correspondence priors for reduced planet models](correspondence-priors-2026-07-12.md)
 - [Orogen organization: causal reference and reduced experiments](orogen-organization-2026-07-12.md)
 - [Mountain-system design basis](mountain-system-design-basis-2026-07-13.md)
