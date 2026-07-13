@@ -27,6 +27,11 @@ The immediate objective is not another stage. It is to establish whether the
 existing stages jointly produce a coherent, interesting geography and which
 mechanisms deserve to remain part of that explanation.
 
+The first pass now identifies regional geographic organization as the weakest
+seam and narrows the next terrain/drainage comparison in the
+[landscape organization strategy](landscape-strategy.md). This is a bounded
+architecture decision, not a promotion of deeper simulation by default.
+
 ## Alternatives considered
 
 ### Reduced physical planet

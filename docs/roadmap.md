@@ -281,19 +281,35 @@ benefit recommendation, not only a survey.
 
 ## Near-term sequence
 
-Feature expansion is paused for Horizon 2. The corpus, research synthesis and
-[model-strategy decision](model-strategy.md) have already established the
-evaluation substrate; the current sequence is:
+Feature expansion remains paused for the geographic-coherence decision. The
+zoomed-out pass now identifies regional organization—not missing global model
+depth—as the weak seam. The [landscape organization strategy](landscape-strategy.md)
+selects the next comparison family; exact arms, normalizations, budgets and
+gates are not yet preregistered.
 
-1. extract provisional range/plateau/ridge/divide/peak/pass semantics;
-2. produce matched Physical, Diagnostic, Cartographic and Dramatic inspections
-   for a small representative/outlier panel;
-3. assess causal correspondence for those objects, including absent or
-   contradictory relationships;
-4. give current systems and high-leverage missing systems comparable
-   dispositions;
-5. choose one bounded rework or expansion—or deliberately choose subtraction—
-   from the resulting cross-system case.
+The current sequence is:
+
+1. extract the minimum shared object packet needed to compare ranges, ridge/
+   divide graphs, passes, valleys, basins and river hierarchy, reusing existing
+   diagnostic and semantic code;
+2. preregister one bounded organization-owner slice with shared admissible
+   inputs, an arm-neutral terrain-opportunity calibration, a common resource
+   ceiling and independent object extraction: hold-and-carve H, reduced
+   coevolution C and graph-first authentic control G;
+3. implement only the missing composition and object-output seams, reusing the
+   tested landscape operator library without promoting its research models;
+4. run the linked-segment base case, advance every competitive arm meeting the
+   shared gate under the same preregistered rule, and retain H as the standing
+   control in every admitted forcing-reorganization and wet/dry case;
+5. decide ownership by object topology, causal response, matched human review
+   and compute/complexity cost; and
+6. return to the cross-system disposition table before choosing sediment,
+   ecology, coast or human-world expansion.
+
+Do not resume the R1 arithmetic ladder, run a global seed sweep, tune legacy
+shape amplitudes or optimize an undecided composition. The organization slice
+is explicitly allowed to select the cheaper graph-first/hybrid architecture
+over the reduced physical arm.
 
 The [subtractive architecture audit](subtractive-audit.md) remains evidence,
 not a standing optimization queue. Cleanup, ablation or performance work enters
@@ -304,6 +320,11 @@ Seed 12345 now has a first spatial dossier packet with diverse mountain, lake
 and river targets and exact drainage-integration provenance. This is evidence
 toward steps 1–2, not completion: range/plateau/divide semantics and matched
 diagnostic layers outside the completed range-ancestry packet remain open.
+
+### Research evidence constraining this sequence
+
+The following chain records why the current slice has this shape. It is
+evidence and history, not a queue of automatic next rungs.
 
 The first range-ancestry packet and binary repeated-uplift control now locate
 the flat-plateau defect upstream of erosion: the coarse distance-band envelope

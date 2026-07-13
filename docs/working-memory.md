@@ -14,11 +14,22 @@ it become a chronological activity log.
 
 ## Active focus
 
-**Mountain-range morphology and ownership.** Human review of the seed-12345
-matched relief packet finds that mountain systems often read as long,
-flat-topped plateaus—“a giant long Uluru”—rather than internally organized
-ranges. Relief exaggeration makes them usable and visually impressive, but also
-helped conceal the modeled plateau morphology.
+**Landscape organization and ownership.** The zoomed-out review identifies the
+weakest architectural seam as the conversion from broad tectonic, climate and
+water fields into coherent ranges, ridges, divides, passes, valleys, basins and
+river hierarchy. The accepted comparison is recorded in the
+[landscape organization strategy](landscape-strategy.md).
+
+Do not continue the R1 arithmetic ladder, tune legacy mountain profiles or
+assume the most physical candidate must win. Compare the current hold-and-carve
+baseline with a reduced coevolving owner and a graph-first authentic control on
+one bounded object-level slice. Landform semantics are required evidence for
+that comparison, not a decorative follow-up.
+
+The seed-12345 mountain ancestry remains the strongest current causal example.
+Human review found long, flat-topped tablelands—“a giant long Uluru”—rather
+than internally organized ranges. Relief exaggeration makes them usable and
+visually impressive, but also helped conceal the modeled plateau morphology.
 
 The completed discriminating packet compares the same three range targets through:
 
@@ -31,7 +42,7 @@ The completed discriminating packet compares the same three range targets throug
 7. slope/hillshade without snow-color saturation;
 8. drainage/divides and integration cuts.
 
-### Discriminating result
+### Mountain-ancestry discriminating result
 
 - The plateau envelope is already present in coarse elevation and follows the
   smooth, capped tectonic-thickening distance bands.

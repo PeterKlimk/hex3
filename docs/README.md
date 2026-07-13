@@ -10,6 +10,9 @@ experimental, superseded, or awaiting classification.
   project-level decision principles.
 - [Model strategy](model-strategy.md) — chosen hybrid causal world-generator
   identity, domain truth contracts and gates against local optimization.
+- [Landscape organization strategy](landscape-strategy.md) — current decision
+  for terrain, drainage and landform ownership, including the next bounded
+  architecture comparison.
 - [Documentation policy](documentation-policy.md) — authority, status,
   terminology, evidence and lifecycle rules.
 - [Current architecture](architecture.md) — accepted system ownership and data

@@ -134,6 +134,12 @@ Drainage integration is a declared terrain-repair operator inside hydrology,
 not erosion. Its sparse cut/source provenance is retained so water gaps and
 river paths can disclose when this authentic hack changed their terrain.
 
+The current terrain–erosion–hydrology composition is retained as a product
+baseline, not accepted as the final owner of regional landform organization.
+The comparison between hold-and-carve, reduced coevolution and graph-first
+reconstruction is defined in the
+[landscape organization strategy](landscape-strategy.md).
+
 ## Semantic derivation
 
 There is not yet one semantic-model module. Its responsibilities are distributed

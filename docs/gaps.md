@@ -38,6 +38,7 @@ visible consequences.
 | Candidate | Visible payoff | Emergence / reach | Cost / readiness | Provisional Pareto view |
 |---|---|---|---|---|
 | Landform semantics: ranges, plateaus, ridges, valleys, divides and passes | High through inspection and feature-aware rendering | Very high across causal validation, cartography, ecology and later culture | Medium; diagnostics contain prototypes but definitions conflict | **Highest-priority evaluation extraction** |
+| Regional organization owner: reduced coevolution versus graph-first reconstruction | Very high; directly targets tableland grammar and weak drainage hierarchy | Very high across terrain, water, climate barriers, semantics and later worlds | Medium–high; bounded testbed and many operators exist, product composition does not | **Next architecture discriminator** |
 | Controlled correspondence batteries for current systems | Indirect visually; prevents expensive false confidence | Very high across tectonics, climate, hydrology, erosion and remapping | Low–medium; idealized cases and ablations | **Do before mechanism expansion** |
 | Presentation transform ledger plus matched physical/cartographic views | High clarity and prevents false geometric inference | High diagnostic and rendering leverage | Low; physical/cartographic split already exists | **Immediate** |
 | Explicit semantic objects and regions | High through inspection, cartography and later gameplay | Very high; reused by rendering, validation, ecology and civilization | Low–medium; much logic already exists implicitly | **Do early** |
@@ -81,6 +82,11 @@ An explicit semantic layer is a force multiplier because it can provide:
 The first semantic work should reuse existing derivations rather than begin with
 a generic entity framework. Rivers/water bodies and ranges are the best initial
 objects because their topology and diagnostics already exist.
+
+These objects are also the required evidence packet for the competing landscape
+owners. Semantics alone can improve explanation and presentation, but it cannot
+repair an unorganized physical surface. The bounded comparison is defined in
+the [landscape organization strategy](landscape-strategy.md).
 
 ## High-leverage visible domain, currently paused: living surface
 

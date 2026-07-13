@@ -1,7 +1,7 @@
 # Experiment registry
 
 This registry separates current product behavior from implemented alternatives.
-It summarizes code and recorded evidence as of 2026-07-13; it is not a substitute
+It summarizes code and recorded evidence as of 2026-07-14; it is not a substitute
 for the linked audits. Status terms follow the
 [documentation policy](documentation-policy.md).
 
@@ -63,6 +63,15 @@ Success requires authoritative pre/final morphology and at least one downstream
 hydrology or climate organization signature to improve under the declared
 budget. Peak count or render appeal alone is not sufficient. Research basis:
 [`research/orogen-organization-2026-07-12.md`](research/orogen-organization-2026-07-12.md).
+
+The zoomed-out disposition supersedes O3B/O3C as separate presumed next
+implementations. The next planned discriminator is one organization-owner slice
+with three comparable families: locked hold-and-carve H, reduced coupled C and
+graph-first authentic G. Its shared admissible inputs, arm-neutral opportunity
+calibration, resource ceiling and independent object extraction must be
+preregistered before implementation. Status: planned discriminator;
+comparison family selected, no arm implemented, evaluated or promoted. See the
+[landscape organization strategy](landscape-strategy.md).
 
 The first O1 run at 100k coarse/250k fine preserves peak and mountain-area
 plausibility and modestly increases 25–100-km relief, but increases median/p90

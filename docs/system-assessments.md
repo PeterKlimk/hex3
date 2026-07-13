@@ -301,17 +301,20 @@ the integrated planet.
 
 ## Portfolio-level conclusions
 
-1. The best current investments are couplings and interpretation, not isolated
-   solver sophistication.
-2. Tectonics, hydrology and erosion deserve depth because many later systems
-   consume them and they generate emergent structure.
+1. The weakest current seam is regional geographic organization: broad causal
+   fields do not yet reliably become coherent ranges, divides, valleys, basins
+   and river hierarchy.
+2. The best current comparison is one organization owner at a time—reduced
+   coevolution versus a graph-first authentic hack—not isolated solver depth or
+   stacked terrain-shape mechanisms. See the
+   [landscape organization strategy](landscape-strategy.md).
 3. Coarse climate is already near a useful Pareto point; deeper climate must
    prove regional geographic payoff.
 4. A semantic layer and reproducible presentation profiles are comparatively
    cheap, high-leverage missing architecture.
 5. Persistent sediment is the strongest large missing-system candidate because
-   it can connect several existing systems, but it needs a deliberately small
-   first scope.
+   it can connect several existing systems, but it follows the organization-
+   owner decision and needs a deliberately small first scope.
 6. Geological time matters only if processes share it. A physical clock attached
    to otherwise uncoupled or non-convergent operators is not progress by itself.
 7. The implemented Stage 4 frontier leaves major creative space: living worlds
