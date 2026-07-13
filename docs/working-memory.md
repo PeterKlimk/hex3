@@ -40,9 +40,8 @@ explicit control-volume faces, canonical hashes, simultaneous equal-level
 saddle events, nested footprints, physical polygon moments, fixed-radius
 relief, least-squares grade and summit-cap evidence. Review also forced native
 operator geometry validation, fatal numerical-error semantics and explicit
-rejection of spherical inputs until their G0 adapter exists. This is not the
-full rung: spherical/product geometry and adversarial fixture closure remain
-before D0 or any H/C/G arm.
+rejection of spherical S0 inputs. This is not the full rung: spherical S0 and
+morphology remain unavailable before D0 or any H/C/G arm.
 
 Pre-execution review of the 8/4/2 matrix found that its mesh phase, sampling
 rule, one-hill and rectangle were not actually frozen. It also rejected strict
@@ -71,13 +70,15 @@ ellipse-width error, and topology, retention, buffers and cap ordering are
 stable. This validates the common planar instrument on prescribed landforms;
 it says nothing yet about product terrain quality or which H/C/G owner wins.
 
-Product-adapter inventory found enough authoritative spherical and irregular
-geometry to proceed, but also caught source-ID/canonical-hash and projected-face
-authority conflicts. Amendment E freezes coordinate-canonical spherical
-polygons, adjacency set equality, explicit radius/area authority, native planar
-measure closure and exact retained cap endpoints. The next checkpoint is G0
-only; spherical S0 stays rejected until its morphology and boundary-distance
-semantics are operationally frozen.
+The G0 geometry-adapter checkpoint now passes. Product `Tessellation` faces are
+discovered from source vertex-ID edges with exactly two owners, checked against
+stored adjacency as sets, and converted through robust `f64` radius, arc and
+signed-area geometry with global closure, no-boundary and connectedness gates.
+The 8 km projected product-Voronoi cap retains exact directed source endpoints
+and native finite-volume measures after explicit closure checks. Focused
+off-radius, reversed-winding, invented-adjacency, corrupted-measure and moved-
+endpoint tests reject as intended. This completes G0 geometry only: spherical
+S0/morphology stays rejected and no product landform or H/C/G inference exists.
 
 The seed-12345 mountain ancestry remains the strongest current causal example.
 Human review found long, flat-topped tablelands—“a giant long Uluru”—rather

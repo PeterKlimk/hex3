@@ -84,6 +84,12 @@ pub struct VoronoiCapFixture {
     pub cell_polygons_km: Vec<Vec<DVec2>>,
     /// Shared-face midpoint aligned with the mesh's directed CSR edges.
     pub edge_face_midpoint_km: Vec<DVec3>,
+    /// Exact directed shared-face endpoints aligned with the mesh's directed
+    /// CSR edges and oriented in the owning cell's polygon order.
+    pub edge_face_endpoints_km: Vec<[DVec3; 2]>,
+    /// Exact directed boundary-face endpoints aligned with
+    /// `mesh.boundary_faces` and oriented in the owning cell's polygon order.
+    pub boundary_face_endpoints_km: Vec<[DVec3; 2]>,
     pub audit: VoronoiCapAudit,
 }
 
@@ -326,7 +332,9 @@ fn adapt_cap(
     let mut edge_face_width_km = Vec::new();
     let mut edge_outward_tangent = Vec::new();
     let mut edge_face_midpoint_km = Vec::new();
+    let mut edge_face_endpoints_km = Vec::new();
     let mut boundary_faces = Vec::new();
+    let mut boundary_face_endpoints_km = Vec::new();
     let mut boundary = vec![BoundaryCondition::Interior; retained_old.len()];
     let mut min_internal_face_width_km = f64::INFINITY;
     let mut max_internal_face_width_km = 0.0_f64;
@@ -407,6 +415,7 @@ fn adapt_cap(
                 edge_face_width_km.push(width as f32);
                 edge_outward_tangent.push(delta.extend(0.0).normalize().as_vec3());
                 edge_face_midpoint_km.push(midpoint.extend(0.0));
+                edge_face_endpoints_km.push([a.extend(0.0), b.extend(0.0)]);
                 min_internal_face_width_km = min_internal_face_width_km.min(width);
                 max_internal_face_width_km = max_internal_face_width_km.max(width);
                 // Store each physical face once even though the mesh CSR is directed.
@@ -473,6 +482,7 @@ fn adapt_cap(
                     center_distance_km,
                     condition,
                 });
+                boundary_face_endpoints_km.push([a.extend(0.0), b.extend(0.0)]);
             }
         }
     }
@@ -547,6 +557,8 @@ fn adapt_cap(
         cell_polygons_unit,
         cell_polygons_km,
         edge_face_midpoint_km,
+        edge_face_endpoints_km,
+        boundary_face_endpoints_km,
         audit,
     })
 }
@@ -681,6 +693,14 @@ mod tests {
             fixture.edge_face_midpoint_km.len(),
             fixture.mesh.edge_neighbor.len()
         );
+        assert_eq!(
+            fixture.edge_face_endpoints_km.len(),
+            fixture.mesh.edge_neighbor.len()
+        );
+        assert_eq!(
+            fixture.boundary_face_endpoints_km.len(),
+            fixture.mesh.boundary_faces.len()
+        );
         assert_eq!(fixture.cell_polygons_km.len(), fixture.mesh.cell_count());
         assert_eq!(fixture.cell_polygons_unit.len(), fixture.mesh.cell_count());
         assert_eq!(fixture.cell_center_unit.len(), fixture.mesh.cell_count());
@@ -728,6 +748,60 @@ mod tests {
             .cell_center_unit
             .iter()
             .all(|center| (center.length() - 1.0).abs() <= 1.0e-6));
+
+        let mut directed_edges = HashMap::new();
+        for cell in 0..fixture.mesh.cell_count() {
+            let polygon = &fixture.cell_polygons_km[cell];
+            for edge in fixture.mesh.edge_offsets[cell] as usize
+                ..fixture.mesh.edge_offsets[cell + 1] as usize
+            {
+                let endpoints = fixture.edge_face_endpoints_km[edge];
+                assert_eq!(
+                    fixture.edge_face_midpoint_km[edge],
+                    0.5 * (endpoints[0] + endpoints[1])
+                );
+                let endpoint_width = endpoints[0].distance(endpoints[1]);
+                let stored_width = f64::from(fixture.mesh.edge_face_width_km[edge]);
+                assert!(
+                    (endpoint_width - stored_width).abs()
+                        <= 2.0 * f64::from(f32::EPSILON) * endpoint_width.max(f64::MIN_POSITIVE)
+                );
+                assert!(polygon
+                    .iter()
+                    .copied()
+                    .zip(polygon.iter().copied().cycle().skip(1))
+                    .take(polygon.len())
+                    .any(|(a, b)| endpoints == [a.extend(0.0), b.extend(0.0)]));
+                let neighbor = fixture.mesh.edge_neighbor[edge] as usize;
+                assert!(directed_edges.insert((cell, neighbor), edge).is_none());
+            }
+        }
+        for (&(cell, neighbor), &edge) in &directed_edges {
+            let reciprocal = directed_edges[&(neighbor, cell)];
+            let endpoints = fixture.edge_face_endpoints_km[edge];
+            let reciprocal_endpoints = fixture.edge_face_endpoints_km[reciprocal];
+            assert_eq!(
+                endpoints,
+                [reciprocal_endpoints[1], reciprocal_endpoints[0]]
+            );
+        }
+
+        for (face, &endpoints) in fixture
+            .mesh
+            .boundary_faces
+            .iter()
+            .zip(&fixture.boundary_face_endpoints_km)
+        {
+            assert_eq!(face.center_km, 0.5 * (endpoints[0] + endpoints[1]));
+            assert!((face.width_km - endpoints[0].distance(endpoints[1])).abs() <= 1.0e-12);
+            let polygon = &fixture.cell_polygons_km[face.cell as usize];
+            assert!(polygon
+                .iter()
+                .copied()
+                .zip(polygon.iter().copied().cycle().skip(1))
+                .take(polygon.len())
+                .any(|(a, b)| endpoints == [a.extend(0.0), b.extend(0.0)]));
+        }
     }
 
     fn assert_guard_invariant(eight: &VoronoiCapFixture, ten: &VoronoiCapFixture, spacing_km: f64) {
@@ -828,6 +902,13 @@ mod tests {
                     eight.edge_face_midpoint_km[ea].distance(ten.edge_face_midpoint_km[eb])
                         <= length_tolerance
                 );
+                for endpoint in 0..2 {
+                    assert!(
+                        eight.edge_face_endpoints_km[ea][endpoint]
+                            .distance(ten.edge_face_endpoints_km[eb][endpoint])
+                            <= length_tolerance
+                    );
+                }
                 assert!(
                     eight.mesh.edge_outward_tangent[ea].distance(ten.mesh.edge_outward_tangent[eb])
                         <= 1.0e-6
@@ -854,6 +935,18 @@ mod tests {
             cmp_dvec3(&cell_a, &cell_b).then(cmp_dvec3(&face_a, &face_b))
         });
         for (a, b) in boundary_a.iter().zip(&boundary_b) {
+            let index_a = eight
+                .mesh
+                .boundary_faces
+                .iter()
+                .position(|face| std::ptr::eq(face, *a))
+                .unwrap();
+            let index_b = ten
+                .mesh
+                .boundary_faces
+                .iter()
+                .position(|face| std::ptr::eq(face, *b))
+                .unwrap();
             assert!(
                 eight.mesh.cell_center_km[a.cell as usize]
                     .distance(ten.mesh.cell_center_km[b.cell as usize])
@@ -869,6 +962,13 @@ mod tests {
                 (a.projected_span_start_km - b.projected_span_start_km).abs() <= length_tolerance
             );
             assert!((a.projected_span_end_km - b.projected_span_end_km).abs() <= length_tolerance);
+            for endpoint in 0..2 {
+                assert!(
+                    eight.boundary_face_endpoints_km[index_a][endpoint]
+                        .distance(ten.boundary_face_endpoints_km[index_b][endpoint])
+                        <= length_tolerance
+                );
+            }
         }
     }
 

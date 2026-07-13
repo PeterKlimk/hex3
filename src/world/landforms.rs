@@ -1,11 +1,11 @@
 //! Arm-neutral physical surface graph and peak-saddle hierarchy.
 //!
-//! This is a partial planar structural G0/S0 slice of the packet preregistered
-//! in `docs/research/landform-object-packet-g0s0-2026-07-14.md`. It implements
-//! the common graph types, the explicit planar adapter, the exact-level
-//! peak-saddle split forest and planar reference-highland measurements. It is
-//! not the complete packet: spherical product adaptation and spherical
-//! morphology remain absent. Inputs are limited to physical geometry,
+//! This is a partial G0/S0 slice of the packet preregistered in
+//! `docs/research/landform-object-packet-g0s0-2026-07-14.md`. It implements the
+//! common graph types, explicit planar and product-spherical G0 adapters, the
+//! exact-level peak-saddle split forest and planar reference-highland
+//! measurements. It is not the complete packet: spherical S0 morphology
+//! remains deliberately unavailable. Inputs are limited to physical geometry,
 //! elevation, a scored mask and the frozen extractor configuration.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -15,7 +15,10 @@ use bincode::Options;
 use glam::DVec3;
 use serde::{Deserialize, Serialize};
 
-use super::landscape::{BoundaryFaceCondition, LandscapeMesh, LandscapeMeshError, OutletPortalId};
+use super::landscape::{
+    BoundaryFaceCondition, LandscapeMesh, LandscapeMeshError, OutletPortalId, VoronoiCapFixture,
+};
+use super::{Tessellation, PLANET_RADIUS_KM};
 
 pub const G0S0_SCHEMA_VERSION: &str = "landform-g0s0-v0";
 pub const G0S0_HASH_VERSION: &str = "fnv1a64-bincode-fixint-le-v0";
@@ -549,6 +552,7 @@ pub fn adapt_landscape_graph_v0(
 
     let mut cell_polygon_offsets = Vec::with_capacity(n + 1);
     let mut cell_polygon_vertices_km = Vec::new();
+    let mut cell_area_km2 = Vec::with_capacity(n);
     for cell in 0..n {
         let start = controls.cell_polygon_offsets[cell] as usize;
         let end = controls.cell_polygon_offsets[cell + 1] as usize;
@@ -557,12 +561,23 @@ pub fn adapt_landscape_graph_v0(
             .copied()
             .map(canonical_point)
             .collect();
+        let polygon_area = planar_polygon_signed_area(&polygon);
         if polygon.len() < 3
             || polygon.iter().any(|p| !p.is_finite() || p.z != 0.0)
-            || planar_polygon_signed_area(&polygon) <= 0.0
+            || polygon_area <= 0.0
         {
             return Err(LandformError::InvalidPolygon { cell });
         }
+        let native_area = mesh.cell_area_km2[cell];
+        let area_relative =
+            (polygon_area - native_area).abs() / native_area.abs().max(f64::MIN_POSITIVE);
+        if !native_area.is_finite()
+            || native_area <= 0.0
+            || area_relative > config.planar_area_match_relative
+        {
+            return Err(LandformError::PlanarAreaMismatch { cell });
+        }
+        cell_area_km2.push(canonical_zero(native_area));
         rotate_polygon_to_canonical_start(&mut polygon);
         cell_polygon_offsets.push(
             u32::try_from(cell_polygon_vertices_km.len()).map_err(|_| LandformError::Overflow)?,
@@ -601,17 +616,19 @@ pub fn adapt_landscape_graph_v0(
             let endpoints = controls.edge_face_endpoints_km[source_edge].map(canonical_point);
             let face = endpoints[1] - endpoints[0];
             let face_length = face.length();
-            let endpoint_outward_normal = DVec3::new(face.y, -face.x, 0.0) / face_length;
+            let stored_width = f64::from(mesh.edge_face_width_km[source_edge]);
+            let width_tolerance =
+                2.0 * f64::from(f32::EPSILON) * face_length.abs().max(f64::MIN_POSITIVE);
             if !face_length.is_finite()
                 || face_length <= 0.0
-                || endpoint_outward_normal.distance(stored_normal) > direction_tolerance
+                || (stored_width - face_length).abs() > width_tolerance
             {
                 return Err(LandformError::OperatorGeometryMismatch { cell, neighbor });
             }
             records.push(EdgeRecord {
                 neighbor: mesh.edge_neighbor[source_edge],
                 distance: stored_distance,
-                width: face_length,
+                width: stored_width,
                 endpoints,
             });
         }
@@ -668,7 +685,18 @@ pub fn adapt_landscape_graph_v0(
         .boundary_faces
         .iter()
         .zip(&controls.boundary_face_endpoints_km)
-        .map(|(face, endpoints)| {
+        .enumerate()
+        .map(|(index, (face, endpoints))| {
+            let endpoints = endpoints.map(canonical_point);
+            let midpoint = 0.5 * (endpoints[0] + endpoints[1]);
+            let length = endpoints[0].distance(endpoints[1]);
+            if !length.is_finite()
+                || length <= 0.0
+                || (length - face.width_km).abs() > config.endpoint_match_abs_km
+                || midpoint.distance(face.center_km) > config.endpoint_match_abs_km
+            {
+                return Err(LandformError::InvalidBoundarySegment { segment: index });
+            }
             let condition = match face.condition {
                 BoundaryFaceCondition::Closed => EvaluationBoundaryConditionV0::Closed,
                 BoundaryFaceCondition::OpenBaseLevel {
@@ -679,18 +707,18 @@ pub fn adapt_landscape_graph_v0(
                     elevation_km: canonical_zero(f64::from(elevation_km)),
                 },
             };
-            (
+            Ok((
                 face.cell,
-                endpoints.map(canonical_point),
-                endpoints[0].distance(endpoints[1]),
+                endpoints,
+                face.width_km,
                 Some([
                     canonical_zero(face.projected_span_start_km),
                     canonical_zero(face.projected_span_end_km),
                 ]),
                 condition,
-            )
+            ))
         })
-        .collect();
+        .collect::<Result<_, LandformError>>()?;
     boundary_records.sort_by(|a, b| {
         a.0.cmp(&b.0)
             .then_with(|| point_key(a.1[0]).cmp(&point_key(b.1[0])))
@@ -721,15 +749,7 @@ pub fn adapt_landscape_graph_v0(
             .copied()
             .map(canonical_point)
             .collect(),
-        cell_area_km2: (0..n)
-            .map(|cell| {
-                let start = cell_polygon_offsets[cell] as usize;
-                let end = cell_polygon_offsets[cell + 1] as usize;
-                canonical_zero(planar_polygon_signed_area(
-                    &cell_polygon_vertices_km[start..end],
-                ))
-            })
-            .collect(),
+        cell_area_km2,
         cell_polygon_offsets,
         cell_polygon_vertices_km,
         edge_offsets,
@@ -739,6 +759,237 @@ pub fn adapt_landscape_graph_v0(
         edge_shared_width_km,
         edge_face_endpoints_km,
         boundary_segments,
+    };
+    graph.validate(config)?;
+    Ok(graph)
+}
+
+/// Adapt the retained, exact projected control volumes of the registered
+/// irregular product-Voronoi cap. This is intentionally a fixture seam rather
+/// than a license to reconstruct arbitrary planar Voronoi polygons.
+pub fn adapt_projected_voronoi_cap_graph_v0(
+    fixture: &VoronoiCapFixture,
+    config: &SurfaceHierarchyConfigV0,
+) -> Result<EvaluationSurfaceGraphV0, LandformError> {
+    let mut cell_polygon_offsets = Vec::with_capacity(fixture.cell_polygons_km.len() + 1);
+    let mut cell_polygon_vertices_km = Vec::new();
+    for polygon in &fixture.cell_polygons_km {
+        cell_polygon_offsets.push(
+            u32::try_from(cell_polygon_vertices_km.len()).map_err(|_| LandformError::Overflow)?,
+        );
+        cell_polygon_vertices_km.extend(
+            polygon
+                .iter()
+                .map(|point| DVec3::new(point.x, point.y, 0.0)),
+        );
+    }
+    cell_polygon_offsets
+        .push(u32::try_from(cell_polygon_vertices_km.len()).map_err(|_| LandformError::Overflow)?);
+    let controls = LandscapeControlVolumesV0 {
+        cell_polygon_offsets,
+        cell_polygon_vertices_km,
+        edge_face_endpoints_km: fixture.edge_face_endpoints_km.clone(),
+        boundary_face_endpoints_km: fixture.boundary_face_endpoints_km.clone(),
+    };
+    adapt_landscape_graph_v0(&fixture.mesh, &controls, config)
+}
+
+/// Adapt the product tessellation into an exact closed-sphere G0 graph.
+///
+/// Polygon vertex IDs, rather than coordinate coincidence or generator
+/// proximity, are the authority for physical face ownership. Product
+/// adjacency is accepted only when it is exactly the same validated neighbor
+/// set as that ownership graph.
+pub fn adapt_product_tessellation_graph_v0(
+    tessellation: &Tessellation,
+    config: &SurfaceHierarchyConfigV0,
+) -> Result<EvaluationSurfaceGraphV0, LandformError> {
+    config.validate()?;
+    let n = tessellation.voronoi.num_cells();
+    if n == 0 {
+        return Err(LandformError::EmptyGraph);
+    }
+    if tessellation.voronoi.generators.len() != n
+        || !tessellation.voronoi.has_canonical_cell_layout()
+        || !tessellation.adjacency.has_canonical_layout(n)
+    {
+        return Err(LandformError::MalformedCsr);
+    }
+    let radius_km = f64::from(PLANET_RADIUS_KM);
+    let centers = tessellation
+        .voronoi
+        .generators
+        .iter()
+        .copied()
+        .map(|point| spherical_source_point(point.as_dvec3(), radius_km))
+        .collect::<Result<Vec<_>, _>>()?;
+    let vertices = tessellation
+        .voronoi
+        .vertices
+        .iter()
+        .copied()
+        .map(|point| spherical_source_point(point.as_dvec3(), radius_km))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    #[derive(Clone, Copy)]
+    struct FaceUse {
+        cell: usize,
+        start: u32,
+        end: u32,
+    }
+    let mut ownership = BTreeMap::<(u32, u32), Vec<FaceUse>>::new();
+    let mut cell_polygon_offsets = Vec::with_capacity(n + 1);
+    let mut cell_polygon_vertices_km = Vec::new();
+    let mut cell_area_km2 = Vec::with_capacity(n);
+    for (cell, &center) in centers.iter().enumerate() {
+        let source_cell = tessellation
+            .voronoi
+            .try_cell(cell)
+            .ok_or(LandformError::MalformedPolygonOffsets)?;
+        if source_cell.vertex_indices.len() < 3 {
+            return Err(LandformError::InvalidPolygon { cell });
+        }
+        let mut distinct = BTreeSet::new();
+        let mut polygon = Vec::with_capacity(source_cell.vertex_indices.len());
+        for &vertex_id in source_cell.vertex_indices {
+            let vertex = vertices
+                .get(vertex_id as usize)
+                .copied()
+                .ok_or(LandformError::InvalidPolygon { cell })?;
+            if !distinct.insert(vertex_id) {
+                return Err(LandformError::InvalidPolygon { cell });
+            }
+            polygon.push(vertex);
+        }
+        for (&start, &end) in source_cell.vertex_indices.iter().zip(
+            source_cell
+                .vertex_indices
+                .iter()
+                .cycle()
+                .skip(1)
+                .take(source_cell.vertex_indices.len()),
+        ) {
+            if start == end {
+                return Err(LandformError::InvalidPolygon { cell });
+            }
+            ownership
+                .entry((start.min(end), start.max(end)))
+                .or_default()
+                .push(FaceUse { cell, start, end });
+        }
+        let area = spherical_cell_area_km2(center, &polygon, radius_km)?;
+        cell_area_km2.push(canonical_zero(area));
+        rotate_polygon_to_canonical_start(&mut polygon);
+        cell_polygon_offsets.push(
+            u32::try_from(cell_polygon_vertices_km.len()).map_err(|_| LandformError::Overflow)?,
+        );
+        cell_polygon_vertices_km.extend(polygon);
+    }
+    cell_polygon_offsets
+        .push(u32::try_from(cell_polygon_vertices_km.len()).map_err(|_| LandformError::Overflow)?);
+
+    #[derive(Clone)]
+    struct EdgeRecord {
+        neighbor: u32,
+        distance: f64,
+        width: f64,
+        endpoints: [DVec3; 2],
+    }
+    let mut records_by_cell = vec![Vec::<EdgeRecord>::new(); n];
+    for uses in ownership.values() {
+        if uses.len() != 2
+            || uses[0].cell == uses[1].cell
+            || uses[0].start != uses[1].end
+            || uses[0].end != uses[1].start
+        {
+            return Err(LandformError::NonPhysicalAdjacency);
+        }
+        for (owner, other) in [(uses[0], uses[1]), (uses[1], uses[0])] {
+            let distance = spherical_arc_km(centers[owner.cell], centers[other.cell], radius_km)?;
+            let endpoints = [vertices[owner.start as usize], vertices[owner.end as usize]];
+            let width = spherical_arc_km(endpoints[0], endpoints[1], radius_km)?;
+            records_by_cell[owner.cell].push(EdgeRecord {
+                neighbor: u32::try_from(other.cell).map_err(|_| LandformError::Overflow)?,
+                distance,
+                width,
+                endpoints,
+            });
+        }
+    }
+
+    for (cell, records) in records_by_cell.iter_mut().enumerate() {
+        records.sort_by_key(|record| record.neighbor);
+        if records
+            .windows(2)
+            .any(|pair| pair[0].neighbor == pair[1].neighbor)
+        {
+            return Err(LandformError::NonPhysicalAdjacency);
+        }
+        let mut stored = tessellation
+            .try_neighbors(cell)
+            .ok_or(LandformError::MalformedCsr)?
+            .to_vec();
+        if stored
+            .iter()
+            .any(|&neighbor| neighbor >= n || neighbor == cell)
+        {
+            return Err(LandformError::NonPhysicalAdjacency);
+        }
+        stored.sort_unstable();
+        if stored.windows(2).any(|pair| pair[0] == pair[1])
+            || !stored
+                .iter()
+                .copied()
+                .eq(records.iter().map(|record| record.neighbor as usize))
+        {
+            return Err(LandformError::NonPhysicalAdjacency);
+        }
+    }
+
+    let mut edge_offsets = Vec::with_capacity(n + 1);
+    let mut edge_neighbor = Vec::new();
+    let mut edge_distance_km = Vec::new();
+    let mut edge_shared_width_km = Vec::new();
+    let mut edge_face_endpoints_km = Vec::new();
+    for records in &records_by_cell {
+        edge_offsets.push(u32::try_from(edge_neighbor.len()).map_err(|_| LandformError::Overflow)?);
+        for record in records {
+            edge_neighbor.push(record.neighbor);
+            edge_distance_km.push(canonical_zero(record.distance));
+            edge_shared_width_km.push(canonical_zero(record.width));
+            edge_face_endpoints_km.push(record.endpoints.map(canonical_point));
+        }
+    }
+    edge_offsets.push(u32::try_from(edge_neighbor.len()).map_err(|_| LandformError::Overflow)?);
+
+    let mut directed = BTreeMap::new();
+    for cell in 0..n {
+        for edge in edge_range(&edge_offsets, cell) {
+            directed.insert((cell, edge_neighbor[edge] as usize), edge);
+        }
+    }
+    let mut edge_reciprocal = vec![0; edge_neighbor.len()];
+    for (&(cell, neighbor), &edge) in &directed {
+        let reciprocal = directed
+            .get(&(neighbor, cell))
+            .copied()
+            .ok_or(LandformError::NonPhysicalAdjacency)?;
+        edge_reciprocal[edge] = u32::try_from(reciprocal).map_err(|_| LandformError::Overflow)?;
+    }
+
+    let graph = EvaluationSurfaceGraphV0 {
+        domain: EvaluationDomainV0::Spherical { radius_km },
+        cell_center_km: centers,
+        cell_area_km2,
+        cell_polygon_offsets,
+        cell_polygon_vertices_km,
+        edge_offsets,
+        edge_neighbor,
+        edge_reciprocal,
+        edge_distance_km,
+        edge_shared_width_km,
+        edge_face_endpoints_km,
+        boundary_segments: Vec::new(),
     };
     graph.validate(config)?;
     Ok(graph)
@@ -814,7 +1065,31 @@ fn validate_graph(
         return Err(LandformError::NonCanonicalGeometry);
     }
 
+    let spherical_radius = match graph.domain {
+        EvaluationDomainV0::Planar => None,
+        EvaluationDomainV0::Spherical { radius_km } if radius_km.is_finite() && radius_km > 0.0 => {
+            Some(radius_km)
+        }
+        EvaluationDomainV0::Spherical { .. } => {
+            return Err(LandformError::InvalidSphericalGeometry);
+        }
+    };
+    if spherical_radius.is_some() && !graph.boundary_segments.is_empty() {
+        return Err(LandformError::InvalidSphericalGeometry);
+    }
+
     let tolerance = config.endpoint_match_abs_km;
+    if let Some(radius_km) = spherical_radius {
+        if graph
+            .cell_center_km
+            .iter()
+            .chain(&graph.cell_polygon_vertices_km)
+            .chain(graph.edge_face_endpoints_km.iter().flatten())
+            .any(|point| (point.length() - radius_km).abs() > tolerance)
+        {
+            return Err(LandformError::InvalidSphericalGeometry);
+        }
+    }
     let mut edge_backing_counts: Vec<Vec<u8>> = (0..n)
         .map(|cell| vec![0; graph.polygon(cell).len()])
         .collect();
@@ -847,6 +1122,13 @@ fn validate_graph(
                 / graph.cell_area_km2[cell].max(f64::MIN_POSITIVE);
             if relative > config.planar_area_match_relative {
                 return Err(LandformError::PlanarAreaMismatch { cell });
+            }
+        } else if let Some(radius_km) = spherical_radius {
+            let area = spherical_cell_area_km2(graph.cell_center_km[cell], polygon, radius_km)?;
+            let relative = (area - graph.cell_area_km2[cell]).abs()
+                / graph.cell_area_km2[cell].max(f64::MIN_POSITIVE);
+            if relative > config.sphere_area_closure_relative {
+                return Err(LandformError::InvalidSphericalGeometry);
             }
         }
 
@@ -906,25 +1188,35 @@ fn validate_graph(
                     radius_km,
                 )?,
             };
-            if (endpoint_width - graph.edge_shared_width_km[edge]).abs() > tolerance {
+            let width_tolerance = if matches!(graph.domain, EvaluationDomainV0::Planar) {
+                tolerance.max(
+                    2.0 * f64::from(f32::EPSILON) * endpoint_width.abs().max(f64::MIN_POSITIVE),
+                )
+            } else {
+                tolerance
+            };
+            if (endpoint_width - graph.edge_shared_width_km[edge]).abs() > width_tolerance {
                 return Err(LandformError::ReciprocalGeometryMismatch { cell, neighbor });
             }
             if matches!(graph.domain, EvaluationDomainV0::Planar) {
                 let displacement = graph.cell_center_km[neighbor] - graph.cell_center_km[cell];
                 let physical_distance = displacement.length();
-                let face =
-                    graph.edge_face_endpoints_km[edge][1] - graph.edge_face_endpoints_km[edge][0];
-                let endpoint_outward_normal = DVec3::new(face.y, -face.x, 0.0) / endpoint_width;
                 let distance_tolerance =
                     2.0 * f64::from(f32::EPSILON) * physical_distance.abs().max(f64::MIN_POSITIVE);
-                let direction_tolerance = 8.0 * f64::from(f32::EPSILON);
                 if !physical_distance.is_finite()
                     || physical_distance <= 0.0
                     || (graph.edge_distance_km[edge] - physical_distance).abs() > distance_tolerance
-                    || endpoint_outward_normal.distance(displacement / physical_distance)
-                        > direction_tolerance
                 {
                     return Err(LandformError::OperatorGeometryMismatch { cell, neighbor });
+                }
+            } else if let Some(radius_km) = spherical_radius {
+                let center_distance = spherical_arc_km(
+                    graph.cell_center_km[cell],
+                    graph.cell_center_km[neighbor],
+                    radius_km,
+                )?;
+                if (center_distance - graph.edge_distance_km[edge]).abs() > tolerance {
+                    return Err(LandformError::InvalidSphericalGeometry);
                 }
             }
         }
@@ -941,9 +1233,10 @@ fn validate_graph(
                 .endpoints_km
                 .iter()
                 .any(|&point| !point_has_canonical_zero(point))
-            || segment
-                .projected_span_km
-                .is_some_and(|span| span.into_iter().any(|value| !has_canonical_zero(value)))
+            || segment.projected_span_km.is_some_and(|span| {
+                span.into_iter()
+                    .any(|value| !value.is_finite() || !has_canonical_zero(value))
+            })
         {
             return Err(LandformError::InvalidBoundarySegment { segment: index });
         }
@@ -990,7 +1283,90 @@ fn validate_graph(
             return Err(LandformError::MissingPolygonEdgeBacking { cell, edge });
         }
     }
+    if let Some(radius_km) = spherical_radius {
+        let total_area = compensated_sum(graph.cell_area_km2.iter().copied());
+        let expected_area = 4.0 * std::f64::consts::PI * radius_km * radius_km;
+        if (total_area - expected_area).abs() / expected_area > config.sphere_area_closure_relative
+        {
+            return Err(LandformError::SphereAreaClosure);
+        }
+        let mut reached = vec![false; n];
+        let mut queue = VecDeque::from([0usize]);
+        reached[0] = true;
+        while let Some(cell) = queue.pop_front() {
+            for edge in edge_range(&graph.edge_offsets, cell) {
+                let neighbor = graph.edge_neighbor[edge] as usize;
+                if !reached[neighbor] {
+                    reached[neighbor] = true;
+                    queue.push_back(neighbor);
+                }
+            }
+        }
+        if reached.iter().any(|&value| !value) {
+            return Err(LandformError::NonPhysicalAdjacency);
+        }
+    }
     Ok(())
+}
+
+fn spherical_source_point(point: DVec3, radius_km: f64) -> Result<DVec3, LandformError> {
+    if !point.is_finite()
+        || !radius_km.is_finite()
+        || radius_km <= 0.0
+        || point.length_squared() == 0.0
+    {
+        return Err(LandformError::InvalidSphericalGeometry);
+    }
+    Ok(canonical_point(point.normalize() * radius_km))
+}
+
+fn spherical_cell_area_km2(
+    center: DVec3,
+    polygon: &[DVec3],
+    radius_km: f64,
+) -> Result<f64, LandformError> {
+    if polygon.len() < 3 {
+        return Err(LandformError::InvalidSphericalGeometry);
+    }
+    let center = center.normalize();
+    let mut terms = Vec::with_capacity(polygon.len());
+    for (&a, &b) in polygon.iter().zip(polygon.iter().cycle().skip(1)) {
+        let (a, b) = (a.normalize(), b.normalize());
+        let cross = a.cross(b);
+        let angle = cross.length().atan2(a.dot(b));
+        let determinant = center.dot(cross);
+        if !angle.is_finite()
+            || angle <= 0.0
+            || angle >= std::f64::consts::PI
+            || !determinant.is_finite()
+            || determinant <= 0.0
+        {
+            return Err(LandformError::InvalidSphericalGeometry);
+        }
+        let denominator = 1.0 + center.dot(a) + a.dot(b) + b.dot(center);
+        let solid_angle = 2.0 * determinant.atan2(denominator);
+        if !solid_angle.is_finite() || solid_angle <= 0.0 {
+            return Err(LandformError::InvalidSphericalGeometry);
+        }
+        terms.push(solid_angle);
+    }
+    let area = compensated_sum(terms) * radius_km * radius_km;
+    if !area.is_finite() || area <= 0.0 {
+        return Err(LandformError::InvalidSphericalGeometry);
+    }
+    Ok(area)
+}
+
+fn compensated_sum(values: impl IntoIterator<Item = f64>) -> f64 {
+    let mut sum = 0.0;
+    let mut correction = 0.0;
+    for value in values {
+        let adjusted = value - correction;
+        let next = sum + adjusted;
+        correction = (next - sum) - adjusted;
+        sum = next;
+    }
+    sum
 }
 
 fn spherical_arc_km(a: DVec3, b: DVec3, radius_km: f64) -> Result<f64, LandformError> {
@@ -1002,7 +1378,11 @@ fn spherical_arc_km(a: DVec3, b: DVec3, radius_km: f64) -> Result<f64, LandformE
         return Err(LandformError::InvalidSphericalGeometry);
     }
     let (a, b) = (a.normalize(), b.normalize());
-    Ok(radius_km * a.cross(b).length().atan2(a.dot(b)))
+    let angle = a.cross(b).length().atan2(a.dot(b));
+    if !angle.is_finite() || angle <= 0.0 || angle >= std::f64::consts::PI {
+        return Err(LandformError::InvalidSphericalGeometry);
+    }
+    Ok(radius_km * angle)
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1120,8 +1500,8 @@ pub struct HighlandFeatureV0 {
 /// Structural peak-saddle output for the current partial planar slice.
 ///
 /// This is not yet the complete G0/S0 landform object packet: planar reference
-/// morphology is present, while spherical product adaptation and spherical
-/// morphology remain explicitly unavailable.
+/// morphology is present and spherical G0 is independently validated, while
+/// spherical S0 morphology remains explicitly unavailable.
 pub struct SurfaceHierarchyV0 {
     pub schema_version: String,
     pub hash_version: String,
@@ -2315,6 +2695,31 @@ mod analytic_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::geometry::fibonacci_sphere_points_with_rng;
+    use crate::geometry::{SphericalVoronoi, VoronoiCell};
+    use crate::world::CellAdjacency;
+    use rand::SeedableRng;
+    use rand_chacha::ChaCha8Rng;
+
+    fn voronoi_cap_controls(fixture: &VoronoiCapFixture) -> LandscapeControlVolumesV0 {
+        let mut cell_polygon_offsets = Vec::with_capacity(fixture.cell_polygons_km.len() + 1);
+        let mut cell_polygon_vertices_km = Vec::new();
+        for polygon in &fixture.cell_polygons_km {
+            cell_polygon_offsets.push(cell_polygon_vertices_km.len() as u32);
+            cell_polygon_vertices_km.extend(
+                polygon
+                    .iter()
+                    .map(|point| DVec3::new(point.x, point.y, 0.0)),
+            );
+        }
+        cell_polygon_offsets.push(cell_polygon_vertices_km.len() as u32);
+        LandscapeControlVolumesV0 {
+            cell_polygon_offsets,
+            cell_polygon_vertices_km,
+            edge_face_endpoints_km: fixture.edge_face_endpoints_km.clone(),
+            boundary_face_endpoints_km: fixture.boundary_face_endpoints_km.clone(),
+        }
+    }
 
     fn chain_graph(cell_count: usize, scale: f64) -> EvaluationSurfaceGraphV0 {
         assert!(cell_count >= 2);
@@ -2917,6 +3322,174 @@ mod tests {
     }
 
     #[test]
+    fn irregular_product_voronoi_cap_round_trips_exact_control_volumes() {
+        let config = SurfaceHierarchyConfigV0::default();
+        let fixture = super::super::landscape::build_r1_voronoi_cap(
+            super::super::landscape::VoronoiCapConfig::r1(8.0),
+        )
+        .unwrap();
+        let graph = adapt_projected_voronoi_cap_graph_v0(&fixture, &config).unwrap();
+        assert_eq!(graph.cell_count(), fixture.mesh.cell_count());
+        assert_eq!(graph.edge_neighbor.len(), fixture.mesh.edge_neighbor.len());
+        assert_eq!(
+            graph.boundary_segments.len(),
+            fixture.mesh.boundary_faces.len()
+        );
+        graph.validate(&config).unwrap();
+
+        let max_nonorthogonality = (0..fixture.mesh.cell_count())
+            .flat_map(|cell| {
+                edge_range(&fixture.mesh.edge_offsets, cell).map(move |edge| (cell, edge))
+            })
+            .map(|(cell, edge)| {
+                let neighbor = fixture.mesh.edge_neighbor[edge] as usize;
+                let displacement =
+                    fixture.mesh.cell_center_km[neighbor] - fixture.mesh.cell_center_km[cell];
+                let endpoints = fixture.edge_face_endpoints_km[edge];
+                let face = endpoints[1] - endpoints[0];
+                displacement.normalize().dot(face.normalize()).abs()
+            })
+            .fold(0.0_f64, f64::max);
+        assert!(max_nonorthogonality > 1.0e-4);
+
+        let controls = voronoi_cap_controls(&fixture);
+        let mut bad_area = fixture.mesh.clone();
+        bad_area.cell_area_km2[0] *= 1.01;
+        assert!(matches!(
+            adapt_landscape_graph_v0(&bad_area, &controls, &config),
+            Err(LandformError::PlanarAreaMismatch { cell: 0 })
+        ));
+
+        let mut bad_width = fixture.mesh.clone();
+        bad_width.edge_face_width_km[0] *= 1.01;
+        assert!(matches!(
+            adapt_landscape_graph_v0(&bad_width, &controls, &config),
+            Err(LandformError::OperatorGeometryMismatch { .. })
+        ));
+
+        let mut bad_controls = controls;
+        bad_controls.edge_face_endpoints_km[0][0].x += 0.01;
+        assert!(matches!(
+            adapt_landscape_graph_v0(&fixture.mesh, &bad_controls, &config),
+            Err(LandformError::OperatorGeometryMismatch { .. })
+        ));
+
+        let controls = voronoi_cap_controls(&fixture);
+        let mut bad_boundary = fixture.mesh.clone();
+        bad_boundary.boundary_faces[0].center_km.x += 0.01;
+        assert!(matches!(
+            adapt_landscape_graph_v0(&bad_boundary, &controls, &config),
+            Err(LandformError::InvalidBoundarySegment { .. })
+        ));
+    }
+
+    #[test]
+    fn product_sphere_g0_uses_physical_faces_and_rejects_adversarial_geometry() {
+        let config = SurfaceHierarchyConfigV0::default();
+        let mut rng = ChaCha8Rng::seed_from_u64(0x0006_0305_f470);
+        let points = fibonacci_sphere_points_with_rng(128, 0.0, &mut rng);
+        let mut tessellation = Tessellation::from_points_knn_clipping(points);
+        let graph = adapt_product_tessellation_graph_v0(&tessellation, &config).unwrap();
+        assert!(matches!(
+            graph.domain,
+            EvaluationDomainV0::Spherical { radius_km }
+                if radius_km == f64::from(PLANET_RADIUS_KM)
+        ));
+        assert!(graph.boundary_segments.is_empty());
+        graph.validate(&config).unwrap();
+
+        let mut off_sphere = graph.clone();
+        off_sphere.cell_center_km[0] *= 1.000_001;
+        assert!(matches!(
+            off_sphere.validate(&config),
+            Err(LandformError::InvalidSphericalGeometry)
+        ));
+
+        let start = graph.cell_polygon_offsets[0] as usize;
+        let end = graph.cell_polygon_offsets[1] as usize;
+        let reversed_polygon = graph.cell_polygon_vertices_km[start..end]
+            .iter()
+            .copied()
+            .rev()
+            .collect::<Vec<_>>();
+        assert_eq!(
+            spherical_cell_area_km2(
+                graph.cell_center_km[0],
+                &reversed_polygon,
+                f64::from(PLANET_RADIUS_KM),
+            ),
+            Err(LandformError::InvalidSphericalGeometry)
+        );
+        let mut reversed = graph.clone();
+        reversed.cell_polygon_vertices_km[start..end].reverse();
+        rotate_polygon_to_canonical_start(&mut reversed.cell_polygon_vertices_km[start..end]);
+        assert!(reversed.validate(&config).is_err());
+
+        let n = tessellation.num_cells();
+        let mut adjacency = (0..n)
+            .map(|cell| tessellation.neighbors(cell).to_vec())
+            .collect::<Vec<_>>();
+        let mut hidden_neighbor_data = vec![0];
+        let mut hidden_offsets = vec![1];
+        for neighbors in &adjacency {
+            hidden_neighbor_data.extend(neighbors);
+            hidden_offsets.push(hidden_neighbor_data.len());
+        }
+        tessellation.adjacency =
+            CellAdjacency::from_raw_parts(hidden_offsets, hidden_neighbor_data);
+        assert!(matches!(
+            adapt_product_tessellation_graph_v0(&tessellation, &config),
+            Err(LandformError::MalformedCsr)
+        ));
+        tessellation.adjacency = CellAdjacency::from_vecs(adjacency.clone());
+
+        let generators = tessellation.voronoi.generators.clone();
+        let vertices = tessellation.voronoi.vertices.clone();
+        let cell_data = (0..n)
+            .map(|cell| {
+                tessellation
+                    .voronoi
+                    .try_cell(cell)
+                    .unwrap()
+                    .vertex_indices
+                    .to_vec()
+            })
+            .collect::<Vec<_>>();
+        let mut hidden_indices = vec![0];
+        let mut cells = Vec::with_capacity(n);
+        for indices in &cell_data {
+            cells.push(VoronoiCell::new(
+                hidden_indices.len() as u32,
+                indices.len() as u16,
+            ));
+            hidden_indices.extend(indices);
+        }
+        tessellation.voronoi = SphericalVoronoi::from_raw_parts(
+            generators.clone(),
+            vertices.clone(),
+            cells,
+            hidden_indices,
+        );
+        assert!(matches!(
+            adapt_product_tessellation_graph_v0(&tessellation, &config),
+            Err(LandformError::MalformedCsr)
+        ));
+        tessellation.voronoi = SphericalVoronoi::new(generators, vertices, cell_data);
+
+        let (a, b) = (0..n)
+            .flat_map(|a| ((a + 1)..n).map(move |b| (a, b)))
+            .find(|&(a, b)| !adjacency[a].contains(&b))
+            .unwrap();
+        adjacency[a].push(b);
+        adjacency[b].push(a);
+        tessellation.adjacency = CellAdjacency::from_vecs(adjacency);
+        assert!(matches!(
+            adapt_product_tessellation_graph_v0(&tessellation, &config),
+            Err(LandformError::NonPhysicalAdjacency)
+        ));
+    }
+
+    #[test]
     fn planar_operator_geometry_is_secured_before_measurement() {
         let config = SurfaceHierarchyConfigV0::default();
         let mesh = LandscapeMesh::uniform_planar_hex_with_portals(48.0, 40.0, 4.0, &[]).unwrap();
@@ -3028,7 +3601,7 @@ mod tests {
     }
 
     #[test]
-    fn spherical_builder_is_explicitly_unavailable_until_g0_exists() {
+    fn spherical_builder_remains_unavailable_after_independent_g0() {
         let config = SurfaceHierarchyConfigV0::default();
         let mut graph = chain_graph(2, 60.0);
         graph.domain = EvaluationDomainV0::Spherical { radius_km: 6371.0 };

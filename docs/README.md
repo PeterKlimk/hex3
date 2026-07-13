@@ -68,9 +68,9 @@ Current bounded research decision:
   comparison; each rung still requires its own executable checkpoint.
 - [Landform G0/S0 executable contract](research/landform-object-packet-g0s0-2026-07-14.md)
   — preregistered physical-graph adapters, split forest, highland populations,
-  morphology evidence and manufactured gates; planar structure and unit-scale
-  morphology plus the analytic 8/4/2 matrix pass, while spherical/product and
-  adversarial closure work remain.
+  morphology evidence and manufactured gates; planar G0/S0 and the analytic
+  8/4/2 matrix pass, and both product-spherical and projected-cap G0 adapters
+  now pass while spherical S0/morphology remains rejected.
 - [Landform G0/S0 structural-slice audit](audits/landform-g0s0-structural-slice-2026-07-14.md)
   — passing planar geometry/topology checkpoint, caught contract amendments and
   the scope inherited by the morphology slice.
@@ -80,6 +80,9 @@ Current bounded research decision:
 - [Landform G0/S0 planar analytic audit](audits/landform-g0s0-planar-analytic-2026-07-14.md)
   — passing 8/4/2 topology, cap, buffer and physical morphology gates, including
   evaluated corrections to the merge-support sampling contract.
+- [Landform G0 geometry-adapter audit](audits/landform-g0-geometry-adapters-2026-07-14.md)
+  — passing product-spherical and projected irregular-cap physical geometry,
+  adjacency-authority and adversarial checks; spherical S0 remains unavailable.
 - [Drainage-network ownership](research/drainage-network-ownership-2026-07-13.md)
   — continuum supply, physical promotion and persistent reach-lineage roles,
   plus the preregistered memory discriminator.

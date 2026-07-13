@@ -52,6 +52,11 @@ impl CellAdjacency {
         Self { offsets, neighbors }
     }
 
+    #[cfg(test)]
+    pub(crate) fn from_raw_parts(offsets: Vec<usize>, neighbors: Vec<usize>) -> Self {
+        Self { offsets, neighbors }
+    }
+
     pub fn from_slices<I, S>(neighbor_lists: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -81,6 +86,25 @@ impl CellAdjacency {
         let start = self.offsets[cell_idx];
         let end = self.offsets[cell_idx + 1];
         &self.neighbors[start..end]
+    }
+
+    /// Checked neighbor view for geometry adapters validating deserialized
+    /// tessellations before indexing their compact adjacency buffers.
+    pub fn try_neighbors(&self, cell_idx: usize) -> Option<&[usize]> {
+        let start = *self.offsets.get(cell_idx)?;
+        let end = *self.offsets.get(cell_idx + 1)?;
+        if start > end {
+            return None;
+        }
+        self.neighbors.get(start..end)
+    }
+
+    /// Whether the compact buffers form one canonical, gap-free CSR layout.
+    pub fn has_canonical_layout(&self, expected_cells: usize) -> bool {
+        self.offsets.len() == expected_cells + 1
+            && self.offsets.first() == Some(&0)
+            && self.offsets.windows(2).all(|pair| pair[0] <= pair[1])
+            && self.offsets.last() == Some(&self.neighbors.len())
     }
 
     pub fn iter(&self) -> CellAdjacencyIter<'_> {
@@ -333,6 +357,10 @@ impl Tessellation {
     /// Get the neighbors of a cell.
     pub fn neighbors(&self, cell_idx: usize) -> &[usize] {
         self.adjacency.neighbors(cell_idx)
+    }
+
+    pub fn try_neighbors(&self, cell_idx: usize) -> Option<&[usize]> {
+        self.adjacency.try_neighbors(cell_idx)
     }
 
     /// The solid angle (spherical area) of each Voronoi cell, in steradians

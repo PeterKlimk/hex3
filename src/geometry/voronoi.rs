@@ -213,6 +213,39 @@ impl SphericalVoronoi {
         }
     }
 
+    /// Checked cell view for adapters that validate deserialized geometry
+    /// before trusting its internal offsets.
+    #[inline]
+    pub fn try_cell(&self, idx: usize) -> Option<CellView<'_>> {
+        let cell = self.cells.get(idx)?;
+        let start = cell.vertex_start as usize;
+        let end = start.checked_add(cell.vertex_count as usize)?;
+        let vertex_indices = self.cell_indices.get(start..end)?;
+        Some(CellView {
+            generator_index: idx,
+            vertex_indices,
+        })
+    }
+
+    /// Whether cell descriptors cover the flat index buffer once, in cell
+    /// order, without hidden prefixes, gaps, overlaps or suffixes.
+    pub fn has_canonical_cell_layout(&self) -> bool {
+        let mut cursor = 0usize;
+        for cell in &self.cells {
+            if cell.vertex_start as usize != cursor {
+                return false;
+            }
+            let Some(end) = cursor.checked_add(cell.vertex_count as usize) else {
+                return false;
+            };
+            if end > self.cell_indices.len() {
+                return false;
+            }
+            cursor = end;
+        }
+        cursor == self.cell_indices.len()
+    }
+
     /// Iterate over all cells as views.
     #[inline]
     pub fn iter_cells(&self) -> impl Iterator<Item = CellView<'_>> {
