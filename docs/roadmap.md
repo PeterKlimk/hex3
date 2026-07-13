@@ -429,6 +429,12 @@ next bounded rung is a separately preregistered stable affine linear-
 consistency control which distinguishes polygon-mean input error from the
 literal normal-equation solve. Do not advance to V, RT0, discharge integration
 or product extraction before that prerequisite is resolved.
+That control is now
+[preregistered](research/channel-extraction-r1a-stable-reconstruction-2026-07-14.md)
+as a four-arm row-input × solve factorial. It preserves the registered input,
+checked centroids, CSR stencil, rank predicate and crossing code; only the
+registered-difference plus stable-QR arm can complete the physical-input claim.
+The direct affine-row arms remain manufactured attribution oracles.
 The rejected nominal rectangular boundary remains an important scope decision:
 exact cut-cell hex geometry is not currently justified for a testbed intended
 to transfer to a closed sphere. Earlier analytic evidence remains in the

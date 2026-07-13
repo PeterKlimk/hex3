@@ -105,6 +105,11 @@ reconstruction passes and the same X1 geometry passes 12/12, the original
 maximum-face/F0 bundle localization becomes warranted. If it does not, the
 input/reconstruction semantics remain load-bearing and need resolution first.
 
+The next rung is now
+[preregistered](../research/channel-extraction-r1a-stable-reconstruction-2026-07-14.md)
+as a row-input × solve factorial. It preserves this audit's geometry and gates
+and does not weaken the censored result.
+
 ## Executed checks
 
 ```bash

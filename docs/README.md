@@ -97,6 +97,9 @@ Current bounded research decision:
 - [R1a affine continuous-crossing audit](audits/channel-extraction-r1a-affine-crossing-2026-07-14.md)
   — validates the cap and continuous traversal for affine A, records 11 judged
   X1 successes, and keeps the maximum-face/F0 causal localization unclaimed.
+- [R1a stable affine-reconstruction control](research/channel-extraction-r1a-stable-reconstruction-2026-07-14.md)
+  — preregisters a registered/direct-affine-row × normal-equation/Givens-QR
+  factorial to separate input-difference loss from solve loss before V or RT0.
 
 ## Working inventory
 
