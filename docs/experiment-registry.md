@@ -240,17 +240,23 @@ still cannot promote initiation, width, lineage or C1 state. Evidence:
 [R0 specification](research/channel-extraction-r0-2026-07-13.md) and
 [R0 audit](audits/channel-extraction-r0-2026-07-13.md).
 
-R1a is now preregistered on a guarded, Earth-radius local S2 Voronoi cap at
-fixed 8/4/2 km spacing. It compares only path-local physical-grade P0 and
-dominant-integrated-flux M0 on an affine direction control and smooth quadratic
-V, while scoring cell graph and selected-face midpoint geometry separately.
-A broad corridor remains report-only. Status: specified, not implemented. M1,
-analytic Y, initiation, confluence ownership, persistence and C1 coupling are
-ineligible. Research establishes that distinct trajectories of a smooth steady
-gradient field cannot merge and share a suffix, so confluence receives a later
-conservative topology/morphology gate rather than another fictitious exact Y.
-See the [geometry basis](research/channel-centerline-geometry-basis-2026-07-13.md)
-and [R1a specification](research/channel-extraction-r1a-2026-07-13.md).
+R1a is preregistered on a guarded, Earth-radius local S2 Voronoi cap at fixed
+8/4/2 km spacing. It compares only path-local physical-grade P0 and dominant-
+integrated-flux M0 on an affine direction control and smooth quadratic V,
+while scoring cell graph and selected-face midpoint geometry separately. The
+G0 product-backend cap and planar finite-volume adapter now pass deterministic
+rebuild, reciprocal two-vertex topology, positive unequal area/face geometry,
+projection and eight-versus-ten-guard gates. Status: geometry substrate passed;
+registered A/V polygon means, conservative routing, outgoing-rank conflict and
+extractors not implemented. No arm is selected. A broad corridor remains
+report-only. M1, analytic Y, initiation, confluence ownership, persistence and
+C1 coupling are ineligible. Research establishes that distinct trajectories
+of a smooth steady gradient field cannot merge and share a suffix, so
+confluence receives a later conservative topology/morphology gate rather than
+another fictitious exact Y. See the
+[geometry basis](research/channel-centerline-geometry-basis-2026-07-13.md),
+[R1a specification](research/channel-extraction-r1a-2026-07-13.md) and
+[G0 audit](audits/channel-extraction-r1a-g0-2026-07-13.md).
 
 ### Carrier/lifecycle subexperiments
 

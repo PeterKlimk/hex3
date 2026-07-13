@@ -1,7 +1,7 @@
 # Irregular-Voronoi seeded channel extraction R1a
 
 **Date:** 2026-07-13
-**Status:** preregistered; not implemented
+**Status:** preregistered; G0 geometry substrate implemented and passed; routing/extraction pending
 **Predecessor:** [invalidated planar R0](../audits/channel-extraction-r0-2026-07-13.md)
 **Design basis:** [centreline geometry and confluence basis](channel-centerline-geometry-basis-2026-07-13.md)
 
@@ -21,6 +21,13 @@ C1 state or change terrain.
 M1 cumulative maximum-product routing is ineligible. R0 did not falsify it, but
 no evidence earns a full-domain pass before the two path-local rules are validly
 compared.
+
+Implementation checkpoint: the guarded product-backend cap and its planar
+finite-volume adapter pass the 8/4/2 km geometry, projection, determinism and
+eight-versus-ten-guard gates. The registered A/V inputs, conservative route,
+P0/M0 outgoing-rank conflict and path extraction remain unimplemented, so R1a
+has not selected an arm. See the
+[G0 audit](../audits/channel-extraction-r1a-g0-2026-07-13.md).
 
 ## Scope correction from R0
 

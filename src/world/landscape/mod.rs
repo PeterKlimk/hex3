@@ -17,6 +17,7 @@ mod gradient;
 mod hillslope;
 mod mesh;
 mod solver;
+mod voronoi_cap_fixture;
 
 pub use boundary_fixture::{linear_diffusive_boundary_flux_km3_myr, BoundaryFluxFixtureError};
 pub use c0_solver::{
@@ -69,4 +70,9 @@ pub use mesh::{
 pub use solver::{
     DrainageCache, LandscapeError, LandscapeLedger, LandscapeParams, LandscapeSnapshot,
     LandscapeSolver, LandscapeState, StepDiagnostics, TimestepAudit, TimestepLimiter,
+};
+pub use voronoi_cap_fixture::{
+    build_r1_voronoi_cap, VoronoiCapAudit, VoronoiCapConfig, VoronoiCapError, VoronoiCapFixture,
+    R1_CAP_GUARD_SPACINGS, R1_CAP_HEIGHT_KM, R1_CAP_PORTAL_BASE_LEVEL_KM,
+    R1_CAP_PORTAL_HALF_WIDTH_KM, R1_CAP_PORTAL_ID, R1_CAP_WIDTH_KM,
 };

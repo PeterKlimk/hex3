@@ -541,6 +541,14 @@ explicit persistent skeleton, or a physical channel-initiation threshold.
   and merge/no-split topology separately, with `O(cell size)` location
   uncertainty. See the [geometry basis](research/channel-centerline-geometry-basis-2026-07-13.md)
   and [R1a specification](research/channel-extraction-r1a-2026-07-13.md).
+- The R1a guarded S2 Voronoi cap now passes its geometry-only 8/4/2 km gates.
+  Unequal areas/face widths are real, projection error is about `0.004%` in
+  total area and `0.012%` at the worst edge, and extending the guard from eight
+  to ten spacings preserves the retained fixture within tolerance. This is not
+  an extraction result. Before implementing P0/M0 paths, compile the registered
+  polygon-mean A/V flow and confirm that the two local ranks differ somewhere
+  relevant; otherwise invalidate the discriminator. See the
+  [G0 audit](audits/channel-extraction-r1a-g0-2026-07-13.md).
 
 ### Drainage-integration repair
 

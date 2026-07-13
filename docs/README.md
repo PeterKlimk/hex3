@@ -74,7 +74,10 @@ Current bounded research decision:
   topology; rules out a smooth merging-streamline Y oracle.
 - [Irregular-Voronoi seeded extraction R1a](research/channel-extraction-r1a-2026-07-13.md)
   — preregistered product-backend cap, local P0/M0 comparison and face-crossing
-  geometry gate for one resolved valley.
+  geometry gate for one resolved valley; its geometry substrate now passes.
+- [R1a G0 Voronoi-cap audit](audits/channel-extraction-r1a-g0-2026-07-13.md)
+  — passing 8/4/2 km irregular geometry, projection, determinism and guard
+  evidence; routing, rank conflict and extraction remain pending.
 
 ## Working inventory
 

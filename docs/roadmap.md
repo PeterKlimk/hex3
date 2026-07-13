@@ -393,12 +393,17 @@ Earth-radius S2 Voronoi cap compares path-local P0/M0 on affine and smooth-V
 flow, while cell topology and selected-face geometry receive separate gates.
 Research also removes analytic merging Y from this rung: confluence is a later
 network/morphology gate, because distinct smooth gradient trajectories cannot
-merge and share a suffix. This is not initiation, persistence, sediment or
-ecology. Current evidence:
+merge and share a suffix. The cap geometry substrate now passes its 8/4/2 km
+determinism, reciprocal-face, projection and guard-independence gates. The next
+step is narrower than implementing both extractors: compile the registered
+polygon-mean A/V inputs, route them once, and prove that physical-grade and MFD-
+fraction ranks actually conflict on the visited matrix. This is not initiation,
+persistence, sediment or ecology. Current evidence:
 [seeded channel extraction R0](research/channel-extraction-r0-2026-07-13.md)
 and [R0 audit](audits/channel-extraction-r0-2026-07-13.md),
-[centreline geometry basis](research/channel-centerline-geometry-basis-2026-07-13.md)
-and [R1a specification](research/channel-extraction-r1a-2026-07-13.md).
+[centreline geometry basis](research/channel-centerline-geometry-basis-2026-07-13.md),
+[R1a specification](research/channel-extraction-r1a-2026-07-13.md) and
+[R1a G0 audit](audits/channel-extraction-r1a-g0-2026-07-13.md).
 The rejected nominal rectangular boundary remains an important scope decision:
 exact cut-cell hex geometry is not currently justified for a testbed intended
 to transfer to a closed sphere. Earlier analytic evidence remains in the
