@@ -135,6 +135,30 @@ location check. It does not change the graph, surface, expected event, spacing,
 threshold, or error limit. No later outcome from the matrix was available when
 it was committed.
 
+## Evaluated amendment D: merge-support sampling radius
+
+**Date:** 2026-07-14, after the resumed matrix reached the 8 km linked C–D
+event and before any finer resolution ran.
+
+The physical merge-support complex from amendment C passed the two-cone event
+but lay `8.7459305 km` from the linked C–D analytic contact, just beyond one
+8 km center spacing. One spacing still omits the lattice covering radius: an
+analytic contact lies in a regular Voronoi cell whose center is at most one
+cell circumradius away, and the lower endpoint that activates a graph bridge
+may be one face-neighbor spacing beyond that center.
+
+Replace both cone-contact sampling bounds with the geometry-derived radius
+
+```text
+sampling_radius = spacing + cell_circumradius
+```
+
+The merge-support complex must lie within `sampling_radius` of the analytic
+contact, and saddle elevation error must be no more than
+`L * sampling_radius`. For a regular hex this is `(1 + 1/sqrt(3)) * spacing` at
+every resolution; it is not fitted to the observed 8 km miss. No topology,
+surface, phase, threshold or final morphology-accuracy gate changes.
+
 ## Decision
 
 Implement only the common physical surface graph (**G0**) and the independent
@@ -673,9 +697,10 @@ For the analytic one-hill, two-cone, cap-pair and linked-segment fixtures:
 - graph and footprint area close to the adapter tolerance; and
 - point-apex peak elevation error is no more than
   `L * cell_circumradius`, and its anchor displacement no more than one cell
-  circumradius; cone-contact saddle elevation error is no more than
-  `L * spacing`, with the analytic contact no farther than one spacing from its
-  merge-support complex. Broad-cap maxima use the support rule in amendment B.
+  circumradius; cone-contact saddle elevation error is no more than `L` times
+  the amendment-D sampling radius, with the analytic contact no farther than
+  that radius from its merge-support complex. Broad-cap maxima use the support
+  rule in amendment B.
 
 For the rectangle and linked objects at 2 km, area and equivalent-ellipse
 length relative errors must be at most 5%, and equivalent-ellipse width error

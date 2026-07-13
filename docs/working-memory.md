@@ -59,6 +59,12 @@ merge support, and now judges the frozen one-ring complex of the activated cell
 plus its strictly higher face neighbors. No later matrix result was inspected
 before that correction.
 
+The resumed 8 km run passed the two-cone support but stopped at linked C–D,
+whose one-ring complex was `8.7459305 km` from the contact. Amendment D adds the
+missing regular-hex covering radius and freezes the scale-independent bound
+`spacing + circumradius` for both contact location and Lipschitz elevation.
+No 4 or 2 km outcome had run when this was committed.
+
 The seed-12345 mountain ancestry remains the strongest current causal example.
 Human review found long, flat-topped tablelands—“a giant long Uluru”—rather
 than internally organized ranges. Relief exaggeration makes them usable and
