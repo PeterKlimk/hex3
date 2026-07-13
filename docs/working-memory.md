@@ -518,14 +518,24 @@ explicit persistent skeleton, or a physical channel-initiation threshold.
   principled question is how MFD face flux becomes a sparse thalweg/reach
   candidate with physical overlap, compared against production SFD extraction
   and a prescribed graph control.
-- Extraction is now split from initiation. Seeded R0 will derive centreline
+- Extraction is now split from initiation. Seeded planar R0 derives centreline
   paths from actual analytic-surface face flow while prescribing only heads and
-  portals. It compares physical-gradient SFD, local dominant MFD and cumulative
-  maximum-product MFD; no arm receives width, identity or C1 state.
+  portals. Its first implementation invalidated the experiment: the V
+  centre-to-centre length gate is mathematically impossible on the selected
+  lattice direction, P0/M0 are aliased by equal face widths, and the draft Y is
+  not smooth at its junction. No arm is selected or rejected and the draft API
+  is not retained. M1 remains unearned, not falsified.
 - A broad flat-bottom reach is an explicit non-identifiability control. A
   deterministic cell path there is not a physically supported thalweg and must
   not win by index tie-breaking. See the
-  [R0 specification](research/channel-extraction-r0-2026-07-13.md).
+  [R0 specification](research/channel-extraction-r0-2026-07-13.md) and
+  [R0 audit](audits/channel-extraction-r0-2026-07-13.md).
+- Do not repair R0 by tuning its valley coefficients or move downstream to
+  lineage/C1. The next narrow question is P0 versus M0 on a deterministic
+  irregular S2 Voronoi cap with real face widths. Validate a smooth Y surface
+  independently and evaluate cell-centre and face-crossing/within-cell path
+  geometry separately so a geometry encoding defect cannot choose the
+  water-to-centreline owner.
 
 ### Drainage-integration repair
 

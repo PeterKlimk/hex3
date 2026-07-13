@@ -66,6 +66,9 @@ Current bounded research decision:
 - [Seeded channel extraction R0](research/channel-extraction-r0-2026-07-13.md)
   — state-free SFD/MFD centreline comparison from analytic flow with prescribed
   heads and portals.
+- [Seeded channel extraction R0 audit](audits/channel-extraction-r0-2026-07-13.md)
+  — invalidated planar discriminator: impossible centre-path length gate,
+  aliased P0/M0 and malformed Y; irregular Voronoi follow-up required.
 
 ## Working inventory
 

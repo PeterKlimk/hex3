@@ -1,8 +1,9 @@
 # Seeded channel-extraction R0
 
 **Date:** 2026-07-13  
-**Status:** state-free discriminator preregistered  
+**Status:** invalidated during first implementation; no arm selected
 **Predecessor:** [channel-ownership M0](../audits/channel-ownership-memory-m0-2026-07-13.md)
+**Result:** [R0 audit](../audits/channel-extraction-r0-2026-07-13.md)
 
 ## Question
 

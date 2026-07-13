@@ -227,13 +227,18 @@ decision is the MFD-to-sparse-candidate extraction rung, compared with
 production SFD extraction and the prescribed control. Evidence:
 [M0 audit](audits/channel-ownership-memory-m0-2026-07-13.md).
 
-The next extraction rung is now preregistered without persistent state. R0
-prescribes only analytic channel heads and portals, then compares a physical-
-gradient SFD control, local dominant MFD face flux and a cumulative maximum-
-product MFD path on V/Y valleys at 8/4/2 km and multiple orientations. A broad
-flat corridor is a non-identifiability control. Status: specified, not
-implemented. It cannot promote channel initiation, width, lineage or C1 state.
-See [seeded channel extraction R0](research/channel-extraction-r0-2026-07-13.md).
+The first state-free R0 implementation attempt invalidated its own
+discriminator before a valid arm comparison. The registered centre-to-centre
+V length gate is mathematically unattainable on the chosen regular hex
+orientation (`1/cos(30°)` gives the observed 15.47% asymptotic excess), P0 and
+M0 are aliased by equal face widths, and the draft Y construction is not smooth
+at the junction. Status: invalid/inconclusive; no implementation retained and
+no arm selected or rejected. M1 remains an unearned extra full-domain mechanism,
+not a falsified one. Next preregister a narrow irregular-S2-Voronoi comparison
+which separates path ownership from face-crossing/within-cell geometry. It
+still cannot promote initiation, width, lineage or C1 state. Evidence:
+[R0 specification](research/channel-extraction-r0-2026-07-13.md) and
+[R0 audit](audits/channel-extraction-r0-2026-07-13.md).
 
 ### Carrier/lifecycle subexperiments
 
