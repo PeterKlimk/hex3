@@ -26,6 +26,12 @@ baseline with a reduced coevolving owner and a graph-first authentic control on
 one bounded object-level slice. Landform semantics are required evidence for
 that comparison, not a decorative follow-up.
 
+The [landform object packet v0](research/landform-object-packet-v0-2026-07-14.md)
+now freezes the arm-neutral evidence vocabulary and G0/S0 → D0 → O0 → R0 order.
+It deliberately does not freeze executable formulas yet. The next checkpoint is
+the common physical graph and surface split-tree contract; do not let product
+diagnostics, G's authored graph or renderer state leak into that instrument.
+
 The seed-12345 mountain ancestry remains the strongest current causal example.
 Human review found long, flat-topped tablelands—“a giant long Uluru”—rather
 than internally organized ranges. Relief exaggeration makes them usable and

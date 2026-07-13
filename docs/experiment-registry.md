@@ -71,7 +71,10 @@ graph-first authentic G. Its shared admissible inputs, arm-neutral opportunity
 calibration, resource ceiling and independent object extraction must be
 preregistered before implementation. Status: planned discriminator;
 comparison family selected, no arm implemented, evaluated or promoted. See the
-[landscape organization strategy](landscape-strategy.md).
+[landscape organization strategy](landscape-strategy.md). The
+[landform object packet v0](research/landform-object-packet-v0-2026-07-14.md)
+now preregisters the common evidence vocabulary and rung order. It does not yet
+preregister an executable rung or change the status of any comparison arm.
 
 The first O1 run at 100k coarse/250k fine preserves peak and mountain-area
 plausibility and modestly increases 25–100-km relief, but increases median/p90

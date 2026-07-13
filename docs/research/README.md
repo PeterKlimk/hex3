@@ -9,6 +9,10 @@ Current targeted questions are listed in [`../gaps.md`](../gaps.md).
 
 Current synthesized notes:
 
+- [Landform object packet v0](landform-object-packet-v0-2026-07-14.md)
+  — arm-neutral geometry, surface hierarchy, drainage and relationship
+  vocabulary for the organization-owner comparison; an umbrella contract, not
+  an implemented extractor or executable rung specification.
 - [Correspondence priors for reduced planet models](correspondence-priors-2026-07-12.md)
 - [Orogen organization: causal reference and reduced experiments](orogen-organization-2026-07-12.md)
 - [Mountain-system design basis](mountain-system-design-basis-2026-07-13.md)

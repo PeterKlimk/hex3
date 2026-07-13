@@ -63,6 +63,10 @@ experimental, superseded, or awaiting classification.
 
 Current bounded research decision:
 
+- [Landform object packet v0](research/landform-object-packet-v0-2026-07-14.md)
+  — preregistered arm-neutral evidence umbrella for the H/C/G organization
+  comparison; executable G0/S0, D0, O0 and R0 rung contracts remain to be
+  committed before their implementations.
 - [Drainage-network ownership](research/drainage-network-ownership-2026-07-13.md)
   — continuum supply, physical promotion and persistent reach-lineage roles,
   plus the preregistered memory discriminator.

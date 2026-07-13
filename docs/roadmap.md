@@ -291,7 +291,10 @@ The current sequence is:
 
 1. extract the minimum shared object packet needed to compare ranges, ridge/
    divide graphs, passes, valleys, basins and river hierarchy, reusing existing
-   diagnostic and semantic code;
+   diagnostic and semantic code. Its arm-neutral vocabulary and rung order are
+   now frozen by the [landform object packet v0](research/landform-object-packet-v0-2026-07-14.md);
+   the next checkpoint is the executable G0/S0 surface-graph and split-tree
+   contract, not implementation from the umbrella alone;
 2. preregister one bounded organization-owner slice with shared admissible
    inputs, an arm-neutral terrain-opportunity calibration, a common resource
    ceiling and independent object extraction: hold-and-carve H, reduced

@@ -265,6 +265,14 @@ its correspondence with the extracted objects. Freeze G without access to the
 target object answers and charge its authored priors and parameters as
 architecture cost.
 
+The shared vocabulary, neutrality rules and implementation order are now
+preregistered in the [landform object packet v0](research/landform-object-packet-v0-2026-07-14.md).
+That document is an umbrella evidence contract, not an executable extractor:
+each G0/S0, D0, O0 and R0 rung still requires its own committed formulas,
+ordering, retention and tie rules before code is written. This keeps the
+instrument independent of all three arms and lets object definitions fail on
+manufactured surfaces before they are exposed to competitive output.
+
 Every competitive arm must emit the same object packet:
 
 - range extent, massifs, range ends and transfer low;
