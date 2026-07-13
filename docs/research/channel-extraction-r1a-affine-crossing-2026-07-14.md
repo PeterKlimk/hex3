@@ -1,7 +1,8 @@
 # R1a affine continuous-crossing discriminator
 
 **Date:** 2026-07-14
-**Status:** preregistered; not yet evaluated
+**Status:** evaluated incomplete; X0 passes, one X1 reconstruction prerequisite
+fails; see the [audit](../audits/channel-extraction-r1a-affine-crossing-2026-07-14.md)
 **Parent evidence:** [R1a generator-point control audit](../audits/channel-extraction-r1a-generator-control-2026-07-14.md)
 
 ## Decision

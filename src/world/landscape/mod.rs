@@ -8,6 +8,8 @@ mod boundary_fixture;
 mod c0_solver;
 mod c1_fixture;
 mod c1_network_fixture;
+#[cfg(test)]
+mod channel_extraction_r1a_affine_crossing;
 mod channel_extraction_r1a_fixture;
 #[cfg(test)]
 mod channel_extraction_r1a_generator_control;

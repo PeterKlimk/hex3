@@ -128,6 +128,13 @@ conservative `H(div)`/RT0 field on V. It must be separately preregistered. Do
 not implement it, a centroid-distance heuristic or a general flux replacement
 as part of this completed control.
 
+Later evidence: the
+[affine continuous-crossing audit](channel-extraction-r1a-affine-crossing-2026-07-14.md)
+validates X0 on all 12 cases and records 11/11 judged X1 geometry successes, but
+one frozen all-cell reconstruction prerequisite fails narrowly. The suggested
+graph-bundle localization therefore remains plausible but unestablished; the
+next rung is stable affine numerical reconstruction, not a richer river model.
+
 ## Executed checks
 
 ```bash

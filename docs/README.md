@@ -92,8 +92,11 @@ Current bounded research decision:
   — records the negative causal result and redirects the next discriminator
   from another face score to entry-point-aware continuous crossing.
 - [R1a affine continuous-crossing discriminator](research/channel-extraction-r1a-affine-crossing-2026-07-14.md)
-  — preregisters analytic and polygon-centroid reconstructed rays through
-  actual Voronoi segments, without introducing a general vector-field solver.
+  — evaluated incomplete: analytic crossing passes 12/12, while one frozen
+  all-cell reconstruction prerequisite prevents a complete X1 verdict.
+- [R1a affine continuous-crossing audit](audits/channel-extraction-r1a-affine-crossing-2026-07-14.md)
+  — validates the cap and continuous traversal for affine A, records 11 judged
+  X1 successes, and keeps the maximum-face/F0 causal localization unclaimed.
 
 ## Working inventory
 

@@ -284,16 +284,22 @@ is a separately preregistered affine, entry-point-aware continuous crossing.
 See the [generator-point control](research/channel-extraction-r1a-generator-control-2026-07-14.md)
 and [audit](audits/channel-extraction-r1a-generator-control-2026-07-14.md).
 
-The affine continuous-crossing discriminator is preregistered but not yet
-evaluated. It compares an analytic downhill ray with a local polygon-mean/
+The affine continuous-crossing discriminator is evaluated but causally
+incomplete. It compares an analytic downhill ray with a local polygon-mean/
 polygon-centroid linear reconstruction over the same 12 A cases. Both start at
 the physical head and traverse actual Voronoi segments at actual intersection
 points. A checked segment-to-CSR/boundary context, all-cell reconstruction gate,
 explicit vertex/collinear ambiguity and semantic portal termination precede
-any causal claim. A joint pass plus internal-score equivalence can localize the
-old affine failure only to the maximum-face/F0 graph representation as a
-bundle; it cannot validate V, flux physics or product rivers. See the
-[crossing specification](research/channel-extraction-r1a-affine-crossing-2026-07-14.md).
+any causal claim. X0 passes 12/12 and validates the registered cap plus analytic
+continuous traversal. X1 passes all 11 judged cases with X0-identical face
+sequences, and internal-score equivalence passes 12/12, but the frozen all-cell
+reconstruction misses its `1e-10` gate once at 2 km. That case is not judged;
+there is no X1 traversal failure. Status: incomplete, no product arm promoted
+and the maximum-face/F0 bundle localization remains unclaimed. The next rung is
+a separately preregistered stable linear-consistency control, not V, RT0 or
+product integration. See the
+[crossing specification](research/channel-extraction-r1a-affine-crossing-2026-07-14.md)
+and [audit](audits/channel-extraction-r1a-affine-crossing-2026-07-14.md).
 
 ### Carrier/lifecycle subexperiments
 

@@ -420,10 +420,15 @@ also makes a linear-exact gradient feeding the same affine maximum-face P0
 redundant. Before a general flux or V mechanism, preregister an affine-only
 entry-point-aware continuous face-crossing discriminator.
 That discriminator is now
-[preregistered](research/channel-extraction-r1a-affine-crossing-2026-07-14.md):
-analytic and centroid-reconstructed vectors cross actual polygon segments from
-the physical head, with numerical degeneracies and causal prerequisites frozen
-before implementation.
+[evaluated](audits/channel-extraction-r1a-affine-crossing-2026-07-14.md).
+Analytic crossing validates the cap and continuous traversal in all 12 affine
+cases. The reconstructed arm passes all 11 judged cases with identical face
+sequences, but one 2 km all-cell reconstruction prerequisite narrowly fails;
+therefore the maximum-face/F0 bundle has not yet been causally localized. The
+next bounded rung is a separately preregistered stable affine linear-
+consistency control which distinguishes polygon-mean input error from the
+literal normal-equation solve. Do not advance to V, RT0, discharge integration
+or product extraction before that prerequisite is resolved.
 The rejected nominal rectangular boundary remains an important scope decision:
 exact cut-cell hex geometry is not currently justified for a testbed intended
 to transfer to a closed sphere. Earlier analytic evidence remains in the

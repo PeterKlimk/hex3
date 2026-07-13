@@ -569,13 +569,18 @@ explicit persistent skeleton, or a physical channel-initiation threshold.
   is entry-point-aware continuous polygon crossing. See the
   [control specification](research/channel-extraction-r1a-generator-control-2026-07-14.md)
   and [audit](audits/channel-extraction-r1a-generator-control-2026-07-14.md).
-- The affine crossing discriminator is now frozen before implementation. It
-  pairs an analytic ray with an all-cell-validated polygon-centroid
-  reconstruction, traverses actual face intersections without nudges or index
-  ties, and treats vertex/collinear cases as typed ambiguity. A pass can
-  localize only the maximum-face/F0 graph bundle on A; it is not yet a V field,
-  conservative flux or river mechanism. See the
-  [crossing specification](research/channel-extraction-r1a-affine-crossing-2026-07-14.md).
+- The affine crossing discriminator is evaluated but incomplete. X0 analytic
+  crossing passes all 12 registrations, validating the checked Voronoi segment
+  substrate, portal semantics and continuous traversal on A. X1 reaches the
+  portal and passes geometry in all 11 judged cases with the same face sequence
+  as X0. The remaining `h=2, theta=.31, delta=0` case is not judged because the
+  frozen all-cell centroid reconstruction reaches `1.102e-10` relative and
+  `1.031e-10` sine error against a `1e-10` gate. Internal-score equivalence is
+  12/12, but cannot override that ordered prerequisite. This is not a crossing
+  failure and does not yet localize the maximum-face/F0 bundle. Next isolate
+  stable affine numerical reconstruction; do not tune the tolerance or jump to
+  V/RT0/product integration. See the
+  [crossing audit](audits/channel-extraction-r1a-affine-crossing-2026-07-14.md).
 
 ### Drainage-integration repair
 
