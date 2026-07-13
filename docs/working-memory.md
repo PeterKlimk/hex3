@@ -52,6 +52,13 @@ freezes the exact lattice/domain and continuous oracles, uses a spacing-scale
 saddle-support gate, and retains the final 2 km accuracy limits. This correction
 preceded all analytic outcome code and runs.
 
+The first 8 km analytic run then stopped at the first location gate: the
+two-cone contact was `8.6698845 km` from the lower saddle-cell polygon. Amendment
+C records why that cell alone is serialization support rather than the causal
+merge support, and now judges the frozen one-ring complex of the activated cell
+plus its strictly higher face neighbors. No later matrix result was inspected
+before that correction.
+
 The seed-12345 mountain ancestry remains the strongest current causal example.
 Human review found long, flat-topped tablelands—“a giant long Uluru”—rather
 than internally organized ranges. Relief exaggeration makes them usable and

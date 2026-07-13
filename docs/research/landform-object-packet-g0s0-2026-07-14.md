@@ -111,6 +111,30 @@ These are fixture-definition and validity corrections, not terrain or
 extractor tuning. Expected topology, retention, cap/gentle ordering, reference
 thresholds and the H/C/G exclusion do not change.
 
+## Evaluated amendment C: physical merge-support complex
+
+**Date:** 2026-07-14, after the first analytic run stopped at its first failed
+gate and before the remaining matrix continued.
+
+The 8 km two-cone case placed the analytic contact `8.6698845 km` from the
+polygon of the lower activation cell, failing amendment B's one-spacing
+support-cell gate. That polygon alone is not the physical support of a graph
+merge: the event is created by its faces to cells in the strictly higher,
+already-active components. Judging only the lower cell mistakes a serialization
+support for the causal adjacency.
+
+Define the **merge-support complex** as the union of every flat-saddle cell and
+every face-neighbor polygon whose sampled elevation is strictly above the
+saddle level. The analytic contact must be within one center spacing of this
+complex. Keep the `L * spacing` saddle-elevation bound unchanged. Tests must use
+the frozen sampled field and graph adjacency to construct this complex; they
+may not choose neighbors by proximity to the analytic answer.
+
+This amendment corrects the physical meaning of an already registered
+location check. It does not change the graph, surface, expected event, spacing,
+threshold, or error limit. No later outcome from the matrix was available when
+it was committed.
+
 ## Decision
 
 Implement only the common physical surface graph (**G0**) and the independent
@@ -651,7 +675,7 @@ For the analytic one-hill, two-cone, cap-pair and linked-segment fixtures:
   `L * cell_circumradius`, and its anchor displacement no more than one cell
   circumradius; cone-contact saddle elevation error is no more than
   `L * spacing`, with the analytic contact no farther than one spacing from its
-  support polygons. Broad-cap maxima use the support rule in amendment B.
+  merge-support complex. Broad-cap maxima use the support rule in amendment B.
 
 For the rectangle and linked objects at 2 km, area and equivalent-ellipse
 length relative errors must be at most 5%, and equivalent-ellipse width error
