@@ -227,6 +227,14 @@ decision is the MFD-to-sparse-candidate extraction rung, compared with
 production SFD extraction and the prescribed control. Evidence:
 [M0 audit](audits/channel-ownership-memory-m0-2026-07-13.md).
 
+The next extraction rung is now preregistered without persistent state. R0
+prescribes only analytic channel heads and portals, then compares a physical-
+gradient SFD control, local dominant MFD face flux and a cumulative maximum-
+product MFD path on V/Y valleys at 8/4/2 km and multiple orientations. A broad
+flat corridor is a non-identifiability control. Status: specified, not
+implemented. It cannot promote channel initiation, width, lineage or C1 state.
+See [seeded channel extraction R0](research/channel-extraction-r0-2026-07-13.md).
+
 ### Carrier/lifecycle subexperiments
 
 | Experiment | Status | Outcome |

@@ -382,6 +382,12 @@ next decision is therefore that extraction rung and its comparison with current
 production SFD semantics—not birth/retirement, sediment, long U/L or product
 integration. Current evidence:
 [M0 ownership audit](audits/channel-ownership-memory-m0-2026-07-13.md).
+That extraction decision is now split cleanly from initiation and persistence.
+The preregistered R0 derives paths from real analytic-surface flow while only
+heads and portals are prescribed. It compares physical-gradient SFD, local
+dominant MFD and cumulative dominant MFD on resolved V/Y valleys, with a broad
+corridor as a non-identifiability control. Current specification:
+[seeded channel extraction R0](research/channel-extraction-r0-2026-07-13.md).
 The rejected nominal rectangular boundary remains an important scope decision:
 exact cut-cell hex geometry is not currently justified for a testbed intended
 to transfer to a closed sphere. Earlier analytic evidence remains in the

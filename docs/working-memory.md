@@ -518,6 +518,14 @@ explicit persistent skeleton, or a physical channel-initiation threshold.
   principled question is how MFD face flux becomes a sparse thalweg/reach
   candidate with physical overlap, compared against production SFD extraction
   and a prescribed graph control.
+- Extraction is now split from initiation. Seeded R0 will derive centreline
+  paths from actual analytic-surface face flow while prescribing only heads and
+  portals. It compares physical-gradient SFD, local dominant MFD and cumulative
+  maximum-product MFD; no arm receives width, identity or C1 state.
+- A broad flat-bottom reach is an explicit non-identifiability control. A
+  deterministic cell path there is not a physically supported thalweg and must
+  not win by index tie-breaking. See the
+  [R0 specification](research/channel-extraction-r0-2026-07-13.md).
 
 ### Drainage-integration repair
 

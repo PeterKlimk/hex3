@@ -63,6 +63,9 @@ Current bounded research decision:
 - [Drainage-network ownership](research/drainage-network-ownership-2026-07-13.md)
   — continuum supply, physical promotion and persistent reach-lineage roles,
   plus the preregistered memory discriminator.
+- [Seeded channel extraction R0](research/channel-extraction-r0-2026-07-13.md)
+  — state-free SFD/MFD centreline comparison from analytic flow with prescribed
+  heads and portals.
 
 ## Working inventory
 
