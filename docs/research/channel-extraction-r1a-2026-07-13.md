@@ -113,6 +113,12 @@ area, producing local supply in `km³/Myr`. Route once with
 `FaceFlowCache::route_with_portals` and
 `FlowPartition::MfdSlope`; both extractors consume the same immutable result.
 
+Executable clarification frozen before input implementation: A and V use the
+closed-form first and second moments of the complete projected polygon. B is
+piecewise quadratic, so polygons crossing `n = -12` or `+12 km` are clipped at
+those lines and the two exterior quadratic pieces are integrated separately.
+Whole-polygon moments alone are not an exact B input.
+
 ### A — affine direction control
 
 ```text
@@ -124,6 +130,11 @@ retained polygon and use that polygon as the seed. The analytic reference is
 the straight down-gradient segment to the registered outlet. A has no claim to
 being a river. It tests whether unequal cell faces corrupt a simple continuum
 direction.
+
+Head containment uses the convex projected polygon, accepts either winding and
+tests every retained cell. An edge cross product within
+`1e-10 × nominal_spacing²` of zero is boundary-adjacent: the case is invalid
+rather than assigning an incidental build-index owner.
 
 ### V — resolved quadratic valley
 
@@ -166,6 +177,22 @@ of visited cells.
 For every visited cell record both the best/second physical-grade margin and
 the best/second MFD-fraction margin, regardless of the active arm. This keeps
 local evidence distinct; no cumulative cost may be labelled a local margin.
+
+Executable ordering clarification frozen before rank inspection: maximize the
+numeric score; an exact tie chooses the lexicographically smallest
+`(midpoint.x, midpoint.y, midpoint.z, portal_key, combined_face_index)`. Internal
+faces use `portal_key = u32::MAX`; boundary build indices follow all CSR edge
+indices in one combined index space. The reported normalized margin is
+`(best-second)/max(abs(best), f64::MIN_POSITIVE)`. A sole eligible face uses a
+zero second score. These conventions resolve numerical identity only and do
+not make a near-tie physically decisive.
+
+Before path tracers are implemented, scan every eligible donor in the complete
+A/V spacing × angle × translation matrix and require at least one P0/M0 winner
+conflict. This is a cheap necessary precheck, not G0 gate 5: promotion still
+requires a conflict at a cell actually visited by either arm after tracing.
+One routed case means one spacing, angle, translation and surface; B's two
+heads share the same immutable route.
 
 ## Geometry encodings
 
