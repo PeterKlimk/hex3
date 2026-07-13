@@ -413,6 +413,10 @@ and [R0 audit](audits/channel-extraction-r0-2026-07-13.md),
 [R1a G0 audit](audits/channel-extraction-r1a-g0-2026-07-13.md) and
 [R1a input/rank audit](audits/channel-extraction-r1a-input-rank-precheck-2026-07-13.md),
 and [R1a path audit](audits/channel-extraction-r1a-path-2026-07-14.md).
+The first ladder rung is now
+[preregistered](research/channel-extraction-r1a-generator-control-2026-07-14.md):
+change only affine state sampling, reuse the complete route/tracer stack, score
+paired subgates, and stop before implementing a new operator.
 The rejected nominal rectangular boundary remains an important scope decision:
 exact cut-cell hex geometry is not currently justified for a testbed intended
 to transfer to a closed sphere. Earlier analytic evidence remains in the

@@ -85,6 +85,9 @@ Current bounded research decision:
 - [R1a path audit](audits/channel-extraction-r1a-path-2026-07-14.md)
   — P0 and M0 both fail the affine-plus-valley gates; identifies polygon-mean/
   generator-geometry inconsistency before any richer path reconstruction.
+- [R1a affine generator-point causal control](research/channel-extraction-r1a-generator-control-2026-07-14.md)
+  — preregisters a report-only paired intervention to test the diagnosed state-
+  placement/operator interaction before adding a new mechanism.
 
 ## Working inventory
 

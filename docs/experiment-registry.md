@@ -268,6 +268,18 @@ topology/morphology gate rather than another fictitious exact Y. See the
 [input/rank audit](audits/channel-extraction-r1a-input-rank-precheck-2026-07-13.md)
 and [path audit](audits/channel-extraction-r1a-path-2026-07-14.md).
 
+The next causal rung is preregistered but not yet evaluated. It pairs each
+registered polygon-mean affine case with exact values of the same plane at the
+Voronoi generators, then independently recomputes a route and P0/M0 ranks with
+the same algorithms, tracer and F0 subgates. It is report-only and cannot
+promote an arm or weaken polygon-mean physical semantics. Paired termination
+repairs identify the polygon-mean/generator-geometry interaction as load-
+bearing. Geometry attribution uses only complete paired-success sets; censored
+comparisons remain descriptive. A remaining failure proves that alternate
+state placement alone is insufficient. The experiment must stop before a new
+gradient or flux implementation. See the
+[generator-point control](research/channel-extraction-r1a-generator-control-2026-07-14.md).
+
 ### Carrier/lifecycle subexperiments
 
 | Experiment | Status | Outcome |

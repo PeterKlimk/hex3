@@ -563,6 +563,12 @@ explicit persistent skeleton, or a physical channel-initiation threshold.
   use generator-point affine values only as a diagnostic, then test a polygon-
   mean linear-exact gradient receiver; earn a conservative non-orthogonal face
   flux before considering continuous `H(div)`/RT0 crossings.
+- The generator-point rung is now frozen as a paired, report-only A control.
+  It changes only exact affine state placement, reuses the existing TPFA/MFD/
+  tracer stack and interprets each old A subgate separately. It cannot promote
+  P0/M0 or replace polygon means, and the checkpoint must stop before a new
+  gradient is implemented. See the
+  [control specification](research/channel-extraction-r1a-generator-control-2026-07-14.md).
 
 ### Drainage-integration repair
 
