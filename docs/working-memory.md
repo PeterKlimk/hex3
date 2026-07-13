@@ -44,6 +44,14 @@ rejection of spherical inputs until their G0 adapter exists. This is not the
 full rung: the analytic 8/4/2 gates and spherical/product geometry remain before
 D0 or any H/C/G arm.
 
+Pre-execution review of the 8/4/2 matrix found that its mesh phase, sampling
+rule, one-hill and rectangle were not actually frozen. It also rejected strict
+per-refinement monotonic quadrature error and a circumradius-scale saddle bound
+as unjustified for centre-sampled graph connectivity. Contract amendment B now
+freezes the exact lattice/domain and continuous oracles, uses a spacing-scale
+saddle-support gate, and retains the final 2 km accuracy limits. This correction
+preceded all analytic outcome code and runs.
+
 The seed-12345 mountain ancestry remains the strongest current causal example.
 Human review found long, flat-topped tablelands—“a giant long Uluru”—rather
 than internally organized ranges. Relief exaggeration makes them usable and

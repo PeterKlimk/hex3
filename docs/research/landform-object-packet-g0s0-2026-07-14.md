@@ -24,6 +24,93 @@ control-volume geometry. General planar adapters still copy their explicit
 companion geometry and may not apply this repair. No tolerance, terrain
 threshold or arm result changes.
 
+## Preregistered amendment B: analytic fixture completion
+
+**Date:** 2026-07-14, before any analytic 8/4/2 outcome test was written or
+run.
+
+Implementation review found that the analytic matrix named a one-hill and a
+rectangle without defining them, left the regular-hex lattice phase free, and
+did not say where the continuous field was sampled. It also found two gates
+that are not consequences of centre-sampled graph topology: a graph saddle can
+activate nearly one centre spacing from a continuous contact, and full-cell
+quadrature errors on non-nested hex lattices need not decrease monotonically at
+every refinement. Freeze the missing inputs and replace those two claims as
+follows.
+
+Every analytic resolution uses:
+
+```text
+spacing = 8, 4 or 2 km
+width   = 1120 km
+height  = 480 * sqrt(3) km
+mesh    = uniform_planar_hex_with_portals(width, height, spacing, &[])
+mask    = every cell scored
+z_i     = continuous z evaluated at cell_center_km[i]
+closure = 0 km
+```
+
+This produces respectively `140×120`, `280×240` and `560×480` cells. Assert
+those dimensions and the resulting centred phase before extracting anything.
+The physical boundary, not the requested width/height, determines the buffer;
+every reference-footprint member centre must be strictly farther than 100 km
+from every boundary segment and every 100 km relief truncation list must be
+empty.
+
+The analytic one-hill is the isolated cone
+
+```text
+center = (0,0), peak = 2.0 km, slope = 0.010
+z = 2.0 - 0.010 * r
+```
+
+Its continuous closure footprint is a radius-200-km disk. The cap-pair center
+is also `(0,0)`. The rectangle fixtures are centre-classified plateaux:
+
+```text
+axis aligned: z = 1 km when |x| <= 160 km and |y| <= 60 km, else 0
+rotated:      apply the same test after rotating the point by -30 degrees
+```
+
+Their continuous area is `38400 km²`; equivalent-ellipse length and width are
+`369.504172281 km` and `138.564064606 km`. The previously named symmetric-disk,
+affine and translation cases remain local formula fixtures rather than extra
+large resolution matrices.
+
+Match discrete peaks to analytic labels independently at each resolution; IDs
+are never cross-resolution correspondence. For a point apex, peak elevation
+error remains bounded by `L * cell_circumradius` and the anchor centre by one
+circumradius. For the broad cap, require its flat-maximum support to represent
+the analytic radius-40-km maximum set; do not compare its serialization anchor
+to the center. For each cone contact, replace the saddle bounds with:
+
+- elevation error at most `L * spacing`; and
+- distance from the analytic contact to the union of the flat-saddle support
+  cell polygons at most one spacing.
+
+The continuous linked root oracle is the union of closure disks with radii
+`240, 200, 220, 190 km`. Its registered references are:
+
+```text
+area                 307636.56239 km²
+centroid              (-36.18947048, -11.29139307) km
+covariance xx/xy/yy   42009.22364 / 5791.31912 / 15430.84532 km²
+ellipse length/width  831.541290 / 477.053652 km
+```
+
+The B, C and D losing footprints are tangent-at-merge disks with respective
+radii `43.2455532`, `70.0` and `48.2455532 km`, areas `5875.337063`,
+`15393.804003` and `7312.476002 km²`, and ellipse diameters `86.4911064`,
+`140.0` and `96.4911064 km`. The 2 km area/ellipse gates apply to the root and
+all three losing linked objects, plus both rectangles. Report errors at 8, 4
+and 2 km, but remove the unjustified requirement that each absolute error be
+non-increasing. The frozen 2 km limits of 5% for area/length and 7.5% for width
+remain unchanged.
+
+These are fixture-definition and validity corrections, not terrain or
+extractor tuning. Expected topology, retention, cap/gentle ordering, reference
+thresholds and the H/C/G exclusion do not change.
+
 ## Decision
 
 Implement only the common physical surface graph (**G0**) and the independent
@@ -560,13 +647,16 @@ For the analytic one-hill, two-cone, cap-pair and linked-segment fixtures:
 - no unexpected birth, retirement, split or merge occurs;
 - broad-versus-narrow cap/gentle ordering and orientation ambiguity are stable;
 - graph and footprint area close to the adapter tolerance; and
-- peak/saddle elevation absolute error is no more than
-  `L * cell_circumradius`, and anchor displacement no more than one cell
-  circumradius, using each analytic fixture's declared Lipschitz bound `L`.
+- point-apex peak elevation error is no more than
+  `L * cell_circumradius`, and its anchor displacement no more than one cell
+  circumradius; cone-contact saddle elevation error is no more than
+  `L * spacing`, with the analytic contact no farther than one spacing from its
+  support polygons. Broad-cap maxima use the support rule in amendment B.
 
 For the rectangle and linked objects at 2 km, area and equivalent-ellipse
 length relative errors must be at most 5%, and equivalent-ellipse width error
-at most 7.5%. Their absolute errors must not increase from 8 to 4 to 2 km.
+at most 7.5%. Record, but do not gate on, monotonic error across the non-nested
+8/4/2 lattices.
 
 G0/S0 does not preregister general cross-resolution correspondence. Fixture
 matching uses the known analytic peak labels only. Dominant physical-overlap
