@@ -1242,6 +1242,11 @@ pub fn build_surface_hierarchy_v0(
     let mut peaks = Vec::<TempPeak>::new();
     let mut saddles = Vec::<TempSaddle>::new();
     let mut survivor_parent = Vec::<usize>::new();
+    // Every active cell belongs to exactly one elevation batch, so one
+    // lifetime visited bitset is sufficient. Reallocating and clearing an
+    // n-cell bitset for every distinct sampled height makes smooth analytic
+    // fields accidentally quadratic in the number of cells.
+    let mut level_visited = vec![false; n];
 
     let mut group_start = 0usize;
     while group_start < order.len() {
@@ -1251,25 +1256,23 @@ pub fn build_surface_hierarchy_v0(
             group_end += 1;
         }
         let level_cells = &order[group_start..group_end];
-        let mut in_level = vec![false; n];
-        for &cell in level_cells {
-            in_level[cell] = true;
-        }
-        let mut visited = vec![false; n];
         let mut components = Vec::<Vec<usize>>::new();
         for &start in level_cells {
-            if visited[start] {
+            if level_visited[start] {
                 continue;
             }
-            visited[start] = true;
+            level_visited[start] = true;
             let mut queue = VecDeque::from([start]);
             let mut component = Vec::new();
             while let Some(cell) = queue.pop_front() {
                 component.push(cell);
                 for edge in edge_range(&graph.edge_offsets, cell) {
                     let neighbor = graph.edge_neighbor[edge] as usize;
-                    if in_level[neighbor] && !visited[neighbor] {
-                        visited[neighbor] = true;
+                    if is_active_input[neighbor]
+                        && elevation[neighbor].to_bits() == bits
+                        && !level_visited[neighbor]
+                    {
+                        level_visited[neighbor] = true;
                         queue.push_back(neighbor);
                     }
                 }
@@ -1982,62 +1985,120 @@ fn planar_relief_fields(
     elevation: &[f64],
     scored_cell: &[bool],
     config: &SurfaceHierarchyConfigV0,
+    query_cells: &[u32],
 ) -> PlanarReliefFields {
     let radii = config.local_relief_radii_km;
-    let bucket_size = radii[0];
-    let mut buckets = BTreeMap::<(i64, i64), Vec<usize>>::new();
+    // Exact disk queries can consume an entire bucket's extrema when its
+    // bounding box lies inside the disk. Only the intersected rim enumerates
+    // individual cells, avoiding work proportional to R² / h² for every
+    // footprint member on fine analytic meshes.
+    let bucket_size = radii[0] / 3.0;
+    struct ReliefBucket {
+        cells: Vec<usize>,
+        minimum: f64,
+        maximum: f64,
+    }
+    let mut buckets = BTreeMap::<(i64, i64), ReliefBucket>::new();
     for (cell, &scored) in scored_cell.iter().enumerate() {
         if scored {
             let center = graph.cell_center_km[cell];
-            buckets
+            let bucket = buckets
                 .entry((
                     (center.x / bucket_size).floor() as i64,
                     (center.y / bucket_size).floor() as i64,
                 ))
-                .or_default()
-                .push(cell);
+                .or_insert_with(|| ReliefBucket {
+                    cells: Vec::new(),
+                    minimum: f64::INFINITY,
+                    maximum: f64::NEG_INFINITY,
+                });
+            bucket.cells.push(cell);
+            bucket.minimum = bucket.minimum.min(elevation[cell]);
+            bucket.maximum = bucket.maximum.max(elevation[cell]);
         }
     }
-    let mut scored_boundaries = graph
+    let scored_boundaries = graph
         .boundary_segments
         .iter()
         .map(|segment| segment.endpoints_km)
+        .chain((0..graph.cell_count()).flat_map(|cell| {
+            edge_range(&graph.edge_offsets, cell).filter_map(move |edge| {
+                let neighbor = graph.edge_neighbor[edge] as usize;
+                (scored_cell[cell] && !scored_cell[neighbor])
+                    .then_some(graph.edge_face_endpoints_km[edge])
+            })
+        }))
         .collect::<Vec<_>>();
-    for cell in 0..graph.cell_count() {
-        if !scored_cell[cell] {
-            continue;
-        }
-        for edge in edge_range(&graph.edge_offsets, cell) {
-            let neighbor = graph.edge_neighbor[edge] as usize;
-            if !scored_cell[neighbor] {
-                scored_boundaries.push(graph.edge_face_endpoints_km[edge]);
+    let boundary_bucket_size = *radii.last().unwrap();
+    let mut boundary_buckets = BTreeMap::<(i64, i64), Vec<[DVec3; 2]>>::new();
+    for segment in scored_boundaries {
+        let min_x = segment[0].x.min(segment[1].x);
+        let max_x = segment[0].x.max(segment[1].x);
+        let min_y = segment[0].y.min(segment[1].y);
+        let max_y = segment[0].y.max(segment[1].y);
+        let first_x = (min_x / boundary_bucket_size).floor() as i64;
+        let last_x = (max_x / boundary_bucket_size).floor() as i64;
+        let first_y = (min_y / boundary_bucket_size).floor() as i64;
+        let last_y = (max_y / boundary_bucket_size).floor() as i64;
+        for bx in first_x..=last_x {
+            for by in first_y..=last_y {
+                boundary_buckets.entry((bx, by)).or_default().push(segment);
             }
         }
     }
 
     let mut relief_by_radius = vec![vec![None; graph.cell_count()]; radii.len()];
     let mut truncated_by_radius = vec![vec![false; graph.cell_count()]; radii.len()];
-    for cell in 0..graph.cell_count() {
-        if !scored_cell[cell] {
-            continue;
-        }
+    for &cell_u32 in query_cells {
+        let cell = cell_u32 as usize;
+        debug_assert!(scored_cell[cell]);
         let center = graph.cell_center_km[cell];
         let bucket = (
             (center.x / bucket_size).floor() as i64,
             (center.y / bucket_size).floor() as i64,
         );
-        let boundary_distance = scored_boundaries
-            .iter()
-            .map(|&segment| point_segment_distance(center, segment))
-            .fold(f64::INFINITY, f64::min);
+        let boundary_bucket = (
+            (center.x / boundary_bucket_size).floor() as i64,
+            (center.y / boundary_bucket_size).floor() as i64,
+        );
+        let mut boundary_distance = f64::INFINITY;
+        for bx in boundary_bucket.0 - 1..=boundary_bucket.0 + 1 {
+            for by in boundary_bucket.1 - 1..=boundary_bucket.1 + 1 {
+                if let Some(segments) = boundary_buckets.get(&(bx, by)) {
+                    for &segment in segments {
+                        boundary_distance =
+                            boundary_distance.min(point_segment_distance(center, segment));
+                    }
+                }
+            }
+        }
         for (radius_index, &radius) in radii.iter().enumerate() {
             let reach = (radius / bucket_size).ceil() as i64;
             let mut minimum = f64::INFINITY;
             let mut maximum = f64::NEG_INFINITY;
             for bx in bucket.0 - reach..=bucket.0 + reach {
                 for by in bucket.1 - reach..=bucket.1 + reach {
-                    if let Some(candidates) = buckets.get(&(bx, by)) {
-                        for &candidate in candidates {
+                    if let Some(candidate_bucket) = buckets.get(&(bx, by)) {
+                        let x0 = bx as f64 * bucket_size;
+                        let x1 = x0 + bucket_size;
+                        let y0 = by as f64 * bucket_size;
+                        let y1 = y0 + bucket_size;
+                        let farthest_x = (center.x - x0).abs().max((center.x - x1).abs());
+                        let farthest_y = (center.y - y0).abs().max((center.y - y1).abs());
+                        let farthest_squared = farthest_x * farthest_x + farthest_y * farthest_y;
+                        if farthest_squared <= radius * radius {
+                            minimum = minimum.min(candidate_bucket.minimum);
+                            maximum = maximum.max(candidate_bucket.maximum);
+                            continue;
+                        }
+                        let nearest_x = center.x.clamp(x0, x1);
+                        let nearest_y = center.y.clamp(y0, y1);
+                        if (center.x - nearest_x).powi(2) + (center.y - nearest_y).powi(2)
+                            > radius * radius
+                        {
+                            continue;
+                        }
+                        for &candidate in &candidate_bucket.cells {
                             if center.distance(graph.cell_center_km[candidate]) <= radius {
                                 minimum = minimum.min(elevation[candidate]);
                                 maximum = maximum.max(elevation[candidate]);
@@ -2145,7 +2206,13 @@ fn build_reference_highlands(
         return Ok(Vec::new());
     }
     let grades = planar_grades(graph, elevation, scored_cell, config)?;
-    let relief = planar_relief_fields(graph, elevation, scored_cell, config);
+    let measured_cells = reference
+        .iter()
+        .flat_map(|&peak_id| peaks[peak_id as usize].footprint_members.iter().copied())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    let relief = planar_relief_fields(graph, elevation, scored_cell, config, &measured_cells);
     reference
         .iter()
         .map(|&peak_id| {
@@ -2890,6 +2957,70 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn bucketed_relief_matches_exact_disk_scan_and_only_materializes_queries() {
+        let config = SurfaceHierarchyConfigV0::default();
+        let mesh = LandscapeMesh::uniform_planar_hex_with_portals(320.0, 280.0, 4.0, &[]).unwrap();
+        let controls = build_regular_hex_control_volumes_v0(&mesh, &config).unwrap();
+        let graph = adapt_landscape_graph_v0(&mesh, &controls, &config).unwrap();
+        let elevation = graph
+            .cell_center_km
+            .iter()
+            .map(|center| {
+                0.3 * (center.x / 37.0).sin() + 0.2 * (center.y / 29.0).cos() - 0.001 * center.x
+            })
+            .collect::<Vec<_>>();
+        let nearest = |target: DVec3| {
+            graph
+                .cell_center_km
+                .iter()
+                .enumerate()
+                .min_by(|(_, a), (_, b)| {
+                    a.distance_squared(target)
+                        .total_cmp(&b.distance_squared(target))
+                })
+                .unwrap()
+                .0 as u32
+        };
+        let queries = [nearest(DVec3::ZERO), nearest(DVec3::new(90.0, 40.0, 0.0))];
+        let scored = vec![true; graph.cell_count()];
+        let fields = planar_relief_fields(&graph, &elevation, &scored, &config, &queries);
+
+        for (radius_index, &radius) in config.local_relief_radii_km.iter().enumerate() {
+            for &query in &queries {
+                let center = graph.cell_center_km[query as usize];
+                let mut minimum = f64::INFINITY;
+                let mut maximum = f64::NEG_INFINITY;
+                for (candidate, &candidate_center) in graph.cell_center_km.iter().enumerate() {
+                    if center.distance(candidate_center) <= radius {
+                        minimum = minimum.min(elevation[candidate]);
+                        maximum = maximum.max(elevation[candidate]);
+                    }
+                }
+                assert_eq!(
+                    fields.relief_by_radius[radius_index][query as usize],
+                    Some(canonical_zero(maximum - minimum))
+                );
+                let boundary_distance = graph
+                    .boundary_segments
+                    .iter()
+                    .map(|segment| point_segment_distance(center, segment.endpoints_km))
+                    .fold(f64::INFINITY, f64::min);
+                assert_eq!(
+                    fields.truncated_by_radius[radius_index][query as usize],
+                    boundary_distance <= radius
+                );
+            }
+        }
+        let unqueried = (0..graph.cell_count())
+            .find(|cell| !queries.contains(&(*cell as u32)))
+            .unwrap();
+        assert!(fields
+            .relief_by_radius
+            .iter()
+            .all(|radius| radius[unqueried].is_none()));
     }
 
     #[test]
