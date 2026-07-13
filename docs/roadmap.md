@@ -430,11 +430,14 @@ consistency control which distinguishes polygon-mean input error from the
 literal normal-equation solve. Do not advance to V, RT0, discharge integration
 or product extraction before that prerequisite is resolved.
 That control is now
-[preregistered](research/channel-extraction-r1a-stable-reconstruction-2026-07-14.md)
-as a four-arm row-input × solve factorial. It preserves the registered input,
-checked centroids, CSR stencil, rank predicate and crossing code; only the
-registered-difference plus stable-QR arm can complete the physical-input claim.
-The direct affine-row arms remain manufactured attribution oracles.
+[evaluated](audits/channel-extraction-r1a-stable-reconstruction-2026-07-14.md).
+RQ does not rescue the one registered-input failure; ON and OQ pass 12/12 at
+machine precision, and the failing stencil is well-conditioned. Registered
+affine mean/difference numerics, not normal-equation stability, remain the
+formal blocker. Do not promote QR. Either preregister one local-coordinate
+polygon-mean evaluation control to close that numerical identity, or take the
+explicit Pareto stop—the elevation discrepancy is about `1e-12 km`—and return
+to the wider architecture question without claiming the graph bundle proven.
 The rejected nominal rectangular boundary remains an important scope decision:
 exact cut-cell hex geometry is not currently justified for a testbed intended
 to transfer to a closed sphere. Earlier analytic evidence remains in the

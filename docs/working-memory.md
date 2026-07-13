@@ -581,15 +581,19 @@ explicit persistent skeleton, or a physical channel-initiation threshold.
   stable affine numerical reconstruction; do not tune the tolerance or jump to
   V/RT0/product integration. See the
   [crossing audit](audits/channel-extraction-r1a-affine-crossing-2026-07-14.md).
-- The stable reconstruction follow-up is now preregistered as RN/RQ/ON/OQ:
+- The stable reconstruction follow-up is evaluated as RN/RQ/ON/OQ:
   registered polygon-mean versus direct affine centroid-difference rows,
   crossed with the frozen normal equations versus deterministic streaming
   Givens QR. It keeps X0, the all-cell `1e-10` gate, mesh, stencil, singularity
-  predicate and crossing unchanged. RN must reproduce the committed failure;
-  only RQ can rescue the physical input and warrant the earlier graph-bundle
-  localization. The oracle arms distinguish input/differencing from solve loss
-  but cannot be promoted. See the
-  [stable reconstruction specification](research/channel-extraction-r1a-stable-reconstruction-2026-07-14.md).
+  predicate and crossing unchanged. RN and RQ both remain 11/12; QR changes the
+  registered gradient only around `1e-15`. ON and OQ pass 12/12 at machine
+  precision. Thus registered mean/difference numerics, not solve stability,
+  explain the remaining censor. All judged crossings and score comparisons
+  pass, but the graph bundle remains formally unproven. The discrepancy is
+  about `1e-12 km` in elevation: either run one local-coordinate moment control
+  in a new checkpoint or take an explicit Pareto stop rather than keep adding
+  solver machinery. See the
+  [stable reconstruction audit](audits/channel-extraction-r1a-stable-reconstruction-2026-07-14.md).
 
 ### Drainage-integration repair
 

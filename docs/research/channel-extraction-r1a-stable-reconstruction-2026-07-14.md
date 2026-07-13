@@ -1,7 +1,8 @@
 # R1a stable affine-reconstruction causal control
 
 **Date:** 2026-07-14
-**Status:** preregistered; not implemented or evaluated
+**Status:** evaluated negative solve control; registered row input remains
+load-bearing; see the [audit](../audits/channel-extraction-r1a-stable-reconstruction-2026-07-14.md)
 **Parent evidence:** [R1a affine continuous-crossing audit](../audits/channel-extraction-r1a-affine-crossing-2026-07-14.md)
 
 ## Decision

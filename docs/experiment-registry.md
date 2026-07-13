@@ -301,8 +301,8 @@ product integration. See the
 [crossing specification](research/channel-extraction-r1a-affine-crossing-2026-07-14.md)
 and [audit](audits/channel-extraction-r1a-affine-crossing-2026-07-14.md).
 
-The stable affine-reconstruction control is preregistered but not yet
-evaluated. It crosses registered polygon-mean differences versus a direct
+The stable affine-reconstruction control is evaluated. It crosses registered
+polygon-mean differences versus a direct
 affine centroid-difference oracle with the frozen normal-equation solve versus
 a fixed-order streaming Givens QR solve. RN must reproduce the incomplete
 parent baseline exactly; only registered-input RQ can repair the physical-input
@@ -310,6 +310,13 @@ prerequisite and complete the earlier causal claim. Oracle arms are numerical
 attribution controls, not product states. X0, the checked cap, stencil,
 singularity gate, crossing and `1e-10` all-cell threshold remain unchanged. See
 the [stable reconstruction specification](research/channel-extraction-r1a-stable-reconstruction-2026-07-14.md).
+Result: RN and RQ both remain 11/12 and fail the same 2 km reconstruction;
+ON and OQ pass 12/12 at machine precision. Every judged crossing and every
+score-equivalence audit passes. The stencil is well-conditioned and QR changes
+registered gradients only around `1e-15`; registered mean/difference numerics,
+not the solve, remain load-bearing. Status: completed negative solve control;
+QR not promoted and graph-bundle localization still formally incomplete. See
+the [audit](audits/channel-extraction-r1a-stable-reconstruction-2026-07-14.md).
 
 ### Carrier/lifecycle subexperiments
 

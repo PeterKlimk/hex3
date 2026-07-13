@@ -44,5 +44,6 @@ Current synthesized notes:
   one all-cell reconstruction gate prevents full graph-bundle localization;
   see the [audit](../audits/channel-extraction-r1a-affine-crossing-2026-07-14.md).
 - [R1a stable affine-reconstruction causal control](channel-extraction-r1a-stable-reconstruction-2026-07-14.md)
-  — freezes a test-only two-factor numerical control that preserves the mesh,
-  stencil and crossing while separating row-input from least-squares solve loss.
+  — evaluated test-only factorial: stable QR leaves registered input at 11/12,
+  while both direct affine-row oracle solves pass 12/12; see the
+  [audit](../audits/channel-extraction-r1a-stable-reconstruction-2026-07-14.md).

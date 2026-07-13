@@ -105,10 +105,16 @@ reconstruction passes and the same X1 geometry passes 12/12, the original
 maximum-face/F0 bundle localization becomes warranted. If it does not, the
 input/reconstruction semantics remain load-bearing and need resolution first.
 
-The next rung is now
+The next rung was
 [preregistered](../research/channel-extraction-r1a-stable-reconstruction-2026-07-14.md)
 as a row-input × solve factorial. It preserves this audit's geometry and gates
 and does not weaken the censored result.
+
+Later evidence: the
+[stable reconstruction audit](channel-extraction-r1a-stable-reconstruction-2026-07-14.md)
+finds that QR does not rescue registered rows, while both direct affine-row
+oracle solves pass 12/12. Registered mean/difference numerics remain the formal
+blocker; no crossing or score failure is observed.
 
 ## Executed checks
 
