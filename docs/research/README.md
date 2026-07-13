@@ -29,3 +29,9 @@ Current synthesized notes:
 - [Routed C1 ownership and remapping fixture](c1-routed-fixture-2026-07-13.md)
   — preregisters stable semantic reaches, conservative confluence routing,
   overlap remapping and a controlled receiver-reorganization gate.
+- [Channel centreline geometry and confluence basis](channel-centerline-geometry-basis-2026-07-13.md)
+  — distinguishes finite-volume water, within-cell streamline conventions and
+  sparse merge topology; bounds kilometre-scale claims.
+- [Irregular-Voronoi seeded extraction R1a](channel-extraction-r1a-2026-07-13.md)
+  — replaces invalidated planar R0 with a V-only, product-backend irregular
+  mesh discriminator and separate face-crossing geometry gate.

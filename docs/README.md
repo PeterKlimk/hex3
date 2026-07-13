@@ -69,6 +69,12 @@ Current bounded research decision:
 - [Seeded channel extraction R0 audit](audits/channel-extraction-r0-2026-07-13.md)
   — invalidated planar discriminator: impossible centre-path length gate,
   aliased P0/M0 and malformed Y; irregular Voronoi follow-up required.
+- [Channel centreline geometry and confluence basis](research/channel-centerline-geometry-basis-2026-07-13.md)
+  — separates conservative face flux, within-cell geometry and merge-only river
+  topology; rules out a smooth merging-streamline Y oracle.
+- [Irregular-Voronoi seeded extraction R1a](research/channel-extraction-r1a-2026-07-13.md)
+  — preregistered product-backend cap, local P0/M0 comparison and face-crossing
+  geometry gate for one resolved valley.
 
 ## Working inventory
 

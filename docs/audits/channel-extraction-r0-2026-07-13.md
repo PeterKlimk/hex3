@@ -104,10 +104,12 @@ Preregister the next discriminator before implementing it:
 
 1. Use a deterministic irregular S2 Voronoi cap derived from the product
    tessellation path, locally projected only where the planar finite-volume API
-   requires it. Preserve reciprocal adjacency, actual shared-edge widths,
-   physical areas and a short stable outlet cut.
-2. Construct analytic V/Y surfaces that are smooth at their junctions, and
-   validate the surface itself before scoring any route.
+   requires it. Preserve reciprocal adjacency and actual shared-edge endpoints;
+   derive consistent projected widths/areas, audit their spherical distortion
+   and retain a short stable outlet cut.
+2. Use affine and smooth single-V surfaces for direction/geometry. Subsequent
+   research rules out a smooth merging-streamline Y as a valid oracle; test
+   confluence topology separately without an exact junction claim.
 3. Compare P0 and M0 on real unequal face geometry. Keep any cumulative M1 arm
    behind an explicit Pareto burden; do not let a manufactured path alone earn
    its full-domain pass.
@@ -121,5 +123,9 @@ Preregister the next discriminator before implementing it:
    scorecards. Tests should fail on invariant violations and report promotion
    status without making a known negative outcome the behavior to preserve.
 
-This R1 is the next bounded task. It is still a seeded, state-free extraction
-test, not product integration or a channel-initiation model.
+The corrected task is now preregistered as
+[irregular-Voronoi R1a](../research/channel-extraction-r1a-2026-07-13.md), with
+the underlying distinction documented in the
+[centreline geometry and confluence basis](../research/channel-centerline-geometry-basis-2026-07-13.md).
+It is still a seeded, state-free extraction test, not product integration or a
+channel-initiation model.

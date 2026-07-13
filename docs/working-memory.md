@@ -532,10 +532,15 @@ explicit persistent skeleton, or a physical channel-initiation threshold.
   [R0 audit](audits/channel-extraction-r0-2026-07-13.md).
 - Do not repair R0 by tuning its valley coefficients or move downstream to
   lineage/C1. The next narrow question is P0 versus M0 on a deterministic
-  irregular S2 Voronoi cap with real face widths. Validate a smooth Y surface
-  independently and evaluate cell-centre and face-crossing/within-cell path
-  geometry separately so a geometry encoding defect cannot choose the
-  water-to-centreline owner.
+  irregular S2 Voronoi cap with real face widths. R1a now freezes that cap,
+  affine/V inputs, polygon-mean terrain and separate cell-centre versus
+  selected-face geometry gates.
+- Do not use a smooth merging-streamline Y as an oracle. ODE uniqueness forbids
+  distinct smooth steady trajectories from meeting and sharing a suffix. A
+  river confluence is a network/morphology coarse graining: test its conservation
+  and merge/no-split topology separately, with `O(cell size)` location
+  uncertainty. See the [geometry basis](research/channel-centerline-geometry-basis-2026-07-13.md)
+  and [R1a specification](research/channel-extraction-r1a-2026-07-13.md).
 
 ### Drainage-integration repair
 
