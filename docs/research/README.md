@@ -39,3 +39,6 @@ Current synthesized notes:
 - [R1a affine generator-point causal control](channel-extraction-r1a-generator-control-2026-07-14.md)
   — evaluated non-promotable paired affine intervention; state sampling is
   numerically material but insufficient, and both maximum-face arms still fail.
+- [R1a affine continuous-crossing discriminator](channel-extraction-r1a-affine-crossing-2026-07-14.md)
+  — freezes a test-only analytic/reconstructed affine crossing pair to isolate
+  the maximum-face/F0 graph representation from cap and reconstruction errors.

@@ -569,6 +569,13 @@ explicit persistent skeleton, or a physical channel-initiation threshold.
   is entry-point-aware continuous polygon crossing. See the
   [control specification](research/channel-extraction-r1a-generator-control-2026-07-14.md)
   and [audit](audits/channel-extraction-r1a-generator-control-2026-07-14.md).
+- The affine crossing discriminator is now frozen before implementation. It
+  pairs an analytic ray with an all-cell-validated polygon-centroid
+  reconstruction, traverses actual face intersections without nudges or index
+  ties, and treats vertex/collinear cases as typed ambiguity. A pass can
+  localize only the maximum-face/F0 graph bundle on A; it is not yet a V field,
+  conservative flux or river mechanism. See the
+  [crossing specification](research/channel-extraction-r1a-affine-crossing-2026-07-14.md).
 
 ### Drainage-integration repair
 

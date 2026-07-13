@@ -91,6 +91,9 @@ Current bounded research decision:
 - [R1a affine generator-point control audit](audits/channel-extraction-r1a-generator-control-2026-07-14.md)
   — records the negative causal result and redirects the next discriminator
   from another face score to entry-point-aware continuous crossing.
+- [R1a affine continuous-crossing discriminator](research/channel-extraction-r1a-affine-crossing-2026-07-14.md)
+  — preregisters analytic and polygon-centroid reconstructed rays through
+  actual Voronoi segments, without introducing a general vector-field solver.
 
 ## Working inventory
 

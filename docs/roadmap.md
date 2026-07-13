@@ -419,6 +419,11 @@ Generator sampling repairs zero terminations and both arms still reject. It
 also makes a linear-exact gradient feeding the same affine maximum-face P0
 redundant. Before a general flux or V mechanism, preregister an affine-only
 entry-point-aware continuous face-crossing discriminator.
+That discriminator is now
+[preregistered](research/channel-extraction-r1a-affine-crossing-2026-07-14.md):
+analytic and centroid-reconstructed vectors cross actual polygon segments from
+the physical head, with numerical degeneracies and causal prerequisites frozen
+before implementation.
 The rejected nominal rectangular boundary remains an important scope decision:
 exact cut-cell hex geometry is not currently justified for a testbed intended
 to transfer to a closed sphere. Earlier analytic evidence remains in the

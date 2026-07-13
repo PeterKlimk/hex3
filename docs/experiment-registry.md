@@ -284,6 +284,17 @@ is a separately preregistered affine, entry-point-aware continuous crossing.
 See the [generator-point control](research/channel-extraction-r1a-generator-control-2026-07-14.md)
 and [audit](audits/channel-extraction-r1a-generator-control-2026-07-14.md).
 
+The affine continuous-crossing discriminator is preregistered but not yet
+evaluated. It compares an analytic downhill ray with a local polygon-mean/
+polygon-centroid linear reconstruction over the same 12 A cases. Both start at
+the physical head and traverse actual Voronoi segments at actual intersection
+points. A checked segment-to-CSR/boundary context, all-cell reconstruction gate,
+explicit vertex/collinear ambiguity and semantic portal termination precede
+any causal claim. A joint pass plus internal-score equivalence can localize the
+old affine failure only to the maximum-face/F0 graph representation as a
+bundle; it cannot validate V, flux physics or product rivers. See the
+[crossing specification](research/channel-extraction-r1a-affine-crossing-2026-07-14.md).
+
 ### Carrier/lifecycle subexperiments
 
 | Experiment | Status | Outcome |
