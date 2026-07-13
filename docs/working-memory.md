@@ -41,8 +41,8 @@ saddle events, nested footprints, physical polygon moments, fixed-radius
 relief, least-squares grade and summit-cap evidence. Review also forced native
 operator geometry validation, fatal numerical-error semantics and explicit
 rejection of spherical inputs until their G0 adapter exists. This is not the
-full rung: the analytic 8/4/2 gates and spherical/product geometry remain before
-D0 or any H/C/G arm.
+full rung: spherical/product geometry and adversarial fixture closure remain
+before D0 or any H/C/G arm.
 
 Pre-execution review of the 8/4/2 matrix found that its mesh phase, sampling
 rule, one-hill and rectangle were not actually frozen. It also rejected strict
@@ -64,6 +64,12 @@ whose one-ring complex was `8.7459305 km` from the contact. Amendment D adds the
 missing regular-hex covering radius and freezes the scale-independent bound
 `spacing + circumradius` for both contact location and Lipschitz elevation.
 No 4 or 2 km outcome had run when this was committed.
+
+The complete amended planar matrix now passes at 8/4/2 km. The finest linked
+objects stay within `3.3128%` area, `1.4667%` ellipse-length and `1.8251%`
+ellipse-width error, and topology, retention, buffers and cap ordering are
+stable. This validates the common planar instrument on prescribed landforms;
+it says nothing yet about product terrain quality or which H/C/G owner wins.
 
 The seed-12345 mountain ancestry remains the strongest current causal example.
 Human review found long, flat-topped tablelands—“a giant long Uluru”—rather

@@ -2309,6 +2309,10 @@ fn fnv1a64(bytes: &[u8]) -> u64 {
 }
 
 #[cfg(test)]
+#[path = "landforms/analytic_tests.rs"]
+mod analytic_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

@@ -294,9 +294,9 @@ The current sequence is:
    diagnostic and semantic code. Its arm-neutral vocabulary and rung order are
    now frozen by the [landform object packet v0](research/landform-object-packet-v0-2026-07-14.md);
    the executable [G0/S0 surface-graph and split-tree contract](research/landform-object-packet-g0s0-2026-07-14.md)
-   is now preregistered; its planar structure and unit morphology pass. The
-   next bounded implementation is the frozen analytic 8/4/2 suite, followed by
-   the spherical/product adapter—not H/C/G composition;
+   is now preregistered; its planar structure, unit morphology and analytic
+   8/4/2 matrix pass. The next bounded implementation is the spherical/product
+   and irregular-cap G0 seam plus adversarial closure—not H/C/G composition;
 2. preregister one bounded organization-owner slice with shared admissible
    inputs, an arm-neutral terrain-opportunity calibration, a common resource
    ceiling and independent object extraction: hold-and-carve H, reduced

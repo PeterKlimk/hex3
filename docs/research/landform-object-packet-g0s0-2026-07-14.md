@@ -1,8 +1,8 @@
 # Landform object packet G0/S0 executable contract
 
 **Date:** 2026-07-14  
-**Status:** preregistered; planar structure and unit morphology
-implemented/evaluated; analytic 8/4/2 and spherical portions incomplete
+**Status:** evaluated partial pass; planar structure, unit morphology and
+analytic 8/4/2 pass; spherical/product and adversarial closure incomplete
 **Parent:** [Landform object packet v0](landform-object-packet-v0-2026-07-14.md)
 
 ## Preregistered amendment A: regular-hex width quantization
@@ -164,10 +164,11 @@ surface, phase, threshold or final morphology-accuracy gate changes.
 Implement only the common physical surface graph (**G0**) and the independent
 surface peak–saddle hierarchy (**S0**) before constructing H, C or G.
 
-The planar structural and unit-morphology checkpoints now pass. Their evidence
-and remaining scope are recorded in the
-[structural-slice audit](../audits/landform-g0s0-structural-slice-2026-07-14.md)
-and [morphology-slice audit](../audits/landform-g0s0-planar-morphology-2026-07-14.md).
+The planar structural, unit-morphology and analytic 8/4/2 checkpoints now pass.
+Their evidence and remaining scope are recorded in the
+[structural-slice audit](../audits/landform-g0s0-structural-slice-2026-07-14.md),
+the [morphology-slice audit](../audits/landform-g0s0-planar-morphology-2026-07-14.md),
+and the [analytic audit](../audits/landform-g0s0-planar-analytic-2026-07-14.md).
 
 This rung asks whether a final authoritative surface contains stable regional
 highland organization. It does not reward deeper physics, infer terrain from
