@@ -8,6 +8,7 @@ mod boundary_fixture;
 mod c0_solver;
 mod c1_fixture;
 mod c1_network_fixture;
+mod channel_extraction_r1a_fixture;
 mod channel_ownership_fixture;
 mod continuum;
 mod denudation;
@@ -34,6 +35,12 @@ pub use c1_network_fixture::{
     remap_c1_state_by_reach_overlap, C1NetworkError, C1NetworkMoments, C1ReachAudit,
     C1ReachNetwork, C1ReachSpec, C1ResponseAudit, C1RoutedFixture, C1RoutingAudit, C1Segment,
     C1SegmentFlow, ReachId, REGISTERED_C1_DT_MYR, REGISTERED_C1_K_PER_KM,
+};
+pub use channel_extraction_r1a_fixture::{
+    build_r1_registered_case, R1CaseAudit, R1CaseConfig, R1CaseError, R1HeadOwner, R1LocalRank,
+    R1LocalRankObservation, R1RegisteredCase, R1SelectedFace, R1SurfaceKind,
+    R1_BROAD_HALF_WIDTH_KM, R1_HEAD_ALONG_TRACK_KM, R1_HEAD_BOUNDARY_CROSS_TOLERANCE_FACTOR,
+    R1_RUNOFF_DEPTH_RATE_KM_MYR,
 };
 pub use channel_ownership_fixture::{
     snapshot_reaches, ChannelCandidateId, ChannelCorrespondenceAudit, ChannelLineageEvent,

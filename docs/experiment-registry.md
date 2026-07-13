@@ -247,16 +247,20 @@ while scoring cell graph and selected-face midpoint geometry separately. The
 G0 product-backend cap and planar finite-volume adapter now pass deterministic
 rebuild, reciprocal two-vertex topology, positive unequal area/face geometry,
 projection and eight-versus-ten-guard gates. Status: geometry substrate passed;
-registered A/V polygon means, conservative routing, outgoing-rank conflict and
-extractors not implemented. No arm is selected. A broad corridor remains
-report-only. M1, analytic Y, initiation, confluence ownership, persistence and
-C1 coupling are ineligible. Research establishes that distinct trajectories
-of a smooth steady gradient field cannot merge and share a suffix, so
-confluence receives a later conservative topology/morphology gate rather than
-another fictitious exact Y. See the
+exact registered A/V/B polygon means, one immutable conservative route per case
+and P0/M0 local ranks are now implemented. Domain ranks disagree broadly and
+six A/V cases disagree at their prescribed head, passing the existential
+visited-cell anti-alias subgate. Status: input/rank checkpoint passed; tracers,
+portal termination and C0/F0 physical gates not implemented. No arm is
+selected. A broad corridor remains report-only. M1, analytic Y, initiation,
+confluence ownership, persistence and C1 coupling are ineligible. Research
+establishes that distinct trajectories of a smooth steady gradient field
+cannot merge and share a suffix, so confluence receives a later conservative
+topology/morphology gate rather than another fictitious exact Y. See the
 [geometry basis](research/channel-centerline-geometry-basis-2026-07-13.md),
 [R1a specification](research/channel-extraction-r1a-2026-07-13.md) and
-[G0 audit](audits/channel-extraction-r1a-g0-2026-07-13.md).
+[G0 audit](audits/channel-extraction-r1a-g0-2026-07-13.md), plus the
+[input/rank audit](audits/channel-extraction-r1a-input-rank-precheck-2026-07-13.md).
 
 ### Carrier/lifecycle subexperiments
 

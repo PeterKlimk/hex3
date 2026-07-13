@@ -74,6 +74,7 @@ pub struct VoronoiCapAudit {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct VoronoiCapFixture {
+    pub config: VoronoiCapConfig,
     pub mesh: LandscapeMesh,
     /// Retained product-backend generators before tangent projection.
     pub cell_center_unit: Vec<Vec3>,
@@ -104,7 +105,7 @@ pub fn build_r1_voronoi_cap(
     validate_config(config)?;
     let sites = cap_sites(config);
     let tessellation = Tessellation::from_points_knn_clipping(sites);
-    adapt_cap(&tessellation)
+    adapt_cap(config, &tessellation)
 }
 
 fn validate_config(config: VoronoiCapConfig) -> Result<(), VoronoiCapError> {
@@ -213,7 +214,10 @@ fn tangent_log_map(point: Vec3) -> Result<DVec2, VoronoiCapError> {
     ))
 }
 
-fn adapt_cap(tessellation: &Tessellation) -> Result<VoronoiCapFixture, VoronoiCapError> {
+fn adapt_cap(
+    config: VoronoiCapConfig,
+    tessellation: &Tessellation,
+) -> Result<VoronoiCapFixture, VoronoiCapError> {
     let half_width = 0.5 * R1_CAP_WIDTH_KM;
     let half_height = 0.5 * R1_CAP_HEIGHT_KM;
     let mut generator_xy = Vec::with_capacity(tessellation.num_cells());
@@ -537,6 +541,7 @@ fn adapt_cap(tessellation: &Tessellation) -> Result<VoronoiCapFixture, VoronoiCa
         total_area_projection_relative_error,
     };
     Ok(VoronoiCapFixture {
+        config,
         mesh,
         cell_center_unit,
         cell_polygons_unit,

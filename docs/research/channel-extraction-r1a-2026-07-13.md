@@ -1,7 +1,7 @@
 # Irregular-Voronoi seeded channel extraction R1a
 
 **Date:** 2026-07-13
-**Status:** preregistered; G0 geometry substrate implemented and passed; routing/extraction pending
+**Status:** preregistered; G0 and exact input/rank-conflict subgate passed; extraction pending
 **Predecessor:** [invalidated planar R0](../audits/channel-extraction-r0-2026-07-13.md)
 **Design basis:** [centreline geometry and confluence basis](channel-centerline-geometry-basis-2026-07-13.md)
 
@@ -24,10 +24,14 @@ compared.
 
 Implementation checkpoint: the guarded product-backend cap and its planar
 finite-volume adapter pass the 8/4/2 km geometry, projection, determinism and
-eight-versus-ten-guard gates. The registered A/V inputs, conservative route,
-P0/M0 outgoing-rank conflict and path extraction remain unimplemented, so R1a
-has not selected an arm. See the
-[G0 audit](../audits/channel-extraction-r1a-g0-2026-07-13.md).
+eight-versus-ten-guard gates. Exact polygon-mean A/V/B inputs, one immutable
+conservative route per case and local P0/M0 ranks now also pass their invariant
+and determinism checks. Six A/V cases have a rank conflict at the prescribed
+head, which every eventual arm must visit, so the visited-cell anti-alias
+subgate passes. Path extraction, portal termination and F0 physical gates
+remain unimplemented; R1a has not selected an arm. See the
+[G0 audit](../audits/channel-extraction-r1a-g0-2026-07-13.md) and
+[input/rank audit](../audits/channel-extraction-r1a-input-rank-precheck-2026-07-13.md).
 
 ## Scope correction from R0
 
@@ -189,8 +193,10 @@ not make a near-tie physically decisive.
 
 Before path tracers are implemented, scan every eligible donor in the complete
 A/V spacing × angle × translation matrix and require at least one P0/M0 winner
-conflict. This is a cheap necessary precheck, not G0 gate 5: promotion still
-requires a conflict at a cell actually visited by either arm after tracing.
+conflict. This cheap necessary precheck passes. The stronger visited-cell
+witness also already passes because six A/V cases disagree at the prescribed
+head, and both eventual arms necessarily visit their head. This establishes
+only the anti-alias subgate: path validity and physical scoring remain pending.
 One routed case means one spacing, angle, translation and surface; B's two
 heads share the same immutable route.
 

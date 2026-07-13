@@ -34,5 +34,6 @@ Current synthesized notes:
   sparse merge topology; bounds kilometre-scale claims.
 - [Irregular-Voronoi seeded extraction R1a](channel-extraction-r1a-2026-07-13.md)
   — replaces invalidated planar R0 with a V-only, product-backend irregular
-  mesh discriminator and separate face-crossing geometry gate; the G0 geometry
-  substrate passes, while routing and extraction remain pending.
+  mesh discriminator and separate face-crossing geometry gate; G0, exact
+  routed inputs and the rank-conflict witness pass, while extraction remains
+  pending.
