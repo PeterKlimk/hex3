@@ -293,8 +293,9 @@ The current sequence is:
    divide graphs, passes, valleys, basins and river hierarchy, reusing existing
    diagnostic and semantic code. Its arm-neutral vocabulary and rung order are
    now frozen by the [landform object packet v0](research/landform-object-packet-v0-2026-07-14.md);
-   the next checkpoint is the executable G0/S0 surface-graph and split-tree
-   contract, not implementation from the umbrella alone;
+   the executable [G0/S0 surface-graph and split-tree contract](research/landform-object-packet-g0s0-2026-07-14.md)
+   is now preregistered, so the next bounded implementation is that rung's
+   manufactured graph/topology/morphology suite—not H/C/G composition;
 2. preregister one bounded organization-owner slice with shared admissible
    inputs, an arm-neutral terrain-opportunity calibration, a common resource
    ceiling and independent object extraction: hold-and-carve H, reduced

@@ -74,7 +74,9 @@ comparison family selected, no arm implemented, evaluated or promoted. See the
 [landscape organization strategy](landscape-strategy.md). The
 [landform object packet v0](research/landform-object-packet-v0-2026-07-14.md)
 now preregisters the common evidence vocabulary and rung order. It does not yet
-preregister an executable rung or change the status of any comparison arm.
+change the status of any comparison arm. Its first executable
+[G0/S0 contract](research/landform-object-packet-g0s0-2026-07-14.md) is now
+preregistered but not implemented or evaluated.
 
 The first O1 run at 100k coarse/250k fine preserves peak and mountain-area
 plausibility and modestly increases 25–100-km relief, but increases median/p90

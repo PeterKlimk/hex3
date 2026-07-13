@@ -272,6 +272,9 @@ each G0/S0, D0, O0 and R0 rung still requires its own committed formulas,
 ordering, retention and tie rules before code is written. This keeps the
 instrument independent of all three arms and lets object definitions fail on
 manufactured surfaces before they are exposed to competitive output.
+The first such executable checkpoint, [G0/S0](research/landform-object-packet-g0s0-2026-07-14.md),
+now freezes the physical graph and surface split-forest rung. It remains
+unevaluated and does not promote its definitions or any terrain arm.
 
 Every competitive arm must emit the same object packet:
 

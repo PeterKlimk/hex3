@@ -65,8 +65,10 @@ Current bounded research decision:
 
 - [Landform object packet v0](research/landform-object-packet-v0-2026-07-14.md)
   — preregistered arm-neutral evidence umbrella for the H/C/G organization
-  comparison; executable G0/S0, D0, O0 and R0 rung contracts remain to be
-  committed before their implementations.
+  comparison; each rung still requires its own executable checkpoint.
+- [Landform G0/S0 executable contract](research/landform-object-packet-g0s0-2026-07-14.md)
+  — preregistered physical-graph adapters, split forest, highland populations,
+  morphology evidence and manufactured gates; not yet implemented or evaluated.
 - [Drainage-network ownership](research/drainage-network-ownership-2026-07-13.md)
   — continuum supply, physical promotion and persistent reach-lineage roles,
   plus the preregistered memory discriminator.

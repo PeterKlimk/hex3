@@ -28,9 +28,12 @@ that comparison, not a decorative follow-up.
 
 The [landform object packet v0](research/landform-object-packet-v0-2026-07-14.md)
 now freezes the arm-neutral evidence vocabulary and G0/S0 → D0 → O0 → R0 order.
-It deliberately does not freeze executable formulas yet. The next checkpoint is
-the common physical graph and surface split-tree contract; do not let product
-diagnostics, G's authored graph or renderer state leak into that instrument.
+Its executable [G0/S0 contract](research/landform-object-packet-g0s0-2026-07-14.md)
+is now frozen: explicit control-volume geometry, strict shared-base superlevel
+topology, physical persistence/area populations and continuous plateau-like
+evidence. The active task is its manufactured implementation and 8/4/2
+evaluation. Do not let product diagnostics, G's authored graph or renderer
+state leak into the instrument; competitive terrain arms remain out of scope.
 
 The seed-12345 mountain ancestry remains the strongest current causal example.
 Human review found long, flat-topped tablelands—“a giant long Uluru”—rather
