@@ -364,10 +364,15 @@ the remaining questions. Current evidence:
 [C1 manufactured fixture](audits/c1-manufactured-fixture-2026-07-13.md).
 The prescribed routed follow-up now also passes stable reach identity,
 conservative confluence/capture routing, C1 response and overlap-remap gates at
-8/4/2 km. The next project decision is not another local operator: select the
-owner of persistent drainage reaches among continuum extraction, an explicit
-skeleton and a physical initiation threshold. Current evidence:
-[Routed C1 fixture](audits/c1-routed-fixture-2026-07-13.md).
+8/4/2 km. The subsequent ownership review rejects all three candidate mechanisms
+as exclusive owners. Conservative continuum flow owns instantaneous supply; a
+dimensioned discharge-slope/resistance rule proposes channel support; a sparse
+active/dormant graph owns C1 state and lineage; semantic and presentation
+networks remain derived. The next bounded task is the preregistered snapshot
+versus persistent-memory discriminator under receiver jitter and one genuine
+capture—not product integration or initiation/width tuning. Current evidence:
+[Routed C1 fixture](audits/c1-routed-fixture-2026-07-13.md) and
+[drainage-network ownership](research/drainage-network-ownership-2026-07-13.md).
 The rejected nominal rectangular boundary remains an important scope decision:
 exact cut-cell hex geometry is not currently justified for a testbed intended
 to transfer to a closed sphere. Earlier analytic evidence remains in the

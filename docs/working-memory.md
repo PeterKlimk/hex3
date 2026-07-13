@@ -493,6 +493,20 @@ explicit persistent skeleton, or a physical channel-initiation threshold.
   and cartographic selection.
 - Retain the area-aware drainage graph and semantic separation; repair object
   identity, hierarchy and presentation contracts selectively.
+- The C1 ownership review separates three previously conflated roles:
+  conservative continuum flow supplies water, a dimensioned physical gate
+  proposes active support, and a sparse graph remembers channel state and
+  lineage. Semantic importance and renderer selection remain downstream.
+- Existing product reach IDs are deterministic snapshot vector indices, not
+  persistent identity. The experimental C1 DAG is the only current stable
+  process carrier, but its graph, widths and grades are prescribed.
+- Reach identity should record provenance, not assert immortality. Preserve an
+  ID on dominant physical overlap; record initiation, abandonment, capture,
+  split, merge, cutoff or avulsion explicitly where correspondence breaks.
+- Before implementing more channel mechanics, compare snapshot extraction with
+  hysteretic promotion/correspondence on one jitter-plus-capture manufactured
+  case. A prescribed graph is only the topology upper-bound control. See the
+  [ownership decision](research/drainage-network-ownership-2026-07-13.md).
 
 ### Drainage-integration repair
 

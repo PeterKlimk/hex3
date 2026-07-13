@@ -203,6 +203,18 @@ receiver graphs are a viable isolated C1 state owner. Network generation and
 width evolution remain unselected; long U/L, sediment/ecology and product
 integration remain blocked pending that owner decision.
 
+The subsequent ownership review selects a layered testbed architecture rather
+than one exclusive owner. Conservative continuum flow owns instantaneous water
+supply; a dimensioned discharge-slope/resistance closure proposes active
+channel support; a sparse active/dormant reach graph owns lineage and C1 state.
+Semantic importance and presentation stay derived. Status: architecture
+selected for one manufactured discriminator, not implemented or product-
+promoted. Compare snapshot rebuilding with hysteretic correspondence under
+sub-cell receiver jitter and one real capture, using a prescribed skeleton only
+as the upper-bound control. Physical initiation parameters, width evolution,
+long U/L, sediment/ecology and product integration remain blocked. See the
+[drainage-network ownership decision](research/drainage-network-ownership-2026-07-13.md).
+
 ### Carrier/lifecycle subexperiments
 
 | Experiment | Status | Outcome |

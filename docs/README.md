@@ -58,6 +58,12 @@ experimental, superseded, or awaiting classification.
   findings and focus guardrails; prevents one investigation from hiding other
   unresolved system questions.
 
+Current bounded research decision:
+
+- [Drainage-network ownership](research/drainage-network-ownership-2026-07-13.md)
+  — continuum supply, physical promotion and persistent reach-lineage roles,
+  plus the preregistered memory discriminator.
+
 ## Working inventory
 
 - [Documentation inventory](inventory/documentation.md)
