@@ -100,6 +100,13 @@ fine surfaces from raw substrate through final erosion/integration. This is a
 descriptive cost and stage-localization pass, not R0, a 1M scale claim, an H/C/G
 comparison or permission to tune the extractor or terrain.
 
+That run stopped before S0. Coarse convex-hull G0 passes, but adaptive fine G0
+finds distinct topology IDs forming a degenerate zero-angle edge at cell 199413,
+edge 6. No product morphology was observed. The active prerequisite is a
+minimal fine-geometry witness covering source coordinates, shared ownership and
+backend weld/effective-cell provenance. Do not hide it by relaxing G0, dropping
+the face or tuning landform thresholds.
+
 The seed-12345 mountain ancestry remains the strongest current causal example.
 Human review found long, flat-topped tablelands—“a giant long Uluru”—rather
 than internally organized ranges. Relief exaggeration makes them usable and

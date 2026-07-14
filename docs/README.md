@@ -88,8 +88,11 @@ Current bounded research decision:
   — passing 100 km synthetic-sphere morphology, covariance, exact-relief and
   nonlocal-evidence checks; no product elevation or H/C/G surface was inspected.
 - [Product G0/S0 ancestry observation](research/landform-product-g0s0-observation-2026-07-14.md)
-  — preregistered noncompetitive seed-12345 coarse/250k five-surface observation;
-  product output has not yet been run.
+  — evaluated prerequisite failure: coarse G0 passes, but fine cell 199413 has
+  a degenerate physical edge and no product surface reached S0.
+- [Product G0/S0 ancestry observation audit](audits/landform-product-g0s0-observation-2026-07-14.md)
+  — reproducible typed failure, cost boundary and upstream geometry-witness
+  requirement; contains no product morphology inference.
 - [Drainage-network ownership](research/drainage-network-ownership-2026-07-13.md)
   — continuum supply, physical promotion and persistent reach-lineage roles,
   plus the preregistered memory discriminator.

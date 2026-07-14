@@ -2,7 +2,8 @@
 
 **Date:** 2026-07-14, before any product surface entered G0/S0
 
-**Status:** preregistered, not yet implemented or evaluated
+**Status:** evaluated prerequisite failure; fine G0 rejects a degenerate
+product edge before S0; no morphology observed
 
 **Parents:** [Landform object packet v0](landform-object-packet-v0-2026-07-14.md),
 [G0/S0 executable contract](landform-object-packet-g0s0-2026-07-14.md)
@@ -159,3 +160,13 @@ After the artifact exists, write a descriptive audit which preserves the raw
 result, cost and limitations. The only allowed next decision is whether the
 instrument and observed distinctions justify a separate scale/seed checkpoint
 or reveal a prerequisite defect.
+
+## Evaluated outcome
+
+The first run revealed a prerequisite defect rather than an artifact. Coarse
+G0 passes, while fine G0 rejects cell 199413 edge 6 as a zero-angle spherical
+edge before any elevation reaches S0. The typed result and next geometry-witness
+boundary are recorded in the
+[observation audit](../audits/landform-product-g0s0-observation-2026-07-14.md).
+The frozen observation remains incomplete and must not be weakened or described
+as product morphology evidence.
