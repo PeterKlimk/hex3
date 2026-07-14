@@ -277,10 +277,14 @@ scopes. They establish common physical geometry, surface hierarchy, planar
 drainage and mechanical boundary/descent/cross-section evidence—not a terrain
 arm or named natural-kind landforms. The bounded planar
 [O0b correspondence and assembly contract](research/landform-object-packet-o0b-2026-07-15.md)
-is preregistered but not implemented. It freezes exact packet assembly and
-mechanical highland/drainage-node best maps while excluding product/spherical
-packets and persistent identity events. Product O0a, packet/product R0 and every
-H/C/G composition remain later, separately preregistered work.
+now has an implementation candidate for exact packet assembly and mechanical
+highland/drainage-node best maps. Its frozen evaluation halted before O0b at a
+D0 depression-hierarchy ambiguity in the linked-four-cone 2 km predecessor
+packet, so it is not accepted or promoted; see the
+[dated audit](audits/landform-o0b-correspondence-2026-07-15.md). It continues to
+exclude product/spherical packets and persistent identity events. Product O0a,
+packet/product R0 and every H/C/G composition remain later, separately
+preregistered work.
 
 The current common packet supplies operational reference highlands,
 peak/saddle topology, drainage nodes/catchments/reaches, raw boundary evidence

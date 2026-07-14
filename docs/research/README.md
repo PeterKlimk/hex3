@@ -30,10 +30,14 @@ Current synthesized notes:
   promotion and cross-packet correspondence are deliberately excluded; see the
   [dated audit](../audits/landform-o0a-relationships-2026-07-15.md).
 - [Landform O0b correspondence and assembly contract](landform-object-packet-o0b-2026-07-15.md)
-  — preregistered but not implemented/evaluated: exact common planar packet
-  assembly plus mechanical reference-highland and drainage-node correspondence.
-  Product/spherical packets, product O0a and packet/product R0 remain outside
-  this rung and unimplemented; R0 is not yet preregistered.
+  — exact common planar packet assembly plus mechanical reference-highland and
+  drainage-node correspondence. An implementation candidate exists, but its
+  frozen evaluation halted when the linked-four-cone 2 km predecessor packet
+  returned D0 depression-hierarchy ambiguity; see the
+  [dated audit](../audits/landform-o0b-correspondence-2026-07-15.md). O0b is not
+  accepted or promoted. Product/spherical packets, product O0a and
+  packet/product R0 remain outside this rung and unimplemented; R0 is not yet
+  preregistered.
 - [Correspondence priors for reduced planet models](correspondence-priors-2026-07-12.md)
 - [Orogen organization: causal reference and reduced experiments](orogen-organization-2026-07-12.md)
 - [Mountain-system design basis](mountain-system-design-basis-2026-07-13.md)

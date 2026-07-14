@@ -24,6 +24,12 @@ pub use drainage::*;
 mod relationships;
 mod relationships_geometry;
 pub use relationships::*;
+mod packet;
+pub use packet::*;
+mod correspondence;
+pub use correspondence::*;
+mod correspondence_packet;
+pub use correspondence_packet::*;
 
 pub const G0S0_SCHEMA_VERSION: &str = "landform-g0s0-v0";
 pub const G0S0_HASH_VERSION: &str = "fnv1a64-bincode-fixint-le-v0";
@@ -3458,6 +3464,14 @@ mod drainage_tests;
 #[cfg(test)]
 #[path = "landforms/relationships_tests.rs"]
 mod relationships_tests;
+
+#[cfg(test)]
+#[path = "landforms/packet_tests.rs"]
+mod packet_tests;
+
+#[cfg(test)]
+#[path = "landforms/correspondence_tests.rs"]
+mod correspondence_tests;
 
 #[cfg(test)]
 mod tests {

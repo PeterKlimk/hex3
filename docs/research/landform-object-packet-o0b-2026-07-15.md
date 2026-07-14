@@ -1,6 +1,9 @@
 # Landform object packet O0b correspondence and assembly executable contract
 
-**Status:** preregistered; implementation and outcomes unknown
+**Status:** preregistered contract with implementation candidate; frozen
+evaluation halted at the linked-four-cone 2 km D0 predecessor gate; O0b not
+accepted or promoted. See the
+[dated candidate audit](../audits/landform-o0b-correspondence-2026-07-15.md).
 
 **Date:** 2026-07-15, after the bounded O0a audit and before O0b implementation
 

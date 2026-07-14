@@ -370,12 +370,13 @@ quality scores by themselves.
    bounded common checkpoint recorded in the
    [dated audit](../audits/landform-o0a-relationships-2026-07-15.md).
 4. **O0b:** [cross-packet geometric correspondence and combined packet
-   assembly](landform-object-packet-o0b-2026-07-15.md), preregistered for the
-   bounded planar/testbed population but not implemented.
+   assembly](landform-object-packet-o0b-2026-07-15.md), with a bounded planar
+   implementation candidate whose frozen evaluation halted at the linked-four-
+   cone 2 km D0 predecessor gate.
 5. **R0:** one unchanged product-reference packet and one pre-arm linked-testbed
    manufactured packet at 8/4/2 km.
 
-Each rung is a separate checkpoint. O0b remains unimplemented; this packet's R0
+Each rung is a separate checkpoint. O0b remains unaccepted; this packet's R0
 and the missing product D0/O0a boundary remain unregistered and unimplemented.
 Do not implement H, C or G composition while the common evidence packet is
 incomplete.

@@ -564,7 +564,11 @@ pub fn build_landform_relationships_v0(
     }
     let highlands = highland_relationships(hierarchy, &faces);
     let saddles = saddle_relationships(graph, hierarchy, scale, &faces, &ancestry)?;
-    let spatial_index = RelationshipSpatialIndex::build(graph, &faces)?;
+    let spatial_index = RelationshipSpatialIndex::build_with_tolerance(
+        graph,
+        &faces,
+        surface_config.endpoint_match_abs_km,
+    )?;
     let (reaches, candidate_face_tests) = reach_probes(
         graph,
         physical_elevation_km,
@@ -899,11 +903,11 @@ impl SpatialBounds {
         }
     }
 
-    fn contains(self, point: DVec2) -> bool {
-        point.x >= self.min.x
-            && point.x <= self.max.x
-            && point.y >= self.min.y
-            && point.y <= self.max.y
+    fn contains_with_tolerance(self, point: DVec2, tolerance: f64) -> bool {
+        point.x >= self.min.x - tolerance
+            && point.x <= self.max.x + tolerance
+            && point.y >= self.min.y - tolerance
+            && point.y <= self.max.y + tolerance
     }
 }
 
@@ -928,6 +932,7 @@ struct IndexedPhysicalFace {
 /// queries. Bucket contents and query answers retain stable numeric ordering.
 struct RelationshipSpatialIndex {
     bounds: SpatialBounds,
+    point_location_tolerance_km: f64,
     bins_x: usize,
     bins_y: usize,
     polygon_bounds: Vec<SpatialBounds>,
@@ -938,10 +943,28 @@ struct RelationshipSpatialIndex {
 }
 
 impl RelationshipSpatialIndex {
+    #[cfg(test)]
     fn build(
         graph: &EvaluationSurfaceGraphV0,
         backed_faces: &[BackedBoundaryFaceV0],
     ) -> Result<Self, RelationshipErrorV0> {
+        Self::build_with_tolerance(
+            graph,
+            backed_faces,
+            SurfaceHierarchyConfigV0::default().endpoint_match_abs_km,
+        )
+    }
+
+    fn build_with_tolerance(
+        graph: &EvaluationSurfaceGraphV0,
+        backed_faces: &[BackedBoundaryFaceV0],
+        point_location_tolerance_km: f64,
+    ) -> Result<Self, RelationshipErrorV0> {
+        if !point_location_tolerance_km.is_finite() || point_location_tolerance_km < 0.0 {
+            return Err(RelationshipErrorV0::InvalidGraph(
+                "invalid point-location tolerance".into(),
+            ));
+        }
         let bounds = SpatialBounds::points(
             graph
                 .cell_polygon_vertices_km
@@ -961,6 +984,7 @@ impl RelationshipSpatialIndex {
         let bins_y = (count / bins_x as f64).ceil().max(1.0) as usize;
         let mut index = Self {
             bounds,
+            point_location_tolerance_km,
             bins_x,
             bins_y,
             polygon_bounds: Vec::with_capacity(graph.cell_count()),
@@ -1049,18 +1073,24 @@ impl RelationshipSpatialIndex {
 
     fn locate_cell(&self, graph: &EvaluationSurfaceGraphV0, point: DVec3) -> Option<usize> {
         let point2 = point.truncate();
-        if !self.bounds.contains(point2) {
+        let tolerance = self.point_location_tolerance_km;
+        if !self.bounds.contains_with_tolerance(point2, tolerance) {
             return None;
         }
-        let (x, y) = self.bucket_coord(point2);
-        let bucket = y * self.bins_x + x;
-        let mut matches: Vec<usize> = self.polygon_buckets[bucket]
-            .iter()
-            .copied()
+        let query = SpatialBounds {
+            min: point2 - DVec2::splat(tolerance),
+            max: point2 + DVec2::splat(tolerance),
+        };
+        let mut candidates = BTreeSet::<u32>::new();
+        for bucket in self.bucket_range(query) {
+            candidates.extend(self.polygon_buckets[bucket].iter().copied());
+        }
+        let mut matches: Vec<usize> = candidates
+            .into_iter()
             .map(|cell| cell as usize)
             .filter(|&cell| {
-                self.polygon_bounds[cell].contains(point2)
-                    && polygon_contains(graph.polygon(cell), point2)
+                self.polygon_bounds[cell].contains_with_tolerance(point2, tolerance)
+                    && polygon_contains_with_tolerance(graph.polygon(cell), point2, tolerance)
             })
             .collect();
         matches.sort_by(|&a, &b| point_cmp(graph.cell_center_km[a], graph.cell_center_km[b]));
@@ -2394,6 +2424,16 @@ fn polygon_contains(polygon: &[DVec3], point: DVec2) -> bool {
     inside
 }
 
+fn polygon_contains_with_tolerance(polygon: &[DVec3], point: DVec2, tolerance: f64) -> bool {
+    if polygon_contains(polygon, point) {
+        return true;
+    }
+    polygon.iter().enumerate().any(|(index, &a)| {
+        let b = polygon[(index + 1) % polygon.len()];
+        point_segment_distance(DVec3::new(point.x, point.y, 0.0), [a, b]) <= tolerance
+    })
+}
+
 fn reject_nonfinite_result(result: &LandformRelationshipsV0) -> Result<(), RelationshipErrorV0> {
     let finite_face = result.backed_boundary_faces.iter().all(|face| {
         face.endpoints_km.iter().all(|point| point.is_finite())
@@ -2723,6 +2763,26 @@ mod tests {
                 .collect();
             assert_eq!(indexed_hits, exhaustive_hits);
         }
+    }
+
+    #[test]
+    fn point_location_accepts_roundoff_at_a_domain_boundary() {
+        let graph = regular_graph(4.0);
+        let tolerance = SurfaceHierarchyConfigV0::default().endpoint_match_abs_km;
+        let index = RelationshipSpatialIndex::build_with_tolerance(&graph, &[], tolerance).unwrap();
+        let south = graph
+            .boundary_segments
+            .iter()
+            .min_by(|a, b| {
+                let ay = (a.endpoints_km[0].y + a.endpoints_km[1].y)
+                    .total_cmp(&(b.endpoints_km[0].y + b.endpoints_km[1].y));
+                ay
+            })
+            .unwrap();
+        let mut point = 0.5 * (south.endpoints_km[0] + south.endpoints_km[1]);
+        point.y -= 0.5 * tolerance;
+
+        assert!(index.locate_cell(&graph, point).is_some());
     }
 
     fn square(center: DVec3, half: f64) -> Vec<DVec3> {
@@ -3749,8 +3809,11 @@ mod tests {
     }
 
     fn exhaustive_locate(graph: &EvaluationSurfaceGraphV0, point: DVec3) -> Option<usize> {
+        let tolerance = SurfaceHierarchyConfigV0::default().endpoint_match_abs_km;
         (0..graph.cell_count())
-            .filter(|&cell| polygon_contains(graph.polygon(cell), point.truncate()))
+            .filter(|&cell| {
+                polygon_contains_with_tolerance(graph.polygon(cell), point.truncate(), tolerance)
+            })
             .min_by(|&a, &b| point_cmp(graph.cell_center_km[a], graph.cell_center_km[b]))
     }
 

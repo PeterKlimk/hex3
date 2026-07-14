@@ -302,9 +302,12 @@ The current sequence is:
    is now implemented and evaluated as a bounded common checkpoint, recorded in
    its [dated audit](audits/landform-o0a-relationships-2026-07-15.md). The
    bounded planar [O0b correspondence/assembly contract](research/landform-object-packet-o0b-2026-07-15.md)
-   is now preregistered and is the next implementation checkpoint. O0b remains
-   unimplemented; packet/product R0 and the missing product O0a/adapter boundary
-   remain separately unregistered and unimplemented—not H/C/G composition;
+   now has an implementation candidate, but its frozen evaluation halted at a
+   D0 depression-hierarchy ambiguity in the linked-four-cone 2 km predecessor
+   packet. O0b remains unaccepted pending a separately frozen witness/D0
+   amendment and completion of its matrix; packet/product R0 and the missing
+   product O0a/adapter boundary remain separately unregistered and
+   unimplemented—not H/C/G composition;
 2. preregister one bounded organization-owner slice with shared admissible
    inputs, an arm-neutral terrain-opportunity calibration, a common resource
    ceiling and independent object extraction: hold-and-carve H, reduced
