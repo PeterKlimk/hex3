@@ -15,13 +15,13 @@ use std::time::Instant;
 use clap::Parser;
 use hex3::world::landforms::{
     adapt_product_tessellation_graph_v0, build_surface_hierarchy_v0, EvaluationDomainV0,
-    EvaluationSurfaceGraphV0, HighlandFeatureV0, HighlandMeasurementsV0, LocalReliefSummaryV0,
-    PeakBranchV0, SaddleNodeV0, SphericalFootprintGeometryV0, SummitCapSummaryV0,
-    SurfaceHierarchyConfigV0, SurfaceHierarchyV0,
+    EvaluationSurfaceGraphV0, HighlandFeatureV0, HighlandMeasurementsV0, LandformError,
+    LocalReliefSummaryV0, PeakBranchV0, SaddleNodeV0, SphericalCellAreaIssue,
+    SphericalFootprintGeometryV0, SummitCapSummaryV0, SurfaceHierarchyConfigV0, SurfaceHierarchyV0,
 };
 use hex3::world::{
-    FineCacheMode, OrogenModel, RunManifest, VoronoiBackend, World, ELEVATION_UNIT_KM,
-    NUM_PLATES_DEFAULT,
+    FineCacheMode, OrogenModel, RunManifest, Tessellation, VoronoiBackend, World,
+    ELEVATION_UNIT_KM, NUM_PLATES_DEFAULT,
 };
 use serde::Serialize;
 
@@ -331,9 +331,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let g0_start = Instant::now();
     let fine_graph = adapt_product_tessellation_graph_v0(&fine.base.tessellation, &config)
         .map_err(|error| {
+            let witness = fine_g0_edge_witness_json(&fine.base.tessellation, &error)
+                .unwrap_or_else(|| "unavailable".to_string());
             format!(
-                "fine G0 adaptation failed: {error:?}; Voronoi backend report: {:?}",
-                fine.base.tessellation.voronoi_backend_report
+                "fine G0 adaptation failed: {error:?}; Voronoi backend report: {:?}; edge witness: {witness}",
+                fine.base.tessellation.voronoi_backend_report,
             )
         })?;
     let fine_g0_seconds = g0_start.elapsed().as_secs_f64();
@@ -458,6 +460,109 @@ fn main() -> Result<(), Box<dyn Error>> {
         serialization_start.elapsed().as_secs_f64();
     atomic_write_json(&cli.output, &artifact)?;
     Ok(())
+}
+
+fn fine_g0_edge_witness_json(tessellation: &Tessellation, error: &LandformError) -> Option<String> {
+    let LandformError::InvalidSphericalCellArea {
+        cell,
+        edge: Some(edge),
+        reason: SphericalCellAreaIssue::DegenerateEdge,
+    } = error
+    else {
+        return None;
+    };
+    let cycle = tessellation.voronoi.try_cell(*cell)?.vertex_indices;
+    if cycle.is_empty() || *edge >= cycle.len() {
+        return None;
+    }
+    let start_id = cycle[*edge];
+    let end_id = cycle[(*edge + 1) % cycle.len()];
+    let start = *tessellation.voronoi.vertices.get(start_id as usize)?;
+    let end = *tessellation.voronoi.vertices.get(end_id as usize)?;
+    let start_bits = start.to_array().map(f32::to_bits);
+    let end_bits = end.to_array().map(f32::to_bits);
+    let start_f64 = start.as_dvec3().normalize();
+    let end_f64 = end.as_dvec3().normalize();
+    let key = (start_id.min(end_id), start_id.max(end_id));
+
+    let owners = (0..tessellation.num_cells())
+        .filter_map(|owner| {
+            let owner_cycle = tessellation.voronoi.try_cell(owner)?.vertex_indices;
+            let owner_edge = owner_cycle
+                .iter()
+                .copied()
+                .zip(owner_cycle.iter().copied().cycle().skip(1))
+                .take(owner_cycle.len())
+                .position(|(a, b)| (a.min(b), a.max(b)) == key)?;
+            let generator = tessellation.voronoi.generators[owner];
+            Some(serde_json::json!({
+                "cell": owner,
+                "edge": owner_edge,
+                "generator_f32": generator.to_array(),
+                "generator_bits_hex": vec3_bits_hex(generator),
+                "cycle": owner_cycle,
+                "adjacency": tessellation.neighbors(owner),
+                "directed_edge": [owner_cycle[owner_edge], owner_cycle[(owner_edge + 1) % owner_cycle.len()]],
+            }))
+        })
+        .collect::<Vec<_>>();
+    let incident_cells = |vertex_id: u32| {
+        (0..tessellation.num_cells())
+            .filter_map(|incident| {
+                let incident_cycle = tessellation.voronoi.try_cell(incident)?.vertex_indices;
+                incident_cycle.contains(&vertex_id).then(|| {
+                    let generator = tessellation.voronoi.generators[incident];
+                    serde_json::json!({
+                        "cell": incident,
+                        "generator_f32": generator.to_array(),
+                        "generator_bits_hex": vec3_bits_hex(generator),
+                        "cycle": incident_cycle,
+                    })
+                })
+            })
+            .collect::<Vec<_>>()
+    };
+    let coincident_vertex_ids = tessellation
+        .voronoi
+        .vertices
+        .iter()
+        .enumerate()
+        .filter_map(|(id, vertex)| {
+            (vertex.to_array().map(f32::to_bits) == start_bits).then_some(id)
+        })
+        .collect::<Vec<_>>();
+    let adjacency_neighbor = tessellation.neighbors(*cell).get(*edge).copied();
+
+    serde_json::to_string_pretty(&serde_json::json!({
+        "cell": cell,
+        "edge": edge,
+        "cell_cycle": cycle,
+        "adjacency_neighbor_at_edge": adjacency_neighbor,
+        "vertex_ids": [start_id, end_id],
+        "start_f32": start.to_array(),
+        "end_f32": end.to_array(),
+        "start_bits_hex": vec3_bits_hex(start),
+        "end_bits_hex": vec3_bits_hex(end),
+        "bit_identical_positions": start_bits == end_bits,
+        "f64_normalized_start": start_f64.to_array(),
+        "f64_normalized_end": end_f64.to_array(),
+        "f64_chord_length": start_f64.distance(end_f64),
+        "f64_dot": start_f64.dot(end_f64),
+        "f64_cross_norm": start_f64.cross(end_f64).length(),
+        "coincident_vertex_ids": coincident_vertex_ids,
+        "edge_owners": owners,
+        "start_vertex_incident_cells": incident_cells(start_id),
+        "end_vertex_incident_cells": incident_cells(end_id),
+        "rayon_num_threads_env": env::var("RAYON_NUM_THREADS").ok(),
+        "available_parallelism": std::thread::available_parallelism().ok().map(std::num::NonZeroUsize::get),
+    }))
+    .ok()
+}
+
+fn vec3_bits_hex(value: glam::Vec3) -> [String; 3] {
+    value
+        .to_array()
+        .map(|component| format!("0x{:08x}", component.to_bits()))
 }
 
 fn validate_runtime(output: &Path) -> Result<(), Box<dyn Error>> {
