@@ -101,23 +101,26 @@ descriptive cost and stage-localization pass, not R0, a 1M scale claim, an H/C/G
 comparison or permission to tune the extractor or terrain.
 
 That run stopped before S0. Coarse convex-hull G0 passes, but adaptive fine G0
-finds distinct topology IDs forming a degenerate zero-angle edge at cell 199413,
-edge 6. No product morphology was observed. The active prerequisite is a
-minimal fine-geometry witness covering source coordinates, shared ownership and
-backend weld/effective-cell provenance. Do not hide it by relaxing G0, dropping
-the face or tuning landform thresholds.
+finds distinct topology IDs forming a degenerate zero-angle edge. The old
+backend witness was cell 199413 edge 6. The controlled modern-backend rerun
+instead fails at cell 57852 edge 7: vertex IDs 186655 and 186377 have
+bit-identical f32 positions and reciprocal owners, while upstream reports a
+strict-valid, unmerged, unrepaired, residual-free mesh. The exact witness and
+upstream handoff are now recorded. Do not hide it by relaxing G0, dropping the
+face or tuning landform thresholds.
 
 The seed-12345 mountain ancestry remains the strongest current causal example.
 Human review found long, flat-topped tablelands—“a giant long Uluru”—rather
 than internally organized ranges. Relief exaggeration makes them usable and
 visually impressive, but also helped conceal the modeled plateau morphology.
 
-The immediate geometry prerequisite is now frozen as a controlled backend A/B,
-not an open-ended geometry rewrite. Modern upstream is allowed to repair its
-own topology only when the repair is accepted and reported; Hex3 may no longer
-drop missing faces or invent nearest-neighbor links. Upstream strict validity
-does not replace the physical zero-angle-edge gate, so the unchanged 250k G0
-rerun remains decisive before any product morphology interpretation resumes.
+The backend A/B is now evaluated negative for physical G0. Its integration
+remains useful because modern upstream repair is observable and Hex3 no longer
+drops missing faces or invents nearest-neighbor links, but it is not promoted
+as a physical substrate. The active prerequisite is an upstream valid-or-error
+contract for exact same-ray boundary edges, followed by an exact repin and the
+unchanged 250k G0 rerun. Positive but tiny edges remain a separate quality
+question; this witness is exact representational collapse.
 
 The completed discriminating packet compares the same three range targets through:
 

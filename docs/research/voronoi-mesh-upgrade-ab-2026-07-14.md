@@ -1,6 +1,6 @@
 # Modern Voronoi backend controlled upgrade
 
-**Status:** preregistered substrate A/B; no outcome inspected
+**Status:** evaluated negative for physical G0; upstream correction pending
 
 **Date:** 2026-07-14
 
@@ -135,3 +135,14 @@ results remain descriptive and do not promote an H/C/G terrain arm.
 
 No outcome permits weakening physical G0, adding a renderer workaround, tuning
 terrain, or interpreting an uncompleted ancestry packet.
+
+## Outcome
+
+Candidate B passed its report, focused, full-regression and integration gates
+but failed unchanged fine G0 at cell 57852 edge 7. Two distinct vertex IDs are
+stored at bit-identical f32 directions despite a topology-clean upstream
+report. No product surface reached S0. The candidate remains an implemented
+integration scaffold, not a promoted physical substrate, pending an upstream
+valid-or-error correction and the same frozen rerun.
+
+See the [A/B audit and upstream handoff](../audits/voronoi-mesh-zero-edge-handoff-2026-07-14.md).
