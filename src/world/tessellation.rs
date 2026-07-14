@@ -53,6 +53,8 @@ pub struct VoronoiBackendReport {
     pub preferred_vertices: usize,
     /// Undirected boundary-edge count in that diagram.
     pub preferred_edges: usize,
+    /// Exact stored-zero edges independently observed by strict validation.
+    pub preferred_zero_length_edges: usize,
     /// Live-dedup mismatches seen before reconciliation/local repair.
     pub pre_repair_edge_mismatch_count: usize,
     /// Whether the optional local repair ran.
@@ -61,6 +63,20 @@ pub struct VoronoiBackendReport {
     pub repair_accepted: bool,
     /// Unpaired edges remaining after reconciliation/local repair.
     pub post_repair_unpaired_edge_count: usize,
+    /// Exact stored-zero edges found by final output canonicalization.
+    pub exact_zero_edges_detected: usize,
+    /// Connected exact stored-zero components found by canonicalization.
+    pub exact_zero_components_detected: usize,
+    /// Exact stored-zero edges removed by committed transactions.
+    pub exact_zero_edges_contracted: usize,
+    /// Exact stored-zero components removed by committed transactions.
+    pub exact_zero_components_contracted: usize,
+    /// Components preserved because contraction would eliminate a cell.
+    pub cell_killing_zero_components_preserved: usize,
+    /// Components rejected by structural or local quotient checks.
+    pub topology_rejected_zero_components: usize,
+    /// Exact stored-zero edges still present in the returned physical mesh.
+    pub exact_zero_edges_remaining: usize,
     /// Missing-neighbor sentinels observed in native physical adjacency.
     pub native_missing_neighbor_entries: usize,
     /// Whether the backend returned a deterministically perturbed problem.
@@ -79,10 +95,24 @@ impl VoronoiBackendReport {
             preferred_cells: validation.num_cells,
             preferred_vertices: validation.num_vertices,
             preferred_edges: validation.num_edges,
+            preferred_zero_length_edges: validation.zero_length_edges,
             pre_repair_edge_mismatch_count: report.pre_repair_edge_mismatch_count,
             repair_attempted: report.repair.attempted,
             repair_accepted: report.repair.accepted,
             post_repair_unpaired_edge_count: report.post_repair_unpaired_edges.len(),
+            exact_zero_edges_detected: report.output_resolution.exact_zero_edges_detected,
+            exact_zero_components_detected: report.output_resolution.exact_zero_components_detected,
+            exact_zero_edges_contracted: report.output_resolution.exact_zero_edges_contracted,
+            exact_zero_components_contracted: report
+                .output_resolution
+                .exact_zero_components_contracted,
+            cell_killing_zero_components_preserved: report
+                .output_resolution
+                .cell_killing_components_preserved,
+            topology_rejected_zero_components: report
+                .output_resolution
+                .topology_rejected_components,
+            exact_zero_edges_remaining: report.output_resolution.exact_zero_edges_remaining,
             native_missing_neighbor_entries: 0,
             degeneracy_perturbation_applied: report.degenerate.perturbation_applied,
         }
@@ -329,6 +359,14 @@ impl Tessellation {
         assert!(
             !output.report.degenerate.perturbation_applied,
             "voronoi-mesh perturbed a degenerate input; Hex3 requires the original physical sites"
+        );
+        assert_eq!(
+            output.report.output_resolution.exact_zero_edges_remaining, 0,
+            "voronoi-mesh preserved exact stored-zero edges; Hex3 requires positive physical faces"
+        );
+        assert_eq!(
+            preferred_validation.zero_length_edges, 0,
+            "voronoi-mesh validation observed exact stored-zero edges in the physical diagram"
         );
 
         let mut backend_report = VoronoiBackendReport::from_compute_report(&output.report);

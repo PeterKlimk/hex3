@@ -58,7 +58,9 @@ use super::{Atmosphere, Crust, Elevation, FeatureFields, OrogenModel, Tessellati
 /// v14: the fine control-volume mesh uses the modern validated `voronoi-mesh`
 /// backend and its effective post-weld partition. Version 13 entries must not
 /// bypass that substrate change.
-pub(crate) const FINE_BASE_CACHE_VERSION: u32 = 14;
+/// v15: the backend canonicalizes safe exact stored-zero edges. Version 14
+/// entries may retain the pre-fix zero-edge geometry and must not be reused.
+pub(crate) const FINE_BASE_CACHE_VERSION: u32 = 15;
 
 /// How the fine-mesh base should use the on-disk cache.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]

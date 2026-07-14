@@ -53,7 +53,7 @@ kiddo = "4"
 # Spherical Voronoi computation (knn-clipping backend). Upstream renamed the
 # package; keep the local crate name so this substrate upgrade stays isolated
 # from Hex3 naming churn.
-s2-voronoi = { package = "voronoi-mesh", git = "https://github.com/PeterKlimk/s2-voronoi", rev = "da99a8a6384f2fb641c0d3389a6787dec78fc5b4" }
+s2-voronoi = { package = "voronoi-mesh", git = "https://github.com/PeterKlimk/s2-voronoi", rev = "e8804a639ea3c989e1ce9ea44b4c66c5f2d7e060" }
 
 # CLI and serialization
 clap = { version = "4", features = ["derive"] }

@@ -60,6 +60,8 @@ fn test_generate_knn_clipping_basic() {
     assert_eq!(report.preferred_vertices, tess.voronoi.vertices.len());
     assert!(report.preferred_strictly_valid);
     assert_eq!(report.post_repair_unpaired_edge_count, 0);
+    assert_eq!(report.preferred_zero_length_edges, 0);
+    assert_eq!(report.exact_zero_edges_remaining, 0);
     assert_eq!(report.native_missing_neighbor_entries, 0);
     assert!(!report.degeneracy_perturbation_applied);
 }
@@ -215,6 +217,35 @@ fn test_knn_clipping_consumes_effective_diagram_after_welding() {
     assert_eq!(report.post_repair_unpaired_edge_count, 0);
     assert_eq!(report.native_missing_neighbor_entries, 0);
     assert!(!report.degeneracy_perturbation_applied);
+    assert_adjacency_matches_shared_boundary_edges(&tess);
+}
+
+#[test]
+fn test_knn_clipping_contracts_hex3_exact_zero_edge_core() {
+    use glam::Vec3;
+
+    let core = [
+        Vec3::new(0.5433253, 0.6803093, 0.49191144),
+        Vec3::new(0.54518604, 0.6789295, 0.491759),
+        Vec3::new(0.5443677, 0.67874026, 0.49292544),
+        Vec3::new(0.54454374, 0.6799841, 0.49101296),
+    ];
+    let points = core.into_iter().chain(core.map(|point| -point)).collect();
+    let tess = Tessellation::from_points_knn_clipping(points);
+    let report = tess
+        .voronoi_backend_report
+        .as_ref()
+        .expect("clipping tessellation must retain its backend report");
+
+    assert!(report.exact_zero_edges_detected > 0);
+    assert_eq!(
+        report.exact_zero_edges_contracted,
+        report.exact_zero_edges_detected
+    );
+    assert_eq!(report.exact_zero_edges_remaining, 0);
+    assert_eq!(report.preferred_zero_length_edges, 0);
+    assert_eq!(report.cell_killing_zero_components_preserved, 0);
+    assert_eq!(report.topology_rejected_zero_components, 0);
     assert_adjacency_matches_shared_boundary_edges(&tess);
 }
 

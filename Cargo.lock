@@ -2500,7 +2500,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 [[package]]
 name = "voronoi-mesh"
 version = "0.1.0"
-source = "git+https://github.com/PeterKlimk/s2-voronoi?rev=da99a8a6384f2fb641c0d3389a6787dec78fc5b4#da99a8a6384f2fb641c0d3389a6787dec78fc5b4"
+source = "git+https://github.com/PeterKlimk/s2-voronoi?rev=e8804a639ea3c989e1ce9ea44b4c66c5f2d7e060#e8804a639ea3c989e1ce9ea44b4c66c5f2d7e060"
 dependencies = [
  "bytemuck",
  "glam 0.29.3",
