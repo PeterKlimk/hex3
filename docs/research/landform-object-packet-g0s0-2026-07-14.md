@@ -211,6 +211,176 @@ The tangent-projected irregular cap must retain its exact directed endpoints at
 their existing source-edge construction sites. Reconstructing them from a
 midpoint, width and assumed perpendicular is forbidden.
 
+## Preregistered amendment F: executable spherical S0 geometry
+
+**Date:** 2026-07-14, after spherical G0 passed and before any spherical S0
+outcome or product terrain was inspected.
+
+The original spherical morphology text left several numerical choices
+underspecified. Freeze the following operational definitions. They complete
+the existing formulas; they do not add a terrain model, product threshold or
+new evidence category.
+
+For each member cell with directed unit polygon edges `a -> b`, first define its
+physical centroid direction from the spherical polygon rather than substituting
+the Voronoi generator:
+
+```text
+m_i = sum(angle(a,b) * normalize(a cross b))
+u_i = normalize(m_i)
+```
+
+A zero or non-finite cell resultant is fatal after valid positive-area G0.
+For member areas `A_i` and sphere radius `R`, define
+
+```text
+A = sum(A_i)
+s = sum(A_i * u_i)
+rho = length(s) / A
+```
+
+If `rho <= linear_rank_relative`, footprint geometry is the valid reportable
+outcome `NonLocalGeometry`. Otherwise the footprint reference direction is
+`c = s / length(s)` and its serialized physical centroid is `R*c`. This does
+not change the structural elder tie-break: flat-batch centroids retain their
+existing unnormalized area-weighted Cartesian definition.
+
+Construct the deterministic right-handed tangent basis at any unit direction
+`c` as follows:
+
+1. choose the Cartesian axis with smallest absolute dot product with `c`, with
+   ties ordered X, Y, Z;
+2. `e1 = normalize(axis cross c)`;
+3. flip `e1` when its first nonzero Cartesian component is negative; and
+4. `e2 = c cross e1` after that sign choice.
+
+For unit target direction `u`, define the azimuthal-equidistant log map:
+
+```text
+theta = atan2(length(c cross u), c dot u)
+t = normalize(u - (c dot u) * c)
+q = R * theta * t
+(x,y) = (q dot e1, q dot e2)
+```
+
+Coincident directions map to `(0,0)`. A target is operationally antipodal when
+`pi - theta <= linear_rank_relative` radians; its log map is unavailable.
+
+Project every member cell polygon with that map. Each projected polygon must
+retain positive signed area, have no repeated consecutive vertex and have no
+intersection between non-adjacent closed edges. Antipodal or invalid projected
+geometry yields `NonLocalGeometry`, not a fabricated metric. Otherwise multiply
+all six raw polygon-moment terms by
+`physical_cell_area / projected_signed_area` before summing. The rescaled area
+must match the authoritative member-area sum within
+`sphere_area_closure_relative`. Non-finite arithmetic or a covariance that is
+negative beyond the registered rank tolerance is a fatal typed spherical-
+moment error rather than a nonlocal outcome.
+
+Spherical measurements serialize as:
+
+```text
+SphericalHighlandMeasurementsV0 {
+    footprint_geometry:
+        Local(SphericalLocalFootprintGeometryV0) | NonLocalGeometry,
+    two_sweep_extent_km,
+    mean_width_km,
+    local_relief,
+    rank_deficient_grade_cells,
+    summit_caps,
+}
+
+SphericalLocalFootprintGeometryV0 {
+    area_km2,
+    centroid_km = R*c,
+    projected_centroid_km = [x,y],
+    tangent_covariance_km2 = [xx,xy,yx,yy],
+    equivalent_ellipse_length_km,
+    equivalent_ellipse_width_km,
+    anisotropy,
+    principal_axis,
+    orientation_ambiguous,
+    maximum_angular_radius_rad,
+    spherical_nonlocal_warning,
+}
+```
+
+The principal eigenvector is mapped back to the global tangent vector
+`vx*e1 + vy*e2` and its first nonzero Cartesian component is made positive.
+The maximum angular radius is the greatest `theta` over every member polygon
+vertex; it sets `spherical_nonlocal_warning` only when strictly greater than
+`spherical_nonlocal_radius_rad`. Two-sweep extent uses robust great-circle
+center distance and the existing exact-tie/lower-cell-ID rule. It and
+`mean_width = authoritative_area / extent` remain available even when tangent-
+plane footprint geometry is `NonLocalGeometry`; zero extent yields two `None`
+values.
+
+Spherical grade uses the same registered weighted least-squares system as the
+plane. At owner center `u_i`, build its deterministic tangent basis and use the
+neighbor log-map coordinates as `q_ij`; retain
+`w_ij = shared_face_length / center_distance`. An antipodal neighbor or
+non-finite solve is fatal. Only the existing matrix rank rule makes grade
+unavailable.
+
+Spherical fixed-radius relief includes a scored candidate only when its robust
+great-circle center distance is at most the registered physical radius. A
+spatial index may conservatively overselect candidates, but the final test is
+the exact arc formula. Full-sphere physical boundaries remain absent. Internal
+scored/unscored faces are minor great-circle boundary arcs.
+
+For unit query `p` and minor-arc endpoints `a,b`, let
+
+```text
+delta = angle(a,b)
+n = normalize(a cross b)
+```
+
+Project `p` onto the great-circle plane and test both normalized projection
+signs `q`. Define the oriented parameter
+
+```text
+t = atan2(n dot (a cross q), a dot q)
+if t < 0: t += 2*pi
+```
+
+The projection is on the closed minor arc exactly when `t <= delta`. The
+point-to-arc distance is the smallest query-to-valid-projection arc, or the
+smaller endpoint arc if neither projection lies on the segment. A relief
+neighborhood is truncated exactly when this distance is less than or equal to
+its radius. Degenerate or antipodal boundary endpoints are invalid G0, not
+repaired here.
+
+Manufactured implementation must not inspect product elevation. It uses an
+unjittered 2,048-site Fibonacci product Voronoi sphere, adapted through G0 and
+uniformly rescaled with all length and area measures to a 100 km validation
+radius. The end-to-end local fixture is
+
+```text
+center = the lowest-ID generator nearest +Z
+d_i = great-circle distance(center, cell_i)
+z_i = 0.40 km - 0.010 * d_i
+closure = 0 km
+all cells scored
+```
+
+It must produce one retained root with local spherical geometry, finite relief
+and cap families, repeat-identical hierarchy bytes and no truncated relief on
+the fully scored sphere. Private manufactured checks additionally require:
+
+- a central log-affine field with grade `0.010` reconstructs that grade and is
+  invariant under a rigid 3-D rotation;
+- a tangent-plane elongated selection recovers its signless global orientation
+  under rigid rotation, while a symmetric local cap is orientation ambiguous;
+- an exactly balanced antipodal resultant reports `NonLocalGeometry` without
+  suppressing relief, grade-validity or cap evidence;
+- centers exactly inside, on and outside each registered relief radius obey
+  inclusive great-circle membership; and
+- boundary-arc interior and endpoint cases reproduce analytic angular
+  distances and are rigid-rotation invariant.
+
+No D0 arm, product landform or renderer output may be inspected until these
+manufactured spherical checks pass.
+
 ## Decision
 
 Implement only the common physical surface graph (**G0**) and the independent

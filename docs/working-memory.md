@@ -80,6 +80,13 @@ off-radius, reversed-winding, invented-adjacency, corrupted-measure and moved-
 endpoint tests reject as intended. This completes G0 geometry only: spherical
 S0/morphology stays rejected and no product landform or H/C/G inference exists.
 
+Preregistered amendment F now operationalizes the bounded spherical S0 seam:
+polygon-centroid resultants, a deterministic tangent frame, azimuthal-
+equidistant moments, global signless orientation, tangent least-squares grade,
+great-circle relief and exact point-to-minor-arc truncation. The active task is
+manufactured implementation on a rescaled synthetic sphere. Product elevation
+remains unseen until those checks pass.
+
 The seed-12345 mountain ancestry remains the strongest current causal example.
 Human review found long, flat-topped tablelands—“a giant long Uluru”—rather
 than internally organized ranges. Relief exaggeration makes them usable and
