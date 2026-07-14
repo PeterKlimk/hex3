@@ -85,8 +85,11 @@ hydrology or any comparison arm. The
 [O0a relationship-probe contract](research/landform-object-packet-o0-2026-07-15.md)
 is now implemented and evaluated as a bounded common checkpoint, recorded in
 the [dated audit](audits/landform-o0a-relationships-2026-07-15.md). O0b
-correspondence/packet assembly and R0 remain unregistered and unimplemented,
-and no comparison arm is promoted.
+correspondence/packet assembly is now separately preregistered in its
+[bounded planar contract](research/landform-object-packet-o0b-2026-07-15.md)
+but is not implemented or evaluated. Product/spherical O0b, the product O0a
+adapter and packet/product R0 remain unregistered and unimplemented, and no
+comparison arm is promoted.
 
 The first O1 run at 100k coarse/250k fine preserves peak and mountain-area
 plausibility and modestly increases 25–100-km relief, but increases median/p90

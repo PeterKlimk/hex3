@@ -300,10 +300,11 @@ The current sequence is:
    now passes its bounded planar manufactured matrix. The
    [O0a relationship probe](research/landform-object-packet-o0-2026-07-15.md)
    is now implemented and evaluated as a bounded common checkpoint, recorded in
-   its [dated audit](audits/landform-o0a-relationships-2026-07-15.md). The next
-   packet work must first preregister O0b correspondence/assembly; O0b and R0
-   remain unimplemented and unregistered—not product-hydrology adaptation or
-   H/C/G composition;
+   its [dated audit](audits/landform-o0a-relationships-2026-07-15.md). The
+   bounded planar [O0b correspondence/assembly contract](research/landform-object-packet-o0b-2026-07-15.md)
+   is now preregistered and is the next implementation checkpoint. O0b remains
+   unimplemented; packet/product R0 and the missing product O0a/adapter boundary
+   remain separately unregistered and unimplemented—not H/C/G composition;
 2. preregister one bounded organization-owner slice with shared admissible
    inputs, an arm-neutral terrain-opportunity calibration, a common resource
    ceiling and independent object extraction: hold-and-carve H, reduced

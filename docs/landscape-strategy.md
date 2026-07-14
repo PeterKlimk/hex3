@@ -214,6 +214,10 @@ the same admissible geometry, deformation field, outlet/base-level geometry,
 runoff field, material mask, characteristic spatial scales and presentation
 settings.
 
+Here termination and transfer low are prescribed testbed forcing/geometry
+controls. The current common packet does not recognize or emit a named range
+end or transfer-low object.
+
 The preregistration must define an arm-neutral terrain-opportunity control—such
 as a separate uniform/no-erosion calibration of broad envelope and positive
 elevation-volume response—rather than pretend that direct height, rock-uplift
@@ -267,31 +271,26 @@ architecture cost.
 
 The shared vocabulary, neutrality rules and implementation order are now
 preregistered in the [landform object packet v0](research/landform-object-packet-v0-2026-07-14.md).
-That document is an umbrella evidence contract, not an executable extractor:
-each G0/S0, D0, O0a, O0b and R0 rung still requires its own committed formulas,
-ordering, retention and tie rules before code is written. This keeps the
-instrument independent of all three arms and lets object definitions fail on
-manufactured surfaces before they are exposed to competitive output.
-The first such executable checkpoint, [G0/S0](research/landform-object-packet-g0s0-2026-07-14.md),
-now passes its manufactured planar/spherical gates and the unchanged 250k
-product observation. This validates the common physical graph, split forest and
-morphology evidence, not a terrain arm. The next executable rung is the
-[D0 common drainage contract](research/landform-object-packet-d0-2026-07-15.md),
-which now passes its bounded planar manufactured matrix. It establishes a
-shared receiver forest, basin/reach hierarchy and raw partition boundaries,
-not geomorphic divides or product hydrology. The next evidence task is an O0
-relationship checkpoint informed by those measured limits. The
-[O0a contract](research/landform-object-packet-o0-2026-07-15.md) now freezes
-mechanically named boundary/descent, saddle and cross-section probes. Review
-split correspondence and combined-packet work into a later O0b so geometry or
-identity-policy failure cannot block the basic relationship evidence. H/C/G
-composition remains premature.
+That document is an umbrella evidence contract, not one monolithic extractor.
+G0/S0, D0 and O0a are now implemented and evaluated within their bounded
+scopes. They establish common physical geometry, surface hierarchy, planar
+drainage and mechanical boundary/descent/cross-section evidence—not a terrain
+arm or named natural-kind landforms. The bounded planar
+[O0b correspondence and assembly contract](research/landform-object-packet-o0b-2026-07-15.md)
+is preregistered but not implemented. It freezes exact packet assembly and
+mechanical highland/drainage-node best maps while excluding product/spherical
+packets and persistent identity events. Product O0a, packet/product R0 and every
+H/C/G composition remain later, separately preregistered work.
 
-Every competitive arm must emit the same object packet:
+The current common packet supplies operational reference highlands,
+peak/saddle topology, drainage nodes/catchments/reaches, raw boundary evidence
+and reach probes. The eventual organization experiment must additionally answer
+the following questions, but these are desired comparison semantics rather
+than fields already emitted by O0b:
 
-- range extent, massifs, range ends and transfer low;
-- ridge/divide graph, passes and saddles;
-- drainage basins, trunks, hierarchy, confluences and outlet identity;
+- range extent, massifs, range ends and transfer lows;
+- ridge/divide graphs, passes and saddles;
+- drainage basins, trunks, hierarchy, confluences and outlet relationships;
 - retained network/landform provenance where an arm constructs persistent
   structure rather than deriving it from the final surface;
 - correspondence between forcing, divides, longitudinal/transverse drainage
@@ -301,6 +300,10 @@ Every competitive arm must emit the same object packet:
 - runtime, memory and resolution/timestep response; and
 - matched Physical and Diagnostic views, followed by one fixed Cartographic
   view for human judgment.
+
+Named ranges, ridges, divides, passes, transfer lows and valleys require a
+separate future semantic contract. They cannot be inferred from O0a raw faces
+or O0b best-component cardinality.
 
 Earth distributions are priors, not the target function. The decisive evidence
 is object topology, causal response, readable morphology and compute/complexity

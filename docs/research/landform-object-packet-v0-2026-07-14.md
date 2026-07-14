@@ -2,8 +2,8 @@
 
 **Date:** 2026-07-14
 **Status:** umbrella evidence contract; G0/S0, common planar D0 and bounded
-common O0a completed and evaluated; O0b correspondence and R0 not yet
-preregistered or implemented
+common O0a completed and evaluated; bounded planar O0b preregistered but not
+implemented; packet/product R0 not yet preregistered or implemented
 **Parent decision:** [Landscape organization strategy](../landscape-strategy.md)
 
 ## Decision
@@ -121,9 +121,10 @@ control-volume/face geometry. A rung contract must freeze the planar/spherical
 polygon clipping and line-buffer procedure before correspondence is implemented;
 cell centers plus nominal area are not a permitted silent approximation.
 
-The product adapter exists to observe the unchanged product reference. H/C/G
-competition uses the same testbed graph and exact adapter, so product and
-testbed hydrology need not pretend to be one implementation.
+The product G0 geometry adapter exists to observe the unchanged product
+reference. Product D0/O0a/O0b adapters do not yet exist. H/C/G competition uses
+the same testbed graph and exact adapter, so product and testbed hydrology need
+not pretend to be one implementation.
 
 ## S0: surface peak–saddle hierarchy
 
@@ -300,9 +301,10 @@ not permission to lower its threshold.
 The S0 executable contract must freeze the exact primary retention predicate,
 root treatment, extent/width/orientation formulas and all ties. The D0 contract
 must freeze sub-basin/confluence retention and reach endpoint/length rules. O0a
-must freeze face roles and cross-section sampling; O0b must separately freeze
-correspondence geometry and assignment. The scale table alone does not make
-those algorithms executable.
+freezes face roles and cross-section sampling. The separately preregistered
+[O0b contract](landform-object-packet-o0b-2026-07-15.md) freezes planar packet
+assembly, correspondence geometry and assignment; it is not implemented. The
+scale table alone does not make those algorithms executable.
 
 No spatial smoothing is part of v0. Vertical persistence and 8/4/2 km object
 correspondence are the registered mesh-noise controls. Adding a fixed-support
@@ -310,25 +312,20 @@ surface filter requires a new checkpoint and must leave the raw result visible.
 
 ## Correspondence
 
-`ObjectCorrespondenceV0` is separate from object identity and records:
+`ObjectCorrespondenceV0` is separate from object identity. The executable
+[O0b contract](landform-object-packet-o0b-2026-07-15.md) replaces this
+umbrella's provisional single confidence/winner idea with full positive
+physical-overlap/proximity tables, directional coverage, exact maximum sets,
+normalized margins, two-way null/context evidence, channel-qualified
+cardinality, metric conflict and report-only topology.
 
-```text
-source and target packet/object IDs
-physical footprint or buffered-line overlap
-anchor displacement
-topology agreement
-dominant mutual match
-mutual-best | one-to-many-best | many-to-one-best | many-to-many-best |
-no-positive-overlap | tie
-confidence and tie margin
-```
-
-Cross-resolution and cross-arm matching uses physical geometry. Shared cell
-indices may break a tie only within the same mesh and cannot establish identity.
-G's native graph uses the same correspondence structure but a distinct
-provenance namespace. Persistent `same/split/merge/born/retired` language is not
-earned by these mechanical assignments; O0b must retain raw overlap and R0 must
-justify any later acceptance rule before those event names are used.
+Cross-resolution matching uses physical geometry and keeps every exact tie;
+shared cell indices cannot select a winner. The bounded O0b checkpoint excludes
+G's native graph and all product/spherical packets. A later provenance contract
+may compare a native graph in a separate namespace. Persistent
+`same/split/merge/born/retired` language is not earned by these mechanical
+assignments, and packet/product R0 must justify any later acceptance rule before
+such event names are used.
 
 ## Cause and provenance relationships
 
@@ -372,13 +369,16 @@ quality scores by themselves.
    probes with relationship serialization. Implemented and evaluated as the
    bounded common checkpoint recorded in the
    [dated audit](../audits/landform-o0a-relationships-2026-07-15.md).
-4. **O0b:** cross-packet geometric correspondence and combined packet assembly.
+4. **O0b:** [cross-packet geometric correspondence and combined packet
+   assembly](landform-object-packet-o0b-2026-07-15.md), preregistered for the
+   bounded planar/testbed population but not implemented.
 5. **R0:** one unchanged product-reference packet and one pre-arm linked-testbed
    manufactured packet at 8/4/2 km.
 
-Each rung is a separate checkpoint. O0b and this packet's R0 remain
-unregistered and unimplemented. Do not implement H, C or G composition while
-the common evidence packet is incomplete.
+Each rung is a separate checkpoint. O0b remains unimplemented; this packet's R0
+and the missing product D0/O0a boundary remain unregistered and unimplemented.
+Do not implement H, C or G composition while the common evidence packet is
+incomplete.
 
 This document freezes the shared ownership, object vocabulary, scale family,
 neutrality and rung order. It is not permission to implement a rung. Each rung
@@ -404,8 +404,9 @@ code is written.
   elder/child relation and persistence within discretization error.
 - A broad flat maximum is one node and has more cap/gentle-area evidence than
   an equal-height narrow hill; neither is classified as a plateau by equality.
-- A linked two-segment surface retains two massif nodes and one transfer saddle
-  at 8/4/2 km under the registered persistence family.
+- The linked-four-cone surface retains its four analytically labelled reference
+  highlands and three merge events at 8/4/2 km under the registered persistence
+  family. These are fixture labels, not promoted massif or transfer-low names.
 
 ### Drainage and relationships
 
@@ -423,10 +424,12 @@ code is written.
 
 ### Resolution
 
-- Objects retained by the 4 km reference predicates have dominant physical
-  matches at 8 and 2 km.
-- Report raw deltas; the later H/C/G preregistration freezes promotion
-  tolerances after these manufactured baselines, before arm outcomes.
+- The named linked-highland and asymmetric-Y manufactured objects satisfy the
+  exact 4-to-8/2 maximum-set gates frozen by O0b, if that implementation passes.
+- Report all raw deltas, nulls, ties and conflicts. No universal-positive
+  correspondence or cross-resolution identity follows from those fixture
+  baselines; a later H/C/G preregistration must freeze any promotion rule before
+  arm outcomes.
 
 ## Stop and amendment rules
 

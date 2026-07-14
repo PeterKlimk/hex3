@@ -46,8 +46,12 @@ checkpoint, with the result recorded in its
 [dated audit](audits/landform-o0a-relationships-2026-07-15.md). It retains face
 roles, signed physical-descent traces, saddle-boundary association and
 relative-relief sections without promoting ridge, pass or valley semantics.
-Cross-packet correspondence/combined serialization remain future O0b scope;
-O0b and R0 are still unregistered and unimplemented.
+The bounded planar
+[O0b correspondence/assembly contract](research/landform-object-packet-o0b-2026-07-15.md)
+is now preregistered but unimplemented. It retains full physical overlap,
+exclusive-support and local line-proximity evidence with exact ties, nulls and
+metric conflicts, but no persistent identity events. Packet/product R0 and the
+product O0a/adapter boundary remain unregistered and unimplemented.
 Do not let product diagnostics, native C flux, G's authored graph or renderer
 state leak into the instrument; competitive terrain arms remain out of scope.
 
