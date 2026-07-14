@@ -17,6 +17,11 @@ pub struct Tessellation {
     /// Immutable cell adjacency graph.
     pub adjacency: CellAdjacency,
 
+    /// Observable outcome of the external clipping backend. Convex-hull
+    /// tessellations have no external-backend report.
+    #[serde(default)]
+    pub voronoi_backend_report: Option<VoronoiBackendReport>,
+
     /// Memoized per-cell solid angles (steradians). `cell_areas()` is a serial
     /// O(N) spherical-triangle sum called ~20x/run over the immutable fine mesh
     /// (~2.5 M cells, ~0.5 s each); the geometry never changes after
@@ -25,6 +30,63 @@ pub struct Tessellation {
     /// change), recomputed lazily on first use after a cache load.
     #[serde(skip)]
     area_cache: std::sync::OnceLock<Vec<f32>>,
+}
+
+/// Stable, serializable subset of `voronoi-mesh` diagnostics retained by
+/// Hex3. The upstream report is intentionally not embedded in the fine cache:
+/// its detailed taxonomy is diagnostic and may evolve before 1.0.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct VoronoiBackendReport {
+    /// Sites supplied by Hex3 before backend preprocessing.
+    pub original_points: usize,
+    /// Physical sites in the solved post-weld partition.
+    pub effective_points: usize,
+    /// Input sites merged into canonical sites.
+    pub merged_points: usize,
+    /// Chord-distance weld threshold selected by the backend.
+    pub weld_threshold: Option<f32>,
+    /// Stable upstream validity verdict for the physical diagram.
+    pub preferred_strictly_valid: bool,
+    /// Cell count of the physical diagram retained by Hex3.
+    pub preferred_cells: usize,
+    /// Stored vertex count in that diagram.
+    pub preferred_vertices: usize,
+    /// Undirected boundary-edge count in that diagram.
+    pub preferred_edges: usize,
+    /// Live-dedup mismatches seen before reconciliation/local repair.
+    pub pre_repair_edge_mismatch_count: usize,
+    /// Whether the optional local repair ran.
+    pub repair_attempted: bool,
+    /// Whether a repaired whole diagram passed validation and was committed.
+    pub repair_accepted: bool,
+    /// Unpaired edges remaining after reconciliation/local repair.
+    pub post_repair_unpaired_edge_count: usize,
+    /// Missing-neighbor sentinels observed in native physical adjacency.
+    pub native_missing_neighbor_entries: usize,
+    /// Whether the backend returned a deterministically perturbed problem.
+    pub degeneracy_perturbation_applied: bool,
+}
+
+impl VoronoiBackendReport {
+    fn from_compute_report(report: &s2_voronoi::ComputeReport) -> Self {
+        let validation = report.preferred_validation();
+        Self {
+            original_points: report.preprocess.original_points,
+            effective_points: report.preprocess.effective_points,
+            merged_points: report.preprocess.num_merged,
+            weld_threshold: report.preprocess.threshold_used,
+            preferred_strictly_valid: validation.is_strictly_valid(),
+            preferred_cells: validation.num_cells,
+            preferred_vertices: validation.num_vertices,
+            preferred_edges: validation.num_edges,
+            pre_repair_edge_mismatch_count: report.pre_repair_edge_mismatch_count,
+            repair_attempted: report.repair.attempted,
+            repair_accepted: report.repair.accepted,
+            post_repair_unpaired_edge_count: report.post_repair_unpaired_edges.len(),
+            native_missing_neighbor_entries: 0,
+            degeneracy_perturbation_applied: report.degenerate.perturbation_applied,
+        }
+    }
 }
 
 /// Compact immutable cell adjacency graph.
@@ -205,6 +267,7 @@ impl Tessellation {
         Self {
             voronoi,
             adjacency,
+            voronoi_backend_report: None,
             area_cache: std::sync::OnceLock::new(),
         }
     }
@@ -246,58 +309,76 @@ impl Tessellation {
 
         // Pass plain arrays so hex3's glam version stays independent of the crate's
         let raw_points: Vec<[f32; 3]> = points.iter().map(|p| p.to_array()).collect();
-        let diagram = {
+        let output = {
             let _t = Timed::debug("  s2-voronoi computation");
-            s2_voronoi::compute(&raw_points).expect("Voronoi computation failed")
+            s2_voronoi::compute_with_report(&raw_points, s2_voronoi::VoronoiConfig::default())
+                .expect("Voronoi computation failed")
         };
 
-        // Use s2-voronoi's native adjacency (one sorted pass over boundary
-        // edges) rather than rebuilding it with a hash map: ~11x faster at
-        // millions of cells. Defective edges carry NO_NEIGHBOR; drop them.
+        let preferred_validation = output.report.preferred_validation();
+        assert!(
+            preferred_validation.is_strictly_valid(),
+            "voronoi-mesh returned a non-strict physical diagram: {:?}",
+            preferred_validation
+        );
+        assert!(
+            !output.report.has_post_repair_residuals(),
+            "voronoi-mesh returned post-repair residuals: {:?}",
+            output.report.post_repair_unpaired_edges
+        );
+        assert!(
+            !output.report.degenerate.perturbation_applied,
+            "voronoi-mesh perturbed a degenerate input; Hex3 requires the original physical sites"
+        );
+
+        let mut backend_report = VoronoiBackendReport::from_compute_report(&output.report);
+        // A welded public diagram preserves one API cell per input. Hex3 needs
+        // the unaliased solved partition because each returned cell becomes one
+        // physical control volume and receives one set of fine fields.
+        let diagram = output.effective_diagram.unwrap_or(output.diagram);
+        assert_eq!(
+            diagram.num_cells(),
+            backend_report.effective_points,
+            "preferred Voronoi diagram does not match the effective site count"
+        );
+
+        // Native adjacency is edge-aligned with each cell boundary. A missing
+        // neighbor is a rejected backend output, never an invitation for Hex3
+        // to invent graph connectivity.
         let adjacency = {
             let _t = Timed::debug("  Build adjacency (native)");
             let native = diagram.build_adjacency();
             let num_cells = diagram.num_cells();
-            let mut neighbor_lists: Vec<Vec<usize>> = (0..num_cells)
-                .map(|i| {
+
+            let missing_neighbors = (0..num_cells)
+                .flat_map(|cell| native.neighbors_of(cell).iter())
+                .filter(|&&neighbor| neighbor == s2_voronoi::adjacency::NO_NEIGHBOR)
+                .count();
+            backend_report.native_missing_neighbor_entries = missing_neighbors;
+            assert_eq!(
+                missing_neighbors, 0,
+                "voronoi-mesh physical adjacency contains missing-neighbor sentinels"
+            );
+
+            let neighbor_lists: Vec<Vec<usize>> = (0..num_cells)
+                .map(|cell| {
                     native
-                        .neighbors_of(i)
+                        .neighbors_of(cell)
                         .iter()
-                        .filter(|&&n| n != s2_voronoi::adjacency::NO_NEIGHBOR)
-                        .map(|&n| n as usize)
+                        .map(|&neighbor| neighbor as usize)
                         .collect()
                 })
                 .collect();
 
-            // Repair orphan cells (no neighbors after dropping defective edges).
-            // Downstream hydrology/erosion assume a connected graph; an orphan
-            // would otherwise become a silent no-drainage island that loses flow
-            // or is skipped entirely. Link each orphan to its nearest generator
-            // (symmetrically) so it has at least one outlet. Orphans are rare, so
-            // the kd-tree is built only when needed.
-            let orphans: Vec<usize> = (0..num_cells)
-                .filter(|&i| neighbor_lists[i].is_empty())
-                .collect();
-            if !orphans.is_empty() {
-                use kiddo::{ImmutableKdTree, SquaredEuclidean};
-                let gens = diagram.generators();
-                let entries: Vec<[f32; 3]> = gens.iter().map(|g| [g.x, g.y, g.z]).collect();
-                let tree: ImmutableKdTree<f32, 3> = ImmutableKdTree::new_from_slice(&entries);
-                for &o in &orphans {
-                    // nearest_n(_, 2): the first hit is the orphan itself (d=0);
-                    // take the next-nearest distinct generator.
-                    let hits = tree.nearest_n::<SquaredEuclidean>(&entries[o], 2);
-                    if let Some(nearest) = hits.iter().map(|h| h.item as usize).find(|&j| j != o) {
-                        neighbor_lists[o].push(nearest);
-                        if !neighbor_lists[nearest].contains(&o) {
-                            neighbor_lists[nearest].push(o);
-                        }
-                    }
+            for (cell, neighbors) in neighbor_lists.iter().enumerate() {
+                for &neighbor in neighbors {
+                    assert!(neighbor < num_cells, "native adjacency index out of bounds");
+                    assert_ne!(neighbor, cell, "native adjacency contains a self-loop");
+                    assert!(
+                        native.neighbors_of(neighbor).contains(&(cell as u32)),
+                        "native adjacency is asymmetric between cells {cell} and {neighbor}"
+                    );
                 }
-                log::warn!(
-                    "s2-voronoi: repaired {} orphan cell(s) by linking to nearest generator",
-                    orphans.len()
-                );
             }
 
             let mut offsets = Vec::with_capacity(num_cells + 1);
@@ -340,6 +421,7 @@ impl Tessellation {
         Self {
             voronoi,
             adjacency,
+            voronoi_backend_report: Some(backend_report),
             area_cache: std::sync::OnceLock::new(),
         }
     }

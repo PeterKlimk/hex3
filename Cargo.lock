@@ -978,9 +978,9 @@ dependencies = [
  "rand_chacha",
  "rand_distr",
  "rayon",
- "s2-voronoi",
  "serde",
  "serde_json",
+ "voronoi-mesh",
  "wgpu",
  "winit",
 ]
@@ -2006,6 +2006,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19b30a45b0cd0bcca8037f3d0dc3421eaf95327a17cad11964fb8179b4fc4832"
 
 [[package]]
+name = "robust"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e27ee8bb91ca0adcf0ecb116293afa12d393f9c2b9b9cd54d33e8078fe19839"
+
+[[package]]
 name = "rustc-hash"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2054,18 +2060,6 @@ name = "ryu"
 version = "1.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28d3b2b1366ec20994f1fd18c3c594f05c5dd4bc44d8bb0c1c632c8d6829481f"
-
-[[package]]
-name = "s2-voronoi"
-version = "0.1.0"
-source = "git+https://github.com/PeterKlimk/s2-voronoi#8ee131ca0b4415aa1638d02fc8542623a7c20eca"
-dependencies = [
- "bytemuck",
- "glam 0.29.3",
- "rayon",
- "rustc-hash 2.1.1",
- "wide",
-]
 
 [[package]]
 name = "safe_arch"
@@ -2502,6 +2496,19 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "voronoi-mesh"
+version = "0.1.0"
+source = "git+https://github.com/PeterKlimk/s2-voronoi?rev=da99a8a6384f2fb641c0d3389a6787dec78fc5b4#da99a8a6384f2fb641c0d3389a6787dec78fc5b4"
+dependencies = [
+ "bytemuck",
+ "glam 0.29.3",
+ "rayon",
+ "robust",
+ "rustc-hash 2.1.1",
+ "wide",
+]
 
 [[package]]
 name = "walkdir"

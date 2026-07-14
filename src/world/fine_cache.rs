@@ -55,7 +55,10 @@ use super::{Atmosphere, Crust, Elevation, FeatureFields, OrogenModel, Tessellati
 /// solve, and that solved field is transferred to the fine base.
 /// v11: runtime orogen-model selection is part of the key.
 /// v12: thin-sheet strain and compression-axis fields are transferred.
-pub(crate) const FINE_BASE_CACHE_VERSION: u32 = 13;
+/// v14: the fine control-volume mesh uses the modern validated `voronoi-mesh`
+/// backend and its effective post-weld partition. Version 13 entries must not
+/// bypass that substrate change.
+pub(crate) const FINE_BASE_CACHE_VERSION: u32 = 14;
 
 /// How the fine-mesh base should use the on-disk cache.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
