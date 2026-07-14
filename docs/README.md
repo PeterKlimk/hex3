@@ -87,6 +87,9 @@ Current bounded research decision:
 - [Landform G0/S0 spherical morphology audit](audits/landform-g0s0-spherical-morphology-2026-07-14.md)
   — passing 100 km synthetic-sphere morphology, covariance, exact-relief and
   nonlocal-evidence checks; no product elevation or H/C/G surface was inspected.
+- [Product G0/S0 ancestry observation](research/landform-product-g0s0-observation-2026-07-14.md)
+  — preregistered noncompetitive seed-12345 coarse/250k five-surface observation;
+  product output has not yet been run.
 - [Drainage-network ownership](research/drainage-network-ownership-2026-07-13.md)
   — continuum supply, physical promotion and persistent reach-lineage roles,
   plus the preregistered memory discriminator.

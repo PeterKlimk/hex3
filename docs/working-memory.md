@@ -93,6 +93,13 @@ are rotation-covariant, and `NonLocalGeometry` preserves other evidence.
 Product elevation remains unseen; no product landform or H/C/G inference
 exists.
 
+The next bounded checkpoint is now preregistered as a noncompetitive product
+G0/S0 ancestry observation. It freezes seed 12345, the unchanged legacy/default
+pipeline, an all-cell scored mask and one coarse plus four cell-aligned 250k
+fine surfaces from raw substrate through final erosion/integration. This is a
+descriptive cost and stage-localization pass, not R0, a 1M scale claim, an H/C/G
+comparison or permission to tune the extractor or terrain.
+
 The seed-12345 mountain ancestry remains the strongest current causal example.
 Human review found long, flat-topped tablelands—“a giant long Uluru”—rather
 than internally organized ranges. Relief exaggeration makes them usable and
