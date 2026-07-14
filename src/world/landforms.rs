@@ -3,16 +3,15 @@
 //! This is a partial G0/S0 slice of the packet preregistered in
 //! `docs/research/landform-object-packet-g0s0-2026-07-14.md`. It implements the
 //! common graph types, explicit planar and product-spherical G0 adapters, the
-//! exact-level peak-saddle split forest and planar reference-highland
-//! measurements. It is not the complete packet: spherical S0 morphology
-//! remains deliberately unavailable. Inputs are limited to physical geometry,
-//! elevation, a scored mask and the frozen extractor configuration.
+//! exact-level peak-saddle split forest and planar and spherical reference-
+//! highland measurements. Inputs are limited to physical geometry, elevation,
+//! a scored mask and the frozen extractor configuration.
 
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::fmt;
 
 use bincode::Options;
-use glam::DVec3;
+use glam::{DVec2, DVec3};
 use serde::{Deserialize, Serialize};
 
 use super::landscape::{
@@ -248,6 +247,9 @@ pub enum LandformError {
         peak: usize,
     },
     InvalidPlanarMoments {
+        peak: usize,
+    },
+    InvalidSphericalMoments {
         peak: usize,
     },
     Serialization(String),
@@ -1483,11 +1485,42 @@ pub struct PlanarHighlandMeasurementsV0 {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SphericalLocalFootprintGeometryV0 {
+    pub area_km2: f64,
+    pub centroid_km: DVec3,
+    pub projected_centroid_km: [f64; 2],
+    /// Row-major covariance in the deterministic tangent basis `[xx, xy, yx, yy]`.
+    pub tangent_covariance_km2: [f64; 4],
+    pub equivalent_ellipse_length_km: f64,
+    pub equivalent_ellipse_width_km: f64,
+    pub anisotropy: f64,
+    /// Sign-canonical principal tangent in the global physical frame.
+    pub principal_axis: DVec3,
+    pub orientation_ambiguous: bool,
+    pub maximum_angular_radius_rad: f64,
+    pub spherical_nonlocal_warning: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum SphericalFootprintGeometryV0 {
+    Local(SphericalLocalFootprintGeometryV0),
+    NonLocalGeometry,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SphericalHighlandMeasurementsV0 {
+    pub footprint_geometry: SphericalFootprintGeometryV0,
+    pub two_sweep_extent_km: Option<f64>,
+    pub mean_width_km: Option<f64>,
+    pub local_relief: Vec<LocalReliefSummaryV0>,
+    pub rank_deficient_grade_cells: Vec<u32>,
+    pub summit_caps: Vec<SummitCapSummaryV0>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum HighlandMeasurementsV0 {
     Planar(Box<PlanarHighlandMeasurementsV0>),
-    /// The structural feature is valid, but this partial slice does not yet
-    /// implement the preregistered spherical morphology backend.
-    SphericalUnavailable,
+    Spherical(Box<SphericalHighlandMeasurementsV0>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1497,11 +1530,8 @@ pub struct HighlandFeatureV0 {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-/// Structural peak-saddle output for the current partial planar slice.
-///
-/// This is not yet the complete G0/S0 landform object packet: planar reference
-/// morphology is present and spherical G0 is independently validated, while
-/// spherical S0 morphology remains explicitly unavailable.
+/// Structural peak-saddle output and reference morphology on either registered
+/// physical domain.
 pub struct SurfaceHierarchyV0 {
     pub schema_version: String,
     pub hash_version: String,
@@ -1586,9 +1616,6 @@ pub fn build_surface_hierarchy_v0(
     mut config: SurfaceHierarchyConfigV0,
 ) -> Result<SurfaceHierarchyV0, LandformError> {
     config.closure_level_km = canonical_zero(config.closure_level_km);
-    if matches!(graph.domain, EvaluationDomainV0::Spherical { .. }) {
-        return Err(LandformError::UnsupportedDomain);
-    }
     graph.validate(&config)?;
     config.validate()?;
     let n = graph.cell_count();
@@ -2274,7 +2301,384 @@ fn measure_planar_footprint(
     })
 }
 
-fn planar_grades(
+fn sign_canonical_direction(mut direction: DVec3) -> DVec3 {
+    if direction.x < 0.0
+        || (direction.x == 0.0 && direction.y < 0.0)
+        || (direction.x == 0.0 && direction.y == 0.0 && direction.z < 0.0)
+    {
+        direction = -direction;
+    }
+    canonical_point(direction)
+}
+
+fn spherical_tangent_basis(center: DVec3) -> Result<[DVec3; 2], LandformError> {
+    if !center.is_finite() || center.length_squared() == 0.0 {
+        return Err(LandformError::InvalidSphericalGeometry);
+    }
+    let center = center.normalize();
+    let axes = [DVec3::X, DVec3::Y, DVec3::Z];
+    let mut selected = 0usize;
+    let mut alignment = center.dot(axes[0]).abs();
+    for (index, axis) in axes.iter().enumerate().skip(1) {
+        let candidate = center.dot(*axis).abs();
+        if candidate < alignment {
+            selected = index;
+            alignment = candidate;
+        }
+    }
+    let e1 = sign_canonical_direction(axes[selected].cross(center).normalize());
+    let e2 = canonical_point(center.cross(e1));
+    if !e1.is_finite() || !e2.is_finite() {
+        return Err(LandformError::InvalidSphericalGeometry);
+    }
+    Ok([e1, e2])
+}
+
+/// Azimuthal-equidistant log coordinates. `None` is the registered antipodal
+/// outcome; malformed or non-finite geometry remains fatal.
+fn spherical_log_xy(
+    center: DVec3,
+    target: DVec3,
+    radius_km: f64,
+    basis: [DVec3; 2],
+    rank_tolerance: f64,
+) -> Result<Option<DVec2>, LandformError> {
+    if !center.is_finite()
+        || !target.is_finite()
+        || center.length_squared() == 0.0
+        || target.length_squared() == 0.0
+        || !radius_km.is_finite()
+        || radius_km <= 0.0
+    {
+        return Err(LandformError::InvalidSphericalGeometry);
+    }
+    let center = center.normalize();
+    let target = target.normalize();
+    let dot = center.dot(target).clamp(-1.0, 1.0);
+    let cross_length = center.cross(target).length();
+    let theta = cross_length.atan2(dot);
+    if !theta.is_finite() {
+        return Err(LandformError::InvalidSphericalGeometry);
+    }
+    if std::f64::consts::PI - theta <= rank_tolerance {
+        return Ok(None);
+    }
+    if theta == 0.0 {
+        return Ok(Some(DVec2::ZERO));
+    }
+    let tangent = target - dot * center;
+    let tangent_length = tangent.length();
+    if !tangent_length.is_finite() || tangent_length == 0.0 {
+        return Err(LandformError::InvalidSphericalGeometry);
+    }
+    let displacement = radius_km * theta * (tangent / tangent_length);
+    let result = DVec2::new(displacement.dot(basis[0]), displacement.dot(basis[1]));
+    if !result.is_finite() {
+        return Err(LandformError::InvalidSphericalGeometry);
+    }
+    Ok(Some(result))
+}
+
+fn cross_2d(a: DVec2, b: DVec2) -> f64 {
+    a.x * b.y - a.y * b.x
+}
+
+fn point_on_closed_segment_2d(point: DVec2, a: DVec2, b: DVec2) -> bool {
+    cross_2d(b - a, point - a) == 0.0
+        && point.x >= a.x.min(b.x)
+        && point.x <= a.x.max(b.x)
+        && point.y >= a.y.min(b.y)
+        && point.y <= a.y.max(b.y)
+}
+
+fn closed_segments_intersect_2d(a: DVec2, b: DVec2, c: DVec2, d: DVec2) -> bool {
+    let ab_c = cross_2d(b - a, c - a);
+    let ab_d = cross_2d(b - a, d - a);
+    let cd_a = cross_2d(d - c, a - c);
+    let cd_b = cross_2d(d - c, b - c);
+    (ab_c.signum() != ab_d.signum()
+        && cd_a.signum() != cd_b.signum()
+        && ab_c != 0.0
+        && ab_d != 0.0
+        && cd_a != 0.0
+        && cd_b != 0.0)
+        || (ab_c == 0.0 && point_on_closed_segment_2d(c, a, b))
+        || (ab_d == 0.0 && point_on_closed_segment_2d(d, a, b))
+        || (cd_a == 0.0 && point_on_closed_segment_2d(a, c, d))
+        || (cd_b == 0.0 && point_on_closed_segment_2d(b, c, d))
+}
+
+fn projected_polygon_is_simple(polygon: &[DVec2]) -> bool {
+    let n = polygon.len();
+    if n < 3
+        || polygon.iter().any(|point| !point.is_finite())
+        || (0..n).any(|index| polygon[index] == polygon[(index + 1) % n])
+    {
+        return false;
+    }
+    for first in 0..n {
+        let first_next = (first + 1) % n;
+        for second in (first + 1)..n {
+            let second_next = (second + 1) % n;
+            if first == second
+                || first_next == second
+                || second_next == first
+                || (first == 0 && second_next == 0)
+            {
+                continue;
+            }
+            if closed_segments_intersect_2d(
+                polygon[first],
+                polygon[first_next],
+                polygon[second],
+                polygon[second_next],
+            ) {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+fn spherical_polygon_centroid_direction(
+    polygon: &[DVec3],
+    peak_id: usize,
+) -> Result<DVec3, LandformError> {
+    let mut resultant = DVec3::ZERO;
+    for (&a, &b) in polygon.iter().zip(polygon.iter().cycle().skip(1)) {
+        let (a, b) = (a.normalize(), b.normalize());
+        let cross = a.cross(b);
+        let cross_length = cross.length();
+        let angle = cross_length.atan2(a.dot(b));
+        if !angle.is_finite() || !cross_length.is_finite() || cross_length == 0.0 {
+            return Err(LandformError::InvalidSphericalMoments { peak: peak_id });
+        }
+        resultant += angle * (cross / cross_length);
+    }
+    if !resultant.is_finite() || resultant.length_squared() == 0.0 {
+        return Err(LandformError::InvalidSphericalMoments { peak: peak_id });
+    }
+    Ok(resultant.normalize())
+}
+
+fn spherical_two_sweep_extent(
+    graph: &EvaluationSurfaceGraphV0,
+    members: &[u32],
+    area_km2: f64,
+    radius_km: f64,
+) -> Result<(Option<f64>, Option<f64>), LandformError> {
+    let start = members.iter().copied().min().unwrap() as usize;
+    let farthest = |origin: usize| -> Result<usize, LandformError> {
+        let mut selected = members[0] as usize;
+        let mut selected_distance = -1.0;
+        for &candidate_u32 in members {
+            let candidate = candidate_u32 as usize;
+            let distance = if candidate == origin {
+                0.0
+            } else {
+                radius_km
+                    * spherical_angle_rad(
+                        graph.cell_center_km[origin],
+                        graph.cell_center_km[candidate],
+                    )?
+            };
+            if distance > selected_distance
+                || (distance.to_bits() == selected_distance.to_bits() && candidate < selected)
+            {
+                selected = candidate;
+                selected_distance = distance;
+            }
+        }
+        Ok(selected)
+    };
+    let first = farthest(start)?;
+    let second = farthest(first)?;
+    let extent = if first == second {
+        0.0
+    } else {
+        radius_km * spherical_angle_rad(graph.cell_center_km[first], graph.cell_center_km[second])?
+    };
+    if extent > 0.0 {
+        Ok((
+            Some(canonical_zero(extent)),
+            Some(canonical_zero(area_km2 / extent)),
+        ))
+    } else {
+        Ok((None, None))
+    }
+}
+
+fn measure_spherical_footprint(
+    graph: &EvaluationSurfaceGraphV0,
+    members: &[u32],
+    config: &SurfaceHierarchyConfigV0,
+    peak_id: usize,
+) -> Result<(SphericalFootprintGeometryV0, Option<f64>, Option<f64>), LandformError> {
+    let EvaluationDomainV0::Spherical { radius_km } = graph.domain else {
+        return Err(LandformError::UnsupportedDomain);
+    };
+    let authoritative_area = compensated_sum(
+        members
+            .iter()
+            .map(|&cell| graph.cell_area_km2[cell as usize]),
+    );
+    if !authoritative_area.is_finite() || authoritative_area <= 0.0 {
+        return Err(LandformError::InvalidSphericalMoments { peak: peak_id });
+    }
+    let mut resultant = DVec3::ZERO;
+    let mut resultant_correction = DVec3::ZERO;
+    for &cell in members {
+        let cell = cell as usize;
+        let value = graph.cell_area_km2[cell]
+            * spherical_polygon_centroid_direction(graph.polygon(cell), peak_id)?;
+        let adjusted = value - resultant_correction;
+        let next = resultant + adjusted;
+        resultant_correction = (next - resultant) - adjusted;
+        resultant = next;
+    }
+    if !resultant.is_finite() {
+        return Err(LandformError::InvalidSphericalMoments { peak: peak_id });
+    }
+    let extent = spherical_two_sweep_extent(graph, members, authoritative_area, radius_km)?;
+    if resultant.length() / authoritative_area <= config.linear_rank_relative {
+        return Ok((
+            SphericalFootprintGeometryV0::NonLocalGeometry,
+            extent.0,
+            extent.1,
+        ));
+    }
+    let center = resultant.normalize();
+    let basis = spherical_tangent_basis(center)?;
+    let mut raw = [0.0; 6];
+    let mut maximum_angular_radius_rad = 0.0_f64;
+    for &cell in members {
+        let cell = cell as usize;
+        let mut projected = Vec::with_capacity(graph.polygon(cell).len());
+        for &vertex in graph.polygon(cell) {
+            let unit = vertex.normalize();
+            let theta = center.cross(unit).length().atan2(center.dot(unit));
+            maximum_angular_radius_rad = maximum_angular_radius_rad.max(theta);
+            let Some(point) =
+                spherical_log_xy(center, unit, radius_km, basis, config.linear_rank_relative)?
+            else {
+                return Ok((
+                    SphericalFootprintGeometryV0::NonLocalGeometry,
+                    extent.0,
+                    extent.1,
+                ));
+            };
+            projected.push(point);
+        }
+        if !projected_polygon_is_simple(&projected) {
+            return Ok((
+                SphericalFootprintGeometryV0::NonLocalGeometry,
+                extent.0,
+                extent.1,
+            ));
+        }
+        let projected_3d = projected
+            .iter()
+            .map(|point| DVec3::new(point.x, point.y, 0.0))
+            .collect::<Vec<_>>();
+        let moments = planar_polygon_raw_moments_about(&projected_3d, DVec3::ZERO);
+        if !moments[0].is_finite() || moments[0] <= 0.0 {
+            return Ok((
+                SphericalFootprintGeometryV0::NonLocalGeometry,
+                extent.0,
+                extent.1,
+            ));
+        }
+        let scale = graph.cell_area_km2[cell] / moments[0];
+        if !scale.is_finite() || moments.iter().any(|value| !value.is_finite()) {
+            return Err(LandformError::InvalidSphericalMoments { peak: peak_id });
+        }
+        for (sum, value) in raw.iter_mut().zip(moments) {
+            *sum += scale * value;
+        }
+    }
+    if raw.iter().any(|value| !value.is_finite()) {
+        return Err(LandformError::InvalidSphericalMoments { peak: peak_id });
+    }
+    if (raw[0] - authoritative_area).abs() / authoritative_area
+        > config.sphere_area_closure_relative
+    {
+        return Err(LandformError::FootprintAreaMismatch { peak: peak_id });
+    }
+    let area = raw[0];
+    let centroid_x = raw[1] / area;
+    let centroid_y = raw[2] / area;
+    let raw_second_x = raw[3] / area;
+    let raw_second_y = raw[5] / area;
+    let numeric_scale = raw_second_x
+        .abs()
+        .max(raw_second_y.abs())
+        .max(f64::MIN_POSITIVE);
+    let negative_tolerance = config.linear_rank_relative * numeric_scale;
+    let clamp_covariance = |value: f64| {
+        if value < -negative_tolerance {
+            Err(LandformError::InvalidSphericalMoments { peak: peak_id })
+        } else {
+            Ok(value.max(0.0))
+        }
+    };
+    let covariance_xx = clamp_covariance(raw_second_x - centroid_x * centroid_x)?;
+    let covariance_xy = raw[4] / area - centroid_x * centroid_y;
+    let covariance_yy = clamp_covariance(raw_second_y - centroid_y * centroid_y)?;
+    let trace = covariance_xx + covariance_yy;
+    let discriminant = (covariance_xx - covariance_yy).hypot(2.0 * covariance_xy);
+    let lambda_1 = 0.5 * (trace + discriminant);
+    let mut lambda_2 = 0.5 * (trace - discriminant);
+    let eigenvalue_tolerance = config.linear_rank_relative * lambda_1.max(numeric_scale);
+    if lambda_2 < -eigenvalue_tolerance {
+        return Err(LandformError::InvalidSphericalMoments { peak: peak_id });
+    }
+    lambda_2 = lambda_2.max(0.0);
+    if !lambda_1.is_finite() || !lambda_2.is_finite() || lambda_1 <= 0.0 {
+        return Err(LandformError::InvalidSphericalMoments { peak: peak_id });
+    }
+    let anisotropy = canonical_zero((lambda_1 - lambda_2) / (lambda_1 + lambda_2));
+    let candidate_a = DVec2::new(covariance_xy, lambda_1 - covariance_xx);
+    let candidate_b = DVec2::new(lambda_1 - covariance_yy, covariance_xy);
+    let principal_2d = if candidate_a.length_squared() > candidate_b.length_squared()
+        && candidate_a.length_squared() > 0.0
+    {
+        candidate_a.normalize()
+    } else if candidate_b.length_squared() > 0.0 {
+        candidate_b.normalize()
+    } else if covariance_xx >= covariance_yy {
+        DVec2::X
+    } else {
+        DVec2::Y
+    };
+    let principal_axis =
+        sign_canonical_direction(principal_2d.x * basis[0] + principal_2d.y * basis[1]);
+    let local = SphericalLocalFootprintGeometryV0 {
+        area_km2: canonical_zero(area),
+        centroid_km: canonical_point(radius_km * center),
+        projected_centroid_km: [canonical_zero(centroid_x), canonical_zero(centroid_y)],
+        tangent_covariance_km2: [
+            canonical_zero(covariance_xx),
+            canonical_zero(covariance_xy),
+            canonical_zero(covariance_xy),
+            canonical_zero(covariance_yy),
+        ],
+        equivalent_ellipse_length_km: canonical_zero(4.0 * lambda_1.sqrt()),
+        equivalent_ellipse_width_km: canonical_zero(4.0 * lambda_2.sqrt()),
+        anisotropy,
+        principal_axis,
+        orientation_ambiguous: anisotropy < config.orientation_ambiguity_anisotropy,
+        maximum_angular_radius_rad: canonical_zero(maximum_angular_radius_rad),
+        spherical_nonlocal_warning: maximum_angular_radius_rad
+            > config.spherical_nonlocal_radius_rad,
+    };
+    Ok((
+        SphericalFootprintGeometryV0::Local(local),
+        extent.0,
+        extent.1,
+    ))
+}
+
+fn physical_grades(
     graph: &EvaluationSurfaceGraphV0,
     elevation: &[f64],
     scored_cell: &[bool],
@@ -2290,12 +2694,31 @@ fn planar_grades(
         let mut matrix_yy = 0.0;
         let mut rhs_x = 0.0;
         let mut rhs_y = 0.0;
+        let spherical_basis = match graph.domain {
+            EvaluationDomainV0::Planar => None,
+            EvaluationDomainV0::Spherical { .. } => {
+                Some(spherical_tangent_basis(graph.cell_center_km[cell])?)
+            }
+        };
         for edge in edge_range(&graph.edge_offsets, cell) {
             let neighbor = graph.edge_neighbor[edge] as usize;
             if !scored_cell[neighbor] {
                 continue;
             }
-            let displacement = graph.cell_center_km[neighbor] - graph.cell_center_km[cell];
+            let displacement = match graph.domain {
+                EvaluationDomainV0::Planar => {
+                    let displacement = graph.cell_center_km[neighbor] - graph.cell_center_km[cell];
+                    DVec2::new(displacement.x, displacement.y)
+                }
+                EvaluationDomainV0::Spherical { radius_km } => spherical_log_xy(
+                    graph.cell_center_km[cell],
+                    graph.cell_center_km[neighbor],
+                    radius_km,
+                    spherical_basis.expect("spherical cells have a tangent basis"),
+                    config.linear_rank_relative,
+                )?
+                .ok_or(LandformError::InvalidSphericalGeometry)?,
+            };
             let weight = graph.edge_shared_width_km[edge] / graph.edge_distance_km[edge];
             let dz = elevation[neighbor] - elevation[cell];
             matrix_xx += weight * displacement.x * displacement.x;
@@ -2317,7 +2740,10 @@ fn planar_grades(
             || !smaller.is_finite()
         {
             return Err(LandformError::NonFiniteDerived {
-                measurement: "planar_grade",
+                measurement: match graph.domain {
+                    EvaluationDomainV0::Planar => "planar_grade",
+                    EvaluationDomainV0::Spherical { .. } => "spherical_grade",
+                },
                 cell,
             });
         }
@@ -2327,7 +2753,10 @@ fn planar_grades(
         let determinant = matrix_xx * matrix_yy - matrix_xy * matrix_xy;
         if !determinant.is_finite() || determinant <= 0.0 {
             return Err(LandformError::NonFiniteDerived {
-                measurement: "planar_grade",
+                measurement: match graph.domain {
+                    EvaluationDomainV0::Planar => "planar_grade",
+                    EvaluationDomainV0::Spherical { .. } => "spherical_grade",
+                },
                 cell,
             });
         }
@@ -2336,13 +2765,26 @@ fn planar_grades(
         let grade = canonical_zero(gradient_x.hypot(gradient_y));
         if !grade.is_finite() {
             return Err(LandformError::NonFiniteDerived {
-                measurement: "planar_grade",
+                measurement: match graph.domain {
+                    EvaluationDomainV0::Planar => "planar_grade",
+                    EvaluationDomainV0::Spherical { .. } => "spherical_grade",
+                },
                 cell,
             });
         }
         grades[cell] = Some(grade);
     }
     Ok(grades)
+}
+
+#[cfg(test)]
+fn planar_grades(
+    graph: &EvaluationSurfaceGraphV0,
+    elevation: &[f64],
+    scored_cell: &[bool],
+    config: &SurfaceHierarchyConfigV0,
+) -> Result<Vec<Option<f64>>, LandformError> {
+    physical_grades(graph, elevation, scored_cell, config)
 }
 
 fn point_segment_distance(point: DVec3, endpoints: [DVec3; 2]) -> f64 {
@@ -2353,6 +2795,57 @@ fn point_segment_distance(point: DVec3, endpoints: [DVec3; 2]) -> f64 {
     }
     let t = ((point - endpoints[0]).dot(segment) / length_squared).clamp(0.0, 1.0);
     point.distance(endpoints[0] + t * segment)
+}
+
+fn spherical_angle_rad(a: DVec3, b: DVec3) -> Result<f64, LandformError> {
+    if !a.is_finite() || !b.is_finite() || a.length_squared() == 0.0 || b.length_squared() == 0.0 {
+        return Err(LandformError::InvalidSphericalGeometry);
+    }
+    let (a, b) = (a.normalize(), b.normalize());
+    let angle = a.cross(b).length().atan2(a.dot(b));
+    if !angle.is_finite() {
+        return Err(LandformError::InvalidSphericalGeometry);
+    }
+    Ok(angle)
+}
+
+fn spherical_point_minor_arc_distance_km(
+    point: DVec3,
+    endpoints: [DVec3; 2],
+    radius_km: f64,
+) -> Result<f64, LandformError> {
+    let point = point.normalize();
+    let a = endpoints[0].normalize();
+    let b = endpoints[1].normalize();
+    let cross = a.cross(b);
+    let cross_length = cross.length();
+    let delta = cross_length.atan2(a.dot(b));
+    if !delta.is_finite()
+        || delta <= 0.0
+        || delta >= std::f64::consts::PI
+        || !cross_length.is_finite()
+        || cross_length == 0.0
+        || !radius_km.is_finite()
+        || radius_km <= 0.0
+    {
+        return Err(LandformError::InvalidSphericalGeometry);
+    }
+    let normal = cross / cross_length;
+    let projected = point - point.dot(normal) * normal;
+    let mut minimum = spherical_angle_rad(point, a)?.min(spherical_angle_rad(point, b)?);
+    if projected.length_squared() > 0.0 && projected.is_finite() {
+        let projection = projected.normalize();
+        for candidate in [projection, -projection] {
+            let mut parameter = normal.dot(a.cross(candidate)).atan2(a.dot(candidate));
+            if parameter < 0.0 {
+                parameter += std::f64::consts::TAU;
+            }
+            if parameter <= delta {
+                minimum = minimum.min(spherical_angle_rad(point, candidate)?);
+            }
+        }
+    }
+    Ok(canonical_zero(radius_km * minimum))
 }
 
 struct PlanarReliefFields {
@@ -2497,6 +2990,133 @@ fn planar_relief_fields(
     }
 }
 
+fn spherical_relief_fields(
+    graph: &EvaluationSurfaceGraphV0,
+    elevation: &[f64],
+    scored_cell: &[bool],
+    config: &SurfaceHierarchyConfigV0,
+    query_cells: &[u32],
+) -> Result<PlanarReliefFields, LandformError> {
+    let EvaluationDomainV0::Spherical { radius_km } = graph.domain else {
+        return Err(LandformError::UnsupportedDomain);
+    };
+    let maximum_radius = *config.local_relief_radii_km.last().unwrap();
+    let bucket_size = maximum_radius;
+    let bucket_key = |point: DVec3| {
+        (
+            (point.x / bucket_size).floor() as i64,
+            (point.y / bucket_size).floor() as i64,
+            (point.z / bucket_size).floor() as i64,
+        )
+    };
+    let mut center_buckets = HashMap::<(i64, i64, i64), Vec<usize>>::new();
+    for (cell, &scored) in scored_cell.iter().enumerate() {
+        if scored {
+            center_buckets
+                .entry(bucket_key(graph.cell_center_km[cell]))
+                .or_default()
+                .push(cell);
+        }
+    }
+
+    let scored_boundaries = graph
+        .boundary_segments
+        .iter()
+        .map(|segment| segment.endpoints_km)
+        .chain((0..graph.cell_count()).flat_map(|cell| {
+            edge_range(&graph.edge_offsets, cell).filter_map(move |edge| {
+                let neighbor = graph.edge_neighbor[edge] as usize;
+                (scored_cell[cell] && !scored_cell[neighbor])
+                    .then_some(graph.edge_face_endpoints_km[edge])
+            })
+        }))
+        .collect::<Vec<_>>();
+    let mut maximum_boundary_half_width = 0.0_f64;
+    let mut boundary_buckets = HashMap::<(i64, i64, i64), Vec<[DVec3; 2]>>::new();
+    for endpoints in scored_boundaries {
+        let midpoint_direction = endpoints[0].normalize() + endpoints[1].normalize();
+        if !midpoint_direction.is_finite() || midpoint_direction.length_squared() == 0.0 {
+            return Err(LandformError::InvalidSphericalGeometry);
+        }
+        let midpoint = radius_km * midpoint_direction.normalize();
+        let half_width = 0.5 * radius_km * spherical_angle_rad(endpoints[0], endpoints[1])?;
+        maximum_boundary_half_width = maximum_boundary_half_width.max(half_width);
+        boundary_buckets
+            .entry(bucket_key(midpoint))
+            .or_default()
+            .push(endpoints);
+    }
+    let mut relief_by_radius =
+        vec![vec![None; graph.cell_count()]; config.local_relief_radii_km.len()];
+    let mut truncated_by_radius =
+        vec![vec![false; graph.cell_count()]; config.local_relief_radii_km.len()];
+    let center_reach = (maximum_radius / bucket_size).ceil() as i64 + 1;
+    let boundary_reach =
+        ((maximum_radius + maximum_boundary_half_width) / bucket_size).ceil() as i64 + 1;
+    for &cell_u32 in query_cells {
+        let cell = cell_u32 as usize;
+        debug_assert!(scored_cell[cell]);
+        let center = graph.cell_center_km[cell];
+        let key = bucket_key(center);
+        let mut minimum = vec![f64::INFINITY; config.local_relief_radii_km.len()];
+        let mut maximum = vec![f64::NEG_INFINITY; config.local_relief_radii_km.len()];
+        for bx in key.0 - center_reach..=key.0 + center_reach {
+            for by in key.1 - center_reach..=key.1 + center_reach {
+                for bz in key.2 - center_reach..=key.2 + center_reach {
+                    let Some(candidates) = center_buckets.get(&(bx, by, bz)) else {
+                        continue;
+                    };
+                    for &candidate in candidates {
+                        let distance = radius_km
+                            * spherical_angle_rad(center, graph.cell_center_km[candidate])?;
+                        for (radius_index, &radius) in
+                            config.local_relief_radii_km.iter().enumerate()
+                        {
+                            if distance <= radius {
+                                minimum[radius_index] =
+                                    minimum[radius_index].min(elevation[candidate]);
+                                maximum[radius_index] =
+                                    maximum[radius_index].max(elevation[candidate]);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let mut boundary_distance = f64::INFINITY;
+        for bx in key.0 - boundary_reach..=key.0 + boundary_reach {
+            for by in key.1 - boundary_reach..=key.1 + boundary_reach {
+                for bz in key.2 - boundary_reach..=key.2 + boundary_reach {
+                    let Some(segments) = boundary_buckets.get(&(bx, by, bz)) else {
+                        continue;
+                    };
+                    for &endpoints in segments {
+                        boundary_distance = boundary_distance.min(
+                            spherical_point_minor_arc_distance_km(center, endpoints, radius_km)?,
+                        );
+                    }
+                }
+            }
+        }
+        for (radius_index, &radius) in config.local_relief_radii_km.iter().enumerate() {
+            if !minimum[radius_index].is_finite() || !maximum[radius_index].is_finite() {
+                return Err(LandformError::NonFiniteDerived {
+                    measurement: "spherical_relief",
+                    cell,
+                });
+            }
+            relief_by_radius[radius_index][cell] = Some(canonical_zero(
+                maximum[radius_index] - minimum[radius_index],
+            ));
+            truncated_by_radius[radius_index][cell] = boundary_distance <= radius;
+        }
+    }
+    Ok(PlanarReliefFields {
+        relief_by_radius,
+        truncated_by_radius,
+    })
+}
+
 fn weighted_quantile(mut values: Vec<(f64, u32, f64)>, fraction: f64) -> f64 {
     values.sort_by(|a, b| a.0.total_cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
     let target = fraction * values.iter().map(|value| value.2).sum::<f64>();
@@ -2573,32 +3193,28 @@ fn build_reference_highlands(
     peaks: &[PeakBranchV0],
     reference: &[u32],
 ) -> Result<Vec<HighlandFeatureV0>, LandformError> {
-    if matches!(graph.domain, EvaluationDomainV0::Spherical { .. }) {
-        return Ok(reference
-            .iter()
-            .map(|&peak_id| HighlandFeatureV0 {
-                peak_id,
-                measurements: HighlandMeasurementsV0::SphericalUnavailable,
-            })
-            .collect());
-    }
     if reference.is_empty() {
         return Ok(Vec::new());
     }
-    let grades = planar_grades(graph, elevation, scored_cell, config)?;
+    let grades = physical_grades(graph, elevation, scored_cell, config)?;
     let measured_cells = reference
         .iter()
         .flat_map(|&peak_id| peaks[peak_id as usize].footprint_members.iter().copied())
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect::<Vec<_>>();
-    let relief = planar_relief_fields(graph, elevation, scored_cell, config, &measured_cells);
+    let relief = match graph.domain {
+        EvaluationDomainV0::Planar => {
+            planar_relief_fields(graph, elevation, scored_cell, config, &measured_cells)
+        }
+        EvaluationDomainV0::Spherical { .. } => {
+            spherical_relief_fields(graph, elevation, scored_cell, config, &measured_cells)?
+        }
+    };
     reference
         .iter()
         .map(|&peak_id| {
             let peak = &peaks[peak_id as usize];
-            let footprint_geometry =
-                measure_planar_footprint(graph, &peak.footprint_members, config, peak_id as usize)?;
             let local_relief = config
                 .local_relief_radii_km
                 .iter()
@@ -2637,16 +3253,42 @@ fn build_reference_highlands(
                 .filter(|&cell| grades[cell as usize].is_none())
                 .collect();
             let summit_caps = summit_cap_summaries(graph, elevation, &grades, peak, config);
-            Ok(HighlandFeatureV0 {
-                peak_id,
-                measurements: HighlandMeasurementsV0::Planar(Box::new(
-                    PlanarHighlandMeasurementsV0 {
+            let measurements = match graph.domain {
+                EvaluationDomainV0::Planar => {
+                    let footprint_geometry = measure_planar_footprint(
+                        graph,
+                        &peak.footprint_members,
+                        config,
+                        peak_id as usize,
+                    )?;
+                    HighlandMeasurementsV0::Planar(Box::new(PlanarHighlandMeasurementsV0 {
                         footprint_geometry,
                         local_relief,
                         rank_deficient_grade_cells,
                         summit_caps,
-                    },
-                )),
+                    }))
+                }
+                EvaluationDomainV0::Spherical { .. } => {
+                    let (footprint_geometry, two_sweep_extent_km, mean_width_km) =
+                        measure_spherical_footprint(
+                            graph,
+                            &peak.footprint_members,
+                            config,
+                            peak_id as usize,
+                        )?;
+                    HighlandMeasurementsV0::Spherical(Box::new(SphericalHighlandMeasurementsV0 {
+                        footprint_geometry,
+                        two_sweep_extent_km,
+                        mean_width_km,
+                        local_relief,
+                        rank_deficient_grade_cells,
+                        summit_caps,
+                    }))
+                }
+            };
+            Ok(HighlandFeatureV0 {
+                peak_id,
+                measurements,
             })
         })
         .collect()
@@ -2691,6 +3333,10 @@ fn fnv1a64(bytes: &[u8]) -> u64 {
 #[cfg(test)]
 #[path = "landforms/analytic_tests.rs"]
 mod analytic_tests;
+
+#[cfg(test)]
+#[path = "landforms/spherical_tests.rs"]
+mod spherical_tests;
 
 #[cfg(test)]
 mod tests {
@@ -3601,13 +4247,13 @@ mod tests {
     }
 
     #[test]
-    fn spherical_builder_remains_unavailable_after_independent_g0() {
+    fn spherical_builder_rejects_relabelled_planar_geometry() {
         let config = SurfaceHierarchyConfigV0::default();
         let mut graph = chain_graph(2, 60.0);
         graph.domain = EvaluationDomainV0::Spherical { radius_km: 6371.0 };
         assert_eq!(
             build_surface_hierarchy_v0(&graph, &[2.0, 1.0], &[true; 2], config),
-            Err(LandformError::UnsupportedDomain)
+            Err(LandformError::InvalidSphericalGeometry)
         );
     }
 

@@ -1,9 +1,9 @@
 # Landform object packet G0/S0 executable contract
 
 **Date:** 2026-07-14  
-**Status:** evaluated partial pass; planar G0/S0 and analytic 8/4/2 pass;
-product-spherical and projected-cap G0 adapters pass; spherical S0/morphology
-remains rejected
+**Status:** manufactured G0/S0 pass; planar analytic 8/4/2, product-spherical
+and projected-cap G0 adapters, and synthetic-sphere S0/morphology pass; product
+landforms remain unobserved
 **Parent:** [Landform object packet v0](landform-object-packet-v0-2026-07-14.md)
 
 ## Preregistered amendment A: regular-hex width quantization
@@ -394,8 +394,11 @@ and the [analytic audit](../audits/landform-g0s0-planar-analytic-2026-07-14.md).
 The independent product-spherical and projected irregular-cap G0 adapters also
 pass their physical-geometry and adversarial checks, recorded in the
 [geometry-adapter audit](../audits/landform-g0-geometry-adapters-2026-07-14.md).
-This completes the common G0 geometry seam only. Spherical S0 and morphology
-remain explicitly unavailable, and no H/C/G surface has been observed.
+The preregistered spherical S0 seam now also passes its bounded synthetic-sphere
+fixtures, recorded in the
+[spherical morphology audit](../audits/landform-g0s0-spherical-morphology-2026-07-14.md).
+This completes the manufactured G0/S0 checkpoint. Product elevation and
+landforms remain uninspected, and no H/C/G surface has been observed.
 
 This rung asks whether a final authoritative surface contains stable regional
 highland organization. It does not reward deeper physics, infer terrain from

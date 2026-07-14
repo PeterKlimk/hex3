@@ -40,8 +40,9 @@ explicit control-volume faces, canonical hashes, simultaneous equal-level
 saddle events, nested footprints, physical polygon moments, fixed-radius
 relief, least-squares grade and summit-cap evidence. Review also forced native
 operator geometry validation, fatal numerical-error semantics and explicit
-rejection of spherical S0 inputs. This is not the full rung: spherical S0 and
-morphology remain unavailable before D0 or any H/C/G arm.
+rejection of spherical S0 inputs before its contract was operationalized. At
+that checkpoint spherical S0 remained deliberately unavailable pending a
+separate preregistered amendment.
 
 Pre-execution review of the 8/4/2 matrix found that its mesh phase, sampling
 rule, one-hill and rectangle were not actually frozen. It also rejected strict
@@ -78,14 +79,19 @@ The 8 km projected product-Voronoi cap retains exact directed source endpoints
 and native finite-volume measures after explicit closure checks. Focused
 off-radius, reversed-winding, invented-adjacency, corrupted-measure and moved-
 endpoint tests reject as intended. This completes G0 geometry only: spherical
-S0/morphology stays rejected and no product landform or H/C/G inference exists.
+S0/morphology was still rejected at that checkpoint, and no product landform
+or H/C/G inference existed.
 
 Preregistered amendment F now operationalizes the bounded spherical S0 seam:
 polygon-centroid resultants, a deterministic tangent frame, azimuthal-
 equidistant moments, global signless orientation, tangent least-squares grade,
-great-circle relief and exact point-to-minor-arc truncation. The active task is
-manufactured implementation on a rescaled synthetic sphere. Product elevation
-remains unseen until those checks pass.
+great-circle relief and exact point-to-minor-arc truncation. Its
+[manufactured checkpoint](audits/landform-g0s0-spherical-morphology-2026-07-14.md)
+now passes on a 100 km-radius, 2,048-cell synthetic sphere: the local cap runs
+end to end, bucketed relief matches brute force, grade/orientation/arc distance
+are rotation-covariant, and `NonLocalGeometry` preserves other evidence.
+Product elevation remains unseen; no product landform or H/C/G inference
+exists.
 
 The seed-12345 mountain ancestry remains the strongest current causal example.
 Human review found long, flat-topped tablelands—“a giant long Uluru”—rather
