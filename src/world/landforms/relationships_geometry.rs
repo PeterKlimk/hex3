@@ -439,6 +439,8 @@ fn canonical_graph_hash(graph: &EvaluationSurfaceGraphV0) -> Result<u64, Relatio
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::*;
     use crate::world::landforms::{
         adapt_landscape_graph_v0, build_regular_hex_control_volumes_v0,
@@ -448,6 +450,27 @@ mod tests {
 
     fn point(x: f64, y: f64) -> DVec3 {
         DVec3::new(x, y, 0.0)
+    }
+
+    fn ordered_float_bits(value: f64) -> u64 {
+        let bits = value.to_bits();
+        if bits & (1 << 63) == 0 {
+            bits | (1 << 63)
+        } else {
+            !bits
+        }
+    }
+
+    fn endpoint_record(endpoints: [DVec3; 2]) -> [[u64; 3]; 2] {
+        let mut points = endpoints.map(|point| {
+            [
+                ordered_float_bits(point.x),
+                ordered_float_bits(point.y),
+                ordered_float_bits(point.z),
+            ]
+        });
+        points.sort();
+        points
     }
 
     fn graph(
@@ -534,6 +557,42 @@ mod tests {
         .unwrap();
         let graph_hash = canonical_graph_hash(&graph).unwrap();
         validate_projected_r1_voronoi_cap_identity_v0(&graph, graph_hash).unwrap();
+
+        // Geometry-only unique backing: enumerate each reciprocal internal
+        // face once and require a bijection between its unordered cell pair
+        // and its coordinate-canonical stored endpoint record. This makes no
+        // claim about drainage ownership or face role.
+        let mut endpoint_to_cells = BTreeMap::<[[u64; 3]; 2], [u32; 2]>::new();
+        let mut cells_to_endpoint = BTreeMap::<[u32; 2], [[u64; 3]; 2]>::new();
+        let mut physical_face_count = 0usize;
+        for cell in 0..graph.cell_count() {
+            let start = graph.edge_offsets[cell] as usize;
+            let end = graph.edge_offsets[cell + 1] as usize;
+            for edge in start..end {
+                let reciprocal = graph.edge_reciprocal[edge] as usize;
+                if edge > reciprocal {
+                    continue;
+                }
+                let neighbor = graph.edge_neighbor[edge];
+                assert_eq!(graph.edge_neighbor[reciprocal], cell as u32);
+                assert_eq!(graph.edge_reciprocal[reciprocal] as usize, edge);
+                assert_eq!(
+                    graph.edge_face_endpoints_km[edge],
+                    [
+                        graph.edge_face_endpoints_km[reciprocal][1],
+                        graph.edge_face_endpoints_km[reciprocal][0],
+                    ]
+                );
+                let mut cells = [cell as u32, neighbor];
+                cells.sort();
+                let endpoints = endpoint_record(graph.edge_face_endpoints_km[edge]);
+                assert_eq!(endpoint_to_cells.insert(endpoints, cells), None);
+                assert_eq!(cells_to_endpoint.insert(cells, endpoints), None);
+                physical_face_count += 1;
+            }
+        }
+        assert_eq!(2 * physical_face_count, graph.edge_neighbor.len());
+        assert_eq!(endpoint_to_cells.len(), cells_to_endpoint.len());
     }
 
     #[test]

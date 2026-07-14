@@ -2597,7 +2597,7 @@ fn endpoints_cmp(a: [DVec3; 2], b: [DVec3; 2]) -> Ordering {
 mod tests {
     use super::*;
     use crate::world::landforms::{adapt_landscape_graph_v0, build_regular_hex_control_volumes_v0};
-    use crate::world::landscape::LandscapeMesh;
+    use crate::world::landscape::{BoundarySide, LandscapeMesh, OutletPortal, OutletPortalId};
 
     fn regular_graph(spacing: f64) -> EvaluationSurfaceGraphV0 {
         let config = SurfaceHierarchyConfigV0::default();
@@ -3739,5 +3739,434 @@ mod tests {
             );
             assert_section_evidence_by_coordinates(&base, &remapped);
         }
+    }
+
+    fn y_network_cost(point: DVec3, start: DVec3, end: DVec3, offset: f64) -> f64 {
+        let segment = end - start;
+        let fraction = ((point - start).dot(segment) / segment.length_squared()).clamp(0.0, 1.0);
+        let projection = start + fraction * segment;
+        offset + fraction * segment.length() + 2.0 * point.distance(projection)
+    }
+
+    fn exhaustive_locate(graph: &EvaluationSurfaceGraphV0, point: DVec3) -> Option<usize> {
+        (0..graph.cell_count())
+            .filter(|&cell| polygon_contains(graph.polygon(cell), point.truncate()))
+            .min_by(|&a, &b| point_cmp(graph.cell_center_km[a], graph.cell_center_km[b]))
+    }
+
+    #[test]
+    fn asymmetric_y_packet_index_matches_exhaustive_oracles_and_backs_every_raw_face() {
+        let spacing = 4.0;
+        let portal = OutletPortal {
+            id: OutletPortalId(23),
+            side: BoundarySide::South,
+            span_start_km: -1.0,
+            span_end_km: 1.0,
+            base_level_km: 0.0,
+        };
+        let mesh = LandscapeMesh::uniform_planar_hex_with_portals(
+            128.0,
+            96.0,
+            spacing,
+            std::slice::from_ref(&portal),
+        )
+        .unwrap();
+        let surface_config = SurfaceHierarchyConfigV0::default();
+        let controls = build_regular_hex_control_volumes_v0(&mesh, &surface_config).unwrap();
+        let graph = adapt_landscape_graph_v0(&mesh, &controls, &surface_config).unwrap();
+        let outlet = DVec3::new(0.0, -48.0, 0.0);
+        let junction = DVec3::ZERO;
+        let left_head = DVec3::new(-48.0, 48.0, 0.0);
+        let right_head = DVec3::new(48.0, 48.0, 0.0);
+        let trunk_length = outlet.distance(junction);
+        let elevation: Vec<_> = graph
+            .cell_center_km
+            .iter()
+            .map(|&point| {
+                0.01 * y_network_cost(point, outlet, junction, 0.0)
+                    .min(y_network_cost(point, junction, left_head, trunk_length))
+                    .min(y_network_cost(point, junction, right_head, trunk_length))
+            })
+            .collect();
+        let scored = vec![true; graph.cell_count()];
+        let runoff: Vec<_> = graph
+            .cell_area_km2
+            .iter()
+            .zip(&graph.cell_center_km)
+            .map(|(&area, center)| 0.3 * (1.0 + 0.002 * center.x) * area)
+            .collect();
+        let drainage_config = DrainageConfigV0::default();
+        let hierarchy =
+            super::super::build_surface_hierarchy_v0(&graph, &elevation, &scored, surface_config)
+                .unwrap();
+        let drainage = super::super::build_evaluation_drainage_v0(
+            &graph,
+            &elevation,
+            &runoff,
+            drainage_config,
+        )
+        .unwrap();
+        let packet = build_landform_relationships_v0(
+            &graph,
+            &elevation,
+            &scored,
+            &runoff,
+            surface_config,
+            drainage_config,
+            &hierarchy,
+            &drainage,
+            PacketGeometryIdentityV0::LandscapeRegularPlanar {
+                nominal_spacing_km: spacing,
+                canonical_graph_hash: relationship_graph_hash_v0(&graph).unwrap(),
+            },
+            LandformRelationshipConfigV0::default(),
+        )
+        .unwrap();
+        let scale = drainage
+            .scales
+            .iter()
+            .find(|scale| scale.support_threshold_km2 == REFERENCE_REACH_SUPPORT_KM2)
+            .unwrap();
+        assert_eq!(
+            packet.backed_boundary_faces.len(),
+            scale.basin_graph.raw_catchment_boundaries.len()
+        );
+        for raw in &scale.basin_graph.raw_catchment_boundaries {
+            let backing_count = packet
+                .backed_boundary_faces
+                .iter()
+                .filter(|face| {
+                    face.owners == raw.owners
+                        && face.endpoints_km == raw.endpoints_km
+                        && face.physical_length_km == raw.physical_length_km
+                })
+                .count();
+            assert_eq!(backing_count, 1);
+        }
+
+        let index = RelationshipSpatialIndex::build(&graph, &packet.backed_boundary_faces).unwrap();
+        for &point in &graph.cell_center_km {
+            assert_eq!(
+                index.locate_cell(&graph, point),
+                exhaustive_locate(&graph, point)
+            );
+        }
+        for probe in &packet.reach_cross_section_probes {
+            for station in &probe.stations {
+                assert_eq!(
+                    index.locate_cell(&graph, station.axis_point_km),
+                    exhaustive_locate(&graph, station.axis_point_km)
+                );
+                for sample in station.left.samples.iter().chain(&station.right.samples) {
+                    assert_eq!(
+                        index.locate_cell(&graph, sample.point_km),
+                        exhaustive_locate(&graph, sample.point_km)
+                    );
+                }
+                let left_normal = DVec3::new(-station.tangent.y, station.tangent.x, 0.0);
+                for normal in [left_normal, -left_normal] {
+                    let support = packet.config.cross_section_half_length_km;
+                    let indexed_hits: BTreeSet<_> = index
+                        .ray_face_candidates(
+                            station.axis_point_km,
+                            station.axis_point_km + support * normal,
+                        )
+                        .into_iter()
+                        .filter(|&face| {
+                            supported_ray_intersection(
+                                ray_segment_intersection(
+                                    station.axis_point_km,
+                                    normal,
+                                    index.physical_faces[face].endpoints_km,
+                                ),
+                                support,
+                            )
+                            .is_some()
+                        })
+                        .collect();
+                    let exhaustive_hits: BTreeSet<_> = index
+                        .physical_faces
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(face, record)| {
+                            supported_ray_intersection(
+                                ray_segment_intersection(
+                                    station.axis_point_km,
+                                    normal,
+                                    record.endpoints_km,
+                                ),
+                                support,
+                            )
+                            .is_some()
+                            .then_some(face)
+                        })
+                        .collect();
+                    assert_eq!(indexed_hits, exhaustive_hits);
+                }
+            }
+        }
+    }
+
+    fn kernel_routing(receiver: Vec<DrainageReceiverV0>) -> super::super::DrainageRoutingV0 {
+        let n = receiver.len();
+        super::super::DrainageRoutingV0 {
+            receiver,
+            filled_elevation_km: vec![0.0; n],
+            flat_potential: vec![0; n],
+            structural_area_km2: vec![1.0; n],
+            supplied_runoff: vec![1.0; n],
+            outlet_portal_id: vec![1; n],
+            segment_length_km: vec![1.0; n],
+            fill_supported: vec![false; n],
+            flat_supported: vec![false; n],
+            physically_non_descending: vec![false; n],
+            portal_ledgers: Vec::new(),
+            structural_area_residual_km2: 0.0,
+            supplied_runoff_residual: 0.0,
+        }
+    }
+
+    fn kernel_drainage(receiver: Vec<DrainageReceiverV0>) -> EvaluationDrainageV0 {
+        EvaluationDrainageV0 {
+            schema_version: D0_SCHEMA_VERSION.into(),
+            hash_version: D0_HASH_VERSION.into(),
+            routing: kernel_routing(receiver),
+            depressions: Vec::new(),
+            scales: Vec::new(),
+            derived_evidence_hash: 0,
+        }
+    }
+
+    fn kernel_reach(
+        id: u32,
+        cells: Vec<u32>,
+        downstream_reach: Option<u32>,
+        terminal_portal_id: Option<u32>,
+    ) -> super::super::RiverReachV0 {
+        super::super::RiverReachV0 {
+            id,
+            cells,
+            upstream_reaches: Vec::new(),
+            downstream_reach,
+            terminal_portal_id,
+            outlet_portal_id: 1,
+            physical_length_km: 1.0,
+            head_structural_area_km2: 1.0,
+            tail_structural_area_km2: 1.0,
+            head_supplied_runoff: 1.0,
+            tail_supplied_runoff: 1.0,
+            strahler_order: 1,
+            fill_supported_segment_count: 0,
+            fill_supported_length_km: 0.0,
+            flat_supported_segment_count: 0,
+            flat_supported_length_km: 0.0,
+            physically_non_descending_segment_count: 0,
+            physically_non_descending_length_km: 0.0,
+        }
+    }
+
+    fn kernel_scale(
+        owners: Vec<IncrementalCatchmentOwnerV0>,
+        cell_reach: Vec<Option<u32>>,
+        reaches: Vec<super::super::RiverReachV0>,
+    ) -> super::super::DrainageScaleV0 {
+        super::super::DrainageScaleV0 {
+            support_threshold_km2: REFERENCE_REACH_SUPPORT_KM2,
+            basin_graph: super::super::DrainageBasinGraphV0 {
+                catchments: Vec::new(),
+                exclusive_owner: owners,
+                raw_catchment_boundaries: Vec::new(),
+            },
+            reach_graph: super::super::RiverReachGraphV0 {
+                cell_reach,
+                reaches,
+                portal_roles: Vec::new(),
+            },
+        }
+    }
+
+    #[test]
+    fn malformed_relationship_kernels_return_typed_errors() {
+        let centers = vec![
+            DVec3::new(-2.0, 0.0, 0.0),
+            DVec3::new(-1.0, 0.0, 0.0),
+            DVec3::new(1.0, 0.0, 0.0),
+            DVec3::new(2.0, 0.0, 0.0),
+        ];
+        let face = [DVec3::new(0.0, -0.5, 0.0), DVec3::new(0.0, 0.5, 0.0)];
+        let graph = kernel_graph(
+            centers.clone(),
+            centers.iter().map(|&center| square(center, 0.4)).collect(),
+            vec![0, 1, 2, 3, 4],
+            vec![1, 0, 3, 2],
+            vec![1, 0, 3, 2],
+            vec![face, [face[1], face[0]], face, [face[1], face[0]]],
+            vec![1.0; 4],
+        );
+        let owners = vec![
+            IncrementalCatchmentOwnerV0::Reach(0),
+            IncrementalCatchmentOwnerV0::Reach(1),
+            IncrementalCatchmentOwnerV0::Reach(0),
+            IncrementalCatchmentOwnerV0::Reach(1),
+        ];
+        let raw = vec![
+            RawCatchmentBoundaryFaceV0 {
+                owners: [owners[0], owners[1]],
+                endpoints_km: face,
+                physical_length_km: 1.0,
+            };
+            2
+        ];
+        let receivers = vec![
+            DrainageReceiverV0::Portal {
+                boundary_segment: 0,
+                portal_id: 1,
+            };
+            4
+        ];
+        assert_eq!(
+            back_boundary_faces(&graph, &[1.0; 4], &receivers, &owners, &raw, &|_, _| {
+                OwnerAncestryV0::Incomparable
+            },),
+            Err(RelationshipErrorV0::AmbiguousBoundaryBacking)
+        );
+
+        let missing = kernel_scale(
+            Vec::new(),
+            Vec::new(),
+            vec![kernel_reach(0, vec![0], None, None)],
+        );
+        assert_eq!(
+            reach_parent_table(&missing),
+            Err(RelationshipErrorV0::MissingOwnerAncestry(
+                IncrementalCatchmentOwnerV0::Reach(0)
+            ))
+        );
+        let cycle = kernel_scale(
+            Vec::new(),
+            Vec::new(),
+            vec![
+                kernel_reach(0, vec![0], Some(1), None),
+                kernel_reach(1, vec![1], Some(0), None),
+            ],
+        );
+        assert_eq!(
+            reach_parent_table(&cycle),
+            Err(RelationshipErrorV0::ReceiverCycle)
+        );
+
+        let one_center = vec![DVec3::ZERO];
+        let one_graph = kernel_graph(
+            one_center.clone(),
+            vec![square(DVec3::ZERO, 1.0)],
+            vec![0, 0],
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        );
+        let inconsistent_drainage = kernel_drainage(vec![DrainageReceiverV0::Portal {
+            boundary_segment: 0,
+            portal_id: 1,
+        }]);
+        let inconsistent_scale = kernel_scale(
+            vec![IncrementalCatchmentOwnerV0::Reach(0)],
+            vec![None],
+            Vec::new(),
+        );
+        assert!(matches!(
+            trace_summaries(
+                &one_graph,
+                &[1.0],
+                &inconsistent_drainage,
+                &inconsistent_scale
+            ),
+            Err(RelationshipErrorV0::InconsistentReceiverTarget { cell: 0 })
+        ));
+
+        let self_receiver = DrainageReceiverV0::Cell {
+            cell: 0,
+            directed_edge: 0,
+        };
+        let degenerate_drainage = kernel_drainage(vec![self_receiver]);
+        let degenerate_scale = kernel_scale(
+            vec![IncrementalCatchmentOwnerV0::Reach(0)],
+            vec![Some(0)],
+            vec![kernel_reach(0, vec![0], None, Some(1))],
+        );
+        let index = RelationshipSpatialIndex::build(&one_graph, &[]).unwrap();
+        assert!(matches!(
+            reach_probes(
+                &one_graph,
+                &[1.0],
+                &degenerate_drainage,
+                &degenerate_scale,
+                &[],
+                &[None],
+                &index,
+                LandformRelationshipConfigV0::default(),
+            ),
+            Err(RelationshipErrorV0::DegenerateReachPolyline { reach_id: 0 })
+        ));
+
+        let line_centers = vec![DVec3::ZERO, DVec3::new(20.0, 0.0, 0.0)];
+        let line_graph = kernel_graph(
+            line_centers,
+            vec![
+                vec![
+                    DVec3::new(-10.0, -1.0, 0.0),
+                    DVec3::new(10.0, -1.0, 0.0),
+                    DVec3::new(10.0, 1.0, 0.0),
+                    DVec3::new(-10.0, 1.0, 0.0),
+                ],
+                vec![
+                    DVec3::new(10.0, -1.0, 0.0),
+                    DVec3::new(30.0, -1.0, 0.0),
+                    DVec3::new(30.0, 1.0, 0.0),
+                    DVec3::new(10.0, 1.0, 0.0),
+                ],
+            ],
+            vec![0, 0, 0],
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        );
+        let loop_drainage = kernel_drainage(vec![
+            DrainageReceiverV0::Cell {
+                cell: 1,
+                directed_edge: 0,
+            },
+            DrainageReceiverV0::Cell {
+                cell: 0,
+                directed_edge: 0,
+            },
+        ]);
+        let loop_scale = kernel_scale(
+            vec![
+                IncrementalCatchmentOwnerV0::Reach(0),
+                IncrementalCatchmentOwnerV0::Reach(0),
+            ],
+            vec![Some(0), Some(0)],
+            vec![kernel_reach(0, vec![0, 1], None, Some(1))],
+        );
+        let loop_index = RelationshipSpatialIndex::build(&line_graph, &[]).unwrap();
+        let tangent_config = LandformRelationshipConfigV0 {
+            station_spacing_km: 40.0,
+            ..LandformRelationshipConfigV0::default()
+        };
+        assert!(matches!(
+            reach_probes(
+                &line_graph,
+                &[1.0, 1.0],
+                &loop_drainage,
+                &loop_scale,
+                &[],
+                &[None],
+                &loop_index,
+                tangent_config,
+            ),
+            Err(RelationshipErrorV0::InvalidCrossSectionTangent { reach_id: 0 })
+        ));
     }
 }

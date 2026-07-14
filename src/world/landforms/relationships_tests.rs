@@ -483,27 +483,41 @@ fn o0a_registered_one_factor_sensitivities_are_separate_from_reference() {
     assert_eq!(namespaces.len(), 11);
 }
 
+fn run_asymmetric_y_isolated_cost_probe(spacing_km: f64) {
+    // Fixture construction includes G0, S0 and D0 and intentionally occurs
+    // before the isolated O0a timer starts.
+    let fixture = asymmetric_y_fixture(spacing_km);
+    let start = std::time::Instant::now();
+    let relationships =
+        build_relationships(&fixture, LandformRelationshipConfigV0::default()).unwrap();
+    let elapsed = start.elapsed();
+    eprintln!(
+        "O0a isolated asymmetric-Y: spacing_km={spacing_km}, cells={}, raw_faces={}, trace_segments={}, stations={}, regular_samples={}, candidate_tests={}, elapsed={elapsed:?}",
+        fixture.graph.cell_count(),
+        relationships.work_counts.raw_boundary_faces,
+        relationships.work_counts.receiver_trace_segments,
+        relationships.work_counts.reach_stations,
+        relationships.work_counts.regular_cross_section_samples,
+        relationships.work_counts.candidate_face_tests,
+    );
+}
+
 #[test]
-#[ignore = "isolated O0a cost probe; run explicitly for dated audit evidence"]
-fn o0a_asymmetric_y_isolated_cost_probe_at_8_4_2_km() {
-    for spacing_km in [8.0, 4.0, 2.0] {
-        // Fixture construction includes G0, S0 and D0 and intentionally occurs
-        // before the isolated O0a timer starts.
-        let fixture = asymmetric_y_fixture(spacing_km);
-        let start = std::time::Instant::now();
-        let relationships =
-            build_relationships(&fixture, LandformRelationshipConfigV0::default()).unwrap();
-        let elapsed = start.elapsed();
-        eprintln!(
-            "O0a isolated asymmetric-Y: spacing_km={spacing_km}, cells={}, raw_faces={}, trace_segments={}, stations={}, regular_samples={}, candidate_tests={}, elapsed={elapsed:?}",
-            fixture.graph.cell_count(),
-            relationships.work_counts.raw_boundary_faces,
-            relationships.work_counts.receiver_trace_segments,
-            relationships.work_counts.reach_stations,
-            relationships.work_counts.regular_cross_section_samples,
-            relationships.work_counts.candidate_face_tests,
-        );
-    }
+#[ignore = "isolated 8 km O0a cost probe; run explicitly for dated audit evidence"]
+fn o0a_asymmetric_y_isolated_cost_probe_8_km() {
+    run_asymmetric_y_isolated_cost_probe(8.0);
+}
+
+#[test]
+#[ignore = "isolated 4 km O0a cost probe; run explicitly for dated audit evidence"]
+fn o0a_asymmetric_y_isolated_cost_probe_4_km() {
+    run_asymmetric_y_isolated_cost_probe(4.0);
+}
+
+#[test]
+#[ignore = "isolated 2 km O0a cost probe; run explicitly for dated audit evidence"]
+fn o0a_asymmetric_y_isolated_cost_probe_2_km() {
+    run_asymmetric_y_isolated_cost_probe(2.0);
 }
 
 fn compensated_test_sum(values: impl IntoIterator<Item = f64>) -> f64 {
