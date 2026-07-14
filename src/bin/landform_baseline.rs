@@ -330,7 +330,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         .ok_or("frozen run did not retain the stage-4 surface")?;
     let g0_start = Instant::now();
     let fine_graph = adapt_product_tessellation_graph_v0(&fine.base.tessellation, &config)
-        .map_err(|error| format!("fine G0 adaptation failed: {error:?}"))?;
+        .map_err(|error| {
+            format!(
+                "fine G0 adaptation failed: {error:?}; Voronoi backend report: {:?}",
+                fine.base.tessellation.voronoi_backend_report
+            )
+        })?;
     let fine_g0_seconds = g0_start.elapsed().as_secs_f64();
 
     let raw_stage4: Vec<f32> = (0..fine.base.tessellation.num_cells())
