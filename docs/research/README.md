@@ -16,8 +16,11 @@ Current synthesized notes:
 - [Landform G0/S0 executable contract](landform-object-packet-g0s0-2026-07-14.md)
   — frozen common graph, split-tree, physical morphology, neutrality and
   8/4/2 manufactured gates for the first evidence-packet implementation rung;
-  planar structure, unit morphology and analytic 8/4/2 gates pass, while
-  spherical/product and adversarial closure remain incomplete.
+  manufactured planar/spherical gates and the first 250k product observation
+  now pass.
+- [Landform D0 executable contract](landform-object-packet-d0-2026-07-15.md)
+  — preregistered arm-neutral portal-fill receiver forest, conditioning debt,
+  basin/reach/boundary evidence and manufactured gates; not yet implemented.
 - [Correspondence priors for reduced planet models](correspondence-priors-2026-07-12.md)
 - [Orogen organization: causal reference and reduced experiments](orogen-organization-2026-07-12.md)
 - [Mountain-system design basis](mountain-system-design-basis-2026-07-13.md)

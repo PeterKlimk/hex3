@@ -273,8 +273,10 @@ ordering, retention and tie rules before code is written. This keeps the
 instrument independent of all three arms and lets object definitions fail on
 manufactured surfaces before they are exposed to competitive output.
 The first such executable checkpoint, [G0/S0](research/landform-object-packet-g0s0-2026-07-14.md),
-now freezes the physical graph and surface split-forest rung. It remains
-unevaluated and does not promote its definitions or any terrain arm.
+now passes its manufactured planar/spherical gates and the unchanged 250k
+product observation. This validates the common physical graph, split forest and
+morphology evidence, not a terrain arm. The next executable rung is the
+[D0 common drainage contract](research/landform-object-packet-d0-2026-07-15.md).
 
 Every competitive arm must emit the same object packet:
 

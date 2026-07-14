@@ -1,7 +1,7 @@
 # Experiment registry
 
 This registry separates current product behavior from implemented alternatives.
-It summarizes code and recorded evidence as of 2026-07-14; it is not a substitute
+It summarizes code and recorded evidence through 2026-07-15; it is not a substitute
 for the linked audits. Status terms follow the
 [documentation policy](documentation-policy.md).
 
@@ -76,7 +76,10 @@ comparison family selected, no arm implemented, evaluated or promoted. See the
 now preregisters the common evidence vocabulary and rung order. It does not yet
 change the status of any comparison arm. Its first executable
 [G0/S0 contract](research/landform-object-packet-g0s0-2026-07-14.md) is now
-preregistered but not implemented or evaluated.
+implemented and passes its manufactured planar/spherical gates plus the first
+unchanged 250k product observation. The
+[D0 common drainage contract](research/landform-object-packet-d0-2026-07-15.md)
+is preregistered next; it does not promote any comparison arm.
 
 The first O1 run at 100k coarse/250k fine preserves peak and mountain-area
 plausibility and modestly increases 25–100-km relief, but increases median/p90

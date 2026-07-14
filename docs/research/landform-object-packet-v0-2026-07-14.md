@@ -1,8 +1,8 @@
 # Landform object packet v0
 
 **Date:** 2026-07-14
-**Status:** preregistered umbrella evidence contract; executable rung contracts
-not yet preregistered; not implemented or evaluated
+**Status:** umbrella evidence contract; G0/S0 completed and D0 executable rung
+preregistered; O0/R0 not yet preregistered
 **Parent decision:** [Landscape organization strategy](../landscape-strategy.md)
 
 ## Decision

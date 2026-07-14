@@ -78,6 +78,10 @@ Current bounded research decision:
   8/4/2 matrix pass, and both product-spherical and projected-cap G0 adapters
   plus the manufactured spherical S0/morphology checkpoint now pass; the first
   bounded product packet is recorded separately below.
+- [Landform D0 executable contract](research/landform-object-packet-d0-2026-07-15.md)
+  — preregistered common portal-fill receiver forest, conditioning, retained
+  basin/reach topology and exclusive raw catchment boundaries; implementation
+  pending.
 - [Landform G0/S0 structural-slice audit](audits/landform-g0s0-structural-slice-2026-07-14.md)
   — passing planar geometry/topology checkpoint, caught contract amendments and
   the scope inherited by the morphology slice.
