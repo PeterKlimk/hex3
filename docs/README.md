@@ -64,11 +64,11 @@ experimental, superseded, or awaiting classification.
 Current bounded research decision:
 
 - [Modern Voronoi backend controlled upgrade](research/voronoi-mesh-upgrade-ab-2026-07-14.md)
-  — evaluated negative for physical G0: the integrated modern candidate passes
-  topology and regressions but retains an exact zero-angle physical edge.
+  — evaluated positive after the exact-zero output correction; promoted at a
+  pinned upstream revision with independent Hex3 physical gates.
 - [Voronoi substrate A/B and zero-angle edge handoff](audits/voronoi-mesh-zero-edge-handoff-2026-07-14.md)
-  — exact natural witness, backend provenance, upstream contract gap, ranked
-  fix/test wishlist and the unchanged Hex3 unblock condition.
+  — resolved exact natural witness, backend provenance and retained pre-fix
+  design handoff.
 - [Landform object packet v0](research/landform-object-packet-v0-2026-07-14.md)
   — preregistered arm-neutral evidence umbrella for the H/C/G organization
   comparison; each rung still requires its own executable checkpoint.
@@ -76,8 +76,8 @@ Current bounded research decision:
   — preregistered physical-graph adapters, split forest, highland populations,
   morphology evidence and manufactured gates; planar G0/S0 and the analytic
   8/4/2 matrix pass, and both product-spherical and projected-cap G0 adapters
-  plus the manufactured spherical S0/morphology checkpoint now pass; product
-  landforms remain unobserved.
+  plus the manufactured spherical S0/morphology checkpoint now pass; the first
+  bounded product packet is recorded separately below.
 - [Landform G0/S0 structural-slice audit](audits/landform-g0s0-structural-slice-2026-07-14.md)
   — passing planar geometry/topology checkpoint, caught contract amendments and
   the scope inherited by the morphology slice.
@@ -94,11 +94,13 @@ Current bounded research decision:
   — passing 100 km synthetic-sphere morphology, covariance, exact-relief and
   nonlocal-evidence checks; no product elevation or H/C/G surface was inspected.
 - [Product G0/S0 ancestry observation](research/landform-product-g0s0-observation-2026-07-14.md)
-  — evaluated prerequisite failure: coarse G0 passes, but fine cell 199413 has
-  a degenerate physical edge and no product surface reached S0.
+  — completed unchanged after the upstream geometry correction: both graphs
+  and all five registered product surfaces reach G0/S0.
 - [Product G0/S0 ancestry observation audit](audits/landform-product-g0s0-observation-2026-07-14.md)
-  — reproducible typed failure, cost boundary and upstream geometry-witness
-  requirement; contains no product morphology inference.
+  — reproducible historical typed failure and geometry-witness requirement.
+- [Product G0/S0 ancestry completion](audits/landform-product-g0s0-completion-2026-07-15.md)
+  — passing 250k product graph, five-surface morphology packet, cost record and
+  stage-localized descriptive terrain evidence.
 - [Drainage-network ownership](research/drainage-network-ownership-2026-07-13.md)
   — continuum supply, physical promotion and persistent reach-lineage roles,
   plus the preregistered memory discriminator.

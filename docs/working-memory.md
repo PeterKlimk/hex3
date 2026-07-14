@@ -90,37 +90,37 @@ great-circle relief and exact point-to-minor-arc truncation. Its
 now passes on a 100 km-radius, 2,048-cell synthetic sphere: the local cap runs
 end to end, bucketed relief matches brute force, grade/orientation/arc distance
 are rotation-covariant, and `NonLocalGeometry` preserves other evidence.
-Product elevation remains unseen; no product landform or H/C/G inference
-exists.
 
-The next bounded checkpoint is now preregistered as a noncompetitive product
-G0/S0 ancestry observation. It freezes seed 12345, the unchanged legacy/default
-pipeline, an all-cell scored mask and one coarse plus four cell-aligned 250k
-fine surfaces from raw substrate through final erosion/integration. This is a
-descriptive cost and stage-localization pass, not R0, a 1M scale claim, an H/C/G
-comparison or permission to tune the extractor or terrain.
-
-That run stopped before S0. Coarse convex-hull G0 passes, but adaptive fine G0
-finds distinct topology IDs forming a degenerate zero-angle edge. The old
-backend witness was cell 199413 edge 6. The controlled modern-backend rerun
-instead fails at cell 57852 edge 7: vertex IDs 186655 and 186377 have
-bit-identical f32 positions and reciprocal owners, while upstream reports a
-strict-valid, unmerged, unrepaired, residual-free mesh. The exact witness and
-upstream handoff are now recorded. Do not hide it by relaxing G0, dropping the
-face or tuning landform thresholds.
+The registered noncompetitive product G0/S0 observation freezes seed 12345,
+the unchanged legacy/default pipeline, an all-cell scored mask and one coarse
+plus four cell-aligned 250k fine surfaces. Initial attempts exposed exact
+zero-edge witnesses in both the old and first modern backend. Those historical
+failures are preserved in their audits; the corrected pinned backend now
+completes the unchanged packet. It remains a descriptive cost and ancestry
+pass, not R0, a 1M scale claim, an H/C/G comparison or permission to tune the
+extractor or terrain.
 
 The seed-12345 mountain ancestry remains the strongest current causal example.
 Human review found long, flat-topped tablelands—“a giant long Uluru”—rather
 than internally organized ranges. Relief exaggeration makes them usable and
 visually impressive, but also helped conceal the modeled plateau morphology.
 
-The backend A/B is now evaluated negative for physical G0. Its integration
-remains useful because modern upstream repair is observable and Hex3 no longer
-drops missing faces or invents nearest-neighbor links, but it is not promoted
-as a physical substrate. The active prerequisite is an upstream valid-or-error
-contract for exact same-ray boundary edges, followed by an exact repin and the
-unchanged 250k G0 rerun. Positive but tiny edges remain a separate quality
-question; this witness is exact representational collapse.
+The backend A/B is now resolved and promoted at pinned upstream revision
+`e8804a6`. The corrected backend contracts the registered exact-zero core, and
+Hex3 independently rejects reported or validated remaining zero geometry. The
+unchanged 250k observation now completes both graphs and all five surfaces.
+This resolves the geometry prerequisite, not the terrain architecture question.
+
+The completed packet numerically reinforces the prior ancestry diagnosis.
+Fine base and its coarse-base source are byte-identical; Stage-3 integration
+leaves the reference population and principal object summaries unchanged.
+Erosion raises reference objects from 108 to 183, more than doubles median
+persistence and 25/50/100 km relief, and narrows median footprint/extent/width.
+Final hydrologic integration is secondary. Erosion therefore supplies much of
+the visible local relief and segmentation, but the broad organization is
+inherited and median 0.5/1.0 km cap fractions remain complete. Cap-merge
+censoring is frequent, so this is descriptive support rather than a global
+plateau census or an H/C/G verdict.
 
 The completed discriminating packet compares the same three range targets through:
 

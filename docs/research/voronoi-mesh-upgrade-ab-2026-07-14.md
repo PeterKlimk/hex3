@@ -1,6 +1,7 @@
 # Modern Voronoi backend controlled upgrade
 
-**Status:** evaluated negative for physical G0; upstream correction pending
+**Status:** evaluated positive after upstream correction; promoted physical
+geometry substrate at exact revision `e8804a639ea3c989e1ce9ea44b4c66c5f2d7e060`
 
 **Date:** 2026-07-14
 
@@ -146,3 +147,14 @@ integration scaffold, not a promoted physical substrate, pending an upstream
 valid-or-error correction and the same frozen rerun.
 
 See the [A/B audit and upstream handoff](../audits/voronoi-mesh-zero-edge-handoff-2026-07-14.md).
+
+### Resolution
+
+Upstream subsequently added exact stored-zero discovery, safe transactional
+contraction and output-resolution reporting. Hex3 pins revision
+`e8804a639ea3c989e1ce9ea44b4c66c5f2d7e060`, requires zero remaining edges in
+both the output report and independent validator, and bumps the fine cache to
+version 15. The focused/full regressions and unchanged product G0/S0 run pass.
+This promotes the geometry substrate only; the resulting descriptive terrain
+evidence is recorded in the
+[product completion audit](../audits/landform-product-g0s0-completion-2026-07-15.md).

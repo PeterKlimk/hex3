@@ -4,6 +4,10 @@
 
 **Verdict:** stopped at fine-G0 prerequisite; no product morphology observed
 
+**Continuation:** the prerequisite was subsequently corrected upstream and the
+unchanged observation completed. See the
+[2026-07-15 completion audit](landform-product-g0s0-completion-2026-07-15.md).
+
 **Contract:** [Product G0/S0 ancestry observation](../research/landform-product-g0s0-observation-2026-07-14.md)
 
 ## Result

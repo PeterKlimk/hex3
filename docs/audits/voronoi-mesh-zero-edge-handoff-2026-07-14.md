@@ -2,12 +2,18 @@
 
 **Date:** 2026-07-14
 
-**Verdict:** modern backend integration passes topology and regressions but
-fails unchanged physical G0; upstream contract/fix required before promotion
+**Verdict:** resolved for the registered Hex3 witness by upstream revision
+`e8804a639ea3c989e1ce9ea44b4c66c5f2d7e060`; unchanged physical G0 now passes
 
 **Contract:** [Modern Voronoi backend controlled upgrade](../research/voronoi-mesh-upgrade-ab-2026-07-14.md)
 
 **Audience:** Hex3 and the separate `voronoi-mesh` implementation agent
+
+**Resolution:** Hex3 revision `2f35b80` pins the corrected upstream output-
+resolution path, independently rejects any reported or validated remaining
+zero geometry, and passes the unchanged 250k product observation. See the
+[completion audit](landform-product-g0s0-completion-2026-07-15.md). The report
+below is retained as the pre-fix witness and design handoff.
 
 ## Executive result
 
@@ -317,7 +323,7 @@ not reproduce because grid resolution and global assembly influence the
 defect; do not claim a minimized natural fixture until it reproduces the same
 exact collapse across repeated and selected Rayon thread counts.
 
-## Hex3 disposition and unblock condition
+## Pre-fix Hex3 disposition and unblock condition
 
 The modern adapter work remains useful independently: it removes a fabricated
 graph repair, secures effective-cell identity and gives upstream repair
