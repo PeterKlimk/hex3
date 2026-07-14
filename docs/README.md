@@ -63,6 +63,9 @@ experimental, superseded, or awaiting classification.
 
 Current bounded research decision:
 
+- [Modern Voronoi backend controlled upgrade](research/voronoi-mesh-upgrade-ab-2026-07-14.md)
+  — preregistered old-pin/modern-upstream substrate A/B with strict report,
+  effective-cell, no-repair, unchanged-G0 and frozen product-rerun gates.
 - [Landform object packet v0](research/landform-object-packet-v0-2026-07-14.md)
   — preregistered arm-neutral evidence umbrella for the H/C/G organization
   comparison; each rung still requires its own executable checkpoint.

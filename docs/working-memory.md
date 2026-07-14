@@ -112,6 +112,13 @@ Human review found long, flat-topped tablelands—“a giant long Uluru”—rat
 than internally organized ranges. Relief exaggeration makes them usable and
 visually impressive, but also helped conceal the modeled plateau morphology.
 
+The immediate geometry prerequisite is now frozen as a controlled backend A/B,
+not an open-ended geometry rewrite. Modern upstream is allowed to repair its
+own topology only when the repair is accepted and reported; Hex3 may no longer
+drop missing faces or invent nearest-neighbor links. Upstream strict validity
+does not replace the physical zero-angle-edge gate, so the unchanged 250k G0
+rerun remains decisive before any product morphology interpretation resumes.
+
 The completed discriminating packet compares the same three range targets through:
 
 1. coarse tectonic envelope;
