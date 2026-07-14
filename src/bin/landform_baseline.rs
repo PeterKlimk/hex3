@@ -316,7 +316,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let config = SurfaceHierarchyConfigV0::default();
 
     let g0_start = Instant::now();
-    let coarse_graph = adapt_product_tessellation_graph_v0(&world.tessellation, &config)?;
+    let coarse_graph = adapt_product_tessellation_graph_v0(&world.tessellation, &config)
+        .map_err(|error| format!("coarse G0 adaptation failed: {error:?}"))?;
     let coarse_g0_seconds = g0_start.elapsed().as_secs_f64();
 
     let fine = world
@@ -328,7 +329,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         .as_ref()
         .ok_or("frozen run did not retain the stage-4 surface")?;
     let g0_start = Instant::now();
-    let fine_graph = adapt_product_tessellation_graph_v0(&fine.base.tessellation, &config)?;
+    let fine_graph = adapt_product_tessellation_graph_v0(&fine.base.tessellation, &config)
+        .map_err(|error| format!("fine G0 adaptation failed: {error:?}"))?;
     let fine_g0_seconds = g0_start.elapsed().as_secs_f64();
 
     let raw_stage4: Vec<f32> = (0..fine.base.tessellation.num_cells())
@@ -530,7 +532,8 @@ fn observe_surface(
         .sum();
 
     let extraction_start = Instant::now();
-    let hierarchy = build_surface_hierarchy_v0(input.graph, &elevation_km, &scored, config)?;
+    let hierarchy = build_surface_hierarchy_v0(input.graph, &elevation_km, &scored, config)
+        .map_err(|error| format!("{} S0/morphology failed: {error:?}", input.id))?;
     let s0_morphology_seconds = extraction_start.elapsed().as_secs_f64();
     let measured_peak_ids: Vec<u32> = hierarchy
         .reference_highlands
