@@ -166,6 +166,20 @@ impl SurfaceHierarchyConfigV0 {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SphericalCellAreaIssue {
+    TooFewVertices,
+    NonFiniteEdgeAngle,
+    DegenerateEdge,
+    AntipodalEdge,
+    NonFiniteEdgeOrientation,
+    NonPositiveEdgeOrientation,
+    NonFiniteSolidAngle,
+    NonPositiveSolidAngle,
+    NonFiniteArea,
+    NonPositiveArea,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LandformError {
     EmptyGraph,
@@ -227,6 +241,11 @@ pub enum LandformError {
     NonRegularHexGeometry,
     NonPhysicalAdjacency,
     InvalidSphericalGeometry,
+    InvalidSphericalCellArea {
+        cell: usize,
+        edge: Option<usize>,
+        reason: SphericalCellAreaIssue,
+    },
     UnsupportedDomain,
     SphereAreaClosure,
     OperatorGeometryMismatch {
@@ -879,7 +898,14 @@ pub fn adapt_product_tessellation_graph_v0(
                 .or_default()
                 .push(FaceUse { cell, start, end });
         }
-        let area = spherical_cell_area_km2(center, &polygon, radius_km)?;
+        let area =
+            spherical_cell_area_km2_detailed(center, &polygon, radius_km).map_err(|failure| {
+                LandformError::InvalidSphericalCellArea {
+                    cell,
+                    edge: failure.edge,
+                    reason: failure.reason,
+                }
+            })?;
         cell_area_km2.push(canonical_zero(area));
         rotate_polygon_to_canonical_start(&mut polygon);
         cell_polygon_offsets.push(
@@ -1126,7 +1152,13 @@ fn validate_graph(
                 return Err(LandformError::PlanarAreaMismatch { cell });
             }
         } else if let Some(radius_km) = spherical_radius {
-            let area = spherical_cell_area_km2(graph.cell_center_km[cell], polygon, radius_km)?;
+            let area =
+                spherical_cell_area_km2_detailed(graph.cell_center_km[cell], polygon, radius_km)
+                    .map_err(|failure| LandformError::InvalidSphericalCellArea {
+                        cell,
+                        edge: failure.edge,
+                        reason: failure.reason,
+                    })?;
             let relative = (area - graph.cell_area_km2[cell]).abs()
                 / graph.cell_area_km2[cell].max(f64::MIN_POSITIVE);
             if relative > config.sphere_area_closure_relative {
@@ -1322,39 +1354,91 @@ fn spherical_source_point(point: DVec3, radius_km: f64) -> Result<DVec3, Landfor
     Ok(canonical_point(point.normalize() * radius_km))
 }
 
+#[cfg(test)]
 fn spherical_cell_area_km2(
     center: DVec3,
     polygon: &[DVec3],
     radius_km: f64,
 ) -> Result<f64, LandformError> {
+    spherical_cell_area_km2_detailed(center, polygon, radius_km)
+        .map_err(|_| LandformError::InvalidSphericalGeometry)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SphericalCellAreaFailure {
+    edge: Option<usize>,
+    reason: SphericalCellAreaIssue,
+}
+
+fn spherical_cell_area_km2_detailed(
+    center: DVec3,
+    polygon: &[DVec3],
+    radius_km: f64,
+) -> Result<f64, SphericalCellAreaFailure> {
     if polygon.len() < 3 {
-        return Err(LandformError::InvalidSphericalGeometry);
+        return Err(SphericalCellAreaFailure {
+            edge: None,
+            reason: SphericalCellAreaIssue::TooFewVertices,
+        });
     }
     let center = center.normalize();
     let mut terms = Vec::with_capacity(polygon.len());
-    for (&a, &b) in polygon.iter().zip(polygon.iter().cycle().skip(1)) {
+    for (edge, (&a, &b)) in polygon
+        .iter()
+        .zip(polygon.iter().cycle().skip(1))
+        .enumerate()
+    {
         let (a, b) = (a.normalize(), b.normalize());
         let cross = a.cross(b);
         let angle = cross.length().atan2(a.dot(b));
         let determinant = center.dot(cross);
-        if !angle.is_finite()
-            || angle <= 0.0
-            || angle >= std::f64::consts::PI
-            || !determinant.is_finite()
-            || determinant <= 0.0
-        {
-            return Err(LandformError::InvalidSphericalGeometry);
+        let reason = if !angle.is_finite() {
+            Some(SphericalCellAreaIssue::NonFiniteEdgeAngle)
+        } else if angle <= 0.0 {
+            Some(SphericalCellAreaIssue::DegenerateEdge)
+        } else if angle >= std::f64::consts::PI {
+            Some(SphericalCellAreaIssue::AntipodalEdge)
+        } else if !determinant.is_finite() {
+            Some(SphericalCellAreaIssue::NonFiniteEdgeOrientation)
+        } else if determinant <= 0.0 {
+            Some(SphericalCellAreaIssue::NonPositiveEdgeOrientation)
+        } else {
+            None
+        };
+        if let Some(reason) = reason {
+            return Err(SphericalCellAreaFailure {
+                edge: Some(edge),
+                reason,
+            });
         }
         let denominator = 1.0 + center.dot(a) + a.dot(b) + b.dot(center);
         let solid_angle = 2.0 * determinant.atan2(denominator);
-        if !solid_angle.is_finite() || solid_angle <= 0.0 {
-            return Err(LandformError::InvalidSphericalGeometry);
+        if !solid_angle.is_finite() {
+            return Err(SphericalCellAreaFailure {
+                edge: Some(edge),
+                reason: SphericalCellAreaIssue::NonFiniteSolidAngle,
+            });
+        }
+        if solid_angle <= 0.0 {
+            return Err(SphericalCellAreaFailure {
+                edge: Some(edge),
+                reason: SphericalCellAreaIssue::NonPositiveSolidAngle,
+            });
         }
         terms.push(solid_angle);
     }
     let area = compensated_sum(terms) * radius_km * radius_km;
-    if !area.is_finite() || area <= 0.0 {
-        return Err(LandformError::InvalidSphericalGeometry);
+    if !area.is_finite() {
+        return Err(SphericalCellAreaFailure {
+            edge: None,
+            reason: SphericalCellAreaIssue::NonFiniteArea,
+        });
+    }
+    if area <= 0.0 {
+        return Err(SphericalCellAreaFailure {
+            edge: None,
+            reason: SphericalCellAreaIssue::NonPositiveArea,
+        });
     }
     Ok(area)
 }
@@ -4066,10 +4150,58 @@ mod tests {
             ),
             Err(LandformError::InvalidSphericalGeometry)
         );
+        assert_eq!(
+            spherical_cell_area_km2_detailed(
+                graph.cell_center_km[0],
+                &reversed_polygon,
+                f64::from(PLANET_RADIUS_KM),
+            ),
+            Err(SphericalCellAreaFailure {
+                edge: Some(0),
+                reason: SphericalCellAreaIssue::NonPositiveEdgeOrientation,
+            })
+        );
+        let mut degenerate_polygon = graph.cell_polygon_vertices_km[start..end].to_vec();
+        degenerate_polygon[1] = degenerate_polygon[0];
+        assert_eq!(
+            spherical_cell_area_km2_detailed(
+                graph.cell_center_km[0],
+                &degenerate_polygon,
+                f64::from(PLANET_RADIUS_KM),
+            ),
+            Err(SphericalCellAreaFailure {
+                edge: Some(0),
+                reason: SphericalCellAreaIssue::DegenerateEdge,
+            })
+        );
         let mut reversed = graph.clone();
         reversed.cell_polygon_vertices_km[start..end].reverse();
         rotate_polygon_to_canonical_start(&mut reversed.cell_polygon_vertices_km[start..end]);
-        assert!(reversed.validate(&config).is_err());
+        assert_eq!(
+            reversed.validate(&config),
+            Err(LandformError::InvalidSphericalCellArea {
+                cell: 0,
+                edge: Some(0),
+                reason: SphericalCellAreaIssue::NonPositiveEdgeOrientation,
+            })
+        );
+
+        let source_edge = {
+            let indices = tessellation.voronoi.try_cell(0).unwrap().vertex_indices;
+            [indices[0] as usize, indices[1] as usize]
+        };
+        let original_vertex = tessellation.voronoi.vertices[source_edge[1]];
+        tessellation.voronoi.vertices[source_edge[1]] =
+            tessellation.voronoi.vertices[source_edge[0]];
+        assert_eq!(
+            adapt_product_tessellation_graph_v0(&tessellation, &config),
+            Err(LandformError::InvalidSphericalCellArea {
+                cell: 0,
+                edge: Some(0),
+                reason: SphericalCellAreaIssue::DegenerateEdge,
+            })
+        );
+        tessellation.voronoi.vertices[source_edge[1]] = original_vertex;
 
         let n = tessellation.num_cells();
         let mut adjacency = (0..n)
