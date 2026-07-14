@@ -1,6 +1,8 @@
 # Landform object packet O0a relationship-probe executable contract
 
-**Status:** preregistered; implementation and outcomes unknown
+**Status:** frozen preregistration; implemented and evaluated as a bounded
+common planar/testbed checkpoint; see the
+[dated audit](../audits/landform-o0a-relationships-2026-07-15.md)
 
 **Date:** 2026-07-15, before O0a implementation
 
@@ -8,6 +10,9 @@
 
 **Predecessors:** [G0/S0 executable contract](landform-object-packet-g0s0-2026-07-14.md)
 and [D0 executable contract](landform-object-packet-d0-2026-07-15.md)
+
+**Outcome:** bounded pass for deterministic relationship evidence only; no
+O0b, product adapter, landform-class promotion or terrain arm was evaluated
 
 ## Decision question
 

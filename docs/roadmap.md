@@ -297,10 +297,13 @@ The current sequence is:
    now passes manufactured planar/spherical gates and the first unchanged 250k
    product observation. The preregistered
    [D0 common drainage rung](research/landform-object-packet-d0-2026-07-15.md)
-   now passes its bounded planar manufactured matrix. The next rung is now the
-   preregistered [O0a relationship probe](research/landform-object-packet-o0-2026-07-15.md),
-   followed by a separately frozen O0b correspondence/packet checkpoint and R0—not
-   product-hydrology adaptation or H/C/G composition;
+   now passes its bounded planar manufactured matrix. The
+   [O0a relationship probe](research/landform-object-packet-o0-2026-07-15.md)
+   is now implemented and evaluated as a bounded common checkpoint, recorded in
+   its [dated audit](audits/landform-o0a-relationships-2026-07-15.md). The next
+   packet work must first preregister O0b correspondence/assembly; O0b and R0
+   remain unimplemented and unregistered—not product-hydrology adaptation or
+   H/C/G composition;
 2. preregister one bounded organization-owner slice with shared admissible
    inputs, an arm-neutral terrain-opportunity calibration, a common resource
    ceiling and independent object extraction: hold-and-carve H, reduced

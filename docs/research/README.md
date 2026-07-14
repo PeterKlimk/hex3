@@ -24,10 +24,12 @@ Current synthesized notes:
   for the bounded common planar checkpoint, with outcomes in the
   [dated audit](../audits/landform-d0-common-drainage-2026-07-15.md).
 - [Landform O0a relationship-probe contract](landform-object-packet-o0-2026-07-15.md)
-  — preregistered mechanical relationship evidence over S0 and D0: exact
+  — implemented and evaluated bounded common relationship evidence over S0 and D0: exact
   flow-transition versus lateral-face roles, physical-descent traces,
   saddle-boundary associations and reach cross sections. Ridge/pass/valley
-  promotion and cross-packet correspondence are deliberately excluded.
+  promotion and cross-packet correspondence are deliberately excluded; see the
+  [dated audit](../audits/landform-o0a-relationships-2026-07-15.md). O0b and R0
+  remain unregistered and unimplemented.
 - [Correspondence priors for reduced planet models](correspondence-priors-2026-07-12.md)
 - [Orogen organization: causal reference and reduced experiments](orogen-organization-2026-07-12.md)
 - [Mountain-system design basis](mountain-system-design-basis-2026-07-13.md)

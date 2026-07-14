@@ -1,9 +1,9 @@
 # Landform object packet v0
 
 **Date:** 2026-07-14
-**Status:** umbrella evidence contract; G0/S0 and common planar D0 completed;
-O0a relationship probes preregistered; O0b correspondence and R0 not yet
-preregistered
+**Status:** umbrella evidence contract; G0/S0, common planar D0 and bounded
+common O0a completed and evaluated; O0b correspondence and R0 not yet
+preregistered or implemented
 **Parent decision:** [Landscape organization strategy](../landscape-strategy.md)
 
 ## Decision
@@ -369,13 +369,16 @@ quality scores by themselves.
 2. **D0:** common testbed evaluation routing, basin/reach/raw-boundary objects and
    fork/confluence/flat/portal tests.
 3. **O0a:** drainage-boundary/descent, saddle-boundary and reach cross-section
-   probes with relationship serialization.
+   probes with relationship serialization. Implemented and evaluated as the
+   bounded common checkpoint recorded in the
+   [dated audit](../audits/landform-o0a-relationships-2026-07-15.md).
 4. **O0b:** cross-packet geometric correspondence and combined packet assembly.
 5. **R0:** one unchanged product-reference packet and one pre-arm linked-testbed
    manufactured packet at 8/4/2 km.
 
-Each rung is a separate checkpoint. Do not implement H, C or G composition
-while the common evidence packet is incomplete.
+Each rung is a separate checkpoint. O0b and this packet's R0 remain
+unregistered and unimplemented. Do not implement H, C or G composition while
+the common evidence packet is incomplete.
 
 This document freezes the shared ownership, object vocabulary, scale family,
 neutrality and rung order. It is not permission to implement a rung. Each rung

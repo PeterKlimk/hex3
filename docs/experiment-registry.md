@@ -83,8 +83,10 @@ is now implemented and passes its bounded planar manufactured matrix. This
 validates this bounded common evaluation implementation only, not product
 hydrology or any comparison arm. The
 [O0a relationship-probe contract](research/landform-object-packet-o0-2026-07-15.md)
-is now preregistered; O0b correspondence and packet assembly remain
-unregistered, and no comparison arm is promoted.
+is now implemented and evaluated as a bounded common checkpoint, recorded in
+the [dated audit](audits/landform-o0a-relationships-2026-07-15.md). O0b
+correspondence/packet assembly and R0 remain unregistered and unimplemented,
+and no comparison arm is promoted.
 
 The first O1 run at 100k coarse/250k fine preserves peak and mountain-area
 plausibility and modestly increases 25–100-km relief, but increases median/p90

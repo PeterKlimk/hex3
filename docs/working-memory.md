@@ -41,14 +41,13 @@ reach/Strahler/trunk roles and exclusive raw catchment partitions. Its raw
 boundaries are not yet geomorphic divides, and no product-hydrology adapter was
 attempted. The
 [O0a relationship-probe contract](research/landform-object-packet-o0-2026-07-15.md)
-now freezes the next mechanical evidence layer. Review rejected three tempting
-overclaims before code: ancestry-related lateral faces are not all downstream
-transitions; one remote maximum cannot prove a ridge; and saddle proximity or
-positive cross-section relief cannot by itself prove a pass or valley. O0a
-therefore retains face roles, signed physical-descent traces,
-saddle-boundary association and relative-relief sections. Cross-packet
-correspondence/combined serialization move to an independently preregistered
-O0b after O0a evidence and cost are observed.
+is now implemented and evaluated as a bounded common mechanical-evidence
+checkpoint, with the result recorded in its
+[dated audit](audits/landform-o0a-relationships-2026-07-15.md). It retains face
+roles, signed physical-descent traces, saddle-boundary association and
+relative-relief sections without promoting ridge, pass or valley semantics.
+Cross-packet correspondence/combined serialization remain future O0b scope;
+O0b and R0 are still unregistered and unimplemented.
 Do not let product diagnostics, native C flux, G's authored graph or renderer
 state leak into the instrument; competitive terrain arms remain out of scope.
 
