@@ -276,7 +276,12 @@ The first such executable checkpoint, [G0/S0](research/landform-object-packet-g0
 now passes its manufactured planar/spherical gates and the unchanged 250k
 product observation. This validates the common physical graph, split forest and
 morphology evidence, not a terrain arm. The next executable rung is the
-[D0 common drainage contract](research/landform-object-packet-d0-2026-07-15.md).
+[D0 common drainage contract](research/landform-object-packet-d0-2026-07-15.md),
+which now passes its bounded planar manufactured matrix. It establishes a
+shared receiver forest, basin/reach hierarchy and raw partition boundaries,
+not geomorphic divides or product hydrology. The next evidence task is an O0
+executable preregistration informed by those measured limits; H/C/G composition
+remains premature.
 
 Every competitive arm must emit the same object packet:
 

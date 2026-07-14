@@ -80,8 +80,11 @@ Current bounded research decision:
   bounded product packet is recorded separately below.
 - [Landform D0 executable contract](research/landform-object-packet-d0-2026-07-15.md)
   — preregistered common portal-fill receiver forest, conditioning, retained
-  basin/reach topology and exclusive raw catchment boundaries; implementation
-  pending.
+  basin/reach topology and exclusive raw catchment boundaries; the common
+  planar implementation and manufactured 8/4/2 matrix pass.
+- [Landform D0 common drainage audit](audits/landform-d0-common-drainage-2026-07-15.md)
+  — passing common planar drainage checkpoint, review corrections, cost and
+  explicit representation limits; no product adapter or terrain arm evaluated.
 - [Landform G0/S0 structural-slice audit](audits/landform-g0s0-structural-slice-2026-07-14.md)
   — passing planar geometry/topology checkpoint, caught contract amendments and
   the scope inherited by the morphology slice.

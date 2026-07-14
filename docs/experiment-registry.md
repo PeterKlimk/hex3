@@ -79,7 +79,10 @@ change the status of any comparison arm. Its first executable
 implemented and passes its manufactured planar/spherical gates plus the first
 unchanged 250k product observation. The
 [D0 common drainage contract](research/landform-object-packet-d0-2026-07-15.md)
-is preregistered next; it does not promote any comparison arm.
+is now implemented and passes its bounded planar manufactured matrix. This
+validates this bounded common evaluation implementation only, not product
+hydrology or any comparison arm. O0 remains unregistered and is the next
+evidence-contract decision.
 
 The first O1 run at 100k coarse/250k fine preserves peak and mountain-area
 plausibility and modestly increases 25–100-km relief, but increases median/p90

@@ -295,9 +295,11 @@ The current sequence is:
    now frozen by the [landform object packet v0](research/landform-object-packet-v0-2026-07-14.md);
    the executable [G0/S0 surface-graph and split-tree contract](research/landform-object-packet-g0s0-2026-07-14.md)
    now passes manufactured planar/spherical gates and the first unchanged 250k
-   product observation. The next bounded implementation is the preregistered
-   [D0 common drainage rung](research/landform-object-packet-d0-2026-07-15.md),
-   followed by separately frozen O0 and R0 checkpoints—not H/C/G composition;
+   product observation. The preregistered
+   [D0 common drainage rung](research/landform-object-packet-d0-2026-07-15.md)
+   now passes its bounded planar manufactured matrix. Next preregister O0 from
+   the observed D0 limits, followed by a separately frozen R0 checkpoint—not
+   product-hydrology adaptation or H/C/G composition;
 2. preregister one bounded organization-owner slice with shared admissible
    inputs, an arm-neutral terrain-opportunity calibration, a common resource
    ceiling and independent object extraction: hold-and-carve H, reduced

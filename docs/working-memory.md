@@ -32,8 +32,14 @@ Its executable [G0/S0 contract](research/landform-object-packet-g0s0-2026-07-14.
 now passes its manufactured planar/spherical gates and first unchanged 250k
 product observation: explicit control-volume geometry, strict shared-base
 superlevel topology, physical persistence/area populations and continuous
-plateau-like evidence. The active task is the separately preregistered
-[D0 common drainage rung](research/landform-object-packet-d0-2026-07-15.md).
+plateau-like evidence. The separately preregistered
+[D0 common drainage rung](research/landform-object-packet-d0-2026-07-15.md)
+now passes its common planar manufactured matrix: deterministic virtual
+conditioning, exhaustive portal routing, separate area/runoff ledgers,
+reach/Strahler/trunk roles and exclusive raw catchment partitions. Its raw
+boundaries are not yet geomorphic divides, and no product-hydrology adapter was
+attempted. The active task is to preregister the minimum O0 relationship
+evidence from those observed limits before any H/C/G composition.
 Do not let product diagnostics, native C flux, G's authored graph or renderer
 state leak into the instrument; competitive terrain arms remain out of scope.
 

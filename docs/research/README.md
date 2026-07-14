@@ -20,7 +20,9 @@ Current synthesized notes:
   now pass.
 - [Landform D0 executable contract](landform-object-packet-d0-2026-07-15.md)
   — preregistered arm-neutral portal-fill receiver forest, conditioning debt,
-  basin/reach/boundary evidence and manufactured gates; not yet implemented.
+  basin/reach/boundary evidence and manufactured gates; implemented and passing
+  for the bounded common planar checkpoint, with outcomes in the
+  [dated audit](../audits/landform-d0-common-drainage-2026-07-15.md).
 - [Correspondence priors for reduced planet models](correspondence-priors-2026-07-12.md)
 - [Orogen organization: causal reference and reduced experiments](orogen-organization-2026-07-12.md)
 - [Mountain-system design basis](mountain-system-design-basis-2026-07-13.md)

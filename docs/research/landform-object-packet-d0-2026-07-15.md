@@ -1,12 +1,14 @@
 # Landform object packet D0 executable contract
 
-**Status:** preregistered; implementation and outcomes unknown
+**Status:** implemented/evaluated; common planar checkpoint passes
 
 **Date:** 2026-07-15, before D0 implementation
 
 **Parent:** [Landform object packet v0](landform-object-packet-v0-2026-07-14.md)
 
 **Predecessor:** [G0/S0 executable contract](landform-object-packet-g0s0-2026-07-14.md)
+
+**Outcome:** [D0 common drainage audit](../audits/landform-d0-common-drainage-2026-07-15.md)
 
 ## Decision question
 
