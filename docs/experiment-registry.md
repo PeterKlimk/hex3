@@ -81,8 +81,10 @@ unchanged 250k product observation. The
 [D0 common drainage contract](research/landform-object-packet-d0-2026-07-15.md)
 is now implemented and passes its bounded planar manufactured matrix. This
 validates this bounded common evaluation implementation only, not product
-hydrology or any comparison arm. O0 remains unregistered and is the next
-evidence-contract decision.
+hydrology or any comparison arm. The
+[O0a relationship-probe contract](research/landform-object-packet-o0-2026-07-15.md)
+is now preregistered; O0b correspondence and packet assembly remain
+unregistered, and no comparison arm is promoted.
 
 The first O1 run at 100k coarse/250k fine preserves peak and mountain-area
 plausibility and modestly increases 25–100-km relief, but increases median/p90

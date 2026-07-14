@@ -268,7 +268,7 @@ architecture cost.
 The shared vocabulary, neutrality rules and implementation order are now
 preregistered in the [landform object packet v0](research/landform-object-packet-v0-2026-07-14.md).
 That document is an umbrella evidence contract, not an executable extractor:
-each G0/S0, D0, O0 and R0 rung still requires its own committed formulas,
+each G0/S0, D0, O0a, O0b and R0 rung still requires its own committed formulas,
 ordering, retention and tie rules before code is written. This keeps the
 instrument independent of all three arms and lets object definitions fail on
 manufactured surfaces before they are exposed to competitive output.
@@ -280,8 +280,12 @@ morphology evidence, not a terrain arm. The next executable rung is the
 which now passes its bounded planar manufactured matrix. It establishes a
 shared receiver forest, basin/reach hierarchy and raw partition boundaries,
 not geomorphic divides or product hydrology. The next evidence task is an O0
-executable preregistration informed by those measured limits; H/C/G composition
-remains premature.
+relationship checkpoint informed by those measured limits. The
+[O0a contract](research/landform-object-packet-o0-2026-07-15.md) now freezes
+mechanically named boundary/descent, saddle and cross-section probes. Review
+split correspondence and combined-packet work into a later O0b so geometry or
+identity-policy failure cannot block the basic relationship evidence. H/C/G
+composition remains premature.
 
 Every competitive arm must emit the same object packet:
 

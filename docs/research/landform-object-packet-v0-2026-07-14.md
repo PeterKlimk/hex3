@@ -2,7 +2,8 @@
 
 **Date:** 2026-07-14
 **Status:** umbrella evidence contract; G0/S0 and common planar D0 completed;
-O0/R0 not yet preregistered
+O0a relationship probes preregistered; O0b correspondence and R0 not yet
+preregistered
 **Parent decision:** [Landscape organization strategy](../landscape-strategy.md)
 
 ## Decision
@@ -13,7 +14,7 @@ derived evidence.
 
 The packet is an experiment instrument, not promoted world ontology. It owns no
 terrain, water or authored feature state. It derives operational highland,
-peak/saddle, basin, divide, reach and valley-probe objects for comparison and
+peak/saddle, basin, raw drainage-boundary, reach and cross-section objects for comparison and
 retains the physical backing needed to audit them.
 
 Do not promote the existing 1.5 km mountain components, 50 km crest bins or
@@ -203,7 +204,8 @@ Derived only from S0:
 - boundary/contact and scale-sensitivity flags.
 
 Several retained highland nodes may later compose one range candidate. V0 does
-not freeze that higher grouping before ridge/divide evidence exists.
+not freeze that higher grouping before drainage-boundary relationship evidence
+exists.
 Plateau evidence is continuous cap area, local relief and gentle-area fraction;
 an exact-elevation flat maximum is not itself classified as a plateau.
 
@@ -215,18 +217,18 @@ Derived only from D0:
 - physical area, structural contributing area and supplied runoff;
 - stable semantic portal/outlet identity and open/terminal status;
 - parent/child containment at retained confluences; and
-- raw shared divide edges between adjacent retained basins.
+- raw shared catchment-boundary faces between exclusive owners.
 
-Nested basin records may overlap, but the divide partition may not. Each cell is
+Nested basin records may overlap, but the exclusive partition may not. Each cell is
 assigned to one **exclusive incremental catchment** owned by the first retained
 downstream reach or portal it enters. Divide edges are emitted only between
 different exclusive IDs; nested parent/child relationships are stored
 separately. The D0 executable contract freezes confluence retention and this
 assignment/tie rule before implementation.
 
-Raw divide edges are not prematurely grouped into named polylines. A geometric
-ridge claim additionally requires positive bilateral relief toward the streams
-reached on both sides.
+Raw boundary faces are not prematurely grouped into named polylines or called
+topographic divides. O0a distinguishes receiver-crossed transitions from
+lateral faces and records physical descent, but promotes no geometric ridge.
 
 ### `RiverReachGraphV0`
 
@@ -243,18 +245,19 @@ bounded reaches from D0:
 There is no single `major` truth in the evaluation packet. Product visibility
 policy may be attached as a secondary overlay.
 
-### `RidgeDivideRelationV0`
+### O0 relationship probes
 
-Relate S0 highland/saddle structure to D0 basin boundaries after both are
-independently extracted:
+The original provisional `RidgeDivideRelationV0` name is too strong for raw D0
+incremental-owner seams. O0a first backs every seam to its physical face,
+separates exact receiver-crossed flow transitions from lateral boundaries and
+relates S0 highland/saddle structure only through mechanically named evidence:
 
-- ridge/divide coincidence and separation length;
-- saddle connection between adjacent retained basins;
-- bilateral divide-to-reach relief and asymmetry;
-- highland-axis versus divide orientation; and
-- transfer-low presence as an observed relationship, never a supplied target.
+- bilateral physical receiver-trace descent and conditioning;
+- highland-footprint boundary support and orientation;
+- saddle-to-boundary distance and height mismatch; and
+- explicit absence/ambiguity rather than ridge, pass or transfer-low promotion.
 
-### `ValleyCorridorProbeV0`
+### `ReachCrossSectionProbeV0`
 
 V0 does not claim a universal valley polygon. For retained trunks/reaches it
 records sampled evidence:
@@ -262,12 +265,12 @@ records sampled evidence:
 - longitudinal physical-surface profile;
 - fixed-spacing cross sections;
 - drainage-relative elevation;
-- flanking divide relief/asymmetry; and
-- corridor width under the frozen relative-height rule.
+- flanking nested-catchment-boundary relief/asymmetry; and
+- relative-relief span under the frozen relative-height rule.
 
-This remains a probe until its boundary and cross-resolution behavior earn
-semantic promotion. It represents regional valley support, never a channel bed,
-bank or floodplain.
+This remains an operational cross-section probe until its boundary and
+cross-resolution behavior earn semantic promotion. It never establishes a
+named valley, valley width, channel bed, bank or floodplain.
 
 ## Frozen v0 scale family
 
@@ -285,7 +288,7 @@ Reference values are diagnostic policies, not quality targets:
 | Along-reach cross-section spacing | 20 km | 10 / 40 km |
 | Cross-section half-length | 100 km | 50 / 150 km |
 | Cross-section sample step | 4 km | 2 / 8 km |
-| Relative-height corridor fraction | 0.25 | 0.15 / 0.35 |
+| Relative-relief span fraction | 0.25 | 0.15 / 0.35 |
 | Maximum probed trunk length | 400 km | 200 / 600 km |
 
 All arms use the reference population. Sensitivity brackets vary one factor at
@@ -296,10 +299,10 @@ not permission to lower its threshold.
 
 The S0 executable contract must freeze the exact primary retention predicate,
 root treatment, extent/width/orientation formulas and all ties. The D0 contract
-must freeze sub-basin/confluence retention and reach endpoint/length rules. O0
-must freeze ridge–divide tolerance, valley sampling/interpolation and
-correspondence buffering/assignment. The scale table alone does not make those
-algorithms executable.
+must freeze sub-basin/confluence retention and reach endpoint/length rules. O0a
+must freeze face roles and cross-section sampling; O0b must separately freeze
+correspondence geometry and assignment. The scale table alone does not make
+those algorithms executable.
 
 No spatial smoothing is part of v0. Vertical persistence and 8/4/2 km object
 correspondence are the registered mesh-noise controls. Adding a fixed-support
@@ -315,14 +318,17 @@ physical footprint or buffered-line overlap
 anchor displacement
 topology agreement
 dominant mutual match
-same | split | merge | born | retired | ambiguous
+mutual-best | one-to-many-best | many-to-one-best | many-to-many-best |
+no-positive-overlap | tie
 confidence and tie margin
 ```
 
 Cross-resolution and cross-arm matching uses physical geometry. Shared cell
 indices may break a tie only within the same mesh and cannot establish identity.
 G's native graph uses the same correspondence structure but a distinct
-provenance namespace.
+provenance namespace. Persistent `same/split/merge/born/retired` language is not
+earned by these mechanical assignments; O0b must retain raw overlap and R0 must
+justify any later acceptance rule before those event names are used.
 
 ## Cause and provenance relationships
 
@@ -331,7 +337,7 @@ Only after extraction may the packet compute:
 - overlap/orientation with the common deformation field;
 - range-end distance from a declared segment termination;
 - longitudinal/transverse drainage relative to forcing;
-- reach crossing through highland/divide structure;
+- reach crossing through highland/drainage-boundary structure;
 - initial/final and changed-forcing correspondence;
 - native-graph to extracted-graph agreement; and
 - hydrologic repair overlap where a product observation supplies it.
@@ -345,11 +351,12 @@ object-, area- and length-weighted measurements and includes:
 
 - highland count/area, persistence, extent, relief and summit-cap distributions;
 - peak/saddle node and retained-link counts;
-- basin-area hierarchy and divide length;
+- basin-area hierarchy and raw boundary length;
 - reach length, contributing area, supply and order distributions;
 - physical drainage density;
-- ridge–divide coincidence;
-- object survival/split/merge/displacement across controls; and
+- unconditioned bilateral boundary-descent share and reach cross-section
+  relief/span evidence;
+- mechanical best-map structure, overlap and displacement across controls; and
 - runtime, peak memory, deterministic repeat and 8/4/2 km response.
 
 Cell counts are resolution context only. Topology counts are descriptive, not
@@ -359,11 +366,12 @@ quality scores by themselves.
 
 1. **G0/S0:** common graph adapters, batch-safe split tree, highland records and
    manufactured peak/plateau/saddle tests.
-2. **D0:** common testbed evaluation routing, basin/reach/divide objects and
+2. **D0:** common testbed evaluation routing, basin/reach/raw-boundary objects and
    fork/confluence/flat/portal tests.
-3. **O0:** ridge–divide relationships, valley probes, correspondence and packet
-   serialization.
-4. **R0:** one unchanged product-reference packet and one pre-arm linked-testbed
+3. **O0a:** drainage-boundary/descent, saddle-boundary and reach cross-section
+   probes with relationship serialization.
+4. **O0b:** cross-packet geometric correspondence and combined packet assembly.
+5. **R0:** one unchanged product-reference packet and one pre-arm linked-testbed
    manufactured packet at 8/4/2 km.
 
 Each rung is a separate checkpoint. Do not implement H, C or G composition
@@ -403,11 +411,12 @@ code is written.
   without changing physical elevation.
 - Depression conditioning reports virtual rise/volume and flags physically
   non-descending receiver/reach segments.
-- Each divide edge is emitted once with physical length and two distinct basin
+- Each raw boundary face is emitted once with physical length and two distinct owner
   IDs.
 - Greatest-supply, longest-trunk and highest-order roles remain distinct when
   the fixture makes them distinct.
-- A divide with no bilateral relief is not promoted to a geometric ridge.
+- A flat or conditioned boundary cannot pass unconditioned bilateral physical
+  descent, and no O0a predicate promotes a geometric ridge or valley.
 
 ### Resolution
 

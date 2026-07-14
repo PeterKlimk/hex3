@@ -85,6 +85,10 @@ Current bounded research decision:
 - [Landform D0 common drainage audit](audits/landform-d0-common-drainage-2026-07-15.md)
   — passing common planar drainage checkpoint, review corrections, cost and
   explicit representation limits; no product adapter or terrain arm evaluated.
+- [Landform O0a relationship-probe contract](research/landform-object-packet-o0-2026-07-15.md)
+  — preregistered face-level flow/lateral roles, bilateral physical-descent,
+  saddle-boundary and reach cross-section evidence; correspondence is split
+  into a later O0b rather than coupled into this rung.
 - [Landform G0/S0 structural-slice audit](audits/landform-g0s0-structural-slice-2026-07-14.md)
   — passing planar geometry/topology checkpoint, caught contract amendments and
   the scope inherited by the morphology slice.
