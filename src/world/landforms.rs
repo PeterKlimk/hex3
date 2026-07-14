@@ -21,6 +21,9 @@ use super::{Tessellation, PLANET_RADIUS_KM};
 
 mod drainage;
 pub use drainage::*;
+mod relationships;
+mod relationships_geometry;
+pub use relationships::*;
 
 pub const G0S0_SCHEMA_VERSION: &str = "landform-g0s0-v0";
 pub const G0S0_HASH_VERSION: &str = "fnv1a64-bincode-fixint-le-v0";
@@ -3408,6 +3411,29 @@ fn canonical_hierarchy_bytes(
         .map_err(|error| LandformError::Serialization(error.to_string()))
 }
 
+pub(crate) fn surface_hierarchy_evidence_hash_v0(
+    graph: &EvaluationSurfaceGraphV0,
+    elevation_km: &[f64],
+    scored_cell: &[bool],
+    mut config: SurfaceHierarchyConfigV0,
+    hierarchy: &SurfaceHierarchyV0,
+) -> Result<u64, LandformError> {
+    config.closure_level_km = canonical_zero(config.closure_level_km);
+    config.validate()?;
+    let elevation = elevation_km
+        .iter()
+        .copied()
+        .map(canonical_zero)
+        .collect::<Vec<_>>();
+    Ok(fnv1a64(&canonical_hierarchy_bytes(
+        graph,
+        &elevation,
+        scored_cell,
+        &config,
+        hierarchy,
+    )?))
+}
+
 fn fnv1a64(bytes: &[u8]) -> u64 {
     let mut hash = 0xcbf29ce484222325u64;
     for &byte in bytes {
@@ -3428,6 +3454,10 @@ mod spherical_tests;
 #[cfg(test)]
 #[path = "landforms/drainage_tests.rs"]
 mod drainage_tests;
+
+#[cfg(test)]
+#[path = "landforms/relationships_tests.rs"]
+mod relationships_tests;
 
 #[cfg(test)]
 mod tests {

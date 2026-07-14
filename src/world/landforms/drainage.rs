@@ -1619,6 +1619,23 @@ fn evidence_bytes(
         .map_err(|error| DrainageErrorV0::Serialization(error.to_string()))
 }
 
+pub(crate) fn drainage_evidence_hash_v0(
+    graph: &EvaluationSurfaceGraphV0,
+    physical_elevation_km: &[f64],
+    local_runoff_supply: &[f64],
+    config: DrainageConfigV0,
+    result: &EvaluationDrainageV0,
+) -> Result<u64, DrainageErrorV0> {
+    config.validate()?;
+    Ok(fnv1a64(&evidence_bytes(
+        graph,
+        physical_elevation_km,
+        local_runoff_supply,
+        &config,
+        result,
+    )?))
+}
+
 fn fnv1a64(bytes: &[u8]) -> u64 {
     let mut hash = 0xcbf29ce484222325u64;
     for &byte in bytes {
