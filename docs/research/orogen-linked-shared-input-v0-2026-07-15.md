@@ -616,10 +616,14 @@ order above. Resolution order is 8/4/2. Serialize with
 `serde_json::to_vec_pretty` and append one LF. JSON decimals need only round-trip
 to the binary f64 values; semantic hashes bind their exact bits.
 
-`run-envelope.json` is nonsemantic provenance:
-source revision and dirty state, executable identity, OS/CPU, thread count,
-command, wall time, peak RSS, artifact lengths and file hashes. Changing the
-envelope must not change the semantic bundle hash.
+`run-envelope.json` is nonsemantic provenance: source revision and dirty state,
+executable identity, Rust toolchain, OS/CPU, thread count, command, elapsed time
+to pre-publication validation, `/proc/self/status` `VmHWM` at that point, and
+the lengths and FNV hashes of `shared-input.bin` and `manifest.json`. It does not
+hash or measure itself. It explicitly names external `/usr/bin/time -v` as the
+authority for final process wall time and whole-process peak RSS; those values
+belong in the dated audit because a process cannot record its own post-exit
+measurements. Changing the envelope must not change the semantic bundle hash.
 
 The binary is exactly `orogen_linked_input`. Its only argument is the required
 `--output-dir <PATH>`; V0 has no default, overwrite flag, arm or terrain
@@ -759,9 +763,10 @@ frame/resolution/bundle chain and require rejection against fresh evaluation.
 
 After release compilation, bundle construction, validation and atomic write on
 the development WSL machine must complete within 2 minutes wall time and
-1 GiB whole-process peak RSS. Record actual time, RSS and artifact bytes. This
-is only the input-materialization budget; it is not the later common H/C/G
-resource ceiling.
+1 GiB whole-process peak RSS. Record the authoritative final process time/RSS
+with external `/usr/bin/time -v`, alongside the envelope's pre-publication
+witnesses and artifact bytes. This is only the input-materialization budget; it
+is not the later common H/C/G resource ceiling.
 
 ## Implementation order and stop condition
 
