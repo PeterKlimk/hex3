@@ -119,7 +119,10 @@ landform names or adapt product hydrology.
 
 The next checkpoint is the linked shared-input manifest. It must bind the exact
 mesh/phase, declarative and compiled deformation field, schedule and integrated
-work, initial state, portals, runoff, material mask, scoring decision and
-resource context. The organization comparison preregistration—not that
-manifest—must resolve whole-graph V0 versus a new partial-scored population
-identity and own the arm-neutral opportunity calibration.
+work, initial state, portals, runoff, homogeneous material, candidate scoring
+geometry and resource context. The resulting
+[contract](../research/orogen-linked-shared-input-v0-2026-07-15.md) is now
+preregistered but unimplemented. The organization comparison
+preregistration—not that manifest—must resolve whole-graph V0 versus a new
+partial-scored population identity and own the arm-neutral opportunity
+calibration.

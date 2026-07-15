@@ -51,6 +51,11 @@ Current synthesized notes:
   [dated audit](../audits/landform-common-core-2026-07-15.md). It records that
   linked forcing is not an arm-neutral final terrain; linked shared inputs and
   arm-result evidence are later, distinct artifacts.
+- [Linked orogen shared-input manifest V0](orogen-linked-shared-input-v0-2026-07-15.md)
+  — preregistered exact input identity for the 8/4/2 km linked case: mesh and
+  portals, declarative/compiled forcing and work, raw initial surface, uniform
+  runoff, homogeneous material and two candidate geometry masks. It selects no
+  terrain owner or evaluation population and is not yet implemented.
 - [Correspondence priors for reduced planet models](correspondence-priors-2026-07-12.md)
 - [Orogen organization: causal reference and reduced experiments](orogen-organization-2026-07-12.md)
 - [Mountain-system design basis](mountain-system-design-basis-2026-07-13.md)

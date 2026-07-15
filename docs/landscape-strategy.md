@@ -214,15 +214,25 @@ the same admissible geometry, deformation field, outlet/base-level geometry,
 runoff field, material mask, characteristic spatial scales and presentation
 settings.
 
-Here termination and transfer low are prescribed testbed forcing/geometry
-controls. The current common packet does not recognize or emit a named range
-end or transfer-low object.
+The non-presentation subset is now frozen by the preregistered
+[linked shared-input manifest V0](research/orogen-linked-shared-input-v0-2026-07-15.md):
+exact 8/4/2 km meshes and portals, declarative and compiled forcing, analytic
+and evaluated work ledgers, a coordinate-defined raw initial surface, uniform
+runoff, homogeneous base-substrate membership and two candidate evaluation
+masks. It is not yet implemented. The comparison contract still owns presentation,
+opportunity calibration, arm conversion/chronology, resource parity and the
+choice of whole-graph versus a new partial evaluation population.
 
-The preregistration must define an arm-neutral terrain-opportunity control—such
-as a separate uniform/no-erosion calibration of broad envelope and positive
-elevation-volume response—rather than pretend that direct height, rock-uplift
-rate and graph conditioning are one forcing quantity. Each arm keeps its own
-units and reports its conversion.
+Here segment terminations and transfer-zone forcing opportunity are prescribed
+testbed geometry controls. They do not guarantee that any arm produces a
+terrain transfer low or saddle. The current common packet does not recognize or
+emit a named range end or transfer-low object.
+
+The comparison preregistration must define an arm-neutral terrain-opportunity
+control—such as a separate uniform/no-erosion calibration of broad envelope
+and positive elevation-volume response—rather than pretend that direct height,
+rock-uplift rate and graph conditioning are one forcing quantity. Each arm
+keeps its own units and reports its conversion.
 
 C owns physical duration. H owns a declared calibrated step horizon. G owns a
 construction/reconstruction pass and makes no chronology claim. All arms share

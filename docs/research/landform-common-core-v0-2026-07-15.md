@@ -31,7 +31,8 @@ The linked case therefore has two later and distinct artifacts:
 1. a shared linked-input manifest, which binds the exact mesh and phase,
    declarative scenario and compiler identity, compiled/evaluated deformation
    field, episode and integrated-work ledgers, portals, initial state, runoff,
-   material mask, scored policy, cell counts and resource context, but no
+   homogeneous material, candidate evaluation geometry, cell counts and
+   resource context, but no selected scoring population,
    final-surface objects, arm conversion or terrain-quality verdict; and
 2. arm-result evidence cores produced only after H, C and G have generated
    authoritative final surfaces under the organization-owner preregistration.

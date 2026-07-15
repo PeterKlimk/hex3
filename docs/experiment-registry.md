@@ -103,7 +103,13 @@ accepted bounded artifact boundary over manufactured packets; its
 [dated audit](audits/landform-common-core-2026-07-15.md) records exact V0 and
 O0b equivalence plus measured cost. The linked scenario has shared forcing but
 no arm-neutral final terrain; its input manifest and later arm-result evidence
-are separate checkpoints.
+are separate checkpoints. The
+[linked shared-input V0 contract](research/orogen-linked-shared-input-v0-2026-07-15.md)
+is now preregistered, not implemented: it freezes exact 8/4/2 km geometry,
+forcing/work, raw initial state, uniform runoff, homogeneous material and
+candidate masks without selecting a comparison population or terrain owner.
+Arm conversions, chronology, opportunity calibration, admission, shared cost
+ceiling and final-surface evidence remain unregistered comparison work.
 
 The first O1 run at 100k coarse/250k fine preserves peak and mountain-area
 plausibility and modestly increases 25–100-km relief, but increases median/p90
