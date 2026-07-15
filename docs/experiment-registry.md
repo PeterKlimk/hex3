@@ -94,8 +94,11 @@ remapping and whole-artifact reversal gates; the
 verdict and cost. Its flat-routing apron is compatibility-only, and the failed
 linked-four-cone 2 km packet remains historical S0/D0 representation evidence.
 This is not product or spherical O0b promotion. Persistent identity/events,
-the product O0a adapter, packet/product R0 and every H/C/G comparison arm
-remain unregistered or unevaluated as applicable; no terrain arm is promoted.
+the product O0a adapter and every H/C/G comparison arm remain unregistered or
+unevaluated as applicable; no terrain arm is promoted. The
+[product-boundary decision](research/landform-product-boundary-decision-2026-07-15.md)
+retires the combined packet/product R0 formulation and makes the pre-arm common
+linked-testbed baseline the next separate checkpoint.
 
 The first O1 run at 100k coarse/250k fine preserves peak and mountain-area
 plausibility and modestly increases 25–100-km relief, but increases median/p90

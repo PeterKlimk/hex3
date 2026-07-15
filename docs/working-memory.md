@@ -63,6 +63,13 @@ bounded verdict and costs. Acceptance stops here: product/spherical O0b,
 persistent identity/events, the product O0a adapter, packet/product R0 and any
 H/C/G promotion remain unregistered, unimplemented or unevaluated as
 applicable.
+The [product-boundary decision](research/landform-product-boundary-decision-2026-07-15.md)
+retires the provisional combined packet/product R0. O0b correspondence reads
+no O0a payload numerically even though V0 hashes all eleven; future common-core,
+reference-O0a and sensitivity artifacts therefore remain separate. Product
+hydrology is product-native evidence over the closed sphere, not planar D0 in
+disguise. The next executable boundary is a pre-arm common linked-testbed
+baseline, not a product adapter.
 Do not let product diagnostics, native C flux, G's authored graph or renderer
 state leak into the instrument; competitive terrain arms remain out of scope.
 
@@ -127,9 +134,9 @@ the unchanged legacy/default pipeline, an all-cell scored mask and one coarse
 plus four cell-aligned 250k fine surfaces. Initial attempts exposed exact
 zero-edge witnesses in both the old and first modern backend. Those historical
 failures are preserved in their audits; the corrected pinned backend now
-completes the unchanged packet. It remains a descriptive cost and ancestry
-pass, not R0, a 1M scale claim, an H/C/G comparison or permission to tune the
-extractor or terrain.
+completes the unchanged G0/S0 observation. It remains a descriptive cost and
+ancestry pass, not R0, a 1M scale claim, an H/C/G comparison or permission to
+tune the extractor or terrain.
 
 The seed-12345 mountain ancestry remains the strongest current causal example.
 Human review found long, flat-topped tablelands—“a giant long Uluru”—rather

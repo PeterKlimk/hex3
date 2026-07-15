@@ -2,8 +2,9 @@
 
 **Date:** 2026-07-14
 **Status:** umbrella evidence contract; G0/S0, common planar D0 and bounded
-common O0a and O0b completed and evaluated; packet/product R0 not yet
-preregistered or implemented
+common O0a and O0b completed and evaluated; the provisional combined
+packet/product R0 boundary is retired and replaced by the separate product and
+common-core decision below
 **Parent decision:** [Landscape organization strategy](../landscape-strategy.md)
 
 ## Decision
@@ -303,8 +304,8 @@ root treatment, extent/width/orientation formulas and all ties. The D0 contract
 must freeze sub-basin/confluence retention and reach endpoint/length rules. O0a
 freezes face roles and cross-section sampling. The separately preregistered
 [O0b contract](landform-object-packet-o0b-2026-07-15.md) freezes planar packet
-assembly, correspondence geometry and assignment; it is not implemented. The
-scale table alone does not make those algorithms executable.
+assembly, correspondence geometry and assignment and now passes its bounded
+checkpoint. The scale table alone does not make later algorithms executable.
 
 No spatial smoothing is part of v0. Vertical persistence and 8/4/2 km object
 correspondence are the registered mesh-noise controls. Adding a fixed-support
@@ -324,8 +325,8 @@ shared cell indices cannot select a winner. The bounded O0b checkpoint excludes
 G's native graph and all product/spherical packets. A later provenance contract
 may compare a native graph in a separate namespace. Persistent
 `same/split/merge/born/retired` language is not earned by these mechanical
-assignments, and packet/product R0 must justify any later acceptance rule before
-such event names are used.
+assignments. A later temporal/provenance contract must justify any acceptance
+rule before such event names are used.
 
 ## Cause and provenance relationships
 
@@ -374,12 +375,15 @@ quality scores by themselves.
    implementation accepted as a common evaluation checkpoint after amendment A
    separated the invalid linked 2 km full-packet witness and passed its isolated
    4-to-8/2, elder, remapping and reversal gates.
-5. **R0:** one unchanged product-reference packet and one pre-arm linked-testbed
-   manufactured packet at 8/4/2 km.
+5. **Pre-arm baseline:** one common linked-testbed evidence core at 8/4/2 km,
+   separately preregistered under the
+   [product-boundary decision](landform-product-boundary-decision-2026-07-15.md).
+   The completed product G0/S0 observation remains external context rather than
+   a second packet forced into common planar semantics.
 
 Each rung is a separate checkpoint. Bounded common planar O0b is accepted only
-as an evaluation instrument; this packet's R0 and the missing product D0/O0a
-boundary remain unregistered and unimplemented.
+as an evaluation instrument; the slim common-core artifact, pre-arm baseline
+and any product drainage observer remain unregistered and unimplemented.
 Do not implement H, C or G composition while the common evidence packet is
 incomplete.
 

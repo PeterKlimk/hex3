@@ -2,8 +2,10 @@
 
 **Status:** amendment A implemented and passed; accepted as the bounded common
 planar evaluation-instrument checkpoint only. Product/spherical O0b, persistent
-identity/events, product adapters and packet/product R0 remain outside this
-rung. See the [dated audit](../audits/landform-o0b-correspondence-2026-07-15.md).
+identity/events, product D0/O0a/O0b adapters and the retired combined
+packet/product R0 remain outside this rung. See the
+[dated audit](../audits/landform-o0b-correspondence-2026-07-15.md) and later
+[product-boundary decision](landform-product-boundary-decision-2026-07-15.md).
 
 **Date:** 2026-07-15, after the bounded O0a audit and before O0b implementation
 

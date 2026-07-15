@@ -40,6 +40,10 @@ Current synthesized notes:
   O0b, persistent identity/events, product O0a, packet/product R0 and H/C/G
   promotion remain outside this accepted checkpoint and unimplemented or
   unevaluated as applicable.
+- [Landform product boundary and packet-retention decision](landform-product-boundary-decision-2026-07-15.md)
+  — separates common planar core evidence, reference relationships, optional
+  sensitivity suites and product-native observation. It retires the provisional
+  combined packet/product R0 formulation before executable preregistration.
 - [Correspondence priors for reduced planet models](correspondence-priors-2026-07-12.md)
 - [Orogen organization: causal reference and reduced experiments](orogen-organization-2026-07-12.md)
 - [Mountain-system design basis](mountain-system-design-basis-2026-07-13.md)

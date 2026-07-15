@@ -288,6 +288,15 @@ treated as a passing packet. This acceptance does not extend to
 product/spherical O0b, persistent identity/events, a product O0a adapter,
 packet/product R0 or any H/C/G composition or promotion.
 
+The [product-boundary decision](research/landform-product-boundary-decision-2026-07-15.md)
+now retires that provisional combined packet/product R0 formulation. Product
+G0/S0 remains external noncompetitive context; product-native hydrology is a
+different derivation from common planar D0 and will not be cast into the same
+packet. The next organization prerequisite is instead a pre-arm linked-testbed
+baseline over a slim common core, with reference O0a and optional sensitivity
+suites separately hashed. This is a dependency/meaning split, not permission to
+implement H/C/G or to claim product-to-testbed correspondence.
+
 The current common packet supplies operational reference highlands,
 peak/saddle topology, drainage nodes/catchments/reaches, raw boundary evidence
 and reach probes. The eventual organization experiment must additionally answer

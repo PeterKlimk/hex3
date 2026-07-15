@@ -76,8 +76,8 @@ Current bounded research decision:
   — preregistered physical-graph adapters, split forest, highland populations,
   morphology evidence and manufactured gates; planar G0/S0 and the analytic
   8/4/2 matrix pass, and both product-spherical and projected-cap G0 adapters
-  plus the manufactured spherical S0/morphology checkpoint now pass; the first
-  bounded product packet is recorded separately below.
+  plus the manufactured spherical S0/morphology checkpoint now pass; the
+  bounded product G0/S0 observation is recorded separately below.
 - [Landform D0 executable contract](research/landform-object-packet-d0-2026-07-15.md)
   — preregistered common portal-fill receiver forest, conditioning, retained
   basin/reach topology and exclusive raw catchment boundaries; the common
@@ -106,6 +106,11 @@ Current bounded research decision:
   measured packet cost, O0a boundary-roundoff correction and the failed
   linked-four-cone 2 km witness retained as representation evidence; no
   identity events, product adapter, packet/product R0 or H/C/G output.
+- [Landform product boundary and packet retention decision](research/landform-product-boundary-decision-2026-07-15.md)
+  — retires the provisional combined packet/product R0 boundary: common planar
+  core evidence, relationship sensitivities and product-native observation are
+  separate hashed artifacts. The next checkpoint is the pre-arm linked-testbed
+  baseline; product drainage and cross-domain correspondence remain deferred.
 - [Landform G0/S0 structural-slice audit](audits/landform-g0s0-structural-slice-2026-07-14.md)
   — passing planar geometry/topology checkpoint, caught contract amendments and
   the scope inherited by the morphology slice.

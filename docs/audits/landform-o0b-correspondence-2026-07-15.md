@@ -162,7 +162,9 @@ witness pass.
 This was the original stop decision. Amendment A has now supplied the separate
 full-packet witness and passed the remaining matrix, so bounded common planar
 O0b is accepted as a diagnostic/evaluation checkpoint. R0 and H/C/G composition
-remain separate decisions; this verdict does not authorize them.
+remain separate decisions; this verdict does not authorize them. The later
+[product-boundary decision](../research/landform-product-boundary-decision-2026-07-15.md)
+retires the provisional combined packet/product R0 formulation.
 
 ## Preregistered follow-up
 
