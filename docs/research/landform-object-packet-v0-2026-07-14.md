@@ -372,7 +372,8 @@ quality scores by themselves.
 4. **O0b:** [cross-packet geometric correspondence and combined packet
    assembly](landform-object-packet-o0b-2026-07-15.md), with a bounded planar
    implementation candidate whose frozen evaluation halted at the linked-four-
-   cone 2 km D0 predecessor gate.
+   cone 2 km D0 predecessor gate. Amendment A is preregistered but unimplemented
+   to replace only the invalid full-packet witness and close the missing matrix.
 5. **R0:** one unchanged product-reference packet and one pre-arm linked-testbed
    manufactured packet at 8/4/2 km.
 

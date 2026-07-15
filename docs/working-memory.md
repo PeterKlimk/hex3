@@ -56,7 +56,11 @@ halted because the exact linked-four-cone 2 km surface produces D0
 full-packet witness or a separately justified D0 representation question—not a
 reason to perturb the witness after observation. The
 [dated audit](audits/landform-o0b-correspondence-2026-07-15.md) records passing
-partial evidence and the roughly 100 MB linked-world packet cost. O0b is not
+partial evidence and the roughly 100 MB linked-world packet cost. Amendment A
+is now preregistered: retain the linked surface as S0 evidence, use four
+isolated cones on a contract-valid flat-routing apron for the full packet, and
+close the elder/remapping/reversal gates before acceptance. Its flat apron is a
+D0 compatibility convention, not realistic drainage morphology. O0b is not
 accepted; packet/product R0 and the product O0a/adapter boundary remain
 unregistered and unimplemented.
 Do not let product diagnostics, native C flux, G's authored graph or renderer

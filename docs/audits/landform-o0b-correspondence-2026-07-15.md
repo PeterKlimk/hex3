@@ -123,3 +123,12 @@ witness pass.
 Until an amendment is frozen and the remaining matrix passes, O0b is an
 available implementation candidate and diagnostic instrument, not accepted
 architecture. R0 and H/C/G composition remain blocked behind that decision.
+
+## Preregistered follow-up
+
+Amendment A is now frozen in the
+[O0b executable contract](../research/landform-object-packet-o0b-2026-07-15.md).
+It retains the failed linked surface as S0 evidence, introduces a separate
+isolated-four-cone full-packet compatibility witness, and defines the missing
+elder-resolution, fixed-remapping and whole-artifact reversal gates. This note
+records preregistration only; it does not change this audit's halted verdict.

@@ -33,7 +33,9 @@ Current synthesized notes:
   — exact common planar packet assembly plus mechanical reference-highland and
   drainage-node correspondence. An implementation candidate exists, but its
   frozen evaluation halted when the linked-four-cone 2 km predecessor packet
-  returned D0 depression-hierarchy ambiguity; see the
+  returned D0 depression-hierarchy ambiguity. Amendment A now preregisters a
+  separate isolated-cone full-packet witness and exact completion gates but is
+  not implemented; see the
   [dated audit](../audits/landform-o0b-correspondence-2026-07-15.md). O0b is not
   accepted or promoted. Product/spherical packets, product O0a and
   packet/product R0 remain outside this rung and unimplemented; R0 is not yet

@@ -1,8 +1,8 @@
 # Landform object packet O0b correspondence and assembly executable contract
 
-**Status:** preregistered contract with implementation candidate; frozen
-evaluation halted at the linked-four-cone 2 km D0 predecessor gate; O0b not
-accepted or promoted. See the
+**Status:** amendment A preregistered but unimplemented; implementation
+candidate remains unaccepted after the original linked-four-cone 2 km D0
+predecessor gate halted. See the
 [dated candidate audit](../audits/landform-o0b-correspondence-2026-07-15.md).
 
 **Date:** 2026-07-15, after the bounded O0a audit and before O0b implementation
@@ -14,6 +14,152 @@ accepted or promoted. See the
 [O0a executable contract](landform-object-packet-o0-2026-07-15.md)
 
 **Observed basis:** [O0a relationship-probe audit](../audits/landform-o0a-relationships-2026-07-15.md)
+
+## Preregistered amendment A: separate topology and full-packet witnesses
+
+**Date:** 2026-07-15, after the first O0b candidate audit and before the
+replacement witness or missing matrix gates are implemented or run.
+
+The original linked-four-cone surface remains an exact and useful S0 topology
+witness. It is not a valid full common-packet witness at every registered
+resolution: at 2 km, its already-frozen D0 predecessor returns
+`DepressionHierarchyAmbiguity { depression: 1 }`. D0 deliberately rejects a
+positive-fill component whose exits disagree on the first different downstream
+fill component or portal. O0b never receives that target packet. The
+[candidate audit](../audits/landform-o0b-correspondence-2026-07-15.md) retains
+the failure and the passing historical 4-to-8 evidence.
+
+Do not perturb the linked surface, omit D0, weaken D0's typed ambiguity or add
+a highland-only packet mode to make that gate pass. Separate the questions:
+
+- the linked surface remains predecessor S0 topology/morphology evidence; and
+- O0b full-packet highland correspondence receives the following new exact
+  drainage-admissible witness.
+
+### Isolated-four-cone full-packet witness
+
+At `spacing = 8, 4, 2 km`, use:
+
+```text
+width   = 720 km
+height  = 240 * sqrt(3) km
+mesh    = uniform_planar_hex_with_portals(width, height, spacing, [portal 41])
+portal  = south side, span [-16,16] km, base level 0 km
+mask    = every cell scored
+runoff  = 0.1 * cell_area_km2
+slope   = 0.010
+
+cones = [
+  (center=(-200,0) km, height=0.50 km),
+  (center=( -65,0) km, height=0.45 km),
+  (center=(  65,0) km, height=0.55 km),
+  (center=( 200,0) km, height=0.48 km),
+]
+
+z(p) = max(0, max_i(height_i - slope * distance(p, center_i)))
+```
+
+Evaluate `z` only at canonical cell centres and canonicalize sampled zero to
+positive zero. The exact lattice sizes are `90x60`, `180x120` and `360x240`,
+or `5,400`, `21,600` and `86,400` cells.
+
+The analytic closure disks have radii `50, 45, 55, 48 km`. Adjacent centre
+separations are `135, 130, 135 km`, so the disks are disjoint. Even at 8 km,
+their gap exceeds two regular-hex circumradii. Every disk is more than 100 km
+from the physical domain boundary after one 8 km cell circumradius is included.
+Their areas all exceed the frozen `2,500 km2` reference minimum and their root
+persistence exceeds `0.10 km`.
+
+Before correspondence, require at every spacing:
+
+- exactly four S0 reference highlands and four roots;
+- no equal-elder ambiguity on those references;
+- each reference receives the unique nearest analytic cone label;
+- D0 filled elevation is bit-identical to physical elevation at every cell,
+  every `fill_supported` flag is false and the depression list is empty; and
+- G0/S0, D0 and all eleven registered O0a namespaces assemble into a valid
+  common packet.
+
+The D0 gate states why this is a full-packet witness: the zero floor is one
+connected exact flat leading to portal 41, while every positive cone sample
+has a radially lower route to that floor. It is not permission to search cone
+positions or heights until D0 happens to pass.
+
+The broad zero apron drains by D0's deterministic flat-potential convention,
+not by a claimed physical surface gradient. That authentic numerical convention
+is acceptable here because the witness judges highland correspondence and only
+requires its completed common drainage predecessor to remain representable. It
+must not be cited as realistic drainage morphology or used as the later H/C/G
+landscape scenario.
+
+For ordered 4-to-8 and 4-to-2 correspondence, each 4 km reference highland
+must have the unique exclusive-area maximum with the same analytic label, and
+the reverse directional maximum must agree. Retain every raw nested/exclusive
+coverage, displacement, margin and topology record. The four labels are test
+oracles only and never enter packet or correspondence bytes.
+
+### Clarified completion gates
+
+The following requirements were already intended by the frozen matrix but
+need exact executable meaning before the candidate can be accepted.
+
+**Equal-elder counterfactuals.** S0 emits one deterministic canonical elder
+resolution, so the two valid elder choices are isolated, internally coherent
+hierarchy/population oracles over identical physical cell geometry—not two
+assembler-valid canonical packets claiming the same G0 hash. Hold physical
+branch labels fixed, reverse the root/child choice, and mark the traversed
+child/saddle edge ambiguous in each oracle. Supports and parent relations may
+differ. In both choices, every retained support whose nearest-retained-ancestor
+or retained-descendant subtraction path traverses that edge must be
+`HierarchyAmbiguousSupport`; nested overlap remains reportable, while exclusive
+pairs, numerical assignments, components and topology credit are absent.
+Eligible opposite support must appear as `IneligibleHighlandSupport` context in
+both ordered directions.
+
+**Fixed reference remapping.** In `new = (17*old+3) mod N`, `N` is the cell
+count. Use the smallest odd multiplier above 17 coprime to `N` only when 17 is
+not coprime. Semantic peak, reach and portal IDs remain stable. Rebuild every
+cell-indexed geometry array, polygon offset, CSR neighbor and reciprocal-edge
+reference, boundary owner, member list, exclusive owner and context class.
+For the five-cell executable strip the mapping is exactly `[3,0,2,4,1]`.
+After coordinate-keyed comparison, isolated area evidence, context,
+assignment inputs and work counts must agree exactly.
+
+**Whole-artifact reversal.** For packets `A,B`, compare `O0b(A,B)` with
+`O0b(B,A)` semantically after applying this exact involution:
+
+- swap source/target packet hashes and source/target cell and segment counts;
+- swap pair IDs, measures, covered measures, directional coverages and
+  anchors; preserve intersections, unions, Jaccard, Dice, separation and
+  displacement;
+- toggle every assignment, context, topology and component-member side while
+  retaining its packet-local object IDs and topology target;
+- exchange `OneToManyBest` with `ManyToOneBest`; preserve `OneToOneBest`,
+  `ManyToManyBest`, ties, margins, nulls, conflicts, topology availability,
+  mapped adjacency and same-component facts;
+- re-sort every transformed record/member/component by the registered
+  canonical order; and
+- preserve all other work counts, validate both hashes/byte streams
+  independently, and exclude only the necessarily different derived hash from
+  semantic equality.
+
+The asymmetric-Y 4/8 packets exercise the whole-artifact involution without
+rebuilding either packet. Focused tie, cardinality, conflict and context
+fixtures must also execute both ordered directions because asymmetric Y does
+not contain every outcome.
+
+### Cost completion and stop rule
+
+Measure isolated-four-cone 4-to-8 and 4-to-2 packet/correspondence bytes, the
+ten sensitivity payload bytes separate from the reference payload, assembly
+and correspondence wall time, and process peak memory in release mode. Keep
+the original candidate's roughly 100 MB linked-packet measurement as historical
+architecture evidence rather than replacing it.
+
+Amendment A can accept only bounded planar O0b after the replacement witness,
+the three clarified gates and the original runnable matrix pass. It does not
+license a D0 representation rework, product/spherical O0b, R0, identity/event
+language or H/C/G composition. Any further failed frozen answer stops again.
 
 ## Decision question
 

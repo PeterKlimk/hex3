@@ -94,8 +94,10 @@ Current bounded research decision:
   relationship checkpoint; no O0b, R0, product adapter or terrain arm.
 - [Landform O0b correspondence and assembly contract](research/landform-object-packet-o0b-2026-07-15.md)
   — bounded planar implementation candidate for packet assembly and mechanical
-  highland/drainage-node correspondence; evaluation halted at the frozen 2 km
-  predecessor-packet gate, so O0b is not accepted or promoted.
+  highland/drainage-node correspondence; amendment A is preregistered to split
+  the invalid linked-topology witness from a drainage-admissible full-packet
+  witness and close the remaining matrix. It is not yet implemented, so O0b is
+  not accepted or promoted.
 - [Landform O0b correspondence candidate audit](audits/landform-o0b-correspondence-2026-07-15.md)
   — implementation, passing bounded evidence, measured packet cost, O0a
   boundary-roundoff correction and the invalid linked-four-cone 2 km witness;

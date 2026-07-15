@@ -304,8 +304,10 @@ The current sequence is:
    bounded planar [O0b correspondence/assembly contract](research/landform-object-packet-o0b-2026-07-15.md)
    now has an implementation candidate, but its frozen evaluation halted at a
    D0 depression-hierarchy ambiguity in the linked-four-cone 2 km predecessor
-   packet. O0b remains unaccepted pending a separately frozen witness/D0
-   amendment and completion of its matrix; packet/product R0 and the missing
+   packet. Amendment A is now preregistered to separate that S0 topology
+   witness from a drainage-admissible full-packet witness and complete the
+   elder/remapping/reversal matrix. Implement and evaluate only that amendment
+   next; O0b remains unaccepted. Packet/product R0 and the missing
    product O0a/adapter boundary remain separately unregistered and
    unimplemented—not H/C/G composition;
 2. preregister one bounded organization-owner slice with shared admissible

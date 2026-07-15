@@ -281,10 +281,12 @@ now has an implementation candidate for exact packet assembly and mechanical
 highland/drainage-node best maps. Its frozen evaluation halted before O0b at a
 D0 depression-hierarchy ambiguity in the linked-four-cone 2 km predecessor
 packet, so it is not accepted or promoted; see the
-[dated audit](audits/landform-o0b-correspondence-2026-07-15.md). It continues to
-exclude product/spherical packets and persistent identity events. Product O0a,
-packet/product R0 and every H/C/G composition remain later, separately
-preregistered work.
+[dated audit](audits/landform-o0b-correspondence-2026-07-15.md). Preregistered
+amendment A separates the linked S0 topology witness from an isolated-cone
+full-packet compatibility witness and freezes the missing completion gates; it
+has not run. O0b continues to exclude product/spherical packets and persistent
+identity events. Product O0a, packet/product R0 and every H/C/G composition
+remain later, separately preregistered work.
 
 The current common packet supplies operational reference highlands,
 peak/saddle topology, drainage nodes/catchments/reaches, raw boundary evidence

@@ -90,7 +90,10 @@ under its [frozen contract](research/landform-object-packet-o0b-2026-07-15.md),
 but evaluation halted when the frozen linked-four-cone 2 km predecessor packet
 returned D0 depression-hierarchy ambiguity. The
 [dated O0b audit](audits/landform-o0b-correspondence-2026-07-15.md) records the
-passing partial evidence and cost; O0b is not accepted or promoted.
+passing partial evidence and cost. Preregistered amendment A now retains that
+surface as S0 topology evidence, supplies a separate isolated-cone full-packet
+witness, and freezes the remaining elder/remapping/reversal gates before they
+run. The amendment is unimplemented; O0b is not accepted or promoted.
 Product/spherical O0b, the product O0a adapter and packet/product R0 remain
 unregistered and unimplemented, and no comparison arm is promoted.
 
