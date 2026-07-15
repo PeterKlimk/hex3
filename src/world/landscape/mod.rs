@@ -23,6 +23,7 @@ mod gradient;
 mod hillslope;
 mod linked_input;
 mod mesh;
+pub mod organization_artifact;
 mod solver;
 mod voronoi_cap_fixture;
 

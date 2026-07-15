@@ -352,8 +352,12 @@ The current sequence is:
    [evidence/projection](research/orogen-organization-evidence-v0-2026-07-16.md);
    **completed:** exact
    [planar capture/human review](research/orogen-organization-planar-review-v0-2026-07-16.md);
-6. implement only the missing composition and object-output seams, reusing the
-   tested landscape operator library without promoting its research models;
+6. **in progress:** implement only the missing composition and object-output
+   seams, reusing the tested landscape operator library without promoting its
+   research models. The passive configuration foundation now owns the exact
+   H/C/G wire vocabulary, legal arm/purpose/predecessor matrix and canonical
+   configuration hash. Result, provenance, trace, checkpoint and failure
+   codecs—and every arm execution path—remain unimplemented;
 7. run the linked-segment base case, advance every competitive arm meeting the
    shared gate under the same preregistered rule, and retain H as the standing
    control in every admitted forcing-reorganization and wet/dry case;
