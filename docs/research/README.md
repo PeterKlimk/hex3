@@ -57,6 +57,11 @@ Current synthesized notes:
   runoff, homogeneous material and two candidate geometry masks. It selects no
   terrain owner or evaluation population; see the
   [dated audit](../audits/orogen-linked-shared-input-2026-07-15.md).
+- [Linked organization-owner comparison design V0](orogen-organization-owner-v0-2026-07-16.md)
+  — preregistered architectural envelope for the H/C/G comparison. It selects
+  whole-domain common extraction plus a central projection and freezes the
+  candidate owner mechanics without claiming an executable wire/verdict
+  contract. Four exact amendments remain before implementation.
 - [Correspondence priors for reduced planet models](correspondence-priors-2026-07-12.md)
 - [Orogen organization: causal reference and reduced experiments](orogen-organization-2026-07-12.md)
 - [Mountain-system design basis](mountain-system-design-basis-2026-07-13.md)

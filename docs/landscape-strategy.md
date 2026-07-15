@@ -197,8 +197,11 @@ geographic objects rather than compensate for their absence.
 ## Next architectural experiment: organization-owner slice
 
 Prepare one bounded **organization-owner slice**, not another global seed sweep
-and not another isolated numerical rung. The comparison family is selected;
-its executable contract is not yet preregistered.
+and not another isolated numerical rung. The
+[comparison design envelope](research/orogen-organization-owner-v0-2026-07-16.md)
+now selects the three families and common evaluation philosophy. It is not yet
+an executable wire/verdict contract: exact artifact/provenance,
+numerical/admission, evidence/projection and planar-review amendments come next.
 
 ### Question
 
@@ -206,7 +209,7 @@ Which minimum owner produces causally placed and reusable range/drainage
 organization at a justified cost: reduced coevolution or graph-first
 reconstruction?
 
-### Shared setting to preregister
+### Shared setting
 
 Use the existing bounded landscape-testbed geometry and one linked, tapered
 deformation pair with a termination/transfer low. Every competitive arm receives
@@ -220,31 +223,32 @@ exact 8/4/2 km meshes and portals, declarative and compiled forcing, analytic
 and evaluated work ledgers, a coordinate-defined raw initial surface, uniform
 runoff, homogeneous base-substrate membership and two candidate evaluation
 masks; see the [dated audit](audits/orogen-linked-shared-input-2026-07-15.md).
-The comparison contract still owns presentation, opportunity calibration, arm
-conversion/chronology, resource parity and the choice of whole-graph versus a
-new partial evaluation population.
+The design envelope now selects work-matched opportunity, arm-specific
+conversion/chronology, whole-domain common extraction with a separately bound
+central projection and a shared safety ceiling. Exact schemas, reductions,
+ledger gates and presentation details remain in the four executable amendments.
 
 Here segment terminations and transfer-zone forcing opportunity are prescribed
 testbed geometry controls. They do not guarantee that any arm produces a
 terrain transfer low or saddle. The current common packet does not recognize or
 emit a named range end or transfer-low object.
 
-The comparison preregistration must define an arm-neutral terrain-opportunity
-control—such as a separate uniform/no-erosion calibration of broad envelope
-and positive elevation-volume response—rather than pretend that direct height,
-rock-uplift rate and graph conditioning are one forcing quantity. Each arm
-keeps its own units and reports its conversion.
+The design matches positive input-work volume at the reference resolution but
+does not pretend that direct height, rock-uplift rate and graph conditioning are
+one forcing quantity or that their spatial opportunity envelopes are equal.
+Each arm keeps its own units and reports its conversion and spatial moments.
 
 C owns physical duration. H owns a declared calibrated step horizon. G owns a
 construction/reconstruction pass and makes no chronology claim. All arms share
 a maximum runtime and memory ceiling and report actual cost; cheap arms are not
 required to spend the budget.
 
-The linked base case comes first. The preregistration must also define honest
-response protocols before any forcing-reorganization or wet/dry case: H applies
-its existing rebuild/hold rule to changed input, C evolves through the forcing
-transition, and G uses a frozen recompute and graph-correspondence rule. This
-tests each architecture's response rather than granting dynamics only to C.
+The linked base case comes first. The design bounds honest response protocols:
+H repeats its registered hold/carve operator, C evolves through changed input,
+and G performs a disclosed frozen-amplitude reconstruction. Exact wet/dry and
+forcing-reorganization input identities still must be committed before those
+cases. This tests each architecture's response rather than granting dynamics
+only to C.
 Every competitive arm meeting the shared base-case gate advances under the same
 rule; H remains the standing control in every admitted case. Record a dropped
 arm's base failure explicitly rather than silently excluding it from comparison.

@@ -284,8 +284,9 @@ benefit recommendation, not only a survey.
 Feature expansion remains paused for the geographic-coherence decision. The
 zoomed-out pass now identifies regional organization—not missing global model
 depth—as the weak seam. The [landscape organization strategy](landscape-strategy.md)
-selects the next comparison family; exact arms, normalizations, budgets and
-gates are not yet preregistered.
+selects the next comparison family; its high-level arms, work-matching, budgets
+and gates are now frozen by the organization-owner design envelope. Exact
+artifact, numerical, evidence and presentation contracts remain pending.
 
 The current sequence is:
 
@@ -330,18 +331,22 @@ The current sequence is:
    landform-quality verdict. The
    [dated audit](audits/orogen-linked-shared-input-2026-07-15.md) accepts the
    exact artifact identity and measured cost without promoting a terrain arm;
-4. preregister one bounded organization-owner slice with shared admissible
-   inputs, an arm-neutral terrain-opportunity calibration, a common resource
-   ceiling and independent object extraction: hold-and-carve H, reduced
-   coevolution C and graph-first authentic control G;
-5. implement only the missing composition and object-output seams, reusing the
+4. **design envelope completed:** the
+   [bounded organization-owner comparison](research/orogen-organization-owner-v0-2026-07-16.md)
+   freezes shared admissible inputs, work-matched opportunity, whole-domain
+   independent extraction plus a central report, resource philosophy and the
+   three owners: hold-and-carve H, reduced coevolution C and graph-first G. It
+   deliberately stops short of executable wire/verdict status;
+5. commit its four executable amendments: exact artifact/provenance,
+   numerical/admission, evidence/projection and planar human-review contracts;
+6. implement only the missing composition and object-output seams, reusing the
    tested landscape operator library without promoting its research models;
-6. run the linked-segment base case, advance every competitive arm meeting the
+7. run the linked-segment base case, advance every competitive arm meeting the
    shared gate under the same preregistered rule, and retain H as the standing
    control in every admitted forcing-reorganization and wet/dry case;
-7. decide ownership by object topology, causal response, matched human review
+8. decide ownership by object topology, causal response, matched human review
    and compute/complexity cost; and
-8. return to the cross-system disposition table before choosing sediment,
+9. return to the cross-system disposition table before choosing sediment,
    ecology, coast or human-world expansion.
 
 Do not resume the R1 arithmetic ladder, run a global seed sweep, tune legacy

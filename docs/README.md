@@ -122,6 +122,11 @@ Current bounded research decision:
   [dated audit](audits/orogen-linked-shared-input-2026-07-15.md). It deliberately
   contains no final terrain, arm conversion, selected scoring population or
   landform verdict.
+- [Linked organization-owner comparison design V0](research/orogen-organization-owner-v0-2026-07-16.md)
+  — freezes the H/C/G architecture families, whole-domain evidence population,
+  central report, work-matching philosophy, response limits and decision
+  boundary. It is intentionally not executable: exact artifact, numerical,
+  evidence and planar-review amendments must precede any arm implementation.
 - [Landform G0/S0 structural-slice audit](audits/landform-g0s0-structural-slice-2026-07-14.md)
   — passing planar geometry/topology checkpoint, caught contract amendments and
   the scope inherited by the morphology slice.

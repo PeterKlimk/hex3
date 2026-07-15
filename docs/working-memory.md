@@ -89,8 +89,17 @@ present forcing compiler while explicitly recording that vergence and transfer
 links do not affect its field. It does not select the scoring population.
 Arm-result packets begin only after H/C/G produce final surfaces. This is not a
 product adapter.
-The next focus is to preregister the organization-owner comparison; no arm-result
-packet exists yet.
+The [organization-owner comparison design envelope](research/orogen-organization-owner-v0-2026-07-16.md)
+now freezes H/C/G, whole-domain common extraction plus a separately bound
+central report, work-matching without broad-envelope matching and the base-case
+decision boundary. It intentionally does not authorize implementation. The
+next focus is four exact amendments—artifact/provenance, numerical/admission,
+evidence/projection and planar human review—and no arm-result packet exists yet.
+Keep the review findings visible: G's uniform wet/dry case changes profile but
+not topology; cross-resolution O0b discrepancy is not a generic scalar
+uncertainty; central peak-anchored and footprint-context cohorts must remain
+separate; and the rotated-input control remains a promotion prerequisite or an
+explicitly justified product-scope exclusion.
 Do not let product diagnostics, native C flux, G's authored graph or renderer
 state leak into the instrument; competitive terrain arms remain out of scope.
 

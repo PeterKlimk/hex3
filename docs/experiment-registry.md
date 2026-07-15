@@ -68,9 +68,13 @@ The zoomed-out disposition supersedes O3B/O3C as separate presumed next
 implementations. The next planned discriminator is one organization-owner slice
 with three comparable families: locked hold-and-carve H, reduced coupled C and
 graph-first authentic G. Its shared admissible inputs, arm-neutral opportunity
-calibration, resource ceiling and independent object extraction must be
-preregistered before implementation. Status: planned discriminator;
-comparison family selected, no arm implemented, evaluated or promoted. See the
+authority and declared arm-specific conversions, resource ceiling and
+independent object extraction must be fixed before implementation. The
+[comparison design envelope](research/orogen-organization-owner-v0-2026-07-16.md)
+now freezes the families, work-matching and whole-domain/central evaluation
+boundary, but is deliberately not an executable wire/verdict contract. Status:
+design selected; exact artifact, numerical, evidence and presentation
+amendments pending; no arm implemented, evaluated or promoted. See the
 [landscape organization strategy](landscape-strategy.md). The
 [landform object packet v0](research/landform-object-packet-v0-2026-07-14.md)
 now preregisters the common evidence vocabulary and rung order. It does not yet
