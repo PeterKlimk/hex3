@@ -32,8 +32,11 @@ candidate base algorithms and anti-circular evidence boundary. The subsequent
 [artifact/provenance amendment](orogen-organization-artifact-v0-2026-07-16.md)
 now freezes semantic arm bytes, and the
 [numerical/admission amendment](orogen-organization-numerical-v0-2026-07-16.md)
-freezes execution and validity. Evidence-reduction and presentation contracts
-remain pending. This design does not promote a product terrain path. No arm can
+freezes execution and validity, and the
+[evidence/projection amendment](orogen-organization-evidence-v0-2026-07-16.md)
+freezes common extraction, central/G projections, correspondence, discrepancy
+and materiality evidence. The presentation contract remains pending. This
+design does not promote a product terrain path. No arm can
 be chosen for the product from the linked base case alone.
 
 ## Executable stop boundary
@@ -48,7 +51,9 @@ executable amendments must be committed first:
 2. **completed:** exact H/C execution, G calibration, closure, failure,
    direct-sensitivity and advancement rules in the
    [numerical/admission amendment](orogen-organization-numerical-v0-2026-07-16.md);
-3. a complete central-projection and authored-G-versus-D0 evidence schema,
+3. **completed:** a complete central-projection and authored-G-versus-D0
+   evidence schema in the
+   [evidence/projection amendment](orogen-organization-evidence-v0-2026-07-16.md),
    including every reduction, option, scale key, portal-owned contribution and
    null/tie/split/merge rule; and
 4. a reproducible planar capture/human-observation contract with exact renderer,
@@ -97,7 +102,8 @@ numeric scoring.
 The accepted common instrument emits operational highlands, saddles, drainage,
 catchments, reaches and mechanical relationships. Some desired cell/object
 distributions and authored-G comparisons are not accepted instrument outputs
-yet; they require the separately versioned evidence amendment named above. The
+yet; their exact comparison representation is frozen by the separately
+versioned evidence/projection amendment named above. The
 instrument does not emit natural-kind named ranges, range ends, transfer lows,
 passes, valleys or persistent capture events. This comparison therefore uses
 mechanical linked-case probes and does not promote those names by narration.
@@ -865,8 +871,8 @@ but object-poor, revisit the comparison representation or missing shared state;
 do not tune relief scale. If common evidence fails across arms, repair the
 instrument rather than terrain.
 
-The artifact/provenance and numerical/admission amendments are now committed in
-design. The next task is evidence/projection, followed by planar capture/human
-review. Only after all four may implementation start with shared composition
+The artifact/provenance, numerical/admission and evidence/projection amendments
+are now committed in design. The next task is planar capture/human review. Only
+after all four may implementation start with shared composition
 and artifact infrastructure. The next task is not a new ecology, sediment,
 tectonic or product model.

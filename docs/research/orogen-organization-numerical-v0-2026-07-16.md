@@ -1055,9 +1055,10 @@ separate research behavior; they are not silently changed into the owner path.
 
 ## Stop boundary
 
-This amendment completes item 2 of the parent executable stop boundary. Do not
-implement H/C/G yet. Next commit the evidence/projection amendment: exact common
-core/O0a/central inputs, authored-G comparison, object and cohort reductions,
-missing/tie/split/merge semantics, materiality predicates and comparison bytes.
-The final planar capture/human-review amendment still follows before any active
-arm run.
+This amendment completes item 2 of the parent executable stop boundary. The
+subsequent
+[evidence/projection amendment](orogen-organization-evidence-v0-2026-07-16.md)
+now completes item 3: exact common-core/O0a/central inputs, authored-G
+comparison, object/cohort reductions, discrepancy handoff, correspondence and
+materiality bytes. Do not implement H/C/G yet. The final planar
+capture/human-review amendment still follows before any active arm run.

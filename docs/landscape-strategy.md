@@ -204,7 +204,9 @@ an executable wire/verdict contract: the exact
 [artifact/provenance amendment](research/orogen-organization-artifact-v0-2026-07-16.md)
 and exact
 [numerical/admission amendment](research/orogen-organization-numerical-v0-2026-07-16.md)
-are now preregistered; evidence/projection and planar-review amendments remain.
+and exact
+[evidence/projection amendment](research/orogen-organization-evidence-v0-2026-07-16.md)
+are now preregistered; the planar-review amendment remains.
 
 ### Question
 
@@ -230,8 +232,8 @@ The design envelope now selects work-matched opportunity, arm-specific
 conversion/chronology, whole-domain common extraction with a separately bound
 central projection and a shared safety ceiling. Exact schemas, reductions,
 ledger gates and presentation details are divided among four executable
-amendments. Artifact/provenance and numerical/admission are complete; evidence/
-projection and planar human review remain.
+amendments. Artifact/provenance, numerical/admission and evidence/projection are
+complete; planar human review remains.
 
 Here segment terminations and transfer-zone forcing opportunity are prescribed
 testbed geometry controls. They do not guarantee that any arm produces a

@@ -68,8 +68,11 @@ Current synthesized notes:
 - [Organization-owner numerical and admission amendment V0](orogen-organization-numerical-v0-2026-07-16.md)
   — second executable amendment: exact H/C scheduling and operators, G forest/
   reconstruction solve, numerical tolerances, completion/failure boundaries,
-  direct sensitivity and advancement. Evidence/projection and planar review
-  remain before implementation.
+  direct sensitivity and advancement.
+- [Organization-owner evidence and projection amendment V0](orogen-organization-evidence-v0-2026-07-16.md)
+  — third executable amendment: exact common extraction, central projection,
+  authored-G/D0 and numerical-discrepancy sidecars, correspondence/materiality,
+  failures, JSON projections and campaign publication. Planar review remains.
 - [Correspondence priors for reduced planet models](correspondence-priors-2026-07-12.md)
 - [Orogen organization: causal reference and reduced experiments](orogen-organization-2026-07-12.md)
 - [Mountain-system design basis](mountain-system-design-basis-2026-07-13.md)

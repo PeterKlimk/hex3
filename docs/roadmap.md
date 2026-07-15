@@ -289,7 +289,9 @@ and gates are now frozen by the organization-owner design envelope. The exact
 [artifact/provenance contract](research/orogen-organization-artifact-v0-2026-07-16.md)
 and the exact
 [numerical/admission contract](research/orogen-organization-numerical-v0-2026-07-16.md)
-are now preregistered; evidence and presentation contracts remain pending.
+and
+[evidence/projection contract](research/orogen-organization-evidence-v0-2026-07-16.md)
+are now preregistered; the presentation contract remains pending.
 
 The current sequence is:
 
@@ -344,7 +346,9 @@ The current sequence is:
    [artifact/provenance](research/orogen-organization-artifact-v0-2026-07-16.md);
    **completed:** exact
    [numerical/admission](research/orogen-organization-numerical-v0-2026-07-16.md);
-   next, evidence/projection; then the planar human-review contract;
+   **completed:** exact
+   [evidence/projection](research/orogen-organization-evidence-v0-2026-07-16.md);
+   next, the planar human-review contract;
 6. implement only the missing composition and object-output seams, reusing the
    tested landscape operator library without promoting its research models;
 7. run the linked-segment base case, advance every competitive arm meeting the

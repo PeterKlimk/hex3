@@ -1626,9 +1626,9 @@ a typed failure.
 
 Implement the library in `src/world/landscape/organization_artifact.rs`, export
 it from `src/world/landscape/mod.rs`, and add the thin `src/bin/orogen_owner.rs`
-CLI only after the remaining evidence/projection and planar-review amendments
-are committed. Do not refactor the accepted linked-input publisher in this
-rung.
+CLI only after the subsequent evidence/projection amendment and remaining
+planar-review amendment are committed. The evidence amendment is now committed
+in design; do not refactor the accepted linked-input publisher in this rung.
 
 Required tests are:
 
@@ -1666,5 +1666,7 @@ This amendment completes item 1 of the parent design's executable stop
 boundary. The subsequent
 [numerical/admission amendment](orogen-organization-numerical-v0-2026-07-16.md)
 completes item 2 and makes the small append-only failure-enum amendment above.
-Do not implement artifact structs yet. Evidence/projection and planar-review
-amendments still follow before any active H/C/G run.
+Do not implement artifact structs yet. The subsequent
+[evidence/projection amendment](orogen-organization-evidence-v0-2026-07-16.md)
+now completes item 3; the planar-review amendment still follows before any
+active H/C/G run.

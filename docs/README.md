@@ -133,8 +133,11 @@ Current bounded research decision:
 - [Organization-owner numerical and admission amendment V0](research/orogen-organization-numerical-v0-2026-07-16.md)
   — freezes H/C execution, the linear surface-process boundary, G construction
   and calibration, closure tolerances, failure authority, direct sensitivity
-  and campaign advancement. Evidence and planar-review amendments must still
-  precede any arm implementation.
+  and campaign advancement.
+- [Organization-owner evidence and projection amendment V0](research/orogen-organization-evidence-v0-2026-07-16.md)
+  — freezes the exact common/central evidence, authored-G comparison, direct
+  numerical discrepancy, O0b correspondence, materiality, failure, JSON and
+  publication contracts. Only planar human review remains before implementation.
 - [Landform G0/S0 structural-slice audit](audits/landform-g0s0-structural-slice-2026-07-14.md)
   — passing planar geometry/topology checkpoint, caught contract amendments and
   the scope inherited by the morphology slice.
