@@ -594,3 +594,299 @@ fn o0b_hash_helpers_reject_noncanonical_arrays_and_bind_population_fields() {
     };
     assert_ne!(population_definition_hash_v0(&changed).unwrap(), original);
 }
+
+fn assert_common_core_split_round_trip(packet: &LandformObjectPacketCoreV0) {
+    let original_bytes = landform_object_packet_bytes_v0(packet).unwrap();
+    let original_hash = packet.derived_common_packet_hash;
+    let (core, reference, suite) = split_landform_object_packet_v0(packet).unwrap();
+
+    validate_common_planar_evidence_core_v0(&core).unwrap();
+    validate_reference_relationship_evidence_v0(&reference).unwrap();
+    validate_reference_relationship_evidence_against_core_v0(&core, &reference).unwrap();
+    validate_relationship_sensitivity_suite_v0(&suite).unwrap();
+    validate_relationship_sensitivity_suite_against_core_v0(&core, &suite).unwrap();
+    assert_eq!(reference.core_hash, core.derived_core_hash);
+    assert_eq!(suite.core_hash, core.derived_core_hash);
+
+    let core_bytes = common_planar_evidence_core_bytes_v0(&core).unwrap();
+    let reference_bytes = reference_relationship_evidence_bytes_v0(&reference).unwrap();
+    let suite_bytes = relationship_sensitivity_suite_bytes_v0(&suite).unwrap();
+    assert_eq!(
+        decode_common_planar_evidence_core_v0(&core_bytes).unwrap(),
+        core
+    );
+    assert_eq!(
+        decode_reference_relationship_evidence_v0(&reference_bytes).unwrap(),
+        reference
+    );
+    assert_eq!(
+        decode_relationship_sensitivity_suite_v0(&suite_bytes).unwrap(),
+        suite
+    );
+
+    let materialized = materialize_landform_object_packet_v0(&core, &reference, &suite).unwrap();
+    assert_eq!(&materialized, packet);
+    assert_eq!(materialized.derived_common_packet_hash, original_hash);
+    assert_eq!(
+        landform_object_packet_bytes_v0(&materialized).unwrap(),
+        original_bytes
+    );
+
+    let repeated = split_landform_object_packet_v0(&materialized).unwrap();
+    assert_eq!(repeated.0, core);
+    assert_eq!(repeated.1, reference);
+    assert_eq!(repeated.2, suite);
+    assert_eq!(
+        common_planar_evidence_core_bytes_v0(&repeated.0).unwrap(),
+        core_bytes
+    );
+    assert_eq!(
+        reference_relationship_evidence_bytes_v0(&repeated.1).unwrap(),
+        reference_bytes
+    );
+    assert_eq!(
+        relationship_sensitivity_suite_bytes_v0(&repeated.2).unwrap(),
+        suite_bytes
+    );
+}
+
+#[test]
+fn common_core_split_is_an_exact_inverse_for_bounded_asymmetric_y() {
+    assert_common_core_split_round_trip(&assembled_asymmetric_y_packet_at(4.0));
+}
+
+#[test]
+#[ignore = "explicit common-core 8/4/2 exact decomposition matrix"]
+fn common_core_split_is_an_exact_inverse_for_registered_fixture_matrix() {
+    for spacing_km in [8.0, 4.0, 2.0] {
+        assert_common_core_split_round_trip(&assembled_asymmetric_y_packet_at(spacing_km));
+        assert_common_core_split_round_trip(&assembled_isolated_four_cone_packet_at(spacing_km));
+    }
+    for spacing_km in [8.0, 4.0] {
+        assert_common_core_split_round_trip(&assembled_linked_four_cone_packet_at(spacing_km));
+    }
+}
+
+fn rehash_suite(suite: &mut RelationshipSensitivitySuiteV0) {
+    suite.derived_suite_hash = relationship_sensitivity_suite_hash_v0(suite).unwrap();
+}
+
+fn rehash_reference(reference: &mut ReferenceRelationshipEvidenceV0) {
+    reference.derived_reference_hash = reference_relationship_evidence_hash_v0(reference).unwrap();
+}
+
+#[test]
+fn common_core_sidecars_reject_wrong_shape_binding_and_rehashed_semantic_mutation() {
+    let packet = assembled_asymmetric_y_packet_at(4.0);
+    let (core, reference, suite) = split_landform_object_packet_v0(&packet).unwrap();
+
+    let mut missing = suite.clone();
+    missing.payloads.pop();
+    rehash_suite(&mut missing);
+    assert!(validate_relationship_sensitivity_suite_v0(&missing).is_err());
+
+    let mut duplicate = suite.clone();
+    duplicate.payloads[1] = duplicate.payloads[0].clone();
+    rehash_suite(&mut duplicate);
+    assert!(validate_relationship_sensitivity_suite_v0(&duplicate).is_err());
+
+    let mut extra = suite.clone();
+    extra.payloads.push(extra.payloads[0].clone());
+    rehash_suite(&mut extra);
+    assert!(validate_relationship_sensitivity_suite_v0(&extra).is_err());
+
+    let mut reordered = suite.clone();
+    reordered.payloads.swap(0, 1);
+    rehash_suite(&mut reordered);
+    assert!(validate_relationship_sensitivity_suite_v0(&reordered).is_err());
+
+    let mut reference_in_suite = suite.clone();
+    reference_in_suite.payloads[0] = reference.payload.clone();
+    rehash_suite(&mut reference_in_suite);
+    assert!(validate_relationship_sensitivity_suite_v0(&reference_in_suite).is_err());
+
+    let mut sensitivity_in_reference = reference.clone();
+    sensitivity_in_reference.payload = suite.payloads[0].clone();
+    rehash_reference(&mut sensitivity_in_reference);
+    assert!(validate_reference_relationship_evidence_v0(&sensitivity_in_reference).is_err());
+
+    let mut wrong_config = suite.clone();
+    wrong_config.payloads[0].config = suite.payloads[1].config.clone();
+    rehash_suite(&mut wrong_config);
+    assert!(validate_relationship_sensitivity_suite_v0(&wrong_config).is_err());
+
+    let foreign_packet = assembled_asymmetric_y_packet_at(8.0);
+    let (foreign_core, _, _) = split_landform_object_packet_v0(&foreign_packet).unwrap();
+    assert!(
+        validate_reference_relationship_evidence_against_core_v0(&foreign_core, &reference)
+            .is_err()
+    );
+    assert!(
+        validate_relationship_sensitivity_suite_against_core_v0(&foreign_core, &suite).is_err()
+    );
+
+    let mut wrong_geometry = reference.clone();
+    match &mut wrong_geometry.payload.geometry_identity {
+        PacketGeometryIdentityV0::LandscapeRegularPlanar {
+            canonical_graph_hash,
+            ..
+        } => *canonical_graph_hash ^= 1,
+        PacketGeometryIdentityV0::ProjectedR1VoronoiCap { .. } => unreachable!(),
+    }
+    rehash_reference(&mut wrong_geometry);
+    assert!(
+        validate_reference_relationship_evidence_against_core_v0(&core, &wrong_geometry).is_err()
+    );
+
+    let mut wrong_surface_predecessor = reference.clone();
+    wrong_surface_predecessor
+        .payload
+        .surface_hierarchy_input_hash ^= 1;
+    rehash_reference(&mut wrong_surface_predecessor);
+    assert!(validate_reference_relationship_evidence_against_core_v0(
+        &core,
+        &wrong_surface_predecessor
+    )
+    .is_err());
+
+    let mut wrong_drainage_predecessor = reference.clone();
+    wrong_drainage_predecessor.payload.drainage_input_hash ^= 1;
+    rehash_reference(&mut wrong_drainage_predecessor);
+    assert!(validate_reference_relationship_evidence_against_core_v0(
+        &core,
+        &wrong_drainage_predecessor
+    )
+    .is_err());
+
+    let mut malformed = reference.clone();
+    malformed.payload.backed_boundary_faces.clear();
+    rehash_reference(&mut malformed);
+    assert!(validate_reference_relationship_evidence_v0(&malformed).is_ok());
+    assert!(validate_reference_relationship_evidence_against_core_v0(&core, &malformed).is_err());
+
+    let mut trailing = common_planar_evidence_core_bytes_v0(&core).unwrap();
+    trailing.push(0);
+    assert!(decode_common_planar_evidence_core_v0(&trailing).is_err());
+    let mut trailing = reference_relationship_evidence_bytes_v0(&reference).unwrap();
+    trailing.push(0);
+    assert!(decode_reference_relationship_evidence_v0(&trailing).is_err());
+    let mut trailing = relationship_sensitivity_suite_bytes_v0(&suite).unwrap();
+    trailing.push(0);
+    assert!(decode_relationship_sensitivity_suite_v0(&trailing).is_err());
+}
+
+fn assert_rehashed_core_mutation_rejected(
+    core: &CommonPlanarEvidenceCoreV0,
+    mutate: impl FnOnce(&mut CommonPlanarEvidenceCoreV0),
+) {
+    let mut witness = core.clone();
+    mutate(&mut witness);
+    witness.derived_core_hash = common_planar_evidence_core_hash_v0(&witness).unwrap();
+    assert!(validate_common_planar_evidence_core_v0(&witness).is_err());
+}
+
+#[test]
+fn common_core_finite_mutation_matrix_binds_every_retained_field_class() {
+    let packet = assembled_asymmetric_y_packet_at(4.0);
+    let (core, _, _) = split_landform_object_packet_v0(&packet).unwrap();
+
+    let mut wrong_schema = core.clone();
+    wrong_schema.schema_version = "foreign".into();
+    assert!(validate_common_planar_evidence_core_v0(&wrong_schema).is_err());
+    let mut wrong_hash_version = core.clone();
+    wrong_hash_version.hash_version = "foreign".into();
+    assert!(validate_common_planar_evidence_core_v0(&wrong_hash_version).is_err());
+
+    assert_rehashed_core_mutation_rejected(&core, |value| {
+        let DeclaredDomainV0::RequestedRegularPatchV0 { width_km, .. } =
+            &mut value.population.declared_domain;
+        *width_km += 4.0;
+    });
+    assert_rehashed_core_mutation_rejected(&core, |value| match &mut value.geometry_identity {
+        PacketGeometryIdentityV0::LandscapeRegularPlanar {
+            canonical_graph_hash,
+            ..
+        } => *canonical_graph_hash ^= 1,
+        PacketGeometryIdentityV0::ProjectedR1VoronoiCap { .. } => unreachable!(),
+    });
+    assert_rehashed_core_mutation_rejected(&core, |value| {
+        value.graph.cell_center_km[0].x += 1.0e-6;
+    });
+    assert_rehashed_core_mutation_rejected(&core, |value| {
+        value.physical_elevation_km[0] += 1.0e-6;
+    });
+    assert_rehashed_core_mutation_rejected(&core, |value| value.scored_cell[0] = false);
+    assert_rehashed_core_mutation_rejected(&core, |value| {
+        value.local_runoff_supply[0] += 1.0e-6;
+    });
+    assert_rehashed_core_mutation_rejected(&core, |value| {
+        value.surface_config.closure_level_km += 1.0e-6;
+    });
+    assert_rehashed_core_mutation_rejected(&core, |value| {
+        value.drainage_config.support_thresholds_km2[0] += 1.0;
+    });
+    assert_rehashed_core_mutation_rejected(&core, |value| {
+        value.surface_hierarchy.derived_evidence_hash ^= 1;
+    });
+    assert_rehashed_core_mutation_rejected(&core, |value| {
+        value.drainage.derived_evidence_hash ^= 1;
+    });
+
+    assert_rehashed_core_mutation_rejected(&core, |value| {
+        value.population.semantic_portals[0].base_level_km = -0.0;
+        value.population.population_definition_hash =
+            population_definition_hash_v0(&value.population).unwrap();
+    });
+    assert_rehashed_core_mutation_rejected(&core, |value| {
+        value.physical_elevation_km[0] = -0.0;
+    });
+    assert_rehashed_core_mutation_rejected(&core, |value| {
+        value.local_runoff_supply[0] = -0.0;
+    });
+    assert_rehashed_core_mutation_rejected(&core, |value| {
+        value.graph.cell_center_km.pop();
+    });
+    assert_rehashed_core_mutation_rejected(&core, |value| {
+        value.physical_elevation_km.pop();
+    });
+    assert_rehashed_core_mutation_rejected(&core, |value| {
+        value.local_runoff_supply[0] = f64::NAN;
+    });
+
+    let mut wrong_outer_hash = core;
+    wrong_outer_hash.derived_core_hash ^= 1;
+    assert!(matches!(
+        validate_common_planar_evidence_core_v0(&wrong_outer_hash),
+        Err(PacketAssemblyErrorV0::CoreHashMismatch { .. })
+    ));
+}
+
+#[test]
+#[ignore = "explicit common-core deterministic-repeat matrix"]
+fn common_core_split_and_materialization_repeat_deterministically() {
+    for packet in [
+        assembled_asymmetric_y_packet_at(4.0),
+        assembled_asymmetric_y_packet_at(8.0),
+        assembled_isolated_four_cone_packet_at(4.0),
+        assembled_isolated_four_cone_packet_at(2.0),
+    ] {
+        let first = split_landform_object_packet_v0(&packet).unwrap();
+        let second = split_landform_object_packet_v0(&packet).unwrap();
+        assert_eq!(first, second);
+        assert_eq!(
+            common_planar_evidence_core_bytes_v0(&first.0).unwrap(),
+            common_planar_evidence_core_bytes_v0(&second.0).unwrap()
+        );
+        assert_eq!(
+            reference_relationship_evidence_bytes_v0(&first.1).unwrap(),
+            reference_relationship_evidence_bytes_v0(&second.1).unwrap()
+        );
+        assert_eq!(
+            relationship_sensitivity_suite_bytes_v0(&first.2).unwrap(),
+            relationship_sensitivity_suite_bytes_v0(&second.2).unwrap()
+        );
+        let materialized =
+            materialize_landform_object_packet_v0(&first.0, &first.1, &first.2).unwrap();
+        assert_eq!(materialized, packet);
+    }
+}

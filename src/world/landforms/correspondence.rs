@@ -13,6 +13,8 @@ use serde::{Deserialize, Serialize};
 
 pub const O0B_CORRESPONDENCE_SCHEMA_VERSION: &str = "landform-correspondence-o0b-v0";
 pub const O0B_CORRESPONDENCE_HASH_VERSION: &str = "fnv1a64-bincode-fixint-le-v0";
+pub const CORE_O0B_CORRESPONDENCE_SCHEMA_VERSION: &str = "landform-correspondence-o0b-core-v1";
+pub const CORE_O0B_CORRESPONDENCE_HASH_VERSION: &str = "fnv1a64-bincode-fixint-le-core-v1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum PacketSideV0 {
@@ -363,6 +365,33 @@ pub struct ObjectCorrespondenceV0 {
     pub config: CorrespondenceConfigWireV0,
     pub source_packet_hash: u64,
     pub target_packet_hash: u64,
+    pub highland_nested_pairs: Vec<AreaPairV0>,
+    pub highland_exclusive_pairs: Vec<AreaPairV0>,
+    pub drainage_nested_pairs: Vec<AreaPairV0>,
+    pub drainage_exclusive_pairs: Vec<AreaPairV0>,
+    pub drainage_line_pairs: Vec<LinePairV0>,
+    pub context_records: Vec<ContextV0>,
+    pub assignment_records: Vec<AssignmentV0>,
+    pub best_components: Vec<BestComponentV0>,
+    pub metric_conflicts: Vec<MetricConflictV0>,
+    pub topology_records: Vec<TopologyV0>,
+    pub work_counts: CorrespondenceWorkCountsV0,
+    pub derived_correspondence_hash: u64,
+}
+
+/// O0b mechanical evidence bound to the slim common planar evidence cores.
+///
+/// This deliberately has a distinct schema and hash identity from
+/// [`ObjectCorrespondenceV0`]. The evidence fields retain the frozen O0b wire
+/// order and meaning; only the predecessor identities change from complete V0
+/// packet hashes to common-core hashes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CoreObjectCorrespondenceV1 {
+    pub schema_version: String,
+    pub hash_version: String,
+    pub config: CorrespondenceConfigWireV0,
+    pub source_core_hash: u64,
+    pub target_core_hash: u64,
     pub highland_nested_pairs: Vec<AreaPairV0>,
     pub highland_exclusive_pairs: Vec<AreaPairV0>,
     pub drainage_nested_pairs: Vec<AreaPairV0>,

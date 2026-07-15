@@ -2,8 +2,8 @@
 
 **Date:** 2026-07-15
 
-**Status:** architecture decision; common-core schemas and gates now separately
-preregistered but not implemented
+**Status:** architecture decision; common-core boundary separately implemented
+and accepted by its [dated audit](../audits/landform-common-core-2026-07-15.md)
 
 **Parents:** [landform object packet v0](landform-object-packet-v0-2026-07-14.md),
 [bounded O0b contract](landform-object-packet-o0b-2026-07-15.md),
@@ -159,16 +159,18 @@ The accepted isolated-four-cone measurements are:
 
 Separating sensitivities is worthwhile, but it is not a complete scaling fix:
 at 2 km the remaining common/base state dominates after sensitivities are
-removed. A field-level breakdown has not established how that remainder divides
-among geometry, physical arrays, S0 and D0. The common-core equivalence run must
-still report full wall time, peak memory and retained artifact bytes under its
-fixed resource ceiling.
+removed. The completed [common-core audit](../audits/landform-common-core-2026-07-15.md)
+measures the exact core at 4.88/16.82/63.45 MB for 8/4/2 km and finds graph
+geometry grows from 68.3% to 83.9% of it. The focused release run took 2:43.76
+wall and 726,804 KiB peak RSS, within its fixed ceiling. This confirms that O0a
+separation is useful while further relationship factorization is not the next
+scaling seam.
 
 ## Revised checkpoint boundary
 
-The exact slim-core/reference/sensitivity boundary is now preregistered
-separately. It must preserve V0 compatibility as historical evidence and
-reproduce the accepted O0b mechanical answers from the new core identity.
+The exact slim-core/reference/sensitivity boundary is now implemented and
+accepted separately. It preserves V0 compatibility as historical evidence and
+reproduces the accepted O0b mechanical answers from the new core identity.
 
 Do not call forcing an outcome. The linked deformation scenario contains no
 arm-neutral final terrain from which a pre-arm S0/D0/O0a/O0b packet could be

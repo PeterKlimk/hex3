@@ -99,9 +99,11 @@ unevaluated as applicable; no terrain arm is promoted. The
 [product-boundary decision](research/landform-product-boundary-decision-2026-07-15.md)
 retires the combined packet/product R0 formulation. The executable
 [common-core contract](research/landform-common-core-v0-2026-07-15.md) is the
-next checkpoint over accepted manufactured packets. The linked scenario has
-shared forcing but no arm-neutral final terrain; its input manifest and later
-arm-result evidence are separate checkpoints.
+accepted bounded artifact boundary over manufactured packets; its
+[dated audit](audits/landform-common-core-2026-07-15.md) records exact V0 and
+O0b equivalence plus measured cost. The linked scenario has shared forcing but
+no arm-neutral final terrain; its input manifest and later arm-result evidence
+are separate checkpoints.
 
 The first O1 run at 100k coarse/250k fine preserves peak and mountain-area
 plausibility and modestly increases 25–100-km relief, but increases median/p90

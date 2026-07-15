@@ -2,7 +2,8 @@
 
 **Date:** 2026-07-15
 
-**Status:** preregistered; not implemented or evaluated
+**Status:** implemented and accepted as a bounded planar artifact boundary; see
+the [dated audit](../audits/landform-common-core-2026-07-15.md)
 
 **Parents:** [landform object packet v0](landform-object-packet-v0-2026-07-14.md),
 [bounded O0b contract](landform-object-packet-o0b-2026-07-15.md),

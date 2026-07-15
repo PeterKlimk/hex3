@@ -14,6 +14,13 @@ use crate::world::landscape::{BoundarySide, LandscapeMesh, OutletPortal, OutletP
 
 pub const O0B_PACKET_SCHEMA_VERSION: &str = "landform-object-packet-o0b-v0";
 pub const O0B_PACKET_HASH_VERSION: &str = "fnv1a64-bincode-fixint-le-v0";
+pub const COMMON_PLANAR_EVIDENCE_CORE_SCHEMA_VERSION: &str =
+    "landform-common-planar-evidence-core-v0";
+pub const REFERENCE_RELATIONSHIP_EVIDENCE_SCHEMA_VERSION: &str =
+    "landform-reference-relationship-evidence-v0";
+pub const RELATIONSHIP_SENSITIVITY_SUITE_SCHEMA_VERSION: &str =
+    "landform-relationship-sensitivity-suite-v0";
+pub const COMMON_PLANAR_ARTIFACT_HASH_VERSION: &str = "fnv1a64-bincode-fixint-le-v0";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CoordinateFrameV0 {
@@ -164,6 +171,42 @@ pub struct LandformObjectPacketCoreV0 {
     pub derived_common_packet_hash: u64,
 }
 
+/// S0/D0 evidence and the complete physical inputs needed to rebuild it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CommonPlanarEvidenceCoreV0 {
+    pub schema_version: String,
+    pub hash_version: String,
+    pub population: CommonEvaluationPopulationV0,
+    pub geometry_identity: PacketGeometryIdentityV0,
+    pub graph: EvaluationSurfaceGraphV0,
+    pub physical_elevation_km: Vec<f64>,
+    pub scored_cell: Vec<bool>,
+    pub local_runoff_supply: Vec<f64>,
+    pub surface_config: SurfaceHierarchyConfigWireV0,
+    pub drainage_config: DrainageConfigWireV0,
+    pub surface_hierarchy: SurfaceHierarchyV0,
+    pub drainage: EvaluationDrainageV0,
+    pub derived_core_hash: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReferenceRelationshipEvidenceV0 {
+    pub schema_version: String,
+    pub hash_version: String,
+    pub core_hash: u64,
+    pub payload: LandformRelationshipsWireV0,
+    pub derived_reference_hash: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RelationshipSensitivitySuiteV0 {
+    pub schema_version: String,
+    pub hash_version: String,
+    pub core_hash: u64,
+    pub payloads: Vec<LandformRelationshipsWireV0>,
+    pub derived_suite_hash: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LandformPacketEnvelopeV0 {
     pub core: LandformObjectPacketCoreV0,
@@ -185,6 +228,19 @@ pub struct LandformPacketAssemblyInputV0<'a> {
     pub surface_hierarchy: &'a SurfaceHierarchyV0,
     pub drainage: &'a EvaluationDrainageV0,
     pub relationship_payloads: &'a [LandformRelationshipsV0],
+    pub geometry_identity: PacketGeometryIdentityV0,
+    pub population: CommonEvaluationPopulationV0,
+}
+
+pub struct CommonPlanarEvidenceCoreAssemblyInputV0<'a> {
+    pub graph: &'a EvaluationSurfaceGraphV0,
+    pub physical_elevation_km: &'a [f64],
+    pub scored_cell: &'a [bool],
+    pub local_runoff_supply: &'a [f64],
+    pub surface_config: SurfaceHierarchyConfigV0,
+    pub drainage_config: DrainageConfigV0,
+    pub surface_hierarchy: &'a SurfaceHierarchyV0,
+    pub drainage: &'a EvaluationDrainageV0,
     pub geometry_identity: PacketGeometryIdentityV0,
     pub population: CommonEvaluationPopulationV0,
 }
@@ -232,6 +288,23 @@ pub enum PacketAssemblyErrorV0 {
         stored: u64,
         computed: u64,
     },
+    CoreHashMismatch {
+        stored: u64,
+        computed: u64,
+    },
+    ReferenceHashMismatch {
+        stored: u64,
+        computed: u64,
+    },
+    SensitivitySuiteHashMismatch {
+        stored: u64,
+        computed: u64,
+    },
+    SidecarCoreHashMismatch {
+        stored: u64,
+        expected: u64,
+    },
+    InvalidRelationshipSidecar(&'static str),
     Serialization(String),
 }
 
@@ -482,6 +555,634 @@ pub fn decode_landform_object_packet_v0(
     }
     validate_decoded_core(&core)?;
     Ok(core)
+}
+
+pub fn assemble_common_planar_evidence_core_v0(
+    mut input: CommonPlanarEvidenceCoreAssemblyInputV0<'_>,
+) -> Result<CommonPlanarEvidenceCoreV0, PacketAssemblyErrorV0> {
+    canonicalize_population_zeros(&mut input.population);
+    let mut core = CommonPlanarEvidenceCoreV0 {
+        schema_version: COMMON_PLANAR_EVIDENCE_CORE_SCHEMA_VERSION.into(),
+        hash_version: COMMON_PLANAR_ARTIFACT_HASH_VERSION.into(),
+        population: input.population,
+        geometry_identity: input.geometry_identity,
+        graph: input.graph.clone(),
+        physical_elevation_km: input.physical_elevation_km.to_vec(),
+        scored_cell: input.scored_cell.to_vec(),
+        local_runoff_supply: input.local_runoff_supply.to_vec(),
+        surface_config: SurfaceHierarchyConfigWireV0::from(&input.surface_config),
+        drainage_config: DrainageConfigWireV0::from(&input.drainage_config),
+        surface_hierarchy: input.surface_hierarchy.clone(),
+        drainage: input.drainage.clone(),
+        derived_core_hash: 0,
+    };
+    validate_common_planar_evidence_core_semantics_v0(&core)?;
+    core.derived_core_hash = common_core_preimage_hash(&core)?;
+    Ok(core)
+}
+
+pub fn common_planar_evidence_core_hash_v0(
+    core: &CommonPlanarEvidenceCoreV0,
+) -> Result<u64, PacketAssemblyErrorV0> {
+    validate_common_core_version(core)?;
+    common_core_preimage_hash(core)
+}
+
+pub fn common_planar_evidence_core_bytes_v0(
+    core: &CommonPlanarEvidenceCoreV0,
+) -> Result<Vec<u8>, PacketAssemblyErrorV0> {
+    validate_common_planar_evidence_core_v0(core)?;
+    fixed_bytes(core)
+}
+
+pub fn decode_common_planar_evidence_core_v0(
+    bytes: &[u8],
+) -> Result<CommonPlanarEvidenceCoreV0, PacketAssemblyErrorV0> {
+    let core: CommonPlanarEvidenceCoreV0 = bincode_options()
+        .deserialize(bytes)
+        .map_err(|error| PacketAssemblyErrorV0::Serialization(error.to_string()))?;
+    validate_common_planar_evidence_core_v0(&core)?;
+    Ok(core)
+}
+
+pub fn validate_common_planar_evidence_core_v0(
+    core: &CommonPlanarEvidenceCoreV0,
+) -> Result<(), PacketAssemblyErrorV0> {
+    validate_common_core_version(core)?;
+    let computed = common_core_preimage_hash(core)?;
+    if computed != core.derived_core_hash {
+        return Err(PacketAssemblyErrorV0::CoreHashMismatch {
+            stored: core.derived_core_hash,
+            computed,
+        });
+    }
+    validate_common_planar_evidence_core_semantics_v0(core)
+}
+
+pub fn assemble_reference_relationship_evidence_v0(
+    core: &CommonPlanarEvidenceCoreV0,
+    payload: &LandformRelationshipsWireV0,
+) -> Result<ReferenceRelationshipEvidenceV0, PacketAssemblyErrorV0> {
+    validate_common_planar_evidence_core_v0(core)?;
+    let mut artifact = ReferenceRelationshipEvidenceV0 {
+        schema_version: REFERENCE_RELATIONSHIP_EVIDENCE_SCHEMA_VERSION.into(),
+        hash_version: COMMON_PLANAR_ARTIFACT_HASH_VERSION.into(),
+        core_hash: core.derived_core_hash,
+        payload: payload.clone(),
+        derived_reference_hash: 0,
+    };
+    validate_reference_relationship_shape_v0(&artifact)?;
+    validate_relationship_payload_against_core_v0(core, &artifact.payload, 0)?;
+    artifact.derived_reference_hash = reference_preimage_hash(&artifact)?;
+    Ok(artifact)
+}
+
+pub fn reference_relationship_evidence_hash_v0(
+    artifact: &ReferenceRelationshipEvidenceV0,
+) -> Result<u64, PacketAssemblyErrorV0> {
+    validate_reference_version(artifact)?;
+    reference_preimage_hash(artifact)
+}
+
+pub fn reference_relationship_evidence_bytes_v0(
+    artifact: &ReferenceRelationshipEvidenceV0,
+) -> Result<Vec<u8>, PacketAssemblyErrorV0> {
+    validate_reference_relationship_evidence_v0(artifact)?;
+    fixed_bytes(artifact)
+}
+
+pub fn decode_reference_relationship_evidence_v0(
+    bytes: &[u8],
+) -> Result<ReferenceRelationshipEvidenceV0, PacketAssemblyErrorV0> {
+    let artifact: ReferenceRelationshipEvidenceV0 = bincode_options()
+        .deserialize(bytes)
+        .map_err(|error| PacketAssemblyErrorV0::Serialization(error.to_string()))?;
+    validate_reference_relationship_evidence_v0(&artifact)?;
+    Ok(artifact)
+}
+
+/// Standalone validation binds the wrapper's registered shape and outer hash.
+/// Use [`validate_reference_relationship_evidence_against_core_v0`] for full
+/// O0a semantic validation.
+pub fn validate_reference_relationship_evidence_v0(
+    artifact: &ReferenceRelationshipEvidenceV0,
+) -> Result<(), PacketAssemblyErrorV0> {
+    validate_reference_relationship_shape_v0(artifact)?;
+    let computed = reference_preimage_hash(artifact)?;
+    if computed != artifact.derived_reference_hash {
+        return Err(PacketAssemblyErrorV0::ReferenceHashMismatch {
+            stored: artifact.derived_reference_hash,
+            computed,
+        });
+    }
+    Ok(())
+}
+
+pub fn validate_reference_relationship_evidence_against_core_v0(
+    core: &CommonPlanarEvidenceCoreV0,
+    artifact: &ReferenceRelationshipEvidenceV0,
+) -> Result<(), PacketAssemblyErrorV0> {
+    validate_common_planar_evidence_core_v0(core)?;
+    validate_reference_relationship_evidence_v0(artifact)?;
+    require_sidecar_core_hash(core, artifact.core_hash)?;
+    validate_relationship_payload_against_core_v0(core, &artifact.payload, 0)
+}
+
+pub fn assemble_relationship_sensitivity_suite_v0(
+    core: &CommonPlanarEvidenceCoreV0,
+    payloads: &[LandformRelationshipsWireV0],
+) -> Result<RelationshipSensitivitySuiteV0, PacketAssemblyErrorV0> {
+    validate_common_planar_evidence_core_v0(core)?;
+    let mut artifact = RelationshipSensitivitySuiteV0 {
+        schema_version: RELATIONSHIP_SENSITIVITY_SUITE_SCHEMA_VERSION.into(),
+        hash_version: COMMON_PLANAR_ARTIFACT_HASH_VERSION.into(),
+        core_hash: core.derived_core_hash,
+        payloads: payloads.to_vec(),
+        derived_suite_hash: 0,
+    };
+    validate_sensitivity_suite_shape_v0(&artifact)?;
+    for (offset, payload) in artifact.payloads.iter().enumerate() {
+        validate_relationship_payload_against_core_v0(core, payload, offset + 1)?;
+    }
+    artifact.derived_suite_hash = sensitivity_suite_preimage_hash(&artifact)?;
+    Ok(artifact)
+}
+
+pub fn relationship_sensitivity_suite_hash_v0(
+    artifact: &RelationshipSensitivitySuiteV0,
+) -> Result<u64, PacketAssemblyErrorV0> {
+    validate_sensitivity_suite_version(artifact)?;
+    sensitivity_suite_preimage_hash(artifact)
+}
+
+pub fn relationship_sensitivity_suite_bytes_v0(
+    artifact: &RelationshipSensitivitySuiteV0,
+) -> Result<Vec<u8>, PacketAssemblyErrorV0> {
+    validate_relationship_sensitivity_suite_v0(artifact)?;
+    fixed_bytes(artifact)
+}
+
+pub fn decode_relationship_sensitivity_suite_v0(
+    bytes: &[u8],
+) -> Result<RelationshipSensitivitySuiteV0, PacketAssemblyErrorV0> {
+    let artifact: RelationshipSensitivitySuiteV0 = bincode_options()
+        .deserialize(bytes)
+        .map_err(|error| PacketAssemblyErrorV0::Serialization(error.to_string()))?;
+    validate_relationship_sensitivity_suite_v0(&artifact)?;
+    Ok(artifact)
+}
+
+pub fn validate_relationship_sensitivity_suite_v0(
+    artifact: &RelationshipSensitivitySuiteV0,
+) -> Result<(), PacketAssemblyErrorV0> {
+    validate_sensitivity_suite_shape_v0(artifact)?;
+    let computed = sensitivity_suite_preimage_hash(artifact)?;
+    if computed != artifact.derived_suite_hash {
+        return Err(PacketAssemblyErrorV0::SensitivitySuiteHashMismatch {
+            stored: artifact.derived_suite_hash,
+            computed,
+        });
+    }
+    Ok(())
+}
+
+pub fn validate_relationship_sensitivity_suite_against_core_v0(
+    core: &CommonPlanarEvidenceCoreV0,
+    artifact: &RelationshipSensitivitySuiteV0,
+) -> Result<(), PacketAssemblyErrorV0> {
+    validate_common_planar_evidence_core_v0(core)?;
+    validate_relationship_sensitivity_suite_v0(artifact)?;
+    require_sidecar_core_hash(core, artifact.core_hash)?;
+    for (offset, payload) in artifact.payloads.iter().enumerate() {
+        validate_relationship_payload_against_core_v0(core, payload, offset + 1)?;
+    }
+    Ok(())
+}
+
+pub fn split_landform_object_packet_v0(
+    packet: &LandformObjectPacketCoreV0,
+) -> Result<
+    (
+        CommonPlanarEvidenceCoreV0,
+        ReferenceRelationshipEvidenceV0,
+        RelationshipSensitivitySuiteV0,
+    ),
+    PacketAssemblyErrorV0,
+> {
+    validate_decoded_core(packet)?;
+    let core = assemble_common_planar_evidence_core_v0(CommonPlanarEvidenceCoreAssemblyInputV0 {
+        graph: &packet.graph,
+        physical_elevation_km: &packet.physical_elevation_km,
+        scored_cell: &packet.scored_cell,
+        local_runoff_supply: &packet.local_runoff_supply,
+        surface_config: packet.surface_config.to_live()?,
+        drainage_config: packet.drainage_config.to_live()?,
+        surface_hierarchy: &packet.surface_hierarchy,
+        drainage: &packet.drainage,
+        geometry_identity: packet.geometry_identity,
+        population: packet.population.clone(),
+    })?;
+    let reference = assemble_reference_relationship_evidence_v0(
+        &core,
+        packet.relationship_payloads.first().ok_or(
+            PacketAssemblyErrorV0::InvalidRelationshipSidecar("missing reference payload"),
+        )?,
+    )?;
+    let suite = assemble_relationship_sensitivity_suite_v0(
+        &core,
+        packet.relationship_payloads.get(1..).ok_or(
+            PacketAssemblyErrorV0::InvalidRelationshipSidecar("missing sensitivity payloads"),
+        )?,
+    )?;
+    Ok((core, reference, suite))
+}
+
+pub fn materialize_landform_object_packet_v0(
+    core: &CommonPlanarEvidenceCoreV0,
+    reference: &ReferenceRelationshipEvidenceV0,
+    suite: &RelationshipSensitivitySuiteV0,
+) -> Result<LandformObjectPacketCoreV0, PacketAssemblyErrorV0> {
+    validate_reference_relationship_evidence_against_core_v0(core, reference)?;
+    validate_relationship_sensitivity_suite_against_core_v0(core, suite)?;
+
+    let relationship_configs = registered_relationship_configs_v0()
+        .iter()
+        .map(LandformRelationshipConfigWireV0::from)
+        .collect::<Vec<_>>();
+    let mut relationship_payloads = Vec::with_capacity(11);
+    relationship_payloads.push(reference.payload.clone());
+    relationship_payloads.extend(suite.payloads.iter().cloned());
+    let relationship_hashes = relationship_payloads
+        .iter()
+        .map(|payload| RelationshipEvidenceHashV0 {
+            run_namespace: payload.run_namespace,
+            evidence_hash: payload.derived_evidence_hash,
+        })
+        .collect();
+    let surface_hash = core.surface_hierarchy.derived_evidence_hash;
+    let drainage_hash = core.drainage.derived_evidence_hash;
+    let mut packet = LandformObjectPacketCoreV0 {
+        schema_version: O0B_PACKET_SCHEMA_VERSION.into(),
+        hash_version: O0B_PACKET_HASH_VERSION.into(),
+        population: core.population.clone(),
+        geometry_identity: core.geometry_identity,
+        graph: core.graph.clone(),
+        physical_elevation_km: core.physical_elevation_km.clone(),
+        scored_cell: core.scored_cell.clone(),
+        local_runoff_supply: core.local_runoff_supply.clone(),
+        surface_config: core.surface_config.clone(),
+        drainage_config: core.drainage_config.clone(),
+        relationship_configs,
+        surface_hierarchy: core.surface_hierarchy.clone(),
+        drainage: core.drainage.clone(),
+        relationship_payloads,
+        surface_hierarchy_input_hash: surface_hash,
+        drainage_input_hash: drainage_hash,
+        predecessor_evidence_hashes: PredecessorEvidenceHashesV0 {
+            surface_hierarchy_hash: surface_hash,
+            drainage_hash,
+            relationship_hashes,
+        },
+        derived_common_packet_hash: 0,
+    };
+    packet.derived_common_packet_hash = packet_preimage_hash(&packet)?;
+    validate_decoded_core(&packet)?;
+    Ok(packet)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CommonPlanarEvidenceCoreFieldBytesV0 {
+    pub versions: usize,
+    pub population: usize,
+    pub geometry_identity: usize,
+    pub graph: usize,
+    pub physical_elevation_km: usize,
+    pub scored_cell: usize,
+    pub local_runoff_supply: usize,
+    pub surface_config: usize,
+    pub drainage_config: usize,
+    pub surface_hierarchy: usize,
+    pub drainage: usize,
+    pub derived_core_hash: usize,
+}
+
+/// Fixed-encoding byte counts for the fields in the registered core preimage.
+pub fn common_planar_evidence_core_field_bytes_v0(
+    core: &CommonPlanarEvidenceCoreV0,
+) -> Result<CommonPlanarEvidenceCoreFieldBytesV0, PacketAssemblyErrorV0> {
+    validate_common_core_version(core)?;
+    Ok(CommonPlanarEvidenceCoreFieldBytesV0 {
+        versions: fixed_bytes(&(&core.schema_version, &core.hash_version))?.len(),
+        population: fixed_bytes(&core.population)?.len(),
+        geometry_identity: fixed_bytes(&core.geometry_identity)?.len(),
+        graph: fixed_bytes(&core.graph)?.len(),
+        physical_elevation_km: fixed_bytes(&core.physical_elevation_km)?.len(),
+        scored_cell: fixed_bytes(&core.scored_cell)?.len(),
+        local_runoff_supply: fixed_bytes(&core.local_runoff_supply)?.len(),
+        surface_config: fixed_bytes(&core.surface_config)?.len(),
+        drainage_config: fixed_bytes(&core.drainage_config)?.len(),
+        surface_hierarchy: fixed_bytes(&core.surface_hierarchy)?.len(),
+        drainage: fixed_bytes(&core.drainage)?.len(),
+        derived_core_hash: fixed_bytes(&core.derived_core_hash)?.len(),
+    })
+}
+
+fn validate_common_planar_evidence_core_semantics_v0(
+    core: &CommonPlanarEvidenceCoreV0,
+) -> Result<(), PacketAssemblyErrorV0> {
+    validate_common_core_version(core)?;
+    validate_population(
+        &core.population,
+        &core.graph,
+        &core.scored_cell,
+        &core.local_runoff_supply,
+    )?;
+    validate_values(&core.physical_elevation_km, "physical_elevation_km", false)?;
+    validate_values(&core.local_runoff_supply, "local_runoff_supply", true)?;
+    let n = core.graph.cell_count();
+    for (field, len) in [
+        ("physical_elevation_km", core.physical_elevation_km.len()),
+        ("scored_cell", core.scored_cell.len()),
+        ("local_runoff_supply", core.local_runoff_supply.len()),
+    ] {
+        if len != n {
+            return Err(PacketAssemblyErrorV0::LengthMismatch(field));
+        }
+    }
+
+    let surface_config = core.surface_config.to_live()?;
+    let drainage_config = core.drainage_config.to_live()?;
+    validate_regular_planar_graph_v0(
+        &core.population,
+        core.geometry_identity,
+        &core.graph,
+        &surface_config,
+    )?;
+
+    if core.surface_hierarchy.schema_version != G0S0_SCHEMA_VERSION
+        || core.surface_hierarchy.hash_version != G0S0_HASH_VERSION
+    {
+        return Err(PacketAssemblyErrorV0::WrongSchemaOrHashVersion("G0/S0"));
+    }
+    let computed_surface_hash = surface_hierarchy_evidence_hash_v0(
+        &core.graph,
+        &core.physical_elevation_km,
+        &core.scored_cell,
+        surface_config,
+        &core.surface_hierarchy,
+    )
+    .map_err(|error| PacketAssemblyErrorV0::SurfaceHierarchy(error.to_string()))?;
+    if computed_surface_hash != core.surface_hierarchy.derived_evidence_hash {
+        return Err(PacketAssemblyErrorV0::SurfaceHierarchyHashMismatch {
+            stored: core.surface_hierarchy.derived_evidence_hash,
+            computed: computed_surface_hash,
+        });
+    }
+    let rebuilt_surface = build_surface_hierarchy_v0(
+        &core.graph,
+        &core.physical_elevation_km,
+        &core.scored_cell,
+        surface_config,
+    )
+    .map_err(|error| PacketAssemblyErrorV0::SurfaceHierarchy(error.to_string()))?;
+    if rebuilt_surface != core.surface_hierarchy {
+        return Err(PacketAssemblyErrorV0::SurfaceHierarchy(
+            "payload differs from deterministic predecessor rebuild".into(),
+        ));
+    }
+
+    if core.drainage.schema_version != D0_SCHEMA_VERSION
+        || core.drainage.hash_version != D0_HASH_VERSION
+    {
+        return Err(PacketAssemblyErrorV0::WrongSchemaOrHashVersion("D0"));
+    }
+    let computed_drainage_hash = drainage_evidence_hash_v0(
+        &core.graph,
+        &core.physical_elevation_km,
+        &core.local_runoff_supply,
+        drainage_config,
+        &core.drainage,
+    )
+    .map_err(|error| PacketAssemblyErrorV0::Drainage(error.to_string()))?;
+    if computed_drainage_hash != core.drainage.derived_evidence_hash {
+        return Err(PacketAssemblyErrorV0::DrainageHashMismatch {
+            stored: core.drainage.derived_evidence_hash,
+            computed: computed_drainage_hash,
+        });
+    }
+    let rebuilt_drainage = build_evaluation_drainage_v0(
+        &core.graph,
+        &core.physical_elevation_km,
+        &core.local_runoff_supply,
+        drainage_config,
+    )
+    .map_err(|error| PacketAssemblyErrorV0::Drainage(error.to_string()))?;
+    if rebuilt_drainage != core.drainage {
+        return Err(PacketAssemblyErrorV0::Drainage(
+            "payload differs from deterministic predecessor rebuild".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_regular_planar_graph_v0(
+    population: &CommonEvaluationPopulationV0,
+    geometry_identity: PacketGeometryIdentityV0,
+    graph: &EvaluationSurfaceGraphV0,
+    surface_config: &SurfaceHierarchyConfigV0,
+) -> Result<(), PacketAssemblyErrorV0> {
+    if graph.domain != EvaluationDomainV0::Planar {
+        return Err(PacketAssemblyErrorV0::UnsupportedGeometry);
+    }
+    let (spacing, declared_graph_hash) = match geometry_identity {
+        PacketGeometryIdentityV0::LandscapeRegularPlanar {
+            nominal_spacing_km,
+            canonical_graph_hash,
+        } => (nominal_spacing_km, canonical_graph_hash),
+        PacketGeometryIdentityV0::ProjectedR1VoronoiCap { .. } => {
+            return Err(PacketAssemblyErrorV0::UnsupportedGeometry);
+        }
+    };
+    if !spacing.is_finite() || spacing <= 0.0 {
+        return Err(PacketAssemblyErrorV0::UnsupportedGeometry);
+    }
+    let DeclaredDomainV0::RequestedRegularPatchV0 {
+        width_km,
+        height_km,
+    } = population.declared_domain;
+    let portals = population
+        .semantic_portals
+        .iter()
+        .map(|portal| OutletPortal {
+            id: OutletPortalId(portal.id),
+            side: match portal.side {
+                DeclaredPortalSideV0::North => BoundarySide::North,
+                DeclaredPortalSideV0::East => BoundarySide::East,
+                DeclaredPortalSideV0::South => BoundarySide::South,
+                DeclaredPortalSideV0::West => BoundarySide::West,
+            },
+            span_start_km: portal.span_start_km,
+            span_end_km: portal.span_end_km,
+            base_level_km: portal.base_level_km as f32,
+        })
+        .collect::<Vec<_>>();
+    let mesh =
+        LandscapeMesh::uniform_planar_hex_with_portals(width_km, height_km, spacing, &portals)
+            .map_err(|error| PacketAssemblyErrorV0::GraphRebuild(error.to_string()))?;
+    let controls = build_regular_hex_control_volumes_v0(&mesh, surface_config)
+        .map_err(|error| PacketAssemblyErrorV0::GraphRebuild(error.to_string()))?;
+    let rebuilt = adapt_landscape_graph_v0(&mesh, &controls, surface_config)
+        .map_err(|error| PacketAssemblyErrorV0::GraphRebuild(error.to_string()))?;
+    let rebuilt_hash = relationship_graph_hash_v0(&rebuilt)
+        .map_err(|error| PacketAssemblyErrorV0::GraphRebuild(error.to_string()))?;
+    if rebuilt_hash != declared_graph_hash {
+        return Err(PacketAssemblyErrorV0::GraphHashMismatch {
+            declared: declared_graph_hash,
+            rebuilt: rebuilt_hash,
+        });
+    }
+    if rebuilt != *graph {
+        return Err(PacketAssemblyErrorV0::GraphMismatch);
+    }
+    Ok(())
+}
+
+fn validate_relationship_payload_against_core_v0(
+    core: &CommonPlanarEvidenceCoreV0,
+    payload: &LandformRelationshipsWireV0,
+    namespace_index_expected: usize,
+) -> Result<(), PacketAssemblyErrorV0> {
+    let expected_namespace = namespace_from_index(namespace_index_expected);
+    let registered = registered_relationship_configs_v0();
+    let expected_config = registered[namespace_index_expected];
+    if payload.run_namespace != expected_namespace || payload.config.to_live()? != expected_config {
+        return Err(PacketAssemblyErrorV0::RelationshipMismatch(
+            expected_namespace,
+        ));
+    }
+    if payload.geometry_identity != core.geometry_identity
+        || payload.surface_hierarchy_input_hash != core.surface_hierarchy.derived_evidence_hash
+        || payload.drainage_input_hash != core.drainage.derived_evidence_hash
+    {
+        return Err(PacketAssemblyErrorV0::InvalidRelationshipSidecar(
+            "geometry or predecessor mismatch",
+        ));
+    }
+    let rebuilt = build_landform_relationships_v0(
+        &core.graph,
+        &core.physical_elevation_km,
+        &core.scored_cell,
+        &core.local_runoff_supply,
+        core.surface_config.to_live()?,
+        core.drainage_config.to_live()?,
+        &core.surface_hierarchy,
+        &core.drainage,
+        core.geometry_identity,
+        expected_config,
+    )
+    .map_err(|error| PacketAssemblyErrorV0::Relationship {
+        namespace: expected_namespace,
+        error: error.to_string(),
+    })?;
+    if rebuilt != payload.to_live()? {
+        return Err(PacketAssemblyErrorV0::RelationshipMismatch(
+            expected_namespace,
+        ));
+    }
+    Ok(())
+}
+
+fn validate_reference_relationship_shape_v0(
+    artifact: &ReferenceRelationshipEvidenceV0,
+) -> Result<(), PacketAssemblyErrorV0> {
+    validate_reference_version(artifact)?;
+    if artifact.payload.schema_version != O0A_SCHEMA_VERSION
+        || artifact.payload.hash_version != O0A_HASH_VERSION
+        || artifact.payload.run_namespace != RelationshipRunNamespaceV0::Reference
+        || artifact.payload.config.to_live()? != registered_relationship_configs_v0()[0]
+    {
+        return Err(PacketAssemblyErrorV0::InvalidRelationshipSidecar(
+            "reference namespace or configuration",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_sensitivity_suite_shape_v0(
+    artifact: &RelationshipSensitivitySuiteV0,
+) -> Result<(), PacketAssemblyErrorV0> {
+    validate_sensitivity_suite_version(artifact)?;
+    if artifact.payloads.len() != 10 {
+        return Err(PacketAssemblyErrorV0::InvalidRelationshipSidecar(
+            "sensitivity suite length",
+        ));
+    }
+    let registered = registered_relationship_configs_v0();
+    for (offset, payload) in artifact.payloads.iter().enumerate() {
+        let index = offset + 1;
+        if payload.schema_version != O0A_SCHEMA_VERSION
+            || payload.hash_version != O0A_HASH_VERSION
+            || payload.run_namespace != namespace_from_index(index)
+            || payload.config.to_live()? != registered[index]
+        {
+            return Err(PacketAssemblyErrorV0::InvalidRelationshipSidecar(
+                "sensitivity namespace order or configuration",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn require_sidecar_core_hash(
+    core: &CommonPlanarEvidenceCoreV0,
+    stored: u64,
+) -> Result<(), PacketAssemblyErrorV0> {
+    if stored != core.derived_core_hash {
+        return Err(PacketAssemblyErrorV0::SidecarCoreHashMismatch {
+            stored,
+            expected: core.derived_core_hash,
+        });
+    }
+    Ok(())
+}
+
+fn validate_common_core_version(
+    core: &CommonPlanarEvidenceCoreV0,
+) -> Result<(), PacketAssemblyErrorV0> {
+    if core.schema_version != COMMON_PLANAR_EVIDENCE_CORE_SCHEMA_VERSION
+        || core.hash_version != COMMON_PLANAR_ARTIFACT_HASH_VERSION
+    {
+        return Err(PacketAssemblyErrorV0::WrongSchemaOrHashVersion(
+            "common planar evidence core",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_reference_version(
+    artifact: &ReferenceRelationshipEvidenceV0,
+) -> Result<(), PacketAssemblyErrorV0> {
+    if artifact.schema_version != REFERENCE_RELATIONSHIP_EVIDENCE_SCHEMA_VERSION
+        || artifact.hash_version != COMMON_PLANAR_ARTIFACT_HASH_VERSION
+    {
+        return Err(PacketAssemblyErrorV0::WrongSchemaOrHashVersion(
+            "reference relationship evidence",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_sensitivity_suite_version(
+    artifact: &RelationshipSensitivitySuiteV0,
+) -> Result<(), PacketAssemblyErrorV0> {
+    if artifact.schema_version != RELATIONSHIP_SENSITIVITY_SUITE_SCHEMA_VERSION
+        || artifact.hash_version != COMMON_PLANAR_ARTIFACT_HASH_VERSION
+    {
+        return Err(PacketAssemblyErrorV0::WrongSchemaOrHashVersion(
+            "relationship sensitivity suite",
+        ));
+    }
+    Ok(())
 }
 
 fn validate_decoded_core(core: &LandformObjectPacketCoreV0) -> Result<(), PacketAssemblyErrorV0> {
@@ -783,6 +1484,79 @@ fn validate_values(
         }
     }
     Ok(())
+}
+
+#[derive(Serialize)]
+struct CommonCoreHashPreimageV0<'a> {
+    schema_version: &'a String,
+    hash_version: &'a String,
+    population: &'a CommonEvaluationPopulationV0,
+    geometry_identity: &'a PacketGeometryIdentityV0,
+    graph: &'a EvaluationSurfaceGraphV0,
+    physical_elevation_km: &'a Vec<f64>,
+    scored_cell: &'a Vec<bool>,
+    local_runoff_supply: &'a Vec<f64>,
+    surface_config: &'a SurfaceHierarchyConfigWireV0,
+    drainage_config: &'a DrainageConfigWireV0,
+    surface_hierarchy: &'a SurfaceHierarchyV0,
+    drainage: &'a EvaluationDrainageV0,
+}
+
+fn common_core_preimage_hash(
+    core: &CommonPlanarEvidenceCoreV0,
+) -> Result<u64, PacketAssemblyErrorV0> {
+    Ok(fnv1a64(&fixed_bytes(&CommonCoreHashPreimageV0 {
+        schema_version: &core.schema_version,
+        hash_version: &core.hash_version,
+        population: &core.population,
+        geometry_identity: &core.geometry_identity,
+        graph: &core.graph,
+        physical_elevation_km: &core.physical_elevation_km,
+        scored_cell: &core.scored_cell,
+        local_runoff_supply: &core.local_runoff_supply,
+        surface_config: &core.surface_config,
+        drainage_config: &core.drainage_config,
+        surface_hierarchy: &core.surface_hierarchy,
+        drainage: &core.drainage,
+    })?))
+}
+
+#[derive(Serialize)]
+struct ReferenceHashPreimageV0<'a> {
+    schema_version: &'a String,
+    hash_version: &'a String,
+    core_hash: u64,
+    payload: &'a LandformRelationshipsWireV0,
+}
+
+fn reference_preimage_hash(
+    artifact: &ReferenceRelationshipEvidenceV0,
+) -> Result<u64, PacketAssemblyErrorV0> {
+    Ok(fnv1a64(&fixed_bytes(&ReferenceHashPreimageV0 {
+        schema_version: &artifact.schema_version,
+        hash_version: &artifact.hash_version,
+        core_hash: artifact.core_hash,
+        payload: &artifact.payload,
+    })?))
+}
+
+#[derive(Serialize)]
+struct SensitivitySuiteHashPreimageV0<'a> {
+    schema_version: &'a String,
+    hash_version: &'a String,
+    core_hash: u64,
+    payloads: &'a Vec<LandformRelationshipsWireV0>,
+}
+
+fn sensitivity_suite_preimage_hash(
+    artifact: &RelationshipSensitivitySuiteV0,
+) -> Result<u64, PacketAssemblyErrorV0> {
+    Ok(fnv1a64(&fixed_bytes(&SensitivitySuiteHashPreimageV0 {
+        schema_version: &artifact.schema_version,
+        hash_version: &artifact.hash_version,
+        core_hash: artifact.core_hash,
+        payloads: &artifact.payloads,
+    })?))
 }
 
 #[derive(Serialize)]

@@ -1596,6 +1596,397 @@ fn assert_whole_correspondence_reversal(
     assert_eq!(expected_work, reverse.work_counts);
 }
 
+/// The common-core correspondence is a new identity envelope around the
+/// frozen O0b mechanical answer. Keep this comparison deliberately explicit:
+/// adding a mechanical field to either artifact must force this gate to be
+/// reviewed rather than silently disappearing behind serialization.
+fn assert_packet_and_core_correspondence_mechanically_equal(
+    packet: &ObjectCorrespondenceV0,
+    core: &CoreObjectCorrespondenceV1,
+) {
+    assert_eq!(packet.config, core.config);
+    assert_eq!(packet.highland_nested_pairs, core.highland_nested_pairs);
+    assert_eq!(
+        packet.highland_exclusive_pairs,
+        core.highland_exclusive_pairs
+    );
+    assert_eq!(packet.drainage_nested_pairs, core.drainage_nested_pairs);
+    assert_eq!(
+        packet.drainage_exclusive_pairs,
+        core.drainage_exclusive_pairs
+    );
+    assert_eq!(packet.drainage_line_pairs, core.drainage_line_pairs);
+    assert_eq!(packet.context_records, core.context_records);
+    assert_eq!(packet.assignment_records, core.assignment_records);
+    assert_eq!(packet.best_components, core.best_components);
+    assert_eq!(packet.metric_conflicts, core.metric_conflicts);
+    assert_eq!(packet.topology_records, core.topology_records);
+    assert_eq!(packet.work_counts, core.work_counts);
+}
+
+fn core_correspondence_as_packet_proxy(
+    value: &CoreObjectCorrespondenceV1,
+) -> ObjectCorrespondenceV0 {
+    let mut proxy = ObjectCorrespondenceV0 {
+        schema_version: O0B_CORRESPONDENCE_SCHEMA_VERSION.into(),
+        hash_version: O0B_CORRESPONDENCE_HASH_VERSION.into(),
+        config: value.config.clone(),
+        source_packet_hash: value.source_core_hash,
+        target_packet_hash: value.target_core_hash,
+        highland_nested_pairs: value.highland_nested_pairs.clone(),
+        highland_exclusive_pairs: value.highland_exclusive_pairs.clone(),
+        drainage_nested_pairs: value.drainage_nested_pairs.clone(),
+        drainage_exclusive_pairs: value.drainage_exclusive_pairs.clone(),
+        drainage_line_pairs: value.drainage_line_pairs.clone(),
+        context_records: value.context_records.clone(),
+        assignment_records: value.assignment_records.clone(),
+        best_components: value.best_components.clone(),
+        metric_conflicts: value.metric_conflicts.clone(),
+        topology_records: value.topology_records.clone(),
+        work_counts: value.work_counts.clone(),
+        derived_correspondence_hash: 0,
+    };
+    proxy.derived_correspondence_hash = object_correspondence_hash_v0(&proxy).unwrap();
+    proxy
+}
+
+fn assert_whole_core_correspondence_reversal(
+    forward: &CoreObjectCorrespondenceV1,
+    reverse: &CoreObjectCorrespondenceV1,
+) {
+    assert!(!core_object_correspondence_bytes_v1(forward)
+        .unwrap()
+        .is_empty());
+    assert!(!core_object_correspondence_bytes_v1(reverse)
+        .unwrap()
+        .is_empty());
+    assert_eq!(forward.source_core_hash, reverse.target_core_hash);
+    assert_eq!(forward.target_core_hash, reverse.source_core_hash);
+    assert_whole_correspondence_reversal(
+        &core_correspondence_as_packet_proxy(forward),
+        &core_correspondence_as_packet_proxy(reverse),
+    );
+}
+
+fn build_and_assert_packet_core_correspondence_equivalence(
+    source_packet: &LandformObjectPacketCoreV0,
+    target_packet: &LandformObjectPacketCoreV0,
+) -> (ObjectCorrespondenceV0, CoreObjectCorrespondenceV1) {
+    let (source_core, _, _) = split_landform_object_packet_v0(source_packet).unwrap();
+    let (target_core, _, _) = split_landform_object_packet_v0(target_packet).unwrap();
+    let packet_artifact = build_object_correspondence_v0(source_packet, target_packet).unwrap();
+    let core_artifact = build_core_object_correspondence_v1(&source_core, &target_core).unwrap();
+
+    assert_eq!(
+        packet_artifact.source_packet_hash,
+        source_packet.derived_common_packet_hash
+    );
+    assert_eq!(
+        packet_artifact.target_packet_hash,
+        target_packet.derived_common_packet_hash
+    );
+    assert_eq!(
+        core_artifact.source_core_hash,
+        source_core.derived_core_hash
+    );
+    assert_eq!(
+        core_artifact.target_core_hash,
+        target_core.derived_core_hash
+    );
+    assert_packet_and_core_correspondence_mechanically_equal(&packet_artifact, &core_artifact);
+    validate_core_object_correspondence_v1(&core_artifact, &source_core, &target_core).unwrap();
+    assert_eq!(
+        core_object_correspondence_hash_v1(&core_artifact).unwrap(),
+        core_artifact.derived_correspondence_hash
+    );
+    let bytes = core_object_correspondence_bytes_v1(&core_artifact).unwrap();
+    let decoded = decode_core_object_correspondence_v1(&bytes).unwrap();
+    assert_eq!(decoded, core_artifact);
+    assert_eq!(
+        core_object_correspondence_bytes_v1(&decoded).unwrap(),
+        bytes
+    );
+
+    (packet_artifact, core_artifact)
+}
+
+#[test]
+fn core_correspondence_is_mechanically_equal_and_distinct_on_bounded_fixture() {
+    let packet = super::packet_tests::assembled_asymmetric_y_packet_at(4.0);
+    let (core, _, _) = split_landform_object_packet_v0(&packet).unwrap();
+    let (old, new) = build_and_assert_packet_core_correspondence_equivalence(&packet, &packet);
+
+    assert_ne!(old.schema_version, new.schema_version);
+    assert_ne!(old.hash_version, new.hash_version);
+    assert!(
+        decode_core_object_correspondence_v1(&object_correspondence_bytes_v0(&old).unwrap())
+            .is_err()
+    );
+    assert!(
+        decode_object_correspondence_v0(&core_object_correspondence_bytes_v1(&new).unwrap())
+            .is_err()
+    );
+
+    let mut wrong_outer_hash = new.clone();
+    wrong_outer_hash.derived_correspondence_hash ^= 1;
+    assert!(core_object_correspondence_bytes_v1(&wrong_outer_hash).is_err());
+
+    let mut trailing = core_object_correspondence_bytes_v1(&new).unwrap();
+    trailing.push(0);
+    assert!(decode_core_object_correspondence_v1(&trailing).is_err());
+
+    let foreign_packet = super::packet_tests::assembled_asymmetric_y_packet_at(8.0);
+    let (foreign_core, _, _) = split_landform_object_packet_v0(&foreign_packet).unwrap();
+    assert!(validate_core_object_correspondence_v1(&new, &foreign_core, &core).is_err());
+
+    let mut rehashed_semantic_mutation = new;
+    rehashed_semantic_mutation.highland_nested_pairs.clear();
+    rehashed_semantic_mutation.derived_correspondence_hash =
+        core_object_correspondence_hash_v1(&rehashed_semantic_mutation).unwrap();
+    assert!(
+        validate_core_object_correspondence_v1(&rehashed_semantic_mutation, &core, &core).is_err()
+    );
+
+    let mut nondefault = CorrespondenceConfigV0::default();
+    nondefault.schema_version = "foreign";
+    assert!(build_core_object_correspondence_with_config_v1(&core, &core, nondefault).is_err());
+}
+
+fn assert_correspondence_direction_matrix(
+    fixture: fn(f64) -> LandformObjectPacketCoreV0,
+    directions: &[(f64, f64)],
+) {
+    let mut spacings = directions
+        .iter()
+        .flat_map(|&(source, target)| [source, target])
+        .collect::<Vec<_>>();
+    spacings.sort_by(f64::total_cmp);
+    spacings.dedup_by(|left, right| left.to_bits() == right.to_bits());
+    let packets = spacings
+        .into_iter()
+        .map(|spacing| (spacing, fixture(spacing)))
+        .collect::<Vec<_>>();
+    let packet_at = |spacing: f64| {
+        &packets
+            .iter()
+            .find(|(candidate, _)| candidate.to_bits() == spacing.to_bits())
+            .expect("direction spacing was registered")
+            .1
+    };
+    let mut artifacts = Vec::with_capacity(directions.len());
+    for &(source_spacing, target_spacing) in directions {
+        let (old, new) = build_and_assert_packet_core_correspondence_equivalence(
+            packet_at(source_spacing),
+            packet_at(target_spacing),
+        );
+        artifacts.push(((source_spacing, target_spacing), old, new));
+    }
+    for ((source_spacing, target_spacing), old, new) in &artifacts {
+        if let Some((_, reverse_old, reverse_new)) =
+            artifacts.iter().find(|((source, target), _, _)| {
+                source.to_bits() == target_spacing.to_bits()
+                    && target.to_bits() == source_spacing.to_bits()
+            })
+        {
+            assert_whole_correspondence_reversal(old, reverse_old);
+            assert_whole_core_correspondence_reversal(new, reverse_new);
+        }
+    }
+}
+
+#[test]
+#[ignore = "explicit old/new O0b mechanical-equivalence direction matrix"]
+fn core_correspondence_matches_frozen_o0b_in_every_registered_direction() {
+    let four_two_eight = [(4.0, 8.0), (8.0, 4.0), (4.0, 2.0), (2.0, 4.0)];
+    assert_correspondence_direction_matrix(
+        super::packet_tests::assembled_asymmetric_y_packet_at,
+        &four_two_eight,
+    );
+    assert_correspondence_direction_matrix(
+        super::packet_tests::assembled_isolated_four_cone_packet_at,
+        &four_two_eight,
+    );
+    assert_correspondence_direction_matrix(
+        super::packet_tests::assembled_linked_four_cone_packet_at,
+        &[(4.0, 8.0), (8.0, 4.0)],
+    );
+}
+
+fn assert_deterministic_packet_core_pair(
+    fixture: fn(f64) -> LandformObjectPacketCoreV0,
+    source_spacing: f64,
+    target_spacing: f64,
+) {
+    let build = || {
+        let source_packet = fixture(source_spacing);
+        let target_packet = fixture(target_spacing);
+        let source_split = split_landform_object_packet_v0(&source_packet).unwrap();
+        let target_split = split_landform_object_packet_v0(&target_packet).unwrap();
+        let source_materialized = materialize_landform_object_packet_v0(
+            &source_split.0,
+            &source_split.1,
+            &source_split.2,
+        )
+        .unwrap();
+        let target_materialized = materialize_landform_object_packet_v0(
+            &target_split.0,
+            &target_split.1,
+            &target_split.2,
+        )
+        .unwrap();
+        let correspondence =
+            build_core_object_correspondence_v1(&source_split.0, &target_split.0).unwrap();
+        (
+            source_packet,
+            target_packet,
+            source_split,
+            target_split,
+            source_materialized,
+            target_materialized,
+            correspondence,
+        )
+    };
+
+    let first = build();
+    let second = build();
+    assert_eq!(first, second);
+    assert_eq!(
+        landform_object_packet_bytes_v0(&first.0).unwrap(),
+        landform_object_packet_bytes_v0(&second.0).unwrap()
+    );
+    assert_eq!(
+        landform_object_packet_bytes_v0(&first.1).unwrap(),
+        landform_object_packet_bytes_v0(&second.1).unwrap()
+    );
+    assert_eq!(
+        common_planar_evidence_core_bytes_v0(&first.2 .0).unwrap(),
+        common_planar_evidence_core_bytes_v0(&second.2 .0).unwrap()
+    );
+    assert_eq!(
+        reference_relationship_evidence_bytes_v0(&first.2 .1).unwrap(),
+        reference_relationship_evidence_bytes_v0(&second.2 .1).unwrap()
+    );
+    assert_eq!(
+        relationship_sensitivity_suite_bytes_v0(&first.2 .2).unwrap(),
+        relationship_sensitivity_suite_bytes_v0(&second.2 .2).unwrap()
+    );
+    assert_eq!(
+        core_object_correspondence_bytes_v1(&first.6).unwrap(),
+        core_object_correspondence_bytes_v1(&second.6).unwrap()
+    );
+}
+
+#[test]
+#[ignore = "explicit common-core and O0b deterministic-repeat matrix"]
+fn core_correspondence_repeats_asymmetric_4_to_8_and_isolated_4_to_2() {
+    assert_deterministic_packet_core_pair(
+        super::packet_tests::assembled_asymmetric_y_packet_at,
+        4.0,
+        8.0,
+    );
+    assert_deterministic_packet_core_pair(
+        super::packet_tests::assembled_isolated_four_cone_packet_at,
+        4.0,
+        2.0,
+    );
+}
+
+#[test]
+#[ignore = "focused release cost audit; run under /usr/bin/time -v"]
+fn common_core_focused_release_audit_reports_registered_sizes_and_timings() {
+    let source_packet = super::packet_tests::assembled_isolated_four_cone_packet_at(4.0);
+    let (source_core, _, _) = split_landform_object_packet_v0(&source_packet).unwrap();
+
+    for spacing_km in [8.0, 4.0, 2.0] {
+        let assembly_started = std::time::Instant::now();
+        let target_packet = super::packet_tests::assembled_isolated_four_cone_packet_at(spacing_km);
+        let assembly_seconds = assembly_started.elapsed().as_secs_f64();
+
+        let split_started = std::time::Instant::now();
+        let (core, reference, suite) = split_landform_object_packet_v0(&target_packet).unwrap();
+        let split_seconds = split_started.elapsed().as_secs_f64();
+
+        let validation_started = std::time::Instant::now();
+        validate_common_planar_evidence_core_v0(&core).unwrap();
+        validate_reference_relationship_evidence_against_core_v0(&core, &reference).unwrap();
+        validate_relationship_sensitivity_suite_against_core_v0(&core, &suite).unwrap();
+        let validation_seconds = validation_started.elapsed().as_secs_f64();
+
+        let materialization_started = std::time::Instant::now();
+        let materialized =
+            materialize_landform_object_packet_v0(&core, &reference, &suite).unwrap();
+        let materialization_seconds = materialization_started.elapsed().as_secs_f64();
+        assert_eq!(materialized, target_packet);
+
+        let old_correspondence_started = std::time::Instant::now();
+        let old_correspondence =
+            build_object_correspondence_v0(&source_packet, &target_packet).unwrap();
+        let old_correspondence_seconds = old_correspondence_started.elapsed().as_secs_f64();
+
+        let new_correspondence_started = std::time::Instant::now();
+        let new_correspondence = build_core_object_correspondence_v1(&source_core, &core).unwrap();
+        let new_correspondence_seconds = new_correspondence_started.elapsed().as_secs_f64();
+        assert_packet_and_core_correspondence_mechanically_equal(
+            &old_correspondence,
+            &new_correspondence,
+        );
+
+        let fields = common_planar_evidence_core_field_bytes_v0(&core).unwrap();
+        eprintln!(
+            concat!(
+                "{{\"fixture\":\"isolated-four-cone\",\"spacing_km\":{},",
+                "\"cells\":{},\"bytes\":{{\"core\":{},\"reference\":{},",
+                "\"sensitivity_suite\":{},\"materialized_v0\":{},",
+                "\"old_correspondence\":{},\"core_correspondence\":{}}},",
+                "\"core_field_bytes\":{{\"versions\":{},\"population\":{},",
+                "\"geometry_identity\":{},\"graph\":{},\"physical_elevation_km\":{},",
+                "\"scored_cell\":{},\"local_runoff_supply\":{},\"surface_config\":{},",
+                "\"drainage_config\":{},\"surface_hierarchy\":{},\"drainage\":{},",
+                "\"derived_core_hash\":{}}},",
+                "\"seconds\":{{\"assembly\":{:.9},\"split\":{:.9},",
+                "\"validation\":{:.9},\"materialization\":{:.9},",
+                "\"old_correspondence\":{:.9},\"core_correspondence\":{:.9}}}}}"
+            ),
+            spacing_km,
+            core.graph.cell_count(),
+            common_planar_evidence_core_bytes_v0(&core).unwrap().len(),
+            reference_relationship_evidence_bytes_v0(&reference)
+                .unwrap()
+                .len(),
+            relationship_sensitivity_suite_bytes_v0(&suite)
+                .unwrap()
+                .len(),
+            landform_object_packet_bytes_v0(&materialized)
+                .unwrap()
+                .len(),
+            object_correspondence_bytes_v0(&old_correspondence)
+                .unwrap()
+                .len(),
+            core_object_correspondence_bytes_v1(&new_correspondence)
+                .unwrap()
+                .len(),
+            fields.versions,
+            fields.population,
+            fields.geometry_identity,
+            fields.graph,
+            fields.physical_elevation_km,
+            fields.scored_cell,
+            fields.local_runoff_supply,
+            fields.surface_config,
+            fields.drainage_config,
+            fields.surface_hierarchy,
+            fields.drainage,
+            fields.derived_core_hash,
+            assembly_seconds,
+            split_seconds,
+            validation_seconds,
+            materialization_seconds,
+            old_correspondence_seconds,
+            new_correspondence_seconds,
+        );
+    }
+}
+
 #[test]
 #[ignore = "explicit O0b 8/4/2 correspondence evidence audit"]
 fn o0b_asymmetric_y_4_to_8_and_2_keeps_unique_drainage_labels_in_both_channels() {

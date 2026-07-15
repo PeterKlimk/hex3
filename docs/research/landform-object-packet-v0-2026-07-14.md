@@ -385,9 +385,10 @@ quality scores by themselves.
    forced into common planar semantics.
 
 Each rung is a separate checkpoint. Bounded common planar O0b is accepted only
-as an evaluation instrument; the slim common-core artifact is preregistered but
-unimplemented, while the linked input manifest and any product drainage
-observer remain unregistered and unimplemented.
+as an evaluation instrument; the slim common-core artifact is now accepted by
+its [dated audit](../audits/landform-common-core-2026-07-15.md), while the linked
+input manifest and any product drainage observer remain unregistered and
+unimplemented.
 Do not implement H, C or G composition while the common evidence packet is
 incomplete.
 

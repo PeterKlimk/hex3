@@ -313,12 +313,13 @@ The current sequence is:
    [product-boundary decision](research/landform-product-boundary-decision-2026-07-15.md)
    retires the combined packet/product R0 formulation: product-native evidence
    and common planar evidence remain separate;
-2. implement and evaluate the preregistered
+2. **completed:** implement and evaluate the preregistered
    [slim common-core boundary](research/landform-common-core-v0-2026-07-15.md)
    on accepted manufactured V0 packets. Preserve exact historical V0 bytes and
    mechanical O0b answers while hashing reference O0a and the optional ten-run
    sensitivity suite separately; report actual bytes, wall time and peak
-   memory;
+   memory. The [dated audit](audits/landform-common-core-2026-07-15.md) accepts
+   the boundary and finds retained graph geometry dominates the 2 km core;
 3. preregister a linked shared-input manifest at 8/4/2 km. It binds exact mesh
    identity and phase, declarative and compiled/evaluated forcing, schedule and
    integrated work, initial state, runoff, portals, material mask, scored policy

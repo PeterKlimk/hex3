@@ -45,10 +45,12 @@ Current synthesized notes:
   sensitivity suites and product-native observation. It retires the provisional
   combined packet/product R0 formulation before executable preregistration.
 - [Common planar evidence-core V0 contract](landform-common-core-v0-2026-07-15.md)
-  — preregisters exact V0 decomposition/materialization, separately hashed O0a
-  sidecars and core-backed O0b equivalence on accepted manufactured packets.
-  It records that linked forcing is not an arm-neutral final terrain; linked
-  shared inputs and arm-result evidence are later, distinct artifacts.
+  — accepted bounded planar artifact boundary for exact V0
+  decomposition/materialization, separately hashed O0a sidecars and core-backed
+  O0b equivalence on accepted manufactured packets; see the
+  [dated audit](../audits/landform-common-core-2026-07-15.md). It records that
+  linked forcing is not an arm-neutral final terrain; linked shared inputs and
+  arm-result evidence are later, distinct artifacts.
 - [Correspondence priors for reduced planet models](correspondence-priors-2026-07-12.md)
 - [Orogen organization: causal reference and reduced experiments](orogen-organization-2026-07-12.md)
 - [Mountain-system design basis](mountain-system-design-basis-2026-07-13.md)

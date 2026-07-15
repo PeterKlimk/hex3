@@ -73,8 +73,11 @@ disguise. Inventory corrected the proposed next boundary: linked forcing and
 shared inputs do not define an arm-neutral final terrain. Calling a
 manufactured surface a pre-arm baseline would silently privilege an
 unregistered organization owner. The next executable boundary is therefore the
-preregistered [common-core schema/equivalence split](research/landform-common-core-v0-2026-07-15.md)
-on accepted manufactured packets. A linked shared-input manifest
+accepted [common-core schema/equivalence split](research/landform-common-core-v0-2026-07-15.md)
+on accepted manufactured packets, recorded in its
+[dated audit](audits/landform-common-core-2026-07-15.md). Exact V0 inversion and
+old/new O0b equivalence pass; at 2 km the 63.45 MB core is 83.9% graph bytes, so
+relationship factorization is not the next scaling seam. A linked shared-input manifest
 comes afterward and emits no landform verdict; arm-result packets begin only
 after H/C/G produce final surfaces. This is not a product adapter.
 Do not let product diagnostics, native C flux, G's authored graph or renderer

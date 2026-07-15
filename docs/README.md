@@ -112,9 +112,10 @@ Current bounded research decision:
   separate hashed artifacts. Product drainage and cross-domain correspondence
   remain deferred.
 - [Common planar evidence-core V0 contract](research/landform-common-core-v0-2026-07-15.md)
-  — preregisters the slim-core split, exact V0 compatibility and core-backed
-  O0b equivalence. Linked forcing supplies shared inputs, not a pre-arm final
-  terrain or landform verdict.
+  — accepted bounded planar split with exact V0 compatibility and core-backed
+  O0b equivalence; see the [dated audit](audits/landform-common-core-2026-07-15.md).
+  Linked forcing supplies shared inputs, not a pre-arm final terrain or
+  landform verdict.
 - [Landform G0/S0 structural-slice audit](audits/landform-g0s0-structural-slice-2026-07-14.md)
   — passing planar geometry/topology checkpoint, caught contract amendments and
   the scope inherited by the morphology slice.

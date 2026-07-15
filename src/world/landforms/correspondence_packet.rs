@@ -16,6 +16,52 @@ use super::*;
 
 const REFERENCE_DRAINAGE_SUPPORT_KM2: f64 = 2_000.0;
 
+#[derive(Clone, Copy)]
+struct CorrespondenceCoreRef<'a> {
+    population: &'a CommonEvaluationPopulationV0,
+    geometry_identity: &'a PacketGeometryIdentityV0,
+    graph: &'a EvaluationSurfaceGraphV0,
+    scored_cell: &'a [bool],
+    local_runoff_supply: &'a [f64],
+    surface_config: &'a SurfaceHierarchyConfigWireV0,
+    drainage_config: &'a DrainageConfigWireV0,
+    surface_hierarchy: &'a SurfaceHierarchyV0,
+    drainage: &'a EvaluationDrainageV0,
+    identity_hash: u64,
+}
+
+impl<'a> CorrespondenceCoreRef<'a> {
+    fn packet(packet: &'a LandformObjectPacketCoreV0) -> Self {
+        Self {
+            population: &packet.population,
+            geometry_identity: &packet.geometry_identity,
+            graph: &packet.graph,
+            scored_cell: &packet.scored_cell,
+            local_runoff_supply: &packet.local_runoff_supply,
+            surface_config: &packet.surface_config,
+            drainage_config: &packet.drainage_config,
+            surface_hierarchy: &packet.surface_hierarchy,
+            drainage: &packet.drainage,
+            identity_hash: packet.derived_common_packet_hash,
+        }
+    }
+
+    fn common(core: &'a CommonPlanarEvidenceCoreV0) -> Self {
+        Self {
+            population: &core.population,
+            geometry_identity: &core.geometry_identity,
+            graph: &core.graph,
+            scored_cell: &core.scored_cell,
+            local_runoff_supply: &core.local_runoff_supply,
+            surface_config: &core.surface_config,
+            drainage_config: &core.drainage_config,
+            surface_hierarchy: &core.surface_hierarchy,
+            drainage: &core.drainage,
+            identity_hash: core.derived_core_hash,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PacketCellClassV0 {
     EligibleObject(u32),
@@ -82,6 +128,12 @@ impl From<CorrespondenceErrorV0> for PacketCorrespondenceErrorV0 {
 /// Extract nested and exclusive reference-highland support from frozen S0.
 pub fn extract_highland_population_v0(
     packet: &LandformObjectPacketCoreV0,
+) -> Result<PacketAreaPopulationV0, PacketCorrespondenceErrorV0> {
+    extract_highland_population_from_core_v0(CorrespondenceCoreRef::packet(packet))
+}
+
+fn extract_highland_population_from_core_v0(
+    packet: CorrespondenceCoreRef<'_>,
 ) -> Result<PacketAreaPopulationV0, PacketCorrespondenceErrorV0> {
     let hierarchy = &packet.surface_hierarchy;
     let cell_count = packet.graph.cell_count();
@@ -276,6 +328,12 @@ fn highland_support_is_ambiguous(
 pub fn extract_drainage_population_v0(
     packet: &LandformObjectPacketCoreV0,
 ) -> Result<PacketAreaPopulationV0, PacketCorrespondenceErrorV0> {
+    extract_drainage_population_from_core_v0(CorrespondenceCoreRef::packet(packet))
+}
+
+fn extract_drainage_population_from_core_v0(
+    packet: CorrespondenceCoreRef<'_>,
+) -> Result<PacketAreaPopulationV0, PacketCorrespondenceErrorV0> {
     let mut scales = packet
         .drainage
         .scales
@@ -428,19 +486,47 @@ pub fn validate_correspondence_pair_v0(
             ));
         }
     }
+    validate_correspondence_core_pair_v0(
+        CorrespondenceCoreRef::packet(source),
+        CorrespondenceCoreRef::packet(target),
+    )
+}
+
+fn validate_correspondence_core_pair_v0(
+    source: CorrespondenceCoreRef<'_>,
+    target: CorrespondenceCoreRef<'_>,
+) -> Result<(), PacketCorrespondenceErrorV0> {
+    for core in [source, target] {
+        if core.graph.domain != EvaluationDomainV0::Planar {
+            return Err(PacketCorrespondenceErrorV0::Incompatible("planar domain"));
+        }
+        let PacketGeometryIdentityV0::LandscapeRegularPlanar {
+            nominal_spacing_km, ..
+        } = *core.geometry_identity
+        else {
+            return Err(PacketCorrespondenceErrorV0::Incompatible(
+                "regular planar geometry",
+            ));
+        };
+        if ![2.0, 4.0, 8.0].contains(&nominal_spacing_km) {
+            return Err(PacketCorrespondenceErrorV0::Incompatible(
+                "registered nominal spacing",
+            ));
+        }
+    }
     if source.population != target.population {
         return Err(PacketCorrespondenceErrorV0::Incompatible(
             "common evaluation population",
         ));
     }
-    let source_graph_hash = match source.geometry_identity {
+    let source_graph_hash = match *source.geometry_identity {
         PacketGeometryIdentityV0::LandscapeRegularPlanar {
             canonical_graph_hash,
             ..
         } => canonical_graph_hash,
         _ => unreachable!("checked above"),
     };
-    let target_graph_hash = match target.geometry_identity {
+    let target_graph_hash = match *target.geometry_identity {
         PacketGeometryIdentityV0::LandscapeRegularPlanar {
             canonical_graph_hash,
             ..
@@ -485,6 +571,12 @@ pub fn validate_correspondence_pair_v0(
 /// Build full D0 centre-to-receiver polylines with authoritative D0 measures.
 pub fn extract_reference_reach_lines_v0(
     packet: &LandformObjectPacketCoreV0,
+) -> Result<Vec<PacketLineObjectV0>, PacketCorrespondenceErrorV0> {
+    extract_reference_reach_lines_from_core_v0(CorrespondenceCoreRef::packet(packet))
+}
+
+fn extract_reference_reach_lines_from_core_v0(
+    packet: CorrespondenceCoreRef<'_>,
 ) -> Result<Vec<PacketLineObjectV0>, PacketCorrespondenceErrorV0> {
     let scale = reference_drainage_scale(packet)?;
     let graph = &packet.graph;
@@ -594,7 +686,7 @@ pub fn extract_reference_reach_lines_v0(
 }
 
 fn reference_drainage_scale(
-    packet: &LandformObjectPacketCoreV0,
+    packet: CorrespondenceCoreRef<'_>,
 ) -> Result<&DrainageScaleV0, PacketCorrespondenceErrorV0> {
     let mut scales = packet
         .drainage
@@ -739,14 +831,14 @@ impl IntervalIndexV0 {
 }
 
 fn shared_area_evidence_v0(
-    source: &LandformObjectPacketCoreV0,
-    target: &LandformObjectPacketCoreV0,
+    source: CorrespondenceCoreRef<'_>,
+    target: CorrespondenceCoreRef<'_>,
 ) -> Result<SharedAreaEvidenceV0, PacketCorrespondenceErrorV0> {
     let tolerance = source
         .surface_config
         .endpoint_match_abs_km
         .max(target.surface_config.endpoint_match_abs_km);
-    shared_area_evidence_graphs_v0(&source.graph, &target.graph, tolerance)
+    shared_area_evidence_graphs_v0(source.graph, target.graph, tolerance)
 }
 
 fn shared_area_evidence_graphs_v0(
@@ -1500,7 +1592,7 @@ fn assignment_objects(
 }
 
 fn validate_predecessor_area_ledgers(
-    packet: &LandformObjectPacketCoreV0,
+    packet: CorrespondenceCoreRef<'_>,
     population: &PacketAreaPopulationV0,
     geometry: &[CellGeometryV0],
 ) -> Result<(), PacketCorrespondenceErrorV0> {
@@ -1654,7 +1746,7 @@ fn line_assignment_objects(
 }
 
 fn extract_highland_topology_v0(
-    packet: &LandformObjectPacketCoreV0,
+    packet: CorrespondenceCoreRef<'_>,
     population: &PacketAreaPopulationV0,
 ) -> Result<(Vec<TopologyEdgeInputV0>, Vec<TopologyObjectInputV0>), PacketCorrespondenceErrorV0> {
     let retained = population
@@ -1706,7 +1798,7 @@ fn extract_highland_topology_v0(
 }
 
 fn extract_drainage_topology_v0(
-    packet: &LandformObjectPacketCoreV0,
+    packet: CorrespondenceCoreRef<'_>,
 ) -> Result<(Vec<TopologyEdgeInputV0>, Vec<TopologyObjectInputV0>), PacketCorrespondenceErrorV0> {
     let scale = reference_drainage_scale(packet)?;
     let ids = scale
@@ -1741,8 +1833,8 @@ fn extract_drainage_topology_v0(
 
 #[allow(clippy::too_many_arguments)]
 fn build_packet_topology_v0(
-    source: &LandformObjectPacketCoreV0,
-    target: &LandformObjectPacketCoreV0,
+    source: CorrespondenceCoreRef<'_>,
+    target: CorrespondenceCoreRef<'_>,
     source_highlands: &PacketAreaPopulationV0,
     target_highlands: &PacketAreaPopulationV0,
     assignments: &[AssignmentV0],
@@ -1830,6 +1922,51 @@ pub fn build_object_correspondence_with_config_v0(
     config: CorrespondenceConfigV0,
 ) -> Result<ObjectCorrespondenceV0, PacketCorrespondenceErrorV0> {
     validate_correspondence_pair_v0(source, target, config)?;
+    let source = CorrespondenceCoreRef::packet(source);
+    let target = CorrespondenceCoreRef::packet(target);
+    let mechanical = build_mechanical_correspondence_v0(source, target)?;
+    let mut result = ObjectCorrespondenceV0 {
+        schema_version: O0B_CORRESPONDENCE_SCHEMA_VERSION.into(),
+        hash_version: O0B_CORRESPONDENCE_HASH_VERSION.into(),
+        config: CorrespondenceConfigWireV0::from(&config),
+        source_packet_hash: source.identity_hash,
+        target_packet_hash: target.identity_hash,
+        highland_nested_pairs: mechanical.highland_nested_pairs,
+        highland_exclusive_pairs: mechanical.highland_exclusive_pairs,
+        drainage_nested_pairs: mechanical.drainage_nested_pairs,
+        drainage_exclusive_pairs: mechanical.drainage_exclusive_pairs,
+        drainage_line_pairs: mechanical.drainage_line_pairs,
+        context_records: mechanical.context_records,
+        assignment_records: mechanical.assignment_records,
+        best_components: mechanical.best_components,
+        metric_conflicts: mechanical.metric_conflicts,
+        topology_records: mechanical.topology_records,
+        work_counts: mechanical.work_counts,
+        derived_correspondence_hash: 0,
+    };
+    validate_object_correspondence_semantics_v0(&result)?;
+    result.derived_correspondence_hash = correspondence_preimage_hash(&result)?;
+    Ok(result)
+}
+
+struct MechanicalCorrespondenceV0 {
+    highland_nested_pairs: Vec<AreaPairV0>,
+    highland_exclusive_pairs: Vec<AreaPairV0>,
+    drainage_nested_pairs: Vec<AreaPairV0>,
+    drainage_exclusive_pairs: Vec<AreaPairV0>,
+    drainage_line_pairs: Vec<LinePairV0>,
+    context_records: Vec<ContextV0>,
+    assignment_records: Vec<AssignmentV0>,
+    best_components: Vec<BestComponentV0>,
+    metric_conflicts: Vec<MetricConflictV0>,
+    topology_records: Vec<TopologyV0>,
+    work_counts: CorrespondenceWorkCountsV0,
+}
+
+fn build_mechanical_correspondence_v0(
+    source: CorrespondenceCoreRef<'_>,
+    target: CorrespondenceCoreRef<'_>,
+) -> Result<MechanicalCorrespondenceV0, PacketCorrespondenceErrorV0> {
     let area_evidence = shared_area_evidence_v0(source, target)?;
     let endpoint_tolerance = source
         .surface_config
@@ -1840,8 +1977,8 @@ pub fn build_object_correspondence_with_config_v0(
         .planar_area_match_relative
         .max(target.surface_config.planar_area_match_relative);
 
-    let source_highlands = extract_highland_population_v0(source)?;
-    let target_highlands = extract_highland_population_v0(target)?;
+    let source_highlands = extract_highland_population_from_core_v0(source)?;
+    let target_highlands = extract_highland_population_from_core_v0(target)?;
     validate_predecessor_area_ledgers(source, &source_highlands, &area_evidence.source_cells)?;
     validate_predecessor_area_ledgers(target, &target_highlands, &area_evidence.target_cells)?;
     let highlands = build_family_area_v0(
@@ -1851,8 +1988,8 @@ pub fn build_object_correspondence_with_config_v0(
         endpoint_tolerance,
         area_relative_tolerance,
     )?;
-    let source_drainage = extract_drainage_population_v0(source)?;
-    let target_drainage = extract_drainage_population_v0(target)?;
+    let source_drainage = extract_drainage_population_from_core_v0(source)?;
+    let target_drainage = extract_drainage_population_from_core_v0(target)?;
     validate_predecessor_area_ledgers(source, &source_drainage, &area_evidence.source_cells)?;
     validate_predecessor_area_ledgers(target, &target_drainage, &area_evidence.target_cells)?;
     let drainage = build_family_area_v0(
@@ -1863,8 +2000,8 @@ pub fn build_object_correspondence_with_config_v0(
         area_relative_tolerance,
     )?;
 
-    let source_lines = extract_reference_reach_lines_v0(source)?;
-    let target_lines = extract_reference_reach_lines_v0(target)?;
+    let source_lines = extract_reference_reach_lines_from_core_v0(source)?;
+    let target_lines = extract_reference_reach_lines_from_core_v0(target)?;
     if source_lines.iter().map(|line| line.id).collect::<Vec<_>>()
         != source_drainage
             .objects
@@ -1974,12 +2111,7 @@ pub fn build_object_correspondence_with_config_v0(
         positive_line_rows: lines.pairs.len() as u64,
         best_graph_edges,
     };
-    let mut result = ObjectCorrespondenceV0 {
-        schema_version: O0B_CORRESPONDENCE_SCHEMA_VERSION.into(),
-        hash_version: O0B_CORRESPONDENCE_HASH_VERSION.into(),
-        config: CorrespondenceConfigWireV0::from(&config),
-        source_packet_hash: source.derived_common_packet_hash,
-        target_packet_hash: target.derived_common_packet_hash,
+    Ok(MechanicalCorrespondenceV0 {
         highland_nested_pairs: highlands.nested_pairs,
         highland_exclusive_pairs: highlands.exclusive_pairs,
         drainage_nested_pairs: drainage.nested_pairs,
@@ -1991,10 +2123,57 @@ pub fn build_object_correspondence_with_config_v0(
         metric_conflicts,
         topology_records,
         work_counts,
+    })
+}
+
+/// Build O0b mechanical evidence over two independently validated common
+/// planar evidence cores.
+pub fn build_core_object_correspondence_v1(
+    source: &CommonPlanarEvidenceCoreV0,
+    target: &CommonPlanarEvidenceCoreV0,
+) -> Result<CoreObjectCorrespondenceV1, PacketCorrespondenceErrorV0> {
+    build_core_object_correspondence_with_config_v1(
+        source,
+        target,
+        CorrespondenceConfigV0::default(),
+    )
+}
+
+pub fn build_core_object_correspondence_with_config_v1(
+    source: &CommonPlanarEvidenceCoreV0,
+    target: &CommonPlanarEvidenceCoreV0,
+    config: CorrespondenceConfigV0,
+) -> Result<CoreObjectCorrespondenceV1, PacketCorrespondenceErrorV0> {
+    config.validate()?;
+    validate_common_planar_evidence_core_v0(source)
+        .map_err(|error| PacketCorrespondenceErrorV0::Packet(error.to_string()))?;
+    validate_common_planar_evidence_core_v0(target)
+        .map_err(|error| PacketCorrespondenceErrorV0::Packet(error.to_string()))?;
+    let source = CorrespondenceCoreRef::common(source);
+    let target = CorrespondenceCoreRef::common(target);
+    validate_correspondence_core_pair_v0(source, target)?;
+    let mechanical = build_mechanical_correspondence_v0(source, target)?;
+    let mut result = CoreObjectCorrespondenceV1 {
+        schema_version: CORE_O0B_CORRESPONDENCE_SCHEMA_VERSION.into(),
+        hash_version: CORE_O0B_CORRESPONDENCE_HASH_VERSION.into(),
+        config: CorrespondenceConfigWireV0::from(&config),
+        source_core_hash: source.identity_hash,
+        target_core_hash: target.identity_hash,
+        highland_nested_pairs: mechanical.highland_nested_pairs,
+        highland_exclusive_pairs: mechanical.highland_exclusive_pairs,
+        drainage_nested_pairs: mechanical.drainage_nested_pairs,
+        drainage_exclusive_pairs: mechanical.drainage_exclusive_pairs,
+        drainage_line_pairs: mechanical.drainage_line_pairs,
+        context_records: mechanical.context_records,
+        assignment_records: mechanical.assignment_records,
+        best_components: mechanical.best_components,
+        metric_conflicts: mechanical.metric_conflicts,
+        topology_records: mechanical.topology_records,
+        work_counts: mechanical.work_counts,
         derived_correspondence_hash: 0,
     };
-    validate_object_correspondence_semantics_v0(&result)?;
-    result.derived_correspondence_hash = correspondence_preimage_hash(&result)?;
+    validate_core_object_correspondence_semantics_v1(&result)?;
+    result.derived_correspondence_hash = core_correspondence_preimage_hash_v1(&result)?;
     Ok(result)
 }
 
@@ -2119,6 +2298,69 @@ pub fn decode_object_correspondence_v0(
     Ok(correspondence)
 }
 
+pub fn core_object_correspondence_hash_v1(
+    correspondence: &CoreObjectCorrespondenceV1,
+) -> Result<u64, PacketCorrespondenceErrorV0> {
+    validate_core_correspondence_record_version_v1(correspondence)?;
+    core_correspondence_preimage_hash_v1(correspondence)
+}
+
+pub fn core_object_correspondence_bytes_v1(
+    correspondence: &CoreObjectCorrespondenceV1,
+) -> Result<Vec<u8>, PacketCorrespondenceErrorV0> {
+    validate_core_correspondence_record_version_v1(correspondence)?;
+    validate_core_object_correspondence_semantics_v1(correspondence)?;
+    let computed = core_correspondence_preimage_hash_v1(correspondence)?;
+    if computed != correspondence.derived_correspondence_hash {
+        return Err(PacketCorrespondenceErrorV0::Incompatible(
+            "core correspondence hash",
+        ));
+    }
+    fixed_bytes(correspondence)
+}
+
+pub fn decode_core_object_correspondence_v1(
+    bytes: &[u8],
+) -> Result<CoreObjectCorrespondenceV1, PacketCorrespondenceErrorV0> {
+    let correspondence: CoreObjectCorrespondenceV1 = bincode_options()
+        .deserialize(bytes)
+        .map_err(|error| PacketCorrespondenceErrorV0::Serialization(error.to_string()))?;
+    validate_core_correspondence_record_version_v1(&correspondence)?;
+    validate_core_object_correspondence_semantics_v1(&correspondence)?;
+    let computed = core_correspondence_preimage_hash_v1(&correspondence)?;
+    if computed != correspondence.derived_correspondence_hash {
+        return Err(PacketCorrespondenceErrorV0::Incompatible(
+            "core correspondence hash",
+        ));
+    }
+    Ok(correspondence)
+}
+
+/// Fully validate a decoded core-backed artifact against both predecessor
+/// cores, including deterministic reconstruction of every mechanical field and
+/// work count.
+pub fn validate_core_object_correspondence_v1(
+    correspondence: &CoreObjectCorrespondenceV1,
+    source: &CommonPlanarEvidenceCoreV0,
+    target: &CommonPlanarEvidenceCoreV0,
+) -> Result<(), PacketCorrespondenceErrorV0> {
+    core_object_correspondence_bytes_v1(correspondence)?;
+    if correspondence.source_core_hash != source.derived_core_hash
+        || correspondence.target_core_hash != target.derived_core_hash
+    {
+        return Err(PacketCorrespondenceErrorV0::Incompatible(
+            "core correspondence predecessor hash",
+        ));
+    }
+    let rebuilt = build_core_object_correspondence_v1(source, target)?;
+    if rebuilt != *correspondence {
+        return Err(PacketCorrespondenceErrorV0::Incompatible(
+            "core correspondence deterministic rebuild",
+        ));
+    }
+    Ok(())
+}
+
 fn validate_correspondence_record_version(
     correspondence: &ObjectCorrespondenceV0,
 ) -> Result<(), PacketCorrespondenceErrorV0> {
@@ -2129,6 +2371,21 @@ fn validate_correspondence_record_version(
     {
         return Err(PacketCorrespondenceErrorV0::Incompatible(
             "correspondence schema/config",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_core_correspondence_record_version_v1(
+    correspondence: &CoreObjectCorrespondenceV1,
+) -> Result<(), PacketCorrespondenceErrorV0> {
+    if correspondence.schema_version != CORE_O0B_CORRESPONDENCE_SCHEMA_VERSION
+        || correspondence.hash_version != CORE_O0B_CORRESPONDENCE_HASH_VERSION
+        || correspondence.config
+            != CorrespondenceConfigWireV0::from(&CorrespondenceConfigV0::default())
+    {
+        return Err(PacketCorrespondenceErrorV0::Incompatible(
+            "core correspondence schema/config",
         ));
     }
     Ok(())
@@ -2146,42 +2403,103 @@ struct SerializedEvidenceIndexV0 {
     scores: BTreeMap<(AssignmentChannelV0, u32, u32), (f64, f64)>,
 }
 
+#[derive(Clone, Copy)]
+struct CorrespondenceRecordRef<'a> {
+    highland_nested_pairs: &'a [AreaPairV0],
+    highland_exclusive_pairs: &'a [AreaPairV0],
+    drainage_nested_pairs: &'a [AreaPairV0],
+    drainage_exclusive_pairs: &'a [AreaPairV0],
+    drainage_line_pairs: &'a [LinePairV0],
+    context_records: &'a [ContextV0],
+    assignment_records: &'a [AssignmentV0],
+    best_components: &'a [BestComponentV0],
+    metric_conflicts: &'a [MetricConflictV0],
+    topology_records: &'a [TopologyV0],
+    work_counts: &'a CorrespondenceWorkCountsV0,
+}
+
+impl<'a> CorrespondenceRecordRef<'a> {
+    fn packet(value: &'a ObjectCorrespondenceV0) -> Self {
+        Self {
+            highland_nested_pairs: &value.highland_nested_pairs,
+            highland_exclusive_pairs: &value.highland_exclusive_pairs,
+            drainage_nested_pairs: &value.drainage_nested_pairs,
+            drainage_exclusive_pairs: &value.drainage_exclusive_pairs,
+            drainage_line_pairs: &value.drainage_line_pairs,
+            context_records: &value.context_records,
+            assignment_records: &value.assignment_records,
+            best_components: &value.best_components,
+            metric_conflicts: &value.metric_conflicts,
+            topology_records: &value.topology_records,
+            work_counts: &value.work_counts,
+        }
+    }
+
+    fn core(value: &'a CoreObjectCorrespondenceV1) -> Self {
+        Self {
+            highland_nested_pairs: &value.highland_nested_pairs,
+            highland_exclusive_pairs: &value.highland_exclusive_pairs,
+            drainage_nested_pairs: &value.drainage_nested_pairs,
+            drainage_exclusive_pairs: &value.drainage_exclusive_pairs,
+            drainage_line_pairs: &value.drainage_line_pairs,
+            context_records: &value.context_records,
+            assignment_records: &value.assignment_records,
+            best_components: &value.best_components,
+            metric_conflicts: &value.metric_conflicts,
+            topology_records: &value.topology_records,
+            work_counts: &value.work_counts,
+        }
+    }
+}
+
 fn validate_object_correspondence_semantics_v0(
     value: &ObjectCorrespondenceV0,
 ) -> Result<(), PacketCorrespondenceErrorV0> {
+    validate_correspondence_semantics_v0(CorrespondenceRecordRef::packet(value))
+}
+
+fn validate_core_object_correspondence_semantics_v1(
+    value: &CoreObjectCorrespondenceV1,
+) -> Result<(), PacketCorrespondenceErrorV0> {
+    validate_correspondence_semantics_v0(CorrespondenceRecordRef::core(value))
+}
+
+fn validate_correspondence_semantics_v0(
+    value: CorrespondenceRecordRef<'_>,
+) -> Result<(), PacketCorrespondenceErrorV0> {
     let mut evidence = SerializedEvidenceIndexV0::default();
     validate_area_table(
-        &value.highland_nested_pairs,
+        value.highland_nested_pairs,
         AreaSupportV0::Nested,
         None,
         &mut evidence,
     )?;
     validate_area_table(
-        &value.highland_exclusive_pairs,
+        value.highland_exclusive_pairs,
         AreaSupportV0::Exclusive,
         Some(AssignmentChannelV0::HighlandExclusiveArea),
         &mut evidence,
     )?;
     validate_area_table(
-        &value.drainage_nested_pairs,
+        value.drainage_nested_pairs,
         AreaSupportV0::Nested,
         None,
         &mut evidence,
     )?;
     validate_area_table(
-        &value.drainage_exclusive_pairs,
+        value.drainage_exclusive_pairs,
         AreaSupportV0::Exclusive,
         Some(AssignmentChannelV0::DrainageExclusiveArea),
         &mut evidence,
     )?;
-    validate_line_table(&value.drainage_line_pairs, &mut evidence)?;
-    validate_context_records(&value.context_records)?;
+    validate_line_table(value.drainage_line_pairs, &mut evidence)?;
+    validate_context_records(value.context_records)?;
     let reconstructed = reconstruct_assignment_evidence(value, &evidence)?;
-    validate_context_completeness(&value.context_records, &value.assignment_records)?;
+    validate_context_completeness(value.context_records, value.assignment_records)?;
     validate_pair_assignment_references(value)?;
     validate_topology_semantics(
-        &value.topology_records,
-        &value.assignment_records,
+        value.topology_records,
+        value.assignment_records,
         &reconstructed.components,
     )?;
     validate_work_counts(value)?;
@@ -2448,11 +2766,11 @@ struct ReconstructedChannelV0 {
 }
 
 fn reconstruct_assignment_evidence(
-    value: &ObjectCorrespondenceV0,
+    value: CorrespondenceRecordRef<'_>,
     evidence: &SerializedEvidenceIndexV0,
 ) -> Result<ReconstructedCorrespondenceV0, PacketCorrespondenceErrorV0> {
     let mut previous = None;
-    for assignment in &value.assignment_records {
+    for assignment in value.assignment_records {
         let key = (
             assignment.side,
             assignment.family,
@@ -2541,7 +2859,7 @@ fn reconstruct_assignment_evidence(
     if expected_components != value.best_components {
         return semantic_error("best component evidence mismatch");
     }
-    let expected_conflicts = build_metric_conflicts_v0(&value.assignment_records)?;
+    let expected_conflicts = build_metric_conflicts_v0(value.assignment_records)?;
     if expected_conflicts != value.metric_conflicts {
         return semantic_error("metric conflict evidence mismatch");
     }
@@ -2551,7 +2869,7 @@ fn reconstruct_assignment_evidence(
 }
 
 fn reconstruct_channel(
-    value: &ObjectCorrespondenceV0,
+    value: CorrespondenceRecordRef<'_>,
     evidence: &SerializedEvidenceIndexV0,
     family: ObjectFamilyV0,
     channel: AssignmentChannelV0,
@@ -2732,7 +3050,7 @@ fn validate_context_completeness(
 }
 
 fn validate_pair_assignment_references(
-    value: &ObjectCorrespondenceV0,
+    value: CorrespondenceRecordRef<'_>,
 ) -> Result<(), PacketCorrespondenceErrorV0> {
     let assignments = value
         .assignment_records
@@ -2756,7 +3074,7 @@ fn validate_pair_assignment_references(
     for row in value
         .highland_nested_pairs
         .iter()
-        .chain(&value.highland_exclusive_pairs)
+        .chain(value.highland_exclusive_pairs)
     {
         require(
             PacketSideV0::Source,
@@ -2774,7 +3092,7 @@ fn validate_pair_assignment_references(
     for row in value
         .drainage_nested_pairs
         .iter()
-        .chain(&value.drainage_exclusive_pairs)
+        .chain(value.drainage_exclusive_pairs)
     {
         for channel in [
             AssignmentChannelV0::DrainageExclusiveArea,
@@ -2794,7 +3112,7 @@ fn validate_pair_assignment_references(
             )?;
         }
     }
-    for row in &value.drainage_line_pairs {
+    for row in value.drainage_line_pairs {
         for channel in [
             AssignmentChannelV0::DrainageExclusiveArea,
             AssignmentChannelV0::DrainageLine,
@@ -2813,7 +3131,7 @@ fn validate_pair_assignment_references(
             )?;
         }
     }
-    for context in &value.context_records {
+    for context in value.context_records {
         let channel = match context.family {
             ObjectFamilyV0::Highland => AssignmentChannelV0::HighlandExclusiveArea,
             ObjectFamilyV0::DrainageNode => AssignmentChannelV0::DrainageExclusiveArea,
@@ -3072,8 +3390,10 @@ fn topology_endpoints_share_component(
     })
 }
 
-fn validate_work_counts(value: &ObjectCorrespondenceV0) -> Result<(), PacketCorrespondenceErrorV0> {
-    let counts = &value.work_counts;
+fn validate_work_counts(
+    value: CorrespondenceRecordRef<'_>,
+) -> Result<(), PacketCorrespondenceErrorV0> {
+    let counts = value.work_counts;
     let cell_product = counts.source_cells.checked_mul(counts.target_cells).ok_or(
         PacketCorrespondenceErrorV0::Numerical("cell work product overflow"),
     )?;
@@ -3112,7 +3432,7 @@ fn validate_work_counts(value: &ObjectCorrespondenceV0) -> Result<(), PacketCorr
         ),
         (
             counts.best_graph_edges,
-            count_best_graph_edges(&value.assignment_records)?,
+            count_best_graph_edges(value.assignment_records)?,
         ),
     ];
     if exact_rows.iter().any(|(stored, derived)| stored != derived)
@@ -3178,6 +3498,30 @@ fn correspondence_preimage_hash(
         &value.config,
         value.source_packet_hash,
         value.target_packet_hash,
+        &value.highland_nested_pairs,
+        &value.highland_exclusive_pairs,
+        &value.drainage_nested_pairs,
+        &value.drainage_exclusive_pairs,
+        &value.drainage_line_pairs,
+        &value.context_records,
+        &value.assignment_records,
+        &value.best_components,
+        &value.metric_conflicts,
+        &value.topology_records,
+        &value.work_counts,
+    ))?;
+    Ok(fnv1a64(&bytes))
+}
+
+fn core_correspondence_preimage_hash_v1(
+    value: &CoreObjectCorrespondenceV1,
+) -> Result<u64, PacketCorrespondenceErrorV0> {
+    let bytes = fixed_bytes(&(
+        &value.schema_version,
+        &value.hash_version,
+        &value.config,
+        value.source_core_hash,
+        value.target_core_hash,
         &value.highland_nested_pairs,
         &value.highland_exclusive_pairs,
         &value.drainage_nested_pairs,
