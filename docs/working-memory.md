@@ -102,8 +102,11 @@ freezes H/C execution, linear hillslopes, G construction/calibration, closure,
 failure classification, direct sensitivity and advancement. The
 [evidence/projection amendment](research/orogen-organization-evidence-v0-2026-07-16.md)
 now freezes common and central evidence, authored-G/D0 and direct numerical
-sidecars, O0b correspondence, materiality and publication. The next focus is
-planar human review; no arm-result packet exists yet.
+sidecars, O0b correspondence, materiality and publication. The
+[planar capture/human-review amendment](research/orogen-organization-planar-review-v0-2026-07-16.md)
+now closes deterministic presentation, primary-before-resolution observation
+and reveal. All four executable amendments are preregistered; implementation
+and the base campaign are next, and no arm-result packet exists yet.
 G must calibrate and publish 4 km before 8/2 km can bind its frozen forest and
 amplitude. Cooperative algorithmic failures are replayable semantic roots;
 resource failures are observational, while invalid input/configuration or

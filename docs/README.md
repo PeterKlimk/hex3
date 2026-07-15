@@ -137,7 +137,13 @@ Current bounded research decision:
 - [Organization-owner evidence and projection amendment V0](research/orogen-organization-evidence-v0-2026-07-16.md)
   — freezes the exact common/central evidence, authored-G comparison, direct
   numerical discrepancy, O0b correspondence, materiality, failure, JSON and
-  publication contracts. Only planar human review remains before implementation.
+  publication contracts.
+- [Organization-owner planar capture and human-review amendment V0](research/orogen-organization-planar-review-v0-2026-07-16.md)
+  — freezes deterministic CPU planar capture, fixed physical/diagnostic/
+  cartographic layers, procedural alias masking, primary-before-resolution
+  observation, reveal, failure, JSON and atomic publication. This completes the
+  four preregistered executable amendments; no arm is yet implemented or
+  promoted.
 - [Landform G0/S0 structural-slice audit](audits/landform-g0s0-structural-slice-2026-07-14.md)
   — passing planar geometry/topology checkpoint, caught contract amendments and
   the scope inherited by the morphology slice.

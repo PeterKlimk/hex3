@@ -291,7 +291,9 @@ and the exact
 [numerical/admission contract](research/orogen-organization-numerical-v0-2026-07-16.md)
 and
 [evidence/projection contract](research/orogen-organization-evidence-v0-2026-07-16.md)
-are now preregistered; the presentation contract remains pending.
+and
+[planar capture/human-review contract](research/orogen-organization-planar-review-v0-2026-07-16.md)
+are now preregistered. Implementation and the frozen base campaign remain.
 
 The current sequence is:
 
@@ -348,7 +350,8 @@ The current sequence is:
    [numerical/admission](research/orogen-organization-numerical-v0-2026-07-16.md);
    **completed:** exact
    [evidence/projection](research/orogen-organization-evidence-v0-2026-07-16.md);
-   next, the planar human-review contract;
+   **completed:** exact
+   [planar capture/human review](research/orogen-organization-planar-review-v0-2026-07-16.md);
 6. implement only the missing composition and object-output seams, reusing the
    tested landscape operator library without promoting its research models;
 7. run the linked-segment base case, advance every competitive arm meeting the

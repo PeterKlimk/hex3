@@ -79,8 +79,9 @@ and
 [numerical/admission](research/orogen-organization-numerical-v0-2026-07-16.md)
 and
 [evidence/projection](research/orogen-organization-evidence-v0-2026-07-16.md)
-preregistered; planar presentation/review pending; no arm implemented,
-evaluated or promoted. See the
+and
+[planar capture/human review](research/orogen-organization-planar-review-v0-2026-07-16.md)
+are preregistered; no arm is implemented, evaluated or promoted. See the
 [landscape organization strategy](landscape-strategy.md). The
 [landform object packet v0](research/landform-object-packet-v0-2026-07-14.md)
 now preregisters the common evidence vocabulary and rung order. It does not yet

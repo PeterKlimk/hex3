@@ -35,7 +35,9 @@ now freezes semantic arm bytes, and the
 freezes execution and validity, and the
 [evidence/projection amendment](orogen-organization-evidence-v0-2026-07-16.md)
 freezes common extraction, central/G projections, correspondence, discrepancy
-and materiality evidence. The presentation contract remains pending. This
+and materiality evidence. The
+[planar capture/human-review amendment](orogen-organization-planar-review-v0-2026-07-16.md)
+now freezes deterministic presentation, observation order and reveal. This
 design does not promote a product terrain path. No arm can
 be chosen for the product from the linked base case alone.
 
@@ -56,8 +58,9 @@ executable amendments must be committed first:
    [evidence/projection amendment](orogen-organization-evidence-v0-2026-07-16.md),
    including every reduction, option, scale key, portal-owned contribution and
    null/tie/split/merge rule; and
-4. a reproducible planar capture/human-observation contract with exact renderer,
-   overlays, ordering and observation form.
+4. **completed:** a reproducible planar capture/human-observation contract with
+   exact renderer, overlays, ordering, observation form and reveal in the
+   [planar capture/human-review amendment](orogen-organization-planar-review-v0-2026-07-16.md).
 
 The logical shapes and rules below constrain those amendments. Where this
 document explicitly labels a shape or threshold provisional or candidate, it is
@@ -681,7 +684,9 @@ case in V0:
    still be valid for any cross-arm comparison to proceed;
 5. freeze every arm result before common evidence extraction;
 6. build independent evidence and numerical sensitivities;
-7. create matched, blinded 4 km human sheets; then reveal resolution sheets;
+7. create matched, procedurally masked 4 km sheets, publish the primary
+   observation, then inspect and record resolution stability before alias/G
+   provenance reveal; and
 8. record a dated audit and stop before a response case or product change.
 
 Admission is validity-only. An ugly, flat, weakly organized or object-poor but
@@ -764,12 +769,12 @@ It cannot call product `World`, inspect native arm graphs for the common overlay
 or choose a camera from an arm's highest point.
 
 The bounds, layers and primary ranges below are the minimum logical capture
-design, not yet a reproducible protocol. The executable presentation amendment
-must name the renderer/build, rasterization and sampling rules, camera matrix,
-lighting parameters, water/overlay styles and ordering, fonts/legends, color
-maps, output encoding, deterministic permutation algorithm and human observation
-form. It must also either validate the candidate ranges on arm-neutral inputs or
-freeze an arm-neutral fallback range ladder before any active arm is viewed.
+design. The executable
+[planar capture/human-review amendment](orogen-organization-planar-review-v0-2026-07-16.md)
+now makes them reproducible by freezing the CPU renderer/build boundary,
+rasterization and sampling, view matrices, lighting, water/overlay ordering,
+bound UTF-8 sidecar legends, palettes, PNG encoding, fallback ladder, procedural permutation,
+primary-before-resolution forms and reveal records.
 
 Freeze north-up orthographic plan views:
 
@@ -790,7 +795,8 @@ legend and overlay order. Candidate mandatory layers are:
 5. fixed Authentic cartographic geometry at the existing approximately 25x
    relief preset; and
 6. a separate G-authored-graph provenance sheet, visually distinguished from
-   the independent D0 overlay and never placed in the blinded common sheet.
+   the independent D0 overlay and never placed in the procedurally masked common
+   sheet.
 
 Primary evidence never uses per-arm quantile colors, per-arm vertical scaling,
 arm-selected river thresholds or relief normalization. A supplementary range
@@ -848,7 +854,7 @@ resolution discrepancy rule and retains the complete evidence vector:
 - D0 basin/reach/trunk/central-supply organization;
 - forcing/highland/transfer mechanical correspondence;
 - physical multiscale relief, grade and summit-cap morphology;
-- blind matched human judgment; and
+- procedurally masked matched human judgment; and
 - downstream reusable state at justified compute/complexity cost.
 
 These families are correlated and carry no vote count. A conclusion must state
@@ -871,8 +877,8 @@ but object-poor, revisit the comparison representation or missing shared state;
 do not tune relief scale. If common evidence fails across arms, repair the
 instrument rather than terrain.
 
-The artifact/provenance, numerical/admission and evidence/projection amendments
-are now committed in design. The next task is planar capture/human review. Only
-after all four may implementation start with shared composition
-and artifact infrastructure. The next task is not a new ecology, sediment,
-tectonic or product model.
+The artifact/provenance, numerical/admission, evidence/projection and planar
+capture/human-review amendments are now committed in design. Implementation
+starts with the pre-arm renderer checkpoint and shared composition/artifact
+infrastructure, followed by the frozen base campaign. The next task is not a
+new ecology, sediment, tectonic or product model.

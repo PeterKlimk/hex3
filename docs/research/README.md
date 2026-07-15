@@ -72,7 +72,12 @@ Current synthesized notes:
 - [Organization-owner evidence and projection amendment V0](orogen-organization-evidence-v0-2026-07-16.md)
   — third executable amendment: exact common extraction, central projection,
   authored-G/D0 and numerical-discrepancy sidecars, correspondence/materiality,
-  failures, JSON projections and campaign publication. Planar review remains.
+  failures, JSON projections and campaign publication.
+- [Organization-owner planar capture and human-review amendment V0](orogen-organization-planar-review-v0-2026-07-16.md)
+  — fourth executable amendment: deterministic CPU planar pixels, bound
+  sidecar legends, procedural masking, primary-before-resolution observation,
+  reveal/failure schemas and atomic publication. All four are preregistered;
+  no arm is implemented, evaluated or promoted.
 - [Correspondence priors for reduced planet models](correspondence-priors-2026-07-12.md)
 - [Orogen organization: causal reference and reduced experiments](orogen-organization-2026-07-12.md)
 - [Mountain-system design basis](mountain-system-design-basis-2026-07-13.md)

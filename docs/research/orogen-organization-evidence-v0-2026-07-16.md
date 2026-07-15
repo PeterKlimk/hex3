@@ -2476,8 +2476,10 @@ the accepted arm publisher in this rung.
 
 ## Stop boundary
 
-This amendment completes item 3 of the parent executable stop boundary. Do not
-implement H/C/G or evidence yet. Next freeze planar capture, blinding, sheet
-identity, human prompts, reveal order and review records. Only then may shared
-composition/artifact/evidence infrastructure be implemented and the active
-campaign begin.
+This amendment completes item 3 of the parent executable stop boundary. The
+subsequent
+[planar capture/human-review amendment](orogen-organization-planar-review-v0-2026-07-16.md)
+now freezes capture, procedural masking, sheet identity, human prompts, reveal
+order and review records and completes item 4. Shared composition/artifact/
+evidence/review infrastructure and the active campaign may now be implemented
+only under all four contracts.

@@ -1060,5 +1060,6 @@ subsequent
 [evidence/projection amendment](orogen-organization-evidence-v0-2026-07-16.md)
 now completes item 3: exact common-core/O0a/central inputs, authored-G
 comparison, object/cohort reductions, discrepancy handoff, correspondence and
-materiality bytes. Do not implement H/C/G yet. The final planar
-capture/human-review amendment still follows before any active arm run.
+materiality bytes. The final
+[planar capture/human-review amendment](orogen-organization-planar-review-v0-2026-07-16.md)
+now completes item 4; implementation may begin only under all four contracts.

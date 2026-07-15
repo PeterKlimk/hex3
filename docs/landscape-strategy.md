@@ -206,7 +206,10 @@ and exact
 [numerical/admission amendment](research/orogen-organization-numerical-v0-2026-07-16.md)
 and exact
 [evidence/projection amendment](research/orogen-organization-evidence-v0-2026-07-16.md)
-are now preregistered; the planar-review amendment remains.
+and exact
+[planar capture/human-review amendment](research/orogen-organization-planar-review-v0-2026-07-16.md)
+are now preregistered. This completes the executable design boundary; no arm is
+yet implemented, evaluated or promoted.
 
 ### Question
 
@@ -232,8 +235,9 @@ The design envelope now selects work-matched opportunity, arm-specific
 conversion/chronology, whole-domain common extraction with a separately bound
 central projection and a shared safety ceiling. Exact schemas, reductions,
 ledger gates and presentation details are divided among four executable
-amendments. Artifact/provenance, numerical/admission and evidence/projection are
-complete; planar human review remains.
+amendments. Artifact/provenance, numerical/admission, evidence/projection and
+planar human-review contracts are complete. Implementation and the frozen base
+campaign remain.
 
 Here segment terminations and transfer-zone forcing opportunity are prescribed
 testbed geometry controls. They do not guarantee that any arm produces a

@@ -1666,7 +1666,8 @@ This amendment completes item 1 of the parent design's executable stop
 boundary. The subsequent
 [numerical/admission amendment](orogen-organization-numerical-v0-2026-07-16.md)
 completes item 2 and makes the small append-only failure-enum amendment above.
-Do not implement artifact structs yet. The subsequent
+The subsequent
 [evidence/projection amendment](orogen-organization-evidence-v0-2026-07-16.md)
-now completes item 3; the planar-review amendment still follows before any
-active H/C/G run.
+now completes item 3. The final
+[planar capture/human-review amendment](orogen-organization-planar-review-v0-2026-07-16.md)
+completes item 4; implementation may begin only under all four contracts.
