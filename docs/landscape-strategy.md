@@ -236,8 +236,11 @@ conversion/chronology, whole-domain common extraction with a separately bound
 central projection and a shared safety ceiling. Exact schemas, reductions,
 ledger gates and presentation details are divided among four executable
 amendments. Artifact/provenance, numerical/admission, evidence/projection and
-planar human-review contracts are complete. Implementation and the frozen base
-campaign remain.
+planar human-review contracts are complete. One non-authoritative 4 km
+engineering probe may now de-risk exact H/C/G composition without selecting an
+arm or producing campaign artifacts. Promotion-grade implementation and the
+frozen base campaign still require their registered artifact, replay, renderer
+and review gates.
 
 Here segment terminations and transfer-zone forcing opportunity are prescribed
 testbed geometry controls. They do not guarantee that any arm produces a

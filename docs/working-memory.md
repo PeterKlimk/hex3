@@ -108,9 +108,17 @@ now closes deterministic presentation, primary-before-resolution observation
 and reveal. All four executable amendments are preregistered; implementation
 has begun at the passive artifact boundary. Exact H/C/G configuration wire
 types, local legal-matrix validation and canonical configuration hashing now
-exist, but the mutually bound result/provenance/trace/checkpoint/failure codec,
-arm execution and the base campaign remain next. No arm-result packet exists
-yet.
+exist. Do not now implement the entire promotion bureaucracy before seeing
+terrain. The next rung is a noncanonical but numerically faithful 4 km H/C/G
+discriminator retaining final surfaces, essential ledgers/hashes/cost, existing
+common evidence and plain matched images. Full result/provenance/trace/
+checkpoint/failure, publication and blinded-review machinery is conditional on
+that discriminator justifying further investment. No arm-result packet exists
+yet. The first bounded source slice is G at 4 km: its exact planning, minimax
+portal forest, reverse accumulation with Strahler/support derivation,
+runoff-conditioned reconstruction and amplitude solve now pass a repeated
+in-memory run over the fully rebuilt accepted bundle. No probe file has been
+generated or inspected; H/C and matched evidence/images remain missing.
 G must calibrate and publish 4 km before 8/2 km can bind its frozen forest and
 amplitude. Cooperative algorithmic failures are replayable semantic roots;
 resource failures are observational, while invalid input/configuration or

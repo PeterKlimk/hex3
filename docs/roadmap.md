@@ -352,12 +352,14 @@ The current sequence is:
    [evidence/projection](research/orogen-organization-evidence-v0-2026-07-16.md);
    **completed:** exact
    [planar capture/human review](research/orogen-organization-planar-review-v0-2026-07-16.md);
-6. **in progress:** implement only the missing composition and object-output
-   seams, reusing the tested landscape operator library without promoting its
-   research models. The passive configuration foundation now owns the exact
-   H/C/G wire vocabulary, legal arm/purpose/predecessor matrix and canonical
-   configuration hash. Result, provenance, trace, checkpoint and failure
-   codecs—and every arm execution path—remain unimplemented;
+6. **in progress:** build the smallest end-to-end 4 km discriminator before
+   more promotion infrastructure: exact registered H/C/G execution over the
+   accepted linked input, deterministic repetition, final physical surfaces,
+   essential ledgers/hashes/cost, direct reuse of S0/D0/reference-O0a and plain
+   matched images. The passive configuration foundation already owns the exact
+   wire vocabulary and legal matrix. Full artifact/evidence/review machinery is
+   deferred until the discriminator shows that continuing an owner is worth
+   that cost;
 7. run the linked-segment base case, advance every competitive arm meeting the
    shared gate under the same preregistered rule, and retain H as the standing
    control in every admitted forcing-reorganization and wet/dry case;

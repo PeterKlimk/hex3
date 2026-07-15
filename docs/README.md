@@ -142,8 +142,9 @@ Current bounded research decision:
   — freezes deterministic CPU planar capture, fixed physical/diagnostic/
   cartographic layers, procedural alias masking, primary-before-resolution
   observation, reveal, failure, JSON and atomic publication. This completes the
-  four preregistered executable amendments; no arm is yet implemented or
-  promoted.
+  four preregistered executable amendments. No promotion-grade arm result is
+  yet implemented or promoted; the separately authorized 4 km engineering
+  probe cannot change that status.
 - [Landform G0/S0 structural-slice audit](audits/landform-g0s0-structural-slice-2026-07-14.md)
   — passing planar geometry/topology checkpoint, caught contract amendments and
   the scope inherited by the morphology slice.

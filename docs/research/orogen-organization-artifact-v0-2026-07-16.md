@@ -2,9 +2,10 @@
 
 **Date:** 2026-07-16
 
-**Status:** executable preregistration for semantic arm artifacts, native
-provenance, traces, checkpoints, failures and atomic publication; not
-implemented and not an H/C/G result
+**Status:** executable preregistration for promotion-grade semantic arm
+artifacts, native provenance, traces, checkpoints, failures and atomic
+publication; configuration identity is implemented, while the remaining
+artifact graph is not implemented and no H/C/G result exists
 
 **Parent:** [organization-owner comparison design V0](orogen-organization-owner-v0-2026-07-16.md)
 

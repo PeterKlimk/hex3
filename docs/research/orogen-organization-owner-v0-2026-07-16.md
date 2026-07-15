@@ -3,8 +3,8 @@
 **Date:** 2026-07-16
 
 **Status:** architecture decision and preregistered comparison-design envelope;
-not yet an executable wire/verdict contract, and no H, C or G arm is implemented
-or evaluated under it
+the passive configuration authority is implemented, but no H, C or G arm has
+yet been evaluated and no product owner is selected
 
 **Parents:** [landscape organization strategy](../landscape-strategy.md),
 [linked shared-input V0](orogen-linked-shared-input-v0-2026-07-15.md),
@@ -65,6 +65,38 @@ executable amendments must be committed first:
 The logical shapes and rules below constrain those amendments. Where this
 document explicitly labels a shape or threshold provisional or candidate, it is
 not wire order and cannot be used to claim a preregistered result.
+
+## Implementation rungs
+
+The four amendments separate questions that must not be forgotten; they are not
+a requirement to implement every promotion and publication mechanism before
+learning whether H, C or G is a useful owner. Implementation proceeds in two
+rungs:
+
+1. **Non-authoritative engineering probe:** run the exact registered 4 km H/C/G
+   base algorithms on the accepted shared input; repeat them deterministically;
+   retain the final physical surface, essential conservation/failure
+   diagnostics, configuration and surface hashes, wall time and source
+   revision; apply the already accepted S0/D0/reference-O0a machinery directly;
+   and produce plainly labelled matched views for composition debugging. The
+   probe accepts no parameter, threshold, seed, mesh, opportunity, camera,
+   range or exaggeration override.
+2. **Promotion campaign:** only if the discriminator justifies continued work,
+   complete the canonical result/provenance/trace/checkpoint/failure codecs,
+   predecessor replay, publication, full evidence projections, 8/4/2 campaign
+   and blinded review protocol specified by the amendments.
+
+Probe outputs are disposable research observations outside every canonical
+organization-owner artifact path, not canonical arm artifacts. They cannot be
+copied, wrapped, cited or relabelled into the campaign; promote or select an
+arm; satisfy an amendment gate; or enter product code. The probe does not
+authorize 8/2 km, sensitivity/response runs or parameter tuning. It still obeys
+the frozen input, configurations, physical units, H/C/G algorithms,
+conservation and numerical rules, independent common evidence boundary and
+physical-versus-presentation separation. If it changes one of those, it is a
+new experiment, not a shortcut. The later promotion campaign rebuilds every
+result from accepted input. Inspecting probe images or numeric summaries is
+declared prior exposure under the planar-review protocol.
 
 ## Superseded and retained material
 
@@ -878,7 +910,10 @@ do not tune relief scale. If common evidence fails across arms, repair the
 instrument rather than terrain.
 
 The artifact/provenance, numerical/admission, evidence/projection and planar
-capture/human-review amendments are now committed in design. Implementation
-starts with the pre-arm renderer checkpoint and shared composition/artifact
-infrastructure, followed by the frozen base campaign. The next task is not a
-new ecology, sediment, tectonic or product model.
+capture/human-review amendments are now committed in design. Promotion-grade
+implementation starts with the pre-arm renderer checkpoint and shared
+composition/artifact infrastructure, followed by the frozen base campaign.
+The bounded non-authoritative 4 km engineering probe above may precede that
+checkpoint solely to de-risk composition; it does not begin the campaign or
+change a promotion gate. The next task is not a new ecology, sediment, tectonic
+or product model.

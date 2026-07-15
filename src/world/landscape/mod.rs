@@ -24,6 +24,7 @@ mod hillslope;
 mod linked_input;
 mod mesh;
 pub mod organization_artifact;
+pub mod organization_owner;
 mod solver;
 mod voronoi_cap_fixture;
 

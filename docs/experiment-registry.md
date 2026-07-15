@@ -81,7 +81,9 @@ and
 [evidence/projection](research/orogen-organization-evidence-v0-2026-07-16.md)
 and
 [planar capture/human review](research/orogen-organization-planar-review-v0-2026-07-16.md)
-are preregistered; no arm is implemented, evaluated or promoted. See the
+are preregistered; no promotion-grade arm result is implemented, evaluated or
+promoted. One non-authoritative 4 km engineering probe is authorized for
+composition debugging and cannot change an arm's experiment status. See the
 [landscape organization strategy](landscape-strategy.md). The
 [landform object packet v0](research/landform-object-packet-v0-2026-07-14.md)
 now preregisters the common evidence vocabulary and rung order. It does not yet

@@ -1746,15 +1746,24 @@ Existing accepted shared-input, G0/S0, D0, O0a, O0b, arm artifact, numerical
 and evidence gates remain prerequisites. These capture tests compose them and
 do not change their answers.
 
-Before any active H/C/G result is generated or viewed, implement all shared
-non-active schema/artifact/evidence/review infrastructure, commit its source,
-perform the exact promoted build, and publish a small dated renderer-promotion
-audit with the executable hash plus manufactured raw-RGBA/PNG/sheet golden hashes. That
-committed reference source resolves any residual library-level clipping or
-encoding detail while outputs remain unavailable, so it cannot tune to terrain.
-The active capture authority must name exactly that promoted revision and
-executable scope; changing it requires a new amendment and new goldens before a
-full campaign rerun.
+Before any **promotion-grade masked review packet** is generated or viewed,
+implement all shared non-active schema/artifact/evidence/review infrastructure,
+commit its source, perform the exact promoted build, and publish a small dated
+renderer-promotion audit with the executable hash plus manufactured raw-RGBA/
+PNG/sheet golden hashes. That committed reference source resolves any residual
+library-level clipping or encoding detail before formal review. The active
+capture authority must name exactly that promoted revision and executable
+scope; changing it requires a new amendment and new goldens before a full
+campaign rerun.
+
+The parent design's earlier noncanonical 4 km discriminator may emit plainly
+labelled matched diagnostic images without aliases, masking, observation forms
+or review-chain artifacts. Those images are for project-owner architectural
+triage only. They cannot count as blinded review, promotion evidence or a
+product presentation decision, and their renderer must remain downstream of
+the physical surfaces and numeric summaries. Any later formal review declares
+the resulting prior exposure and follows this contract's existing disposition
+rules; the probe does not weaken them.
 
 ## Campaign execution and stop boundary
 
