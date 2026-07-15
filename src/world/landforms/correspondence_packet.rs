@@ -3334,6 +3334,252 @@ mod packet_kernel_tests {
         assert!(highland_support_is_ambiguous(&hierarchy, 0, &references).unwrap());
     }
 
+    fn equal_elder_counterfactual(root_id: u32) -> (SurfaceHierarchyV0, PacketAreaPopulationV0) {
+        assert!(root_id <= 1);
+        let child_id = 1 - root_id;
+        let (nested, exclusive, owners): ([Vec<u32>; 2], [Vec<u32>; 2], [u32; 3]) = if root_id == 0
+        {
+            (
+                [vec![0, 1, 2], vec![1, 2]],
+                [vec![0], vec![1, 2]],
+                [0, 1, 1],
+            )
+        } else {
+            (
+                [vec![0, 1], vec![0, 1, 2]],
+                [vec![0, 1], vec![2]],
+                [0, 0, 1],
+            )
+        };
+        let mut peaks = (0..2)
+            .map(|id| {
+                let is_child = id == child_id;
+                let mut peak = hierarchy_peak(id, is_child.then_some(root_id), is_child);
+                peak.anchor_cell = if id == 0 { 0 } else { 2 };
+                peak.flat_centroid_km = DVec3::new(10.0 + 10.0 * f64::from(id), 5.0, 0.0);
+                peak.flat_maximum_cells = vec![peak.anchor_cell];
+                peak.key_saddle = is_child.then_some(0);
+                peak.exclusive_cells = exclusive[id as usize].clone();
+                peak.footprint_members = nested[id as usize].clone();
+                peak.footprint_area_km2 = 100.0 * peak.footprint_members.len() as f64;
+                peak
+            })
+            .collect::<Vec<_>>();
+        peaks.sort_by_key(|peak| peak.id);
+        let hierarchy = SurfaceHierarchyV0 {
+            schema_version: G0S0_SCHEMA_VERSION.into(),
+            hash_version: G0S0_HASH_VERSION.into(),
+            peaks,
+            saddles: vec![SaddleNodeV0 {
+                id: 0,
+                elevation_km: 1.0,
+                anchor_cell: 1,
+                flat_centroid_km: DVec3::new(15.0, 5.0, 0.0),
+                flat_saddle_cells: vec![1],
+                elder_peak: root_id,
+                losing_peaks: vec![child_id],
+                equal_elder_ambiguous: true,
+            }],
+            roots: vec![root_id],
+            cell_peak_owner: owners.into_iter().map(Some).collect(),
+            populations: HighlandPopulationsV0 {
+                reference: vec![0, 1],
+                persistence_low: Vec::new(),
+                persistence_high: Vec::new(),
+                footprint_low: Vec::new(),
+                footprint_high: Vec::new(),
+            },
+            reference_highlands: Vec::new(),
+            derived_evidence_hash: 0,
+        };
+        let references = BTreeSet::from([0, 1]);
+        let objects = (0..2)
+            .map(|id| {
+                let status = if highland_support_is_ambiguous(&hierarchy, id, &references).unwrap()
+                {
+                    SupportStatusV0::HierarchyAmbiguousSupport
+                } else {
+                    SupportStatusV0::Eligible
+                };
+                PacketAreaObjectV0 {
+                    id,
+                    status,
+                    nested_cells: nested[id as usize].clone(),
+                    exclusive_cells: exclusive[id as usize].clone(),
+                }
+            })
+            .collect::<Vec<_>>();
+        let mut cell_class = vec![PacketCellClassV0::HighlandBackground; 3];
+        for object in &objects {
+            for &cell in &object.exclusive_cells {
+                cell_class[cell as usize] = PacketCellClassV0::IneligibleHighland {
+                    peak_id: object.id,
+                    status: object.status,
+                };
+            }
+        }
+        (
+            hierarchy,
+            PacketAreaPopulationV0 {
+                family: ObjectFamilyV0::Highland,
+                objects,
+                cell_class,
+            },
+        )
+    }
+
+    fn assert_equal_elder_counterfactual(
+        geometry: &EvaluationSurfaceGraphV0,
+        root_id: u32,
+        expected_nested_area: [(u32, f64); 2],
+        expected_exclusive_area: [(u32, f64); 2],
+    ) {
+        let child_id = 1 - root_id;
+        let (hierarchy, ambiguous) = equal_elder_counterfactual(root_id);
+        assert_eq!(hierarchy.roots, vec![root_id]);
+        assert_eq!(
+            hierarchy.peaks[child_id as usize].parent_peak,
+            Some(root_id)
+        );
+        assert_eq!(hierarchy.peaks[child_id as usize].key_saddle, Some(0));
+        assert!(hierarchy.peaks[child_id as usize].equal_elder_ambiguous);
+        assert!(hierarchy.saddles[0].equal_elder_ambiguous);
+        assert!(ambiguous
+            .objects
+            .iter()
+            .all(|object| object.status == SupportStatusV0::HierarchyAmbiguousSupport));
+
+        let eligible = PacketAreaPopulationV0 {
+            family: ObjectFamilyV0::Highland,
+            objects: vec![PacketAreaObjectV0 {
+                id: 10,
+                status: SupportStatusV0::Eligible,
+                nested_cells: vec![0, 1, 2],
+                exclusive_cells: vec![0, 1, 2],
+            }],
+            cell_class: vec![PacketCellClassV0::EligibleObject(10); 3],
+        };
+        let forward = build_area_population_kernel_v0(
+            geometry, &ambiguous, geometry, &eligible, 1.0e-8, 1.0e-10,
+        )
+        .unwrap();
+        let reverse = build_area_population_kernel_v0(
+            geometry, &eligible, geometry, &ambiguous, 1.0e-8, 1.0e-10,
+        )
+        .unwrap();
+
+        assert_eq!(
+            forward
+                .nested_pairs
+                .iter()
+                .map(|row| (row.source_id, row.intersection_area_km2))
+                .collect::<Vec<_>>(),
+            expected_nested_area
+        );
+        assert_eq!(
+            reverse
+                .nested_pairs
+                .iter()
+                .map(|row| (row.target_id, row.intersection_area_km2))
+                .collect::<Vec<_>>(),
+            expected_nested_area
+        );
+        assert!(forward.exclusive_pairs.is_empty());
+        assert!(reverse.exclusive_pairs.is_empty());
+
+        for (output, marked_side, context_side) in [
+            (&forward, PacketSideV0::Source, PacketSideV0::Target),
+            (&reverse, PacketSideV0::Target, PacketSideV0::Source),
+        ] {
+            let assignment = build_assignment_kernel_v0(
+                ObjectFamilyV0::Highland,
+                AssignmentChannelV0::HighlandExclusiveArea,
+                &output.assignment_objects_source,
+                &output.assignment_objects_target,
+                &exclusive_scores(&output.exclusive_pairs),
+            )
+            .unwrap();
+            assert!(assignment.best_components.is_empty());
+            assert!(assignment.assignments.iter().all(|row| {
+                row.maximum_partner_ids.is_empty()
+                    && row.best_score.is_none()
+                    && row.second_distinct_score.is_none()
+                    && row.normalized_margin.is_none()
+            }));
+            assert!(assignment
+                .assignments
+                .iter()
+                .filter(|row| row.side == marked_side)
+                .all(|row| row.support_status == SupportStatusV0::HierarchyAmbiguousSupport));
+
+            assert_eq!(output.context_records.len(), 1);
+            let context = &output.context_records[0];
+            assert_eq!(context.side, context_side);
+            assert_eq!(context.object_id, 10);
+            assert_eq!(
+                context
+                    .ineligible_highland_areas
+                    .iter()
+                    .map(|entry| (entry.peak_id, entry.area_km2))
+                    .collect::<Vec<_>>(),
+                expected_exclusive_area
+            );
+            assert_eq!(context.background_area_km2, 0.0);
+            assert_eq!(context.outside_domain_area_km2, 0.0);
+
+            let edges = [0, 1].map(|id| TopologyEdgeInputV0 {
+                from_id: id,
+                target: if id == root_id {
+                    TopologyTargetV0::HighlandRoot
+                } else {
+                    TopologyTargetV0::Highland(root_id)
+                },
+                hierarchy_ambiguous: true,
+            });
+            let topology = build_topology_records_v0(
+                marked_side,
+                ObjectFamilyV0::Highland,
+                AssignmentChannelV0::HighlandExclusiveArea,
+                &edges,
+                &[TopologyObjectInputV0 {
+                    object_id: 10,
+                    target: TopologyTargetV0::HighlandRoot,
+                }],
+                &assignment.assignments,
+                &assignment.best_components,
+                &[],
+            )
+            .unwrap();
+            assert_eq!(topology.len(), 2);
+            assert!(topology.iter().all(|record| {
+                record.availability == TopologyAvailabilityV0::HierarchyAmbiguous
+                    && record.mapped_adjacency.is_none()
+                    && record.endpoints_in_same_best_component.is_none()
+            }));
+        }
+    }
+
+    #[test]
+    fn both_equal_elder_counterfactuals_exclude_only_ambiguous_support_evidence() {
+        let geometry = graph(vec![
+            rectangle(0.0, 10.0, 0.0, 10.0),
+            rectangle(10.0, 20.0, 0.0, 10.0),
+            rectangle(20.0, 30.0, 0.0, 10.0),
+        ]);
+        assert_equal_elder_counterfactual(
+            &geometry,
+            0,
+            [(0, 300.0), (1, 200.0)],
+            [(0, 100.0), (1, 200.0)],
+        );
+        assert_equal_elder_counterfactual(
+            &geometry,
+            1,
+            [(0, 200.0), (1, 300.0)],
+            [(0, 200.0), (1, 100.0)],
+        );
+    }
+
     #[test]
     fn nested_parent_children_and_parent_only_target_keep_exact_exclusive_graph() {
         let geometry = graph(vec![

@@ -277,16 +277,16 @@ scopes. They establish common physical geometry, surface hierarchy, planar
 drainage and mechanical boundary/descent/cross-section evidence—not a terrain
 arm or named natural-kind landforms. The bounded planar
 [O0b correspondence and assembly contract](research/landform-object-packet-o0b-2026-07-15.md)
-now has an implementation candidate for exact packet assembly and mechanical
-highland/drainage-node best maps. Its frozen evaluation halted before O0b at a
-D0 depression-hierarchy ambiguity in the linked-four-cone 2 km predecessor
-packet, so it is not accepted or promoted; see the
-[dated audit](audits/landform-o0b-correspondence-2026-07-15.md). Preregistered
-amendment A separates the linked S0 topology witness from an isolated-cone
-full-packet compatibility witness and freezes the missing completion gates; it
-has not run. O0b continues to exclude product/spherical packets and persistent
-identity events. Product O0a, packet/product R0 and every H/C/G composition
-remain later, separately preregistered work.
+is now accepted as the bounded common planar evaluation-instrument checkpoint
+for exact packet assembly and mechanical highland/drainage-node best maps; see
+the [dated audit](audits/landform-o0b-correspondence-2026-07-15.md). Amendment A
+passes the isolated-four-cone 4→8/2, equal-elder, frozen-remapping and
+whole-artifact reversal gates. Its flat-routing apron is compatibility-only,
+not realistic drainage morphology. The failed linked-four-cone 2 km witness is
+retained as historical S0/D0 representation evidence rather than rewritten or
+treated as a passing packet. This acceptance does not extend to
+product/spherical O0b, persistent identity/events, a product O0a adapter,
+packet/product R0 or any H/C/G composition or promotion.
 
 The current common packet supplies operational reference highlands,
 peak/saddle topology, drainage nodes/catchments/reaches, raw boundary evidence

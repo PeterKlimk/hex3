@@ -1,9 +1,9 @@
 # Landform object packet O0b correspondence and assembly executable contract
 
-**Status:** amendment A preregistered but unimplemented; implementation
-candidate remains unaccepted after the original linked-four-cone 2 km D0
-predecessor gate halted. See the
-[dated candidate audit](../audits/landform-o0b-correspondence-2026-07-15.md).
+**Status:** amendment A implemented and passed; accepted as the bounded common
+planar evaluation-instrument checkpoint only. Product/spherical O0b, persistent
+identity/events, product adapters and packet/product R0 remain outside this
+rung. See the [dated audit](../audits/landform-o0b-correspondence-2026-07-15.md).
 
 **Date:** 2026-07-15, after the bounded O0a audit and before O0b implementation
 
@@ -19,6 +19,12 @@ predecessor gate halted. See the
 
 **Date:** 2026-07-15, after the first O0b candidate audit and before the
 replacement witness or missing matrix gates are implemented or run.
+
+**Execution note:** The isolated 8/4/2 km predecessor and 4-to-8/2
+correspondence gates, both equal-elder counterfactuals, the frozen five-cell
+remap and whole-artifact reversal all subsequently passed without changing
+these answers. The original linked 2 km D0 failure remains historical
+representation evidence; see the dated audit for measurements and verdict.
 
 The original linked-four-cone surface remains an exact and useful S0 topology
 witness. It is not a valid full common-packet witness at every registered

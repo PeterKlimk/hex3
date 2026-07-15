@@ -48,21 +48,21 @@ roles, signed physical-descent traces, saddle-boundary association and
 relative-relief sections without promoting ridge, pass or valley semantics.
 The bounded planar
 [O0b correspondence/assembly contract](research/landform-object-packet-o0b-2026-07-15.md)
-now has an implementation candidate retaining full physical overlap,
+is now accepted as the bounded common planar evaluation-instrument checkpoint,
+retaining full physical overlap,
 exclusive-support and local line-proximity evidence with exact ties, nulls and
 metric conflicts, but no persistent identity events. Its frozen evaluation
-halted because the exact linked-four-cone 2 km surface produces D0
-`DepressionHierarchyAmbiguity` before packet assembly. Treat this as an invalid
-full-packet witness or a separately justified D0 representation question—not a
-reason to perturb the witness after observation. The
-[dated audit](audits/landform-o0b-correspondence-2026-07-15.md) records passing
-partial evidence and the roughly 100 MB linked-world packet cost. Amendment A
-is now preregistered: retain the linked surface as S0 evidence, use four
-isolated cones on a contract-valid flat-routing apron for the full packet, and
-close the elder/remapping/reversal gates before acceptance. Its flat apron is a
-D0 compatibility convention, not realistic drainage morphology. O0b is not
-accepted; packet/product R0 and the product O0a/adapter boundary remain
-unregistered and unimplemented.
+now passes Amendment A's isolated-four-cone 4→8/2, equal-elder,
+frozen-remapping and whole-artifact reversal gates. Its flat-routing apron is a
+D0 compatibility convention, not realistic drainage morphology. The exact
+linked-four-cone 2 km surface that produced D0
+`DepressionHierarchyAmbiguity` remains historical S0/D0 representation
+evidence—not a witness to perturb after observation or a passing full packet.
+The [dated audit](audits/landform-o0b-correspondence-2026-07-15.md) records the
+bounded verdict and costs. Acceptance stops here: product/spherical O0b,
+persistent identity/events, the product O0a adapter, packet/product R0 and any
+H/C/G promotion remain unregistered, unimplemented or unevaluated as
+applicable.
 Do not let product diagnostics, native C flux, G's authored graph or renderer
 state leak into the instrument; competitive terrain arms remain out of scope.
 

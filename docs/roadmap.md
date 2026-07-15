@@ -302,14 +302,14 @@ The current sequence is:
    is now implemented and evaluated as a bounded common checkpoint, recorded in
    its [dated audit](audits/landform-o0a-relationships-2026-07-15.md). The
    bounded planar [O0b correspondence/assembly contract](research/landform-object-packet-o0b-2026-07-15.md)
-   now has an implementation candidate, but its frozen evaluation halted at a
-   D0 depression-hierarchy ambiguity in the linked-four-cone 2 km predecessor
-   packet. Amendment A is now preregistered to separate that S0 topology
-   witness from a drainage-admissible full-packet witness and complete the
-   elder/remapping/reversal matrix. Implement and evaluate only that amendment
-   next; O0b remains unaccepted. Packet/product R0 and the missing
-   product O0a/adapter boundary remain separately unregistered and
-   unimplemented—not H/C/G composition;
+   is now accepted as the bounded common planar evaluation-instrument
+   checkpoint. Amendment A passes the isolated-four-cone 4→8/2,
+   equal-elder, frozen-remapping and whole-artifact reversal gates. The flat
+   apron remains compatibility-only, while the failed linked-four-cone 2 km
+   witness remains historical S0/D0 representation evidence. This does not
+   accept product/spherical O0b, persistent identity/events, a product O0a
+   adapter, packet/product R0 or H/C/G composition. Those product and temporal
+   boundaries remain separately unregistered and unimplemented;
 2. preregister one bounded organization-owner slice with shared admissible
    inputs, an arm-neutral terrain-opportunity calibration, a common resource
    ceiling and independent object extraction: hold-and-carve H, reduced

@@ -6,6 +6,7 @@
 //! oracle.
 
 use super::*;
+use bincode::Options;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Rect {
@@ -649,6 +650,22 @@ fn assignment<'a>(
         .unwrap()
 }
 
+fn assert_assignment_kernel_reversal(
+    forward: &AssignmentKernelOutputV0,
+    reverse: &AssignmentKernelOutputV0,
+) {
+    let mut expected_assignments = forward.assignments.clone();
+    for record in &mut expected_assignments {
+        record.side = toggled_side(record.side);
+    }
+    expected_assignments.sort_by_key(|record| (record.side, record.object_id));
+    assert_eq!(expected_assignments, reverse.assignments);
+    assert_eq!(
+        normalize_reversed_components(&forward.best_components, true),
+        normalize_reversed_components(&reverse.best_components, false)
+    );
+}
+
 #[test]
 fn o0b_production_assignment_kernel_preserves_cardinality_ties_and_nulls() {
     let source = [assignment_object(1, 5_000.0, 0.0)];
@@ -688,6 +705,7 @@ fn o0b_production_assignment_kernel_preserves_cardinality_ties_and_nulls() {
         reversed.best_components[0].kind,
         ComponentKindV0::ManyToOneBest
     );
+    assert_assignment_kernel_reversal(&output, &reversed);
 
     let tied_targets = [
         assignment_object(20, 2_500.0, 10.0),
@@ -705,6 +723,15 @@ fn o0b_production_assignment_kernel_preserves_cardinality_ties_and_nulls() {
     assert_eq!(tied_source.maximum_partner_ids, vec![20, 21]);
     assert!(tied_source.exact_best_tie);
     assert_eq!(tied_source.normalized_margin, Some(0.0));
+    let tied_reversed = build_assignment_kernel_v0(
+        ObjectFamilyV0::Highland,
+        AssignmentChannelV0::HighlandExclusiveArea,
+        &tied_targets,
+        &source,
+        &[score(20, 1, 2_500.0), score(21, 1, 2_500.0)],
+    )
+    .unwrap();
+    assert_assignment_kernel_reversal(&tied, &tied_reversed);
 
     let null = build_assignment_kernel_v0(
         ObjectFamilyV0::Highland,
@@ -721,6 +748,15 @@ fn o0b_production_assignment_kernel_preserves_cardinality_ties_and_nulls() {
         assert!(row.normalized_margin.is_none());
         assert!(row.maximum_partner_ids.is_empty());
     }
+    let null_reversed = build_assignment_kernel_v0(
+        ObjectFamilyV0::Highland,
+        AssignmentChannelV0::HighlandExclusiveArea,
+        &[assignment_object(30, 100.0, 30.0)],
+        &source,
+        &[],
+    )
+    .unwrap();
+    assert_assignment_kernel_reversal(&null, &null_reversed);
 }
 
 #[test]
@@ -774,6 +810,21 @@ fn o0b_production_assignment_kernel_builds_exact_many_to_many_component() {
     )
     .unwrap();
     assert_eq!(reenumerated, output);
+    let reversed_scores = [
+        score(10, 1, 3_600.0),
+        score(11, 1, 2_400.0),
+        score(10, 2, 2_400.0),
+        score(11, 2, 1_600.0),
+    ];
+    let reversed = build_assignment_kernel_v0(
+        ObjectFamilyV0::Highland,
+        AssignmentChannelV0::HighlandExclusiveArea,
+        &targets,
+        &sources,
+        &reversed_scores,
+    )
+    .unwrap();
+    assert_assignment_kernel_reversal(&output, &reversed);
 }
 
 #[test]
@@ -815,6 +866,36 @@ fn o0b_production_metric_conflict_is_side_specific_and_keeps_both_channels() {
     assert_eq!(conflicts[1].drainage_node_id, 11);
     assert_eq!(conflicts[1].area_maximum_ids, vec![1]);
     assert!(conflicts[1].line_maximum_ids.is_empty());
+
+    let reversed_area = build_assignment_kernel_v0(
+        ObjectFamilyV0::DrainageNode,
+        AssignmentChannelV0::DrainageExclusiveArea,
+        &targets,
+        &source,
+        &[score(10, 1, 800.0), score(11, 1, 1_200.0)],
+    )
+    .unwrap();
+    let reversed_line = build_assignment_kernel_v0(
+        ObjectFamilyV0::DrainageNode,
+        AssignmentChannelV0::DrainageLine,
+        &targets,
+        &source,
+        &[score(10, 1, 100.0)],
+    )
+    .unwrap();
+    let reversed_assignments = reversed_area
+        .assignments
+        .iter()
+        .chain(&reversed_line.assignments)
+        .cloned()
+        .collect::<Vec<_>>();
+    let reversed_conflicts = build_metric_conflicts_v0(&reversed_assignments).unwrap();
+    let mut expected = conflicts;
+    for conflict in &mut expected {
+        conflict.side = toggled_side(conflict.side);
+    }
+    expected.sort_by_key(|conflict| (conflict.side, conflict.drainage_node_id));
+    assert_eq!(expected, reversed_conflicts);
 }
 
 #[test]
@@ -1355,6 +1436,166 @@ fn asymmetric_y_reach_labels(
     labels
 }
 
+fn toggled_side(side: PacketSideV0) -> PacketSideV0 {
+    match side {
+        PacketSideV0::Source => PacketSideV0::Target,
+        PacketSideV0::Target => PacketSideV0::Source,
+    }
+}
+
+fn reversed_area_rows(rows: &[AreaPairV0]) -> Vec<AreaPairV0> {
+    let mut rows = rows.to_vec();
+    for row in &mut rows {
+        std::mem::swap(&mut row.source_id, &mut row.target_id);
+        std::mem::swap(&mut row.source_area_km2, &mut row.target_area_km2);
+        std::mem::swap(&mut row.source_coverage, &mut row.target_coverage);
+        std::mem::swap(&mut row.source_centroid_km, &mut row.target_centroid_km);
+    }
+    rows.sort_by_key(|row| (row.source_id, row.target_id));
+    rows
+}
+
+fn reversed_line_rows(rows: &[LinePairV0]) -> Vec<LinePairV0> {
+    let mut rows = rows.to_vec();
+    for row in &mut rows {
+        std::mem::swap(&mut row.source_id, &mut row.target_id);
+        std::mem::swap(
+            &mut row.source_covered_length_km,
+            &mut row.target_covered_length_km,
+        );
+        std::mem::swap(&mut row.source_coverage, &mut row.target_coverage);
+        std::mem::swap(&mut row.source_length_km, &mut row.target_length_km);
+        std::mem::swap(&mut row.source_anchor_km, &mut row.target_anchor_km);
+    }
+    rows.sort_by_key(|row| (row.source_id, row.target_id));
+    rows
+}
+
+fn component_kind_rank(kind: ComponentKindV0) -> u8 {
+    match kind {
+        ComponentKindV0::OneToOneBest => 0,
+        ComponentKindV0::OneToManyBest => 1,
+        ComponentKindV0::ManyToOneBest => 2,
+        ComponentKindV0::ManyToManyBest => 3,
+    }
+}
+
+fn normalize_reversed_components(
+    components: &[BestComponentV0],
+    reverse: bool,
+) -> Vec<BestComponentV0> {
+    let mut components = components.to_vec();
+    for component in &mut components {
+        if reverse {
+            component.kind = match component.kind {
+                ComponentKindV0::OneToOneBest => ComponentKindV0::OneToOneBest,
+                ComponentKindV0::OneToManyBest => ComponentKindV0::ManyToOneBest,
+                ComponentKindV0::ManyToOneBest => ComponentKindV0::OneToManyBest,
+                ComponentKindV0::ManyToManyBest => ComponentKindV0::ManyToManyBest,
+            };
+            for member in &mut component.members {
+                member.side = toggled_side(member.side);
+            }
+        }
+        component.members.sort_unstable();
+    }
+    components.sort_by(|a, b| {
+        a.channel
+            .cmp(&b.channel)
+            .then_with(|| component_kind_rank(a.kind).cmp(&component_kind_rank(b.kind)))
+            .then_with(|| a.members.cmp(&b.members))
+    });
+    components
+}
+
+fn assert_whole_correspondence_reversal(
+    forward: &ObjectCorrespondenceV0,
+    reverse: &ObjectCorrespondenceV0,
+) {
+    // Both sides must independently be canonical, semantically valid artifacts.
+    assert!(!object_correspondence_bytes_v0(forward).unwrap().is_empty());
+    assert!(!object_correspondence_bytes_v0(reverse).unwrap().is_empty());
+    assert_eq!(
+        object_correspondence_hash_v0(forward).unwrap(),
+        forward.derived_correspondence_hash
+    );
+    assert_eq!(
+        object_correspondence_hash_v0(reverse).unwrap(),
+        reverse.derived_correspondence_hash
+    );
+
+    assert_eq!(forward.schema_version, reverse.schema_version);
+    assert_eq!(forward.hash_version, reverse.hash_version);
+    assert_eq!(forward.config, reverse.config);
+    assert_eq!(forward.source_packet_hash, reverse.target_packet_hash);
+    assert_eq!(forward.target_packet_hash, reverse.source_packet_hash);
+    assert_eq!(
+        reversed_area_rows(&forward.highland_nested_pairs),
+        reverse.highland_nested_pairs
+    );
+    assert_eq!(
+        reversed_area_rows(&forward.highland_exclusive_pairs),
+        reverse.highland_exclusive_pairs
+    );
+    assert_eq!(
+        reversed_area_rows(&forward.drainage_nested_pairs),
+        reverse.drainage_nested_pairs
+    );
+    assert_eq!(
+        reversed_area_rows(&forward.drainage_exclusive_pairs),
+        reverse.drainage_exclusive_pairs
+    );
+    assert_eq!(
+        reversed_line_rows(&forward.drainage_line_pairs),
+        reverse.drainage_line_pairs
+    );
+
+    let mut expected_context = forward.context_records.clone();
+    for record in &mut expected_context {
+        record.side = toggled_side(record.side);
+    }
+    expected_context.sort_by_key(|record| (record.side, record.family, record.object_id));
+    assert_eq!(expected_context, reverse.context_records);
+
+    let mut expected_assignments = forward.assignment_records.clone();
+    for record in &mut expected_assignments {
+        record.side = toggled_side(record.side);
+    }
+    expected_assignments
+        .sort_by_key(|record| (record.side, record.family, record.object_id, record.channel));
+    assert_eq!(expected_assignments, reverse.assignment_records);
+    assert_eq!(
+        normalize_reversed_components(&forward.best_components, true),
+        normalize_reversed_components(&reverse.best_components, false)
+    );
+
+    let mut expected_conflicts = forward.metric_conflicts.clone();
+    for record in &mut expected_conflicts {
+        record.side = toggled_side(record.side);
+    }
+    expected_conflicts.sort_by_key(|record| (record.side, record.drainage_node_id));
+    assert_eq!(expected_conflicts, reverse.metric_conflicts);
+
+    let mut expected_topology = forward.topology_records.clone();
+    for record in &mut expected_topology {
+        record.side = toggled_side(record.side);
+    }
+    expected_topology
+        .sort_by_key(|record| (record.side, record.family, record.channel, record.from_id));
+    assert_eq!(expected_topology, reverse.topology_records);
+
+    let mut expected_work = forward.work_counts.clone();
+    std::mem::swap(
+        &mut expected_work.source_cells,
+        &mut expected_work.target_cells,
+    );
+    std::mem::swap(
+        &mut expected_work.source_segments,
+        &mut expected_work.target_segments,
+    );
+    assert_eq!(expected_work, reverse.work_counts);
+}
+
 #[test]
 #[ignore = "explicit O0b 8/4/2 correspondence evidence audit"]
 fn o0b_asymmetric_y_4_to_8_and_2_keeps_unique_drainage_labels_in_both_channels() {
@@ -1389,6 +1630,10 @@ fn o0b_asymmetric_y_4_to_8_and_2_keeps_unique_drainage_labels_in_both_channels()
             assert_eq!(own_label, partner_label);
             assert!(!row.exact_best_tie);
             assert!(row.normalized_margin.is_some_and(|margin| margin > 0.0));
+        }
+        if target_spacing == 8.0 {
+            let reverse = build_object_correspondence_v0(&target, &source).unwrap();
+            assert_whole_correspondence_reversal(&artifact, &reverse);
         }
     }
 }
@@ -1432,6 +1677,119 @@ fn linked_four_cone_labels(
         std::collections::BTreeSet::from([0, 1, 2, 3])
     );
     labels
+}
+
+fn isolated_four_cone_labels(
+    packet: &LandformObjectPacketCoreV0,
+) -> std::collections::BTreeMap<u32, usize> {
+    let centers = [-200.0, -65.0, 65.0, 200.0];
+    assert_eq!(packet.surface_hierarchy.populations.reference.len(), 4);
+    let labels = packet
+        .surface_hierarchy
+        .populations
+        .reference
+        .iter()
+        .map(|&peak_id| {
+            let peak = &packet.surface_hierarchy.peaks[peak_id as usize];
+            let anchor_x = packet.graph.cell_center_km[peak.anchor_cell as usize].x;
+            let mut distances = centers
+                .iter()
+                .enumerate()
+                .map(|(label, &x)| ((anchor_x - x).abs(), label))
+                .collect::<Vec<_>>();
+            distances.sort_by(|a, b| a.0.total_cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+            assert!(distances[0].0 < distances[1].0);
+            (peak_id, distances[0].1)
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
+    assert_eq!(
+        labels
+            .values()
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>(),
+        std::collections::BTreeSet::from([0, 1, 2, 3])
+    );
+    labels
+}
+
+fn relationship_payload_byte_counts(packet: &LandformObjectPacketCoreV0) -> (usize, usize) {
+    let options = bincode::DefaultOptions::new()
+        .with_fixint_encoding()
+        .with_little_endian();
+    packet
+        .relationship_payloads
+        .iter()
+        .map(|payload| {
+            let bytes = options.serialize(payload).unwrap().len();
+            (
+                payload.run_namespace == RelationshipRunNamespaceV0::Reference,
+                bytes,
+            )
+        })
+        .fold((0, 0), |(reference, sensitivity), (is_reference, bytes)| {
+            if is_reference {
+                (reference + bytes, sensitivity)
+            } else {
+                (reference, sensitivity + bytes)
+            }
+        })
+}
+
+#[test]
+#[ignore = "explicit preregistered isolated-four-cone 4-to-8/2 correspondence and cost audit"]
+fn o0b_isolated_four_cone_4_to_8_and_2_keeps_unique_highland_labels() {
+    let source_started = std::time::Instant::now();
+    let source = super::packet_tests::assembled_isolated_four_cone_packet_at(4.0);
+    let source_assembly_seconds = source_started.elapsed().as_secs_f64();
+    let source_labels = isolated_four_cone_labels(&source);
+    let source_packet_bytes = landform_object_packet_bytes_v0(&source).unwrap().len();
+    let source_payload_bytes = relationship_payload_byte_counts(&source);
+
+    for target_spacing in [8.0, 2.0] {
+        let target_started = std::time::Instant::now();
+        let target = super::packet_tests::assembled_isolated_four_cone_packet_at(target_spacing);
+        let target_assembly_seconds = target_started.elapsed().as_secs_f64();
+        let target_labels = isolated_four_cone_labels(&target);
+        let correspondence_started = std::time::Instant::now();
+        let artifact = build_object_correspondence_v0(&source, &target).unwrap();
+        let correspondence_seconds = correspondence_started.elapsed().as_secs_f64();
+        let target_payload_bytes = relationship_payload_byte_counts(&target);
+        eprintln!(
+            "O0b isolated-four-cone 4->{target_spacing}: cells={}/{} packet_bytes={}/{} relationship_payload_bytes(reference,sensitivity)={:?}/{:?} correspondence_bytes={} assembly_seconds={:.6}/{:.6} correspondence_seconds={:.6} work={:?}",
+            source.graph.cell_count(),
+            target.graph.cell_count(),
+            source_packet_bytes,
+            landform_object_packet_bytes_v0(&target).unwrap().len(),
+            source_payload_bytes,
+            target_payload_bytes,
+            object_correspondence_bytes_v0(&artifact).unwrap().len(),
+            source_assembly_seconds,
+            target_assembly_seconds,
+            correspondence_seconds,
+            artifact.work_counts,
+        );
+        let rows = artifact
+            .assignment_records
+            .iter()
+            .filter(|row| {
+                row.family == ObjectFamilyV0::Highland
+                    && row.channel == AssignmentChannelV0::HighlandExclusiveArea
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(rows.len(), 8);
+        for row in rows {
+            assert_eq!(row.support_status, SupportStatusV0::Eligible);
+            assert_eq!(row.maximum_partner_ids.len(), 1);
+            let partner = row.maximum_partner_ids[0];
+            let (own_label, partner_label) = match row.side {
+                PacketSideV0::Source => (source_labels[&row.object_id], target_labels[&partner]),
+                PacketSideV0::Target => (target_labels[&row.object_id], source_labels[&partner]),
+            };
+            assert_eq!(own_label, partner_label);
+            assert!(!row.exact_best_tie);
+            assert!(row.normalized_margin.is_some_and(|margin| margin > 0.0));
+        }
+    }
 }
 
 fn assert_linked_four_cone_correspondence(target_spacing: f64) {
@@ -1530,6 +1888,268 @@ fn one_object_population(
     }
 }
 
+fn remap_population_cells(
+    population: &PacketAreaPopulationV0,
+    new_index_by_old: &[u32],
+) -> PacketAreaPopulationV0 {
+    let mut cell_class = vec![PacketCellClassV0::HighlandBackground; population.cell_class.len()];
+    for (old_index, &class) in population.cell_class.iter().enumerate() {
+        cell_class[new_index_by_old[old_index] as usize] = class;
+    }
+    let mut objects = population.objects.clone();
+    for object in &mut objects {
+        for cells in [&mut object.nested_cells, &mut object.exclusive_cells] {
+            for cell in cells.iter_mut() {
+                *cell = new_index_by_old[*cell as usize];
+            }
+            cells.sort_unstable();
+        }
+    }
+    PacketAreaPopulationV0 {
+        family: population.family,
+        objects,
+        cell_class,
+    }
+}
+
+fn five_cell_strip_graph(cells: &[Rect; 5]) -> EvaluationSurfaceGraphV0 {
+    let mut graph = rectangle_graph(cells);
+    graph.edge_offsets = vec![0, 1, 3, 5, 7, 8];
+    graph.edge_neighbor = vec![1, 0, 2, 1, 3, 2, 4, 3];
+    graph.edge_reciprocal = vec![1, 0, 3, 2, 5, 4, 7, 6];
+    graph.edge_distance_km = vec![10.0; 8];
+    graph.edge_shared_width_km = vec![10.0; 8];
+    graph.edge_face_endpoints_km = graph
+        .edge_neighbor
+        .iter()
+        .enumerate()
+        .map(|(edge, &neighbor)| {
+            let cell = graph
+                .edge_offsets
+                .partition_point(|&offset| offset as usize <= edge)
+                - 1;
+            let own = cells[cell];
+            if neighbor as usize > cell {
+                [
+                    DVec3::new(own.x1, own.y0, 0.0),
+                    DVec3::new(own.x1, own.y1, 0.0),
+                ]
+            } else {
+                [
+                    DVec3::new(own.x0, own.y1, 0.0),
+                    DVec3::new(own.x0, own.y0, 0.0),
+                ]
+            }
+        })
+        .collect();
+    let mut boundary_segments = Vec::new();
+    for (cell, &rect) in cells.iter().enumerate() {
+        let mut faces = vec![
+            [
+                DVec3::new(rect.x0, rect.y0, 0.0),
+                DVec3::new(rect.x1, rect.y0, 0.0),
+            ],
+            [
+                DVec3::new(rect.x1, rect.y1, 0.0),
+                DVec3::new(rect.x0, rect.y1, 0.0),
+            ],
+        ];
+        if cell == 0 {
+            faces.push([
+                DVec3::new(rect.x0, rect.y1, 0.0),
+                DVec3::new(rect.x0, rect.y0, 0.0),
+            ]);
+        }
+        if cell == cells.len() - 1 {
+            faces.push([
+                DVec3::new(rect.x1, rect.y0, 0.0),
+                DVec3::new(rect.x1, rect.y1, 0.0),
+            ]);
+        }
+        for endpoints_km in faces {
+            boundary_segments.push(EvaluationBoundarySegmentV0 {
+                id: boundary_segments.len() as u32,
+                owner_cell: cell as u32,
+                endpoints_km,
+                physical_length_km: 10.0,
+                projected_span_km: None,
+                condition: EvaluationBoundaryConditionV0::Closed,
+            });
+        }
+    }
+    graph.boundary_segments = boundary_segments;
+    graph
+}
+
+fn remap_graph_cells(
+    graph: &EvaluationSurfaceGraphV0,
+    new_index_by_old: &[u32],
+) -> EvaluationSurfaceGraphV0 {
+    let n = graph.cell_count();
+    let mut old_index_by_new = vec![usize::MAX; n];
+    for (old, &new) in new_index_by_old.iter().enumerate() {
+        assert_eq!(old_index_by_new[new as usize], usize::MAX);
+        old_index_by_new[new as usize] = old;
+    }
+    let mut cell_center_km = vec![DVec3::ZERO; n];
+    let mut cell_area_km2 = vec![0.0; n];
+    let mut cell_polygon_offsets = Vec::with_capacity(n + 1);
+    let mut cell_polygon_vertices_km = Vec::new();
+    for (new, &old) in old_index_by_new.iter().enumerate() {
+        cell_center_km[new] = graph.cell_center_km[old];
+        cell_area_km2[new] = graph.cell_area_km2[old];
+        cell_polygon_offsets.push(cell_polygon_vertices_km.len() as u32);
+        cell_polygon_vertices_km.extend_from_slice(graph.polygon(old));
+    }
+    cell_polygon_offsets.push(cell_polygon_vertices_km.len() as u32);
+
+    let mut old_edge_to_new = vec![usize::MAX; graph.edge_neighbor.len()];
+    let mut edge_offsets = Vec::with_capacity(n + 1);
+    let mut edge_neighbor = Vec::with_capacity(graph.edge_neighbor.len());
+    let mut edge_distance_km = Vec::with_capacity(graph.edge_neighbor.len());
+    let mut edge_shared_width_km = Vec::with_capacity(graph.edge_neighbor.len());
+    let mut edge_face_endpoints_km = Vec::with_capacity(graph.edge_neighbor.len());
+    for &old in &old_index_by_new {
+        edge_offsets.push(edge_neighbor.len() as u32);
+        let start = graph.edge_offsets[old] as usize;
+        let end = graph.edge_offsets[old + 1] as usize;
+        for old_edge in start..end {
+            old_edge_to_new[old_edge] = edge_neighbor.len();
+            edge_neighbor.push(new_index_by_old[graph.edge_neighbor[old_edge] as usize]);
+            edge_distance_km.push(graph.edge_distance_km[old_edge]);
+            edge_shared_width_km.push(graph.edge_shared_width_km[old_edge]);
+            edge_face_endpoints_km.push(graph.edge_face_endpoints_km[old_edge]);
+        }
+    }
+    edge_offsets.push(edge_neighbor.len() as u32);
+    let mut edge_reciprocal = vec![u32::MAX; graph.edge_reciprocal.len()];
+    for old_edge in 0..graph.edge_reciprocal.len() {
+        edge_reciprocal[old_edge_to_new[old_edge]] =
+            old_edge_to_new[graph.edge_reciprocal[old_edge] as usize] as u32;
+    }
+    let mut boundary_segments = graph.boundary_segments.clone();
+    for segment in &mut boundary_segments {
+        segment.owner_cell = new_index_by_old[segment.owner_cell as usize];
+    }
+    EvaluationSurfaceGraphV0 {
+        domain: graph.domain,
+        cell_center_km,
+        cell_area_km2,
+        cell_polygon_offsets,
+        cell_polygon_vertices_km,
+        edge_offsets,
+        edge_neighbor,
+        edge_reciprocal,
+        edge_distance_km,
+        edge_shared_width_km,
+        edge_face_endpoints_km,
+        boundary_segments,
+    }
+}
+
+#[test]
+fn o0b_area_evidence_is_invariant_to_the_frozen_five_cell_remap() {
+    let cells = [
+        Rect::new(0.0, 10.0, 0.0, 10.0),
+        Rect::new(10.0, 20.0, 0.0, 10.0),
+        Rect::new(20.0, 30.0, 0.0, 10.0),
+        Rect::new(30.0, 40.0, 0.0, 10.0),
+        Rect::new(40.0, 50.0, 0.0, 10.0),
+    ];
+    let graph = five_cell_strip_graph(&cells);
+    let source = PacketAreaPopulationV0 {
+        family: ObjectFamilyV0::Highland,
+        objects: vec![
+            PacketAreaObjectV0 {
+                id: 11,
+                status: SupportStatusV0::Eligible,
+                nested_cells: vec![0, 1],
+                exclusive_cells: vec![0, 1],
+            },
+            PacketAreaObjectV0 {
+                id: 12,
+                status: SupportStatusV0::Eligible,
+                nested_cells: vec![3],
+                exclusive_cells: vec![3],
+            },
+        ],
+        cell_class: vec![
+            PacketCellClassV0::EligibleObject(11),
+            PacketCellClassV0::EligibleObject(11),
+            PacketCellClassV0::HighlandBackground,
+            PacketCellClassV0::EligibleObject(12),
+            PacketCellClassV0::HighlandBackground,
+        ],
+    };
+    let target = PacketAreaPopulationV0 {
+        family: ObjectFamilyV0::Highland,
+        objects: vec![
+            PacketAreaObjectV0 {
+                id: 21,
+                status: SupportStatusV0::Eligible,
+                nested_cells: vec![1, 2],
+                exclusive_cells: vec![1, 2],
+            },
+            PacketAreaObjectV0 {
+                id: 22,
+                status: SupportStatusV0::Eligible,
+                nested_cells: vec![4],
+                exclusive_cells: vec![4],
+            },
+        ],
+        cell_class: vec![
+            PacketCellClassV0::HighlandBackground,
+            PacketCellClassV0::EligibleObject(21),
+            PacketCellClassV0::EligibleObject(21),
+            PacketCellClassV0::HighlandBackground,
+            PacketCellClassV0::EligibleObject(22),
+        ],
+    };
+    let reference =
+        build_area_population_kernel_v0(&graph, &source, &graph, &target, 1.0e-8, 1.0e-10).unwrap();
+
+    // Frozen as new = (17 * old + 3) mod 5.
+    let new_index_by_old = [3_u32, 0, 2, 4, 1];
+    let remapped_graph = remap_graph_cells(&graph, &new_index_by_old);
+    let remapped_source = remap_population_cells(&source, &new_index_by_old);
+    let remapped_target = remap_population_cells(&target, &new_index_by_old);
+    let remapped = build_area_population_kernel_v0(
+        &remapped_graph,
+        &remapped_source,
+        &remapped_graph,
+        &remapped_target,
+        1.0e-8,
+        1.0e-10,
+    )
+    .unwrap();
+
+    for old in 0..graph.cell_count() {
+        let new = new_index_by_old[old] as usize;
+        assert_eq!(
+            remapped_graph.cell_center_km[new],
+            graph.cell_center_km[old]
+        );
+        assert_eq!(remapped_graph.polygon(new), graph.polygon(old));
+    }
+    for edge in 0..remapped_graph.edge_neighbor.len() {
+        let reciprocal = remapped_graph.edge_reciprocal[edge] as usize;
+        assert_eq!(remapped_graph.edge_reciprocal[reciprocal] as usize, edge);
+    }
+    for (expected, actual) in graph
+        .boundary_segments
+        .iter()
+        .zip(&remapped_graph.boundary_segments)
+    {
+        assert_eq!(
+            actual.owner_cell,
+            new_index_by_old[expected.owner_cell as usize]
+        );
+        assert_eq!(actual.endpoints_km, expected.endpoints_km);
+        assert_eq!(actual.condition, expected.condition);
+    }
+    assert_eq!(remapped, reference);
+}
+
 #[test]
 fn o0b_production_area_population_kernel_retains_exact_background_and_portal_context() {
     let cells = [
@@ -1571,6 +2191,17 @@ fn o0b_production_area_population_kernel_retains_exact_background_and_portal_con
             && context.portal_areas_km2.is_empty()
             && context.outside_domain_area_km2 == 0.0
     }));
+    let background_reversed =
+        build_area_population_kernel_v0(&graph, &target, &graph, &source, 1.0e-8, 1.0e-10).unwrap();
+    let mut expected_background_context = background.context_records.clone();
+    for context in &mut expected_background_context {
+        context.side = toggled_side(context.side);
+    }
+    expected_background_context.sort_by_key(|row| (row.side, row.family, row.object_id));
+    assert_eq!(
+        expected_background_context,
+        background_reversed.context_records
+    );
 
     let source_drainage = one_object_population(
         ObjectFamilyV0::DrainageNode,
@@ -1612,6 +2243,21 @@ fn o0b_production_area_population_kernel_retains_exact_background_and_portal_con
             && context.portal_areas_km2[0].area_km2 == 100.0
             && context.outside_domain_area_km2 == 0.0
     }));
+    let portal_reversed = build_area_population_kernel_v0(
+        &graph,
+        &target_drainage,
+        &graph,
+        &source_drainage,
+        1.0e-8,
+        1.0e-10,
+    )
+    .unwrap();
+    let mut expected_portal_context = portal.context_records.clone();
+    for context in &mut expected_portal_context {
+        context.side = toggled_side(context.side);
+    }
+    expected_portal_context.sort_by_key(|row| (row.side, row.family, row.object_id));
+    assert_eq!(expected_portal_context, portal_reversed.context_records);
 
     let one_cell_graph = rectangle_graph(&[Rect::new(0.0, 10.0, 0.0, 10.0)]);
     let eligible = one_object_population(

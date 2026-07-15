@@ -93,15 +93,19 @@ Current bounded research decision:
   — dated implementation and evaluation record for the bounded common O0a
   relationship checkpoint; no O0b, R0, product adapter or terrain arm.
 - [Landform O0b correspondence and assembly contract](research/landform-object-packet-o0b-2026-07-15.md)
-  — bounded planar implementation candidate for packet assembly and mechanical
-  highland/drainage-node correspondence; amendment A is preregistered to split
-  the invalid linked-topology witness from a drainage-admissible full-packet
-  witness and close the remaining matrix. It is not yet implemented, so O0b is
-  not accepted or promoted.
+  — accepted bounded common planar evaluation-instrument checkpoint for exact
+  packet assembly and mechanical highland/drainage-node correspondence.
+  Amendment A passes the isolated-four-cone 4→8/2, equal-elder, frozen-remap
+  and whole-artifact reversal gates. The flat-routing apron is compatibility
+  machinery, not realistic drainage morphology; the failed linked witness is
+  retained as historical S0/D0 representation evidence. This does not accept
+  product/spherical O0b, persistent identity/events, a product O0a adapter,
+  packet/product R0 or any H/C/G terrain arm.
 - [Landform O0b correspondence candidate audit](audits/landform-o0b-correspondence-2026-07-15.md)
-  — implementation, passing bounded evidence, measured packet cost, O0a
-  boundary-roundoff correction and the invalid linked-four-cone 2 km witness;
-  no identity events, product adapter, packet/product R0 or H/C/G output.
+  — implementation and amendment verdict, passing bounded planar evidence,
+  measured packet cost, O0a boundary-roundoff correction and the failed
+  linked-four-cone 2 km witness retained as representation evidence; no
+  identity events, product adapter, packet/product R0 or H/C/G output.
 - [Landform G0/S0 structural-slice audit](audits/landform-g0s0-structural-slice-2026-07-14.md)
   — passing planar geometry/topology checkpoint, caught contract amendments and
   the scope inherited by the morphology slice.

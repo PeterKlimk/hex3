@@ -31,15 +31,15 @@ Current synthesized notes:
   [dated audit](../audits/landform-o0a-relationships-2026-07-15.md).
 - [Landform O0b correspondence and assembly contract](landform-object-packet-o0b-2026-07-15.md)
   — exact common planar packet assembly plus mechanical reference-highland and
-  drainage-node correspondence. An implementation candidate exists, but its
-  frozen evaluation halted when the linked-four-cone 2 km predecessor packet
-  returned D0 depression-hierarchy ambiguity. Amendment A now preregisters a
-  separate isolated-cone full-packet witness and exact completion gates but is
-  not implemented; see the
-  [dated audit](../audits/landform-o0b-correspondence-2026-07-15.md). O0b is not
-  accepted or promoted. Product/spherical packets, product O0a and
-  packet/product R0 remain outside this rung and unimplemented; R0 is not yet
-  preregistered.
+  drainage-node correspondence, now accepted as the bounded common planar
+  evaluation-instrument checkpoint. Amendment A passes its isolated-four-cone
+  4→8/2, equal-elder, frozen-remapping and whole-artifact reversal gates; see
+  the [dated audit](../audits/landform-o0b-correspondence-2026-07-15.md). The
+  flat-routing apron is compatibility-only, and the failed linked-four-cone
+  witness remains historical S0/D0 representation evidence. Product/spherical
+  O0b, persistent identity/events, product O0a, packet/product R0 and H/C/G
+  promotion remain outside this accepted checkpoint and unimplemented or
+  unevaluated as applicable.
 - [Correspondence priors for reduced planet models](correspondence-priors-2026-07-12.md)
 - [Orogen organization: causal reference and reduced experiments](orogen-organization-2026-07-12.md)
 - [Mountain-system design basis](mountain-system-design-basis-2026-07-13.md)

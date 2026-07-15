@@ -171,6 +171,125 @@ pub(super) fn assembled_asymmetric_y_packet_at(spacing_km: f64) -> LandformObjec
     assemble_landform_object_packet_v0(fixture.input()).unwrap()
 }
 
+const ISOLATED_FOUR_CONE_WIDTH_KM: f64 = 720.0;
+const ISOLATED_FOUR_CONE_HEIGHT_KM: f64 = 240.0 * 1.732_050_807_568_877_2;
+const ISOLATED_FOUR_CONES: [(DVec3, f64); 4] = [
+    (DVec3::new(-200.0, 0.0, 0.0), 0.50),
+    (DVec3::new(-65.0, 0.0, 0.0), 0.45),
+    (DVec3::new(65.0, 0.0, 0.0), 0.55),
+    (DVec3::new(200.0, 0.0, 0.0), 0.48),
+];
+
+fn isolated_four_cone_packet_fixture(spacing_km: f64) -> PacketFixture {
+    let portal = OutletPortal {
+        id: OutletPortalId(41),
+        side: BoundarySide::South,
+        span_start_km: -16.0,
+        span_end_km: 16.0,
+        base_level_km: 0.0,
+    };
+    let mesh = LandscapeMesh::uniform_planar_hex_with_portals(
+        ISOLATED_FOUR_CONE_WIDTH_KM,
+        ISOLATED_FOUR_CONE_HEIGHT_KM,
+        spacing_km,
+        std::slice::from_ref(&portal),
+    )
+    .unwrap();
+    let surface_config = SurfaceHierarchyConfigV0::default();
+    let controls = build_regular_hex_control_volumes_v0(&mesh, &surface_config).unwrap();
+    let graph = adapt_landscape_graph_v0(&mesh, &controls, &surface_config).unwrap();
+    let elevation_km = graph
+        .cell_center_km
+        .iter()
+        .map(|point| {
+            let value = ISOLATED_FOUR_CONES
+                .iter()
+                .map(|(center, height)| height - 0.010 * point.distance(*center))
+                .fold(f64::NEG_INFINITY, f64::max)
+                .max(0.0);
+            if value == 0.0 {
+                0.0
+            } else {
+                value
+            }
+        })
+        .collect::<Vec<_>>();
+    let scored_cell = vec![true; graph.cell_count()];
+    let runoff = graph
+        .cell_area_km2
+        .iter()
+        .map(|area| 0.1 * area)
+        .collect::<Vec<_>>();
+    let drainage_config = DrainageConfigV0::default();
+    let hierarchy =
+        build_surface_hierarchy_v0(&graph, &elevation_km, &scored_cell, surface_config).unwrap();
+    let drainage =
+        build_evaluation_drainage_v0(&graph, &elevation_km, &runoff, drainage_config).unwrap();
+    let geometry_identity = PacketGeometryIdentityV0::LandscapeRegularPlanar {
+        nominal_spacing_km: spacing_km,
+        canonical_graph_hash: relationship_graph_hash_v0(&graph).unwrap(),
+    };
+    let relationship_configs = registered_relationship_configs_v0();
+    let relationships = relationship_configs
+        .iter()
+        .map(|&config| {
+            build_landform_relationships_v0(
+                &graph,
+                &elevation_km,
+                &scored_cell,
+                &runoff,
+                surface_config,
+                drainage_config,
+                &hierarchy,
+                &drainage,
+                geometry_identity,
+                config,
+            )
+            .unwrap()
+        })
+        .collect::<Vec<_>>();
+    let mut population = CommonEvaluationPopulationV0 {
+        coordinate_frame: CoordinateFrameV0::LandscapeTestbedCartesianXyKmV0,
+        declared_domain: DeclaredDomainV0::RequestedRegularPatchV0 {
+            width_km: ISOLATED_FOUR_CONE_WIDTH_KM,
+            height_km: ISOLATED_FOUR_CONE_HEIGHT_KM,
+        },
+        scored_policy: ScoredPolicyV0::WholeGraphSupportV0,
+        runoff_policy: RunoffPolicyV0::UniformPerAreaV0 { rate: 0.1 },
+        semantic_portals: vec![DeclaredPortalV0 {
+            id: 41,
+            side: DeclaredPortalSideV0::South,
+            span_start_km: -16.0,
+            span_end_km: 16.0,
+            base_level_km: 0.0,
+        }],
+        population_definition_hash: 0,
+    };
+    population.population_definition_hash = population_definition_hash_v0(&population).unwrap();
+
+    PacketFixture {
+        graph,
+        elevation_km,
+        scored_cell,
+        runoff,
+        surface_config,
+        drainage_config,
+        relationship_configs,
+        hierarchy,
+        drainage,
+        relationships,
+        geometry_identity,
+        population,
+    }
+}
+
+pub(super) fn assembled_isolated_four_cone_packet_at(
+    spacing_km: f64,
+) -> LandformObjectPacketCoreV0 {
+    let fixture = isolated_four_cone_packet_fixture(spacing_km);
+    assemble_landform_object_packet_v0(fixture.input()).unwrap()
+}
+
 pub(super) fn assembled_linked_four_cone_packet_at(spacing_km: f64) -> LandformObjectPacketCoreV0 {
     const WIDTH_KM: f64 = 1120.0;
     const HEIGHT_KM: f64 = 480.0 * 1.732_050_807_568_877_2;
@@ -280,6 +399,70 @@ pub(super) fn assembled_linked_four_cone_packet_at(spacing_km: f64) -> LandformO
         population,
     })
     .unwrap()
+}
+
+fn assert_isolated_four_cone_predecessors(spacing_km: f64, expected_cells: usize) {
+    let fixture = isolated_four_cone_packet_fixture(spacing_km);
+    assert_eq!(fixture.graph.cell_count(), expected_cells);
+    assert_eq!(fixture.hierarchy.roots.len(), 4);
+    assert_eq!(fixture.hierarchy.populations.reference.len(), 4);
+    assert_eq!(fixture.hierarchy.reference_highlands.len(), 4);
+
+    let mut labels = std::collections::BTreeSet::new();
+    for &peak_id in &fixture.hierarchy.populations.reference {
+        let peak = &fixture.hierarchy.peaks[peak_id as usize];
+        assert!(!peak.equal_elder_ambiguous);
+        let anchor = fixture.graph.cell_center_km[peak.anchor_cell as usize];
+        let mut distances = ISOLATED_FOUR_CONES
+            .iter()
+            .enumerate()
+            .map(|(label, (center, _))| (anchor.distance_squared(*center), label))
+            .collect::<Vec<_>>();
+        distances.sort_by(|a, b| a.0.total_cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+        assert!(distances[0].0 < distances[1].0);
+        assert!(labels.insert(distances[0].1));
+    }
+    assert_eq!(labels, std::collections::BTreeSet::from([0, 1, 2, 3]));
+
+    assert!(fixture
+        .drainage
+        .routing
+        .filled_elevation_km
+        .iter()
+        .zip(&fixture.elevation_km)
+        .all(|(filled, physical)| filled.to_bits() == physical.to_bits()));
+    assert!(fixture
+        .drainage
+        .routing
+        .fill_supported
+        .iter()
+        .all(|supported| !supported));
+    assert!(fixture.drainage.depressions.is_empty());
+    assert_eq!(fixture.relationship_configs.len(), 11);
+    assert_eq!(fixture.relationships.len(), 11);
+
+    let packet = assemble_landform_object_packet_v0(fixture.input()).unwrap();
+    assert_eq!(packet.relationship_payloads.len(), 11);
+    assert_ne!(packet.derived_common_packet_hash, 0);
+    assert!(!landform_object_packet_bytes_v0(&packet).unwrap().is_empty());
+}
+
+#[test]
+#[ignore = "explicit preregistered isolated-four-cone 8 km predecessor audit"]
+fn isolated_four_cone_8km_predecessors_are_packet_admissible() {
+    assert_isolated_four_cone_predecessors(8.0, 5_400);
+}
+
+#[test]
+#[ignore = "explicit preregistered isolated-four-cone 4 km predecessor audit"]
+fn isolated_four_cone_4km_predecessors_are_packet_admissible() {
+    assert_isolated_four_cone_predecessors(4.0, 21_600);
+}
+
+#[test]
+#[ignore = "explicit preregistered isolated-four-cone 2 km predecessor audit"]
+fn isolated_four_cone_2km_predecessors_are_packet_admissible() {
+    assert_isolated_four_cone_predecessors(2.0, 86_400);
 }
 
 #[test]

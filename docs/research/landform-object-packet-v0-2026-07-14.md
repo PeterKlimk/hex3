@@ -2,8 +2,8 @@
 
 **Date:** 2026-07-14
 **Status:** umbrella evidence contract; G0/S0, common planar D0 and bounded
-common O0a completed and evaluated; bounded planar O0b preregistered but not
-implemented; packet/product R0 not yet preregistered or implemented
+common O0a and O0b completed and evaluated; packet/product R0 not yet
+preregistered or implemented
 **Parent decision:** [Landscape organization strategy](../landscape-strategy.md)
 
 ## Decision
@@ -371,14 +371,15 @@ quality scores by themselves.
    [dated audit](../audits/landform-o0a-relationships-2026-07-15.md).
 4. **O0b:** [cross-packet geometric correspondence and combined packet
    assembly](landform-object-packet-o0b-2026-07-15.md), with a bounded planar
-   implementation candidate whose frozen evaluation halted at the linked-four-
-   cone 2 km D0 predecessor gate. Amendment A is preregistered but unimplemented
-   to replace only the invalid full-packet witness and close the missing matrix.
+   implementation accepted as a common evaluation checkpoint after amendment A
+   separated the invalid linked 2 km full-packet witness and passed its isolated
+   4-to-8/2, elder, remapping and reversal gates.
 5. **R0:** one unchanged product-reference packet and one pre-arm linked-testbed
    manufactured packet at 8/4/2 km.
 
-Each rung is a separate checkpoint. O0b remains unaccepted; this packet's R0
-and the missing product D0/O0a boundary remain unregistered and unimplemented.
+Each rung is a separate checkpoint. Bounded common planar O0b is accepted only
+as an evaluation instrument; this packet's R0 and the missing product D0/O0a
+boundary remain unregistered and unimplemented.
 Do not implement H, C or G composition while the common evidence packet is
 incomplete.
 
