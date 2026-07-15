@@ -188,6 +188,13 @@ impl LandscapeScenario {
 }
 
 impl DeformationEvaluator {
+    /// Read-only access to the exact area-normalized support compiled from the
+    /// scenario. This is exposed for immutable research-input manifests; callers
+    /// cannot replace the compiler-owned values.
+    pub fn support_stencils(&self) -> &[SupportStencil] {
+        &self.stencils
+    }
+
     pub fn evaluate(&self, time_myr: f64) -> DeformationFrame {
         let n = self.cell_area_km2.len();
         let mut rate = vec![0.0_f64; n];

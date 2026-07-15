@@ -80,13 +80,17 @@ old/new O0b equivalence pass; at 2 km the 63.45 MB core is 83.9% graph bytes,
 so relationship factorization is not the next scaling seam. A linked
 shared-input manifest comes afterward and emits no landform verdict; its
 [V0 contract](research/orogen-linked-shared-input-v0-2026-07-15.md) is now
-preregistered but unimplemented. It chooses the parabolic, coordinate-defined
-raw initial surface without pinned portal cells, uniform runoff, homogeneous
+implemented and accepted as the exact input identity, with results in the
+[dated audit](audits/orogen-linked-shared-input-2026-07-15.md). It chooses the
+parabolic, coordinate-defined raw initial surface without pinned portal cells,
+uniform runoff, homogeneous
 base-substrate membership and exact whole/central candidate masks. It binds the
 present forcing compiler while explicitly recording that vergence and transfer
 links do not affect its field. It does not select the scoring population.
 Arm-result packets begin only after H/C/G produce final surfaces. This is not a
 product adapter.
+The next focus is to preregister the organization-owner comparison; no arm-result
+packet exists yet.
 Do not let product diagnostics, native C flux, G's authored graph or renderer
 state leak into the instrument; competitive terrain arms remain out of scope.
 

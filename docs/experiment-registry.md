@@ -105,9 +105,11 @@ O0b equivalence plus measured cost. The linked scenario has shared forcing but
 no arm-neutral final terrain; its input manifest and later arm-result evidence
 are separate checkpoints. The
 [linked shared-input V0 contract](research/orogen-linked-shared-input-v0-2026-07-15.md)
-is now preregistered, not implemented: it freezes exact 8/4/2 km geometry,
-forcing/work, raw initial state, uniform runoff, homogeneous material and
-candidate masks without selecting a comparison population or terrain owner.
+is now implemented and accepted as the input identity: it freezes exact 8/4/2
+km geometry, forcing/work, raw initial state, uniform runoff, homogeneous
+material and candidate masks without selecting a comparison population or terrain owner.
+The [dated audit](audits/orogen-linked-shared-input-2026-07-15.md) records its
+exact hashes and measured cost.
 Arm conversions, chronology, opportunity calibration, admission, shared cost
 ceiling and final-surface evidence remain unregistered comparison work.
 

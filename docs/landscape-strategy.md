@@ -214,14 +214,15 @@ the same admissible geometry, deformation field, outlet/base-level geometry,
 runoff field, material mask, characteristic spatial scales and presentation
 settings.
 
-The non-presentation subset is now frozen by the preregistered
+The non-presentation subset is now frozen by the accepted
 [linked shared-input manifest V0](research/orogen-linked-shared-input-v0-2026-07-15.md):
 exact 8/4/2 km meshes and portals, declarative and compiled forcing, analytic
 and evaluated work ledgers, a coordinate-defined raw initial surface, uniform
 runoff, homogeneous base-substrate membership and two candidate evaluation
-masks. It is not yet implemented. The comparison contract still owns presentation,
-opportunity calibration, arm conversion/chronology, resource parity and the
-choice of whole-graph versus a new partial evaluation population.
+masks; see the [dated audit](audits/orogen-linked-shared-input-2026-07-15.md).
+The comparison contract still owns presentation, opportunity calibration, arm
+conversion/chronology, resource parity and the choice of whole-graph versus a
+new partial evaluation population.
 
 Here segment terminations and transfer-zone forcing opportunity are prescribed
 testbed geometry controls. They do not guarantee that any arm produces a

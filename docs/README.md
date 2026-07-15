@@ -117,10 +117,11 @@ Current bounded research decision:
   Linked forcing supplies shared inputs, not a pre-arm final terrain or
   landform verdict.
 - [Linked orogen shared-input manifest V0](research/orogen-linked-shared-input-v0-2026-07-15.md)
-  — preregistered arm-neutral 8/4/2 km geometry, forcing, work, initial-state,
-  runoff, homogeneous-material and candidate-mask artifact. It deliberately
+  — accepted arm-neutral 8/4/2 km geometry, forcing, work, initial-state,
+  runoff, homogeneous-material and candidate-mask artifact; see the
+  [dated audit](audits/orogen-linked-shared-input-2026-07-15.md). It deliberately
   contains no final terrain, arm conversion, selected scoring population or
-  landform verdict and is not yet implemented.
+  landform verdict.
 - [Landform G0/S0 structural-slice audit](audits/landform-g0s0-structural-slice-2026-07-14.md)
   — passing planar geometry/topology checkpoint, caught contract amendments and
   the scope inherited by the morphology slice.

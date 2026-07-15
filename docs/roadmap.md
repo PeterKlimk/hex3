@@ -320,14 +320,16 @@ The current sequence is:
    sensitivity suite separately; report actual bytes, wall time and peak
    memory. The [dated audit](audits/landform-common-core-2026-07-15.md) accepts
    the boundary and finds retained graph geometry dominates the 2 km core;
-3. **preregistered, not implemented:** materialize the
+3. **completed:** materialize the
    [linked shared-input manifest](research/orogen-linked-shared-input-v0-2026-07-15.md)
    at 8/4/2 km. It binds exact mesh identity and phase, declarative and
    compiled/evaluated forcing, schedule and integrated work, initial state,
    runoff, portals, homogeneous material, candidate evaluation geometry and a
    separate resource envelope. It must not manufacture an arm-neutral final
    terrain, contain an arm conversion, select the scoring population or emit a
-   landform-quality verdict;
+   landform-quality verdict. The
+   [dated audit](audits/orogen-linked-shared-input-2026-07-15.md) accepts the
+   exact artifact identity and measured cost without promoting a terrain arm;
 4. preregister one bounded organization-owner slice with shared admissible
    inputs, an arm-neutral terrain-opportunity calibration, a common resource
    ceiling and independent object extraction: hold-and-carve H, reduced

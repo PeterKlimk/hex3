@@ -2,7 +2,8 @@
 
 **Date:** 2026-07-15
 
-**Status:** preregistered executable contract; not implemented or evaluated
+**Status:** implemented and accepted as the arm-neutral input identity; see the
+[dated audit](../audits/orogen-linked-shared-input-2026-07-15.md)
 
 **Parents:** [landscape organization strategy](../landscape-strategy.md),
 [bounded orogen organization testbed](orogen-testbed-spec-2026-07-13.md),

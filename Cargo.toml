@@ -58,7 +58,7 @@ s2-voronoi = { package = "voronoi-mesh", git = "https://github.com/PeterKlimk/s2
 # CLI and serialization
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["float_roundtrip"] }
 bincode = "1"
 flate2 = "1"
 

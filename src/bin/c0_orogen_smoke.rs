@@ -12,9 +12,9 @@ use clap::{Parser, ValueEnum};
 use serde::Serialize;
 
 use hex3::world::landscape::{
-    linked_scenario, uniform_scenario, C0DischargeSupport, C0DischargeSupportArm,
-    C0LandscapeParams, C0LandscapeSolver, C0LandscapeState, C0TimestepLimiter,
-    ConservativeHillslopeParams, EffectiveArealDenudationParams, LandscapeMesh,
+    linked_low_relief_initial_surface, linked_scenario, uniform_scenario, C0DischargeSupport,
+    C0DischargeSupportArm, C0LandscapeParams, C0LandscapeSolver, C0LandscapeState,
+    C0TimestepLimiter, ConservativeHillslopeParams, EffectiveArealDenudationParams, LandscapeMesh,
 };
 
 const WIDTH_KM: f64 = 960.0;
@@ -239,7 +239,10 @@ fn run(cli: &Cli) -> Result<SmokeSummary, Box<dyn std::error::Error>> {
     );
     let solver =
         C0LandscapeSolver::new(frozen.solver_params(cli.discharge_support.solver_support()))?;
-    let mut state = C0LandscapeState::new(&mesh, smooth_initial_surface(&mesh, INITIAL_SEED))?;
+    let mut state = C0LandscapeState::new(
+        &mesh,
+        linked_low_relief_initial_surface(&mesh, INITIAL_SEED),
+    )?;
 
     let mut steps = 0_u64;
     let mut minimum_dt = f64::INFINITY;
@@ -391,36 +394,6 @@ fn run(cli: &Cli) -> Result<SmokeSummary, Box<dyn std::error::Error>> {
     })
 }
 
-/// Smooth, coordinate-defined initial surface shared by every refinement.
-/// Its broad central divide drains toward the two portal boundaries; the
-/// deterministic perturbation breaks perfect symmetry without cell noise.
-fn smooth_initial_surface(mesh: &LandscapeMesh, seed: u64) -> Vec<f64> {
-    let phase = |stream: u64| {
-        let random = splitmix64(seed ^ stream.wrapping_mul(0x9e37_79b9_7f4a_7c15));
-        let unit = (random >> 11) as f64 / ((1_u64 << 53) as f64);
-        unit * std::f64::consts::TAU
-    };
-    let phases = [phase(1), phase(2), phase(3)];
-    mesh.cell_center_km
-        .iter()
-        .map(|center| {
-            let y = (2.0 * center.y / HEIGHT_KM).clamp(-1.0, 1.0);
-            let taper = (1.0 - y * y).max(0.0);
-            let perturbation = 0.0020 * (0.071 * center.x + 0.043 * center.y + phases[0]).sin()
-                + 0.0015 * (-0.038 * center.x + 0.063 * center.y + phases[1]).sin()
-                + 0.0010 * (0.027 * center.x - 0.052 * center.y + phases[2]).sin();
-            taper * (0.020 + perturbation)
-        })
-        .collect()
-}
-
-fn splitmix64(mut value: u64) -> u64 {
-    value = value.wrapping_add(0x9e37_79b9_7f4a_7c15);
-    value = (value ^ (value >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-    value = (value ^ (value >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-    value ^ (value >> 31)
-}
-
 fn print_human_summary(summary: &SmokeSummary) {
     println!(
         "C0 {} smoke: {} cells, {:.3} km2 actual area, {:.6} Myr in {} accepted steps ({:.3}s)",
@@ -517,8 +490,8 @@ mod tests {
     #[test]
     fn initial_surface_is_deterministic_and_refinement_continuous() {
         let mesh = LandscapeMesh::uniform_planar_hex(48.0, 32.0, 4.0).unwrap();
-        let first = smooth_initial_surface(&mesh, INITIAL_SEED);
-        let second = smooth_initial_surface(&mesh, INITIAL_SEED);
+        let first = linked_low_relief_initial_surface(&mesh, INITIAL_SEED);
+        let second = linked_low_relief_initial_surface(&mesh, INITIAL_SEED);
         assert_eq!(first, second);
         assert!(first.iter().all(|z| z.is_finite() && *z >= 0.0));
     }

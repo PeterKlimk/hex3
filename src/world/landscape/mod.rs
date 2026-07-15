@@ -21,6 +21,7 @@ mod filter;
 mod forcing;
 mod gradient;
 mod hillslope;
+mod linked_input;
 mod mesh;
 mod solver;
 mod voronoi_cap_fixture;
@@ -78,6 +79,18 @@ pub use gradient::{
 pub use hillslope::{
     apply_conservative_hillslope_step, ConservativeHillslopeError, ConservativeHillslopeParams,
     ConservativeHillslopeStep, PortalSolidTransfer,
+};
+pub use linked_input::{
+    build_linked_shared_input_bundle_v0, decode_linked_shared_input_bundle_stored_v0,
+    decode_linked_shared_input_bundle_v0, encode_linked_shared_input_bundle_v0,
+    linked_low_relief_initial_surface, materialize_linked_shared_input_v0,
+    validate_linked_shared_input_bundle_v0, DeclaredWorkLedgerV0, ForcingCompilerSemanticsV0,
+    ForcingFrameWitnessV0, InitialSurfaceDeclarationV0, LinkedInputComponentHashesV0,
+    LinkedInputDeclarationV0, LinkedInputErrorV0, LinkedInputUnitsV0, LinkedPortalSummaryV0,
+    LinkedResolutionInputV0, LinkedResolutionManifestJsonV0, LinkedResolutionSummaryV0,
+    LinkedSharedInputBundleV0, LinkedSharedInputManifestJsonV0, LinkedStencilSummaryV0,
+    RunoffDeclarationV0, LINKED_INPUT_BUNDLE_HASH_V0, LINKED_INPUT_HASH_VERSION_V0,
+    LINKED_INPUT_SCHEMA_VERSION_V0,
 };
 pub use mesh::{
     BoundaryCondition, BoundaryFaceCondition, BoundarySide, LandscapeBoundaryFace, LandscapeMesh,
