@@ -285,8 +285,10 @@ Feature expansion remains paused for the geographic-coherence decision. The
 zoomed-out pass now identifies regional organization—not missing global model
 depth—as the weak seam. The [landscape organization strategy](landscape-strategy.md)
 selects the next comparison family; its high-level arms, work-matching, budgets
-and gates are now frozen by the organization-owner design envelope. Exact
-artifact, numerical, evidence and presentation contracts remain pending.
+and gates are now frozen by the organization-owner design envelope. The exact
+[artifact/provenance contract](research/orogen-organization-artifact-v0-2026-07-16.md)
+is now preregistered; numerical, evidence and presentation contracts remain
+pending.
 
 The current sequence is:
 
@@ -337,8 +339,10 @@ The current sequence is:
    independent extraction plus a central report, resource philosophy and the
    three owners: hold-and-carve H, reduced coevolution C and graph-first G. It
    deliberately stops short of executable wire/verdict status;
-5. commit its four executable amendments: exact artifact/provenance,
-   numerical/admission, evidence/projection and planar human-review contracts;
+5. commit its four executable amendments: **completed:** exact
+   [artifact/provenance](research/orogen-organization-artifact-v0-2026-07-16.md);
+   next, numerical/admission; then evidence/projection and planar human-review
+   contracts;
 6. implement only the missing composition and object-output seams, reusing the
    tested landscape operator library without promoting its research models;
 7. run the linked-segment base case, advance every competitive arm meeting the

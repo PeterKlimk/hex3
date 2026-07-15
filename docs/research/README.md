@@ -61,7 +61,11 @@ Current synthesized notes:
   — preregistered architectural envelope for the H/C/G comparison. It selects
   whole-domain common extraction plus a central projection and freezes the
   candidate owner mechanics without claiming an executable wire/verdict
-  contract. Four exact amendments remain before implementation.
+  contract.
+- [Organization-owner artifact and provenance amendment V0](orogen-organization-artifact-v0-2026-07-16.md)
+  — first executable amendment: exact semantic schemas, reductions, ledgers,
+  hashes, predecessor/replay bindings and transactional publication. Numerical,
+  evidence/projection and planar-review amendments remain before implementation.
 - [Correspondence priors for reduced planet models](correspondence-priors-2026-07-12.md)
 - [Orogen organization: causal reference and reduced experiments](orogen-organization-2026-07-12.md)
 - [Mountain-system design basis](mountain-system-design-basis-2026-07-13.md)

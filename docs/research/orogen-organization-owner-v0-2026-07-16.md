@@ -28,18 +28,21 @@ universal smooth capped grammar without differentiated peaks, saddles, divides,
 drainage hierarchy and internal relief.
 
 This design freezes the owner families, common input, opportunity philosophy,
-candidate base algorithms and anti-circular evidence boundary. It does not yet
-freeze every semantic result byte or analyst reduction. It does not promote a
-product terrain path. No arm can be chosen for the product from the linked base
-case alone.
+candidate base algorithms and anti-circular evidence boundary. The subsequent
+[artifact/provenance amendment](orogen-organization-artifact-v0-2026-07-16.md)
+now freezes semantic arm bytes; numerical, evidence-reduction and presentation
+contracts remain pending. This design does not promote a product terrain path.
+No arm can be chosen for the product from the linked base case alone.
 
 ## Executable stop boundary
 
 Do not implement an active H/C/G run from this document alone. Four subordinate
 executable amendments must be committed first:
 
-1. exact arm-result/native-provenance schemas, conservation equations,
-   canonical hashes and standalone-versus-predecessor validation APIs;
+1. **completed:** exact arm-result/native-provenance schemas, conservation
+   equations, canonical hashes and standalone-versus-predecessor/replay
+   validation APIs in the
+   [artifact/provenance amendment](orogen-organization-artifact-v0-2026-07-16.md);
 2. a numerical discrepancy/admission contract with the exact H activity
    primitive, G calibration solve, sensitivity correspondence and completion
    gates;
@@ -138,8 +141,10 @@ field or boundary rewrite is allowed.
 ## Common terrain opportunity
 
 Let `z0[i]` be stored initial elevation, `D[i]` stored cumulative rock
-displacement, `A[i]` cell area and `V = sum(D[i] A[i])` in stored order. The
-registered opportunity authority is:
+displacement and `A[i]` cell area. `V` is the exact predecessor declaration
+`analytic_rock_volume_km3`, not a resolution reduction. The discrete
+`sum(D[i] A[i])` is separately measured in stored order and its residual from
+`V` remains evidence. The registered opportunity authority is:
 
 ```text
 V = 100625 km3
@@ -558,7 +563,16 @@ robustness and explains why that exclusion is fit for product use.
 
 ## Result and evidence artifacts
 
-The exact artifact amendment must register these semantic schema domains:
+The executable
+[artifact/provenance amendment](orogen-organization-artifact-v0-2026-07-16.md)
+supersedes the logical wire sketches and run-directory example in this section.
+In particular, it adds typed trace/checkpoint/failure roots, an acyclic hash
+graph, unique attempt directories and the required G 4 km predecessor. The
+remaining evidence-directory shape below is still provisional until the
+evidence/projection amendment.
+
+The artifact amendment registers the first two semantic schema families below;
+the evidence/projection amendment still owns the latter two:
 
 ```text
 orogen-organization-arm-result-v0
@@ -567,10 +581,11 @@ orogen-owner-central-projection-v0
 orogen-organization-comparison-v0
 ```
 
-The candidate semantic-hash encoding is `fnv1a64-bincode-fixint-le-v0`, matching
-the accepted local artifact pattern. FNV is an identity/checksum mechanism, not
-a cryptographic authenticity claim. The following common-arm shape is logical,
-not complete wire order:
+The semantic-hash encoding is now fixed as
+`fnv1a64-bincode-fixint-le-v0`, matching the accepted local artifact pattern.
+FNV is an identity/checksum mechanism, not a cryptographic authenticity claim.
+The following common-arm shape is retained only as the parent design sketch;
+the amendment's schema is authoritative and differs from it:
 
 ```rust
 pub struct OrganizationArmResultV0 {
@@ -598,7 +613,9 @@ configuration, state/ledger summaries, checkpoints, native graph/flow hashes,
 operator counters and architecture-specific claims. Unsupported claims are
 absent, not zero-filled to imitate another arm.
 
-For each arm/resolution publish atomically:
+The following old directory sketch is likewise non-authoritative; the artifact
+amendment replaces it with unique attempt directories and typed success/failure
+file sets:
 
 ```text
 artifacts/orogen-owner-v0/<arm>/<spacing-km>/
@@ -631,13 +648,14 @@ hashes. JSON is a projection; binary is semantic authority.
 
 Standalone decoders use bounded allocation, reject trailing bytes and validate
 canonical values, array shapes/order, local component hashes and declared
-predecessor identities. Full validation additionally receives the exact input,
-native provenance, arm result and evidence predecessors needed to reconstruct
-and compare semantic content. A changed generated final array can be made
-internally hash-consistent, so only full predecessor validation or deterministic
-rerun establishes that it is the declared arm output. The artifact amendment
-must define these two APIs and their failure types rather than implying an
-outer checksum proves causal provenance.
+predecessor identities. Full predecessor validation additionally receives the
+exact input, native provenance, arm result and evidence predecessors needed to
+reconstruct and compare semantic content. It establishes exact bindings and
+local consistency, not solver causation: a mutually repaired changed final
+array can still be internally and predecessor-consistent. Only deterministic
+replay establishes production by the declared algorithm. The artifact
+amendment defines these three boundaries and their failure types rather than
+implying an outer checksum proves causal provenance.
 
 ## Planned execution order and admission
 
@@ -647,8 +665,9 @@ case in V0:
 1. implement and pass analytic/unit gates for the linear hillslope mode, H
    target/ledger, C bundle adapter, G forest/reconstruction and central
    projection;
-2. build H/C/G opportunity controls at 8/4/2 before active results;
-3. run H/C/G at 8 km, then 4 km, without inspecting human presentation;
+2. build H/C opportunity controls at 8/4/2, then build and freeze G's inseparable
+   4 km calibration/base result, without inspecting human presentation;
+3. run H/C at 8 km then 4 km and G at 8 km from the frozen 4 km amplitude;
 4. advance each arm whose own contract/numerical gates pass to 2 km; H must
    still be valid for any cross-arm comparison to proceed;
 5. freeze every arm result before common evidence extraction;
@@ -844,8 +863,8 @@ but object-poor, revisit the comparison representation or missing shared state;
 do not tune relief scale. If common evidence fails across arms, repair the
 instrument rather than terrain.
 
-Stop after committing this design envelope. The next task is to write the four
-executable amendments in dependency order: artifact/provenance, numerical and
-admission, evidence/projection, then planar capture/human review. Only then may
-implementation start with shared composition and artifact infrastructure. The
-next task is not a new ecology, sediment, tectonic or product model.
+The artifact/provenance amendment is now committed in design. The next task is
+the numerical and admission amendment, followed by evidence/projection and then
+planar capture/human review. Only after all four may implementation start with
+shared composition and artifact infrastructure. The next task is not a new
+ecology, sediment, tectonic or product model.

@@ -200,8 +200,10 @@ Prepare one bounded **organization-owner slice**, not another global seed sweep
 and not another isolated numerical rung. The
 [comparison design envelope](research/orogen-organization-owner-v0-2026-07-16.md)
 now selects the three families and common evaluation philosophy. It is not yet
-an executable wire/verdict contract: exact artifact/provenance,
-numerical/admission, evidence/projection and planar-review amendments come next.
+an executable wire/verdict contract: the exact
+[artifact/provenance amendment](research/orogen-organization-artifact-v0-2026-07-16.md)
+is now preregistered; numerical/admission, evidence/projection and planar-review
+amendments remain.
 
 ### Question
 
@@ -226,7 +228,9 @@ masks; see the [dated audit](audits/orogen-linked-shared-input-2026-07-15.md).
 The design envelope now selects work-matched opportunity, arm-specific
 conversion/chronology, whole-domain common extraction with a separately bound
 central projection and a shared safety ceiling. Exact schemas, reductions,
-ledger gates and presentation details remain in the four executable amendments.
+ledger gates and presentation details are divided among four executable
+amendments. The artifact/provenance amendment is complete; the other three
+remain.
 
 Here segment terminations and transfer-zone forcing opportunity are prescribed
 testbed geometry controls. They do not guarantee that any arm produces a

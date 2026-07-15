@@ -93,8 +93,15 @@ The [organization-owner comparison design envelope](research/orogen-organization
 now freezes H/C/G, whole-domain common extraction plus a separately bound
 central report, work-matching without broad-envelope matching and the base-case
 decision boundary. It intentionally does not authorize implementation. The
-next focus is four exact amendments—artifact/provenance, numerical/admission,
-evidence/projection and planar human review—and no arm-result packet exists yet.
+first exact
+[artifact/provenance amendment](research/orogen-organization-artifact-v0-2026-07-16.md)
+now freezes semantic successes/failures, sidecars, ledgers, hashes, bindings and
+publication. The next focus is numerical/admission, followed by
+evidence/projection and planar human review; no arm-result packet exists yet.
+G must calibrate and publish 4 km before 8/2 km can bind its frozen forest and
+amplitude. Cooperative algorithmic failures are replayable semantic roots;
+resource failures are observational, while invalid input/configuration or
+publication remain external diagnostics.
 Keep the review findings visible: G's uniform wet/dry case changes profile but
 not topology; cross-resolution O0b discrepancy is not a generic scalar
 uncertainty; central peak-anchored and footprint-context cohorts must remain

@@ -73,8 +73,10 @@ independent object extraction must be fixed before implementation. The
 [comparison design envelope](research/orogen-organization-owner-v0-2026-07-16.md)
 now freezes the families, work-matching and whole-domain/central evaluation
 boundary, but is deliberately not an executable wire/verdict contract. Status:
-design selected; exact artifact, numerical, evidence and presentation
-amendments pending; no arm implemented, evaluated or promoted. See the
+design selected; exact
+[artifact/provenance](research/orogen-organization-artifact-v0-2026-07-16.md)
+preregistered; numerical, evidence and presentation amendments pending; no arm
+implemented, evaluated or promoted. See the
 [landscape organization strategy](landscape-strategy.md). The
 [landform object packet v0](research/landform-object-packet-v0-2026-07-14.md)
 now preregisters the common evidence vocabulary and rung order. It does not yet
