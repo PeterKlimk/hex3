@@ -287,8 +287,9 @@ depth—as the weak seam. The [landscape organization strategy](landscape-strate
 selects the next comparison family; its high-level arms, work-matching, budgets
 and gates are now frozen by the organization-owner design envelope. The exact
 [artifact/provenance contract](research/orogen-organization-artifact-v0-2026-07-16.md)
-is now preregistered; numerical, evidence and presentation contracts remain
-pending.
+and the exact
+[numerical/admission contract](research/orogen-organization-numerical-v0-2026-07-16.md)
+are now preregistered; evidence and presentation contracts remain pending.
 
 The current sequence is:
 
@@ -341,8 +342,9 @@ The current sequence is:
    deliberately stops short of executable wire/verdict status;
 5. commit its four executable amendments: **completed:** exact
    [artifact/provenance](research/orogen-organization-artifact-v0-2026-07-16.md);
-   next, numerical/admission; then evidence/projection and planar human-review
-   contracts;
+   **completed:** exact
+   [numerical/admission](research/orogen-organization-numerical-v0-2026-07-16.md);
+   next, evidence/projection; then the planar human-review contract;
 6. implement only the missing composition and object-output seams, reusing the
    tested landscape operator library without promoting its research models;
 7. run the linked-segment base case, advance every competitive arm meeting the
@@ -380,12 +382,13 @@ and repeated uplift amplifies rather than originates the grammar. The next
 decision is no longer another fixed-height mountain comparison. The
 [mountain-system design basis](research/mountain-system-design-basis-2026-07-13.md)
 finds that the current path collapses tectonic forcing into terrain height before
-drainage can coevolve with it. The next bounded implementation is therefore the
+drainage can coevolve with it. At that historical rung, it selected the
 [orogen organization testbed](research/orogen-testbed-spec-2026-07-13.md): a
 dimensioned, time-resolved uplift–drainage–hillslope system compared against
 locked hold-and-carve, synthetic-topology and explicit-skeleton controls. It
-must pass linked-segment, forcing-reorganization and wet/dry causal cases before
-any global-seed tuning or product-pipeline replacement.
+did not authorize immediate completion of all such response cases; the current
+owner comparison and its four executable amendments now supersede that old
+"next implementation" wording.
 
 Slice 1 of that testbed is now implemented. Its deterministic forcing, routing,
 water/solid ledgers, timestep smoke and full-run stability pass, but its erosion

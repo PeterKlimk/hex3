@@ -129,7 +129,11 @@ Current bounded research decision:
 - [Organization-owner artifact and provenance amendment V0](research/orogen-organization-artifact-v0-2026-07-16.md)
   — freezes semantic result, native-provenance, trace, checkpoint and failure
   bytes, exact bindings, conservation ledgers and validation/publication
-  boundaries. Numerical, evidence and planar-review amendments must still
+  boundaries.
+- [Organization-owner numerical and admission amendment V0](research/orogen-organization-numerical-v0-2026-07-16.md)
+  — freezes H/C execution, the linear surface-process boundary, G construction
+  and calibration, closure tolerances, failure authority, direct sensitivity
+  and campaign advancement. Evidence and planar-review amendments must still
   precede any arm implementation.
 - [Landform G0/S0 structural-slice audit](audits/landform-g0s0-structural-slice-2026-07-14.md)
   — passing planar geometry/topology checkpoint, caught contract amendments and

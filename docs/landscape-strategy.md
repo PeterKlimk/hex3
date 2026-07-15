@@ -202,8 +202,9 @@ and not another isolated numerical rung. The
 now selects the three families and common evaluation philosophy. It is not yet
 an executable wire/verdict contract: the exact
 [artifact/provenance amendment](research/orogen-organization-artifact-v0-2026-07-16.md)
-is now preregistered; numerical/admission, evidence/projection and planar-review
-amendments remain.
+and exact
+[numerical/admission amendment](research/orogen-organization-numerical-v0-2026-07-16.md)
+are now preregistered; evidence/projection and planar-review amendments remain.
 
 ### Question
 
@@ -229,8 +230,8 @@ The design envelope now selects work-matched opportunity, arm-specific
 conversion/chronology, whole-domain common extraction with a separately bound
 central projection and a shared safety ceiling. Exact schemas, reductions,
 ledger gates and presentation details are divided among four executable
-amendments. The artifact/provenance amendment is complete; the other three
-remain.
+amendments. Artifact/provenance and numerical/admission are complete; evidence/
+projection and planar human review remain.
 
 Here segment terminations and transfer-zone forcing opportunity are prescribed
 testbed geometry controls. They do not guarantee that any arm produces a

@@ -43,10 +43,11 @@ Only replay establishes that the declared algorithm generated an internally
 consistent final surface. FNV-1a is a deterministic identity checksum, not
 authentication or proof of execution.
 
-This amendment freezes schemas and equations. The later numerical/admission
-amendment still owns closure tolerances, the exact H activity primitive, the G
-amplitude solve, sensitivity correspondence, and acceptance thresholds. No arm
-implementation may begin until those numerical values are frozen.
+This amendment freezes schemas and equations. The subsequent numerical/admission
+[amendment](orogen-organization-numerical-v0-2026-07-16.md) now owns closure
+tolerances, the exact H activity primitive, the G amplitude solve, direct
+sensitivity reductions and numerical admission. No arm implementation may
+begin until the remaining evidence and presentation contracts are frozen.
 
 ## Corrections to the parent design
 
@@ -310,7 +311,11 @@ Allowed configurations are exact:
   active-process values and `UpliftThenRouteDenudeThenHillslope`; and
 - G: base only. `SolveAtThis4Km` is legal only at 4 km;
   `ReuseFrozen4Km` is mandatory at 8/2 km and must equal both the predecessor
-  binding and the `a_G` in the supplied 4 km provenance.
+  binding and the `a_G` in the supplied 4 km provenance. `SolveAtThis4Km` uses
+  exact values `0.001` initial upper amplitude, `2.0` bracket growth, 64
+  expansions, 128 midpoint iterations, `1e-8 km3` absolute volume tolerance
+  and `5e-12` relative tolerance as frozen by the
+  [numerical/admission amendment](orogen-organization-numerical-v0-2026-07-16.md).
 
 H/C base and sensitivity configurations require the matching same-arm,
 same-resolution opportunity-control result hash. Opportunity controls require
@@ -1121,6 +1126,8 @@ pub enum OrganizationFailureCauseV0 {
     WallTimeCeiling,
     MemoryCeiling,
     ArtifactSizeCeiling,
+    MaximumAcceptedStepCountReached,
+    OpportunityControlMismatch,
 }
 
 pub enum OrganizationFailureCoordinateV0 {
@@ -1170,6 +1177,10 @@ pub enum OrganizationFailureWitnessV0 {
         observed: u64,
         ceiling: u64,
     },
+    StepCount {
+        accepted_step_count: u64,
+        maximum_accepted_step_count: u64,
+    },
 }
 
 pub struct OrganizationRunFailureV0 {
@@ -1217,9 +1228,13 @@ is recorded by the external audit rather than compressed into this failure
 root.
 A `MinimumDtReached` witness has no midpoint or retry limiter when rejection
 occurs before forcing sampling. A maximum-attempt witness retains the last retry
-limiter and reported limit. Operator-family causes replace unstable runtime
-`Operator(String)` text; the adapter must map every runtime error to one bounded
-variant before an active run.
+limiter and reported limit. `MaximumAcceptedStepCountReached` requires the
+`StepCount` witness and the registered equal current/maximum counts.
+`OpportunityControlMismatch` is legal only at `LedgerValidation` with `None`;
+the terminal control checkpoint supplies the recomputable surface and ledger.
+Operator-family causes replace unstable runtime `Operator(String)` text; the
+adapter must map every runtime error to one bounded variant before an active
+run.
 
 ## Hash preimages
 
@@ -1611,8 +1626,9 @@ a typed failure.
 
 Implement the library in `src/world/landscape/organization_artifact.rs`, export
 it from `src/world/landscape/mod.rs`, and add the thin `src/bin/orogen_owner.rs`
-CLI only after the numerical amendment supplies the remaining registered
-values. Do not refactor the accepted linked-input publisher in this rung.
+CLI only after the remaining evidence/projection and planar-review amendments
+are committed. Do not refactor the accepted linked-input publisher in this
+rung.
 
 Required tests are:
 
@@ -1646,9 +1662,9 @@ artifact mutation and publication tests.
 
 ## Stop boundary
 
-This amendment completes only item 1 of the parent design's executable stop
-boundary. Do not implement artifact structs yet. Next commit the numerical and
-admission amendment, including exact H cumulative activity, G solve/bracket,
-closure tolerances, checkpoint clipping, sensitivity reductions and typed
-completion gates. Evidence/projection and planar-review amendments still follow
-before any active H/C/G run.
+This amendment completes item 1 of the parent design's executable stop
+boundary. The subsequent
+[numerical/admission amendment](orogen-organization-numerical-v0-2026-07-16.md)
+completes item 2 and makes the small append-only failure-enum amendment above.
+Do not implement artifact structs yet. Evidence/projection and planar-review
+amendments still follow before any active H/C/G run.

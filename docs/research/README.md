@@ -64,8 +64,12 @@ Current synthesized notes:
   contract.
 - [Organization-owner artifact and provenance amendment V0](orogen-organization-artifact-v0-2026-07-16.md)
   — first executable amendment: exact semantic schemas, reductions, ledgers,
-  hashes, predecessor/replay bindings and transactional publication. Numerical,
-  evidence/projection and planar-review amendments remain before implementation.
+  hashes, predecessor/replay bindings and transactional publication.
+- [Organization-owner numerical and admission amendment V0](orogen-organization-numerical-v0-2026-07-16.md)
+  — second executable amendment: exact H/C scheduling and operators, G forest/
+  reconstruction solve, numerical tolerances, completion/failure boundaries,
+  direct sensitivity and advancement. Evidence/projection and planar review
+  remain before implementation.
 - [Correspondence priors for reduced planet models](correspondence-priors-2026-07-12.md)
 - [Orogen organization: causal reference and reduced experiments](orogen-organization-2026-07-12.md)
 - [Mountain-system design basis](mountain-system-design-basis-2026-07-13.md)

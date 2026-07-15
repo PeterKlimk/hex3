@@ -30,9 +30,11 @@ drainage hierarchy and internal relief.
 This design freezes the owner families, common input, opportunity philosophy,
 candidate base algorithms and anti-circular evidence boundary. The subsequent
 [artifact/provenance amendment](orogen-organization-artifact-v0-2026-07-16.md)
-now freezes semantic arm bytes; numerical, evidence-reduction and presentation
-contracts remain pending. This design does not promote a product terrain path.
-No arm can be chosen for the product from the linked base case alone.
+now freezes semantic arm bytes, and the
+[numerical/admission amendment](orogen-organization-numerical-v0-2026-07-16.md)
+freezes execution and validity. Evidence-reduction and presentation contracts
+remain pending. This design does not promote a product terrain path. No arm can
+be chosen for the product from the linked base case alone.
 
 ## Executable stop boundary
 
@@ -43,9 +45,9 @@ executable amendments must be committed first:
    equations, canonical hashes and standalone-versus-predecessor/replay
    validation APIs in the
    [artifact/provenance amendment](orogen-organization-artifact-v0-2026-07-16.md);
-2. a numerical discrepancy/admission contract with the exact H activity
-   primitive, G calibration solve, sensitivity correspondence and completion
-   gates;
+2. **completed:** exact H/C execution, G calibration, closure, failure,
+   direct-sensitivity and advancement rules in the
+   [numerical/admission amendment](orogen-organization-numerical-v0-2026-07-16.md);
 3. a complete central-projection and authored-G-versus-D0 evidence schema,
    including every reduction, option, scale key, portal-owned contribution and
    null/tie/split/merge rule; and
@@ -158,19 +160,19 @@ and reconstruction are necessarily its calibration and base result; that result
 is frozen without human inspection and revealed only with the other arms.
 
 - H's target-only final surface must equal `z_opportunity` bit-for-bit.
-- The candidate C uplift-only gate is reproduction of `z_opportunity` within
+- C uplift-only must reproduce `z_opportunity` within
   `1e-6 km3 + 5e-7 * V` in area-integrated volume and within `2e-5 km` per
   cell. This deliberately covers the registered f32 frame-integration and
   midpoint-quadrature boundary without pretending it is a bitwise f64 rebuild;
-  the numerical amendment must confirm this against a f64 oracle before it is
-  an admission gate.
+  the numerical amendment requires a f64 manufactured oracle before it becomes
+  an accepted predecessor.
 - G builds its frozen forest/reconstruction and determines its sole dimensioned
   amplitude `a_G` at **4 km only** so its positive elevation-volume addition is
-  `V`. The candidate solve tolerance is `1e-8 km3 + 5e-12 * V`. The same
+  `V`. The solve tolerance is `1e-8 km3 + 5e-12 * V`. The same
   `a_G` bits are then used at 8 and 2 km and retained in later wet/dry response
-  runs. The executable numerical amendment must freeze the monotone solve,
-  confirm that tolerance against analytic fixtures and set a cross-resolution
-  opportunity-volume admission band before implementation.
+  runs. The numerical amendment freezes the monotone solve and analytic gates.
+  Finite 8/2 km work drift is scale-transfer evidence, not a numerical failure;
+  no result-dependent band or recalibration hides it.
 
 Only total positive opportunity volume at the reference 4 km calibration is
 matched for G. G's spatial allocation is an explicit architecture degree of
@@ -181,9 +183,9 @@ rescaled, shifted to equal a peak, quantile-normalized, relief-normalized or
 volume-normalized after its active processes run.
 
 The opportunity audit records total volume, area-weighted centroid and
-covariance of positive added opportunity for every arm. Once the numerical
-amendment registers reference and cross-resolution volume gates, differences
-outside them are evidence, not tuning instructions.
+covariance of positive added opportunity for every arm. Reference solve error
+has a numerical gate; cross-resolution differences are evidence, not tuning
+instructions.
 
 ## Shared active-process regime
 
@@ -230,9 +232,9 @@ The regime is not an Earth calibration. It is the already-frozen dimensional
 control `E0/(q0*S0)` with `E0=0.1 km/Myr`, `q0=50,000 km2/Myr` and `S0=0.02`,
 and its corrected 0.1 Myr U/L screen has convergent integrated relief and closed
 ledgers at 8/4/2. Extending it to 10 Myr is deliberately a falsification of this
-minimal owner, not permission to retune K. The numerical amendment must require
-the short-run analytic/regression gates before the long run and halt on minimum-
-dt or adaptive-attempt exhaustion.
+minimal owner, not permission to retune K. The numerical amendment requires the
+short-run analytic/regression gates before the long run and halts on minimum-dt
+or adaptive-attempt exhaustion.
 
 ## H: idealized hold-and-carve control
 
@@ -273,10 +275,10 @@ is a bounded control, not a claim to reproduce the complete product path.
 Native H checkpoints are passes `[0, 50, 120, 200]`. They are provenance, not
 cross-arm temporal correspondence.
 
-The executable numerical amendment must provide the analytic cumulative-
-smoothstep primitive used for `p_k`, set `p_0=0` and `p_200=1` by exact endpoint
-rule, and define the 400-pass sensitivity as `u_k=k/400` with
-`0.025 operator-Myr` per pass and the same 10 operator-Myr total.
+The numerical amendment now provides the analytic cumulative-smoothstep
+primitive used for `p_k`, sets `p_0=0` and `p_200=1` by exact endpoint rule, and
+defines the 400-pass sensitivity as `u_k=k/400` with `0.025 operator-Myr` per
+pass and the same 10 operator-Myr total.
 
 ## C: reduced coevolving owner
 
@@ -537,10 +539,11 @@ O0b is many-to-many and can contain ties, splits and merges. There is therefore
 no generic scalar "uncertainty" obtained by subtracting two object values. The
 comparison reports two distinct discrepancy sources: cross-resolution O0b
 correspondence evidence and same-resolution numerical sensitivity. The
-executable numerical amendment must specify, quantity by quantity, the
-population, correspondence reduction, missing-partner behavior, tie handling,
-absolute/relative difference and compatibility predicate. Quantities without a
-registered reduction remain descriptive and cannot support a materiality claim.
+numerical amendment freezes direct same-cell H/C discrepancy reductions. The
+evidence/projection amendment owns quantity-by-quantity object populations,
+correspondence, missing partners, ties and compatibility predicates. Quantities
+without a registered reduction remain descriptive and cannot support a
+materiality claim.
 
 C's numerical sensitivity halves requested maximum dt from 0.01 to 0.005 Myr
 at 4 km. H doubles passes from 200 to 400 while preserving total target
@@ -695,7 +698,6 @@ requirements are:
   queue or solver exhaustion hidden as completion;
 - no hidden clamp, global rounding, result-dependent normalization, forbidden
   operator or native-evidence leakage;
-- successful fresh whole-core/reference-O0a/central-projection construction; and
 - resource-ceiling compliance or an explicit stop for review.
 
 H is the standing control. If H is invalid, the comparison is blocked rather
@@ -863,8 +865,8 @@ but object-poor, revisit the comparison representation or missing shared state;
 do not tune relief scale. If common evidence fails across arms, repair the
 instrument rather than terrain.
 
-The artifact/provenance amendment is now committed in design. The next task is
-the numerical and admission amendment, followed by evidence/projection and then
-planar capture/human review. Only after all four may implementation start with
-shared composition and artifact infrastructure. The next task is not a new
-ecology, sediment, tectonic or product model.
+The artifact/provenance and numerical/admission amendments are now committed in
+design. The next task is evidence/projection, followed by planar capture/human
+review. Only after all four may implementation start with shared composition
+and artifact infrastructure. The next task is not a new ecology, sediment,
+tectonic or product model.

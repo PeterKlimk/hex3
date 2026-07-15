@@ -96,12 +96,21 @@ decision boundary. It intentionally does not authorize implementation. The
 first exact
 [artifact/provenance amendment](research/orogen-organization-artifact-v0-2026-07-16.md)
 now freezes semantic successes/failures, sidecars, ledgers, hashes, bindings and
-publication. The next focus is numerical/admission, followed by
-evidence/projection and planar human review; no arm-result packet exists yet.
+publication. The subsequent
+[numerical/admission amendment](research/orogen-organization-numerical-v0-2026-07-16.md)
+freezes H/C execution, linear hillslopes, G construction/calibration, closure,
+failure classification, direct sensitivity and advancement. The next focus is
+evidence/projection, followed by planar human review; no arm-result packet
+exists yet.
 G must calibrate and publish 4 km before 8/2 km can bind its frozen forest and
 amplitude. Cooperative algorithmic failures are replayable semantic roots;
 resource failures are observational, while invalid input/configuration or
 publication remain external diagnostics.
+G is exactly work-matched only at 4 km. Frozen-amplitude 8/2 work drift is
+architecture evidence, not a numerical failure or permission to recalibrate.
+Likewise, H/C numerical sensitivity is measured directly but does not erase an
+otherwise valid base result; later object-level materiality belongs to the
+evidence contract.
 Keep the review findings visible: G's uniform wet/dry case changes profile but
 not topology; cross-resolution O0b discrepancy is not a generic scalar
 uncertainty; central peak-anchored and footprint-context cohorts must remain
