@@ -1,6 +1,6 @@
 # Hex3 working memory
 
-Status: **active, non-authoritative scratchpad**. Last consolidated 2026-07-13.
+Status: **active, non-authoritative scratchpad**. Last consolidated 2026-07-15.
 
 This document preserves medium-term context across evaluation passes so the
 active investigation does not erase other important findings. It is a queue of
@@ -27,8 +27,9 @@ one bounded object-level slice. Landform semantics are required evidence for
 that comparison, not a decorative follow-up.
 
 The [landform object packet v0](research/landform-object-packet-v0-2026-07-14.md)
-now freezes the arm-neutral evidence vocabulary and
-G0/S0 → D0 → O0a → O0b → R0 order.
+freezes the arm-neutral evidence vocabulary and the completed
+G0/S0 → D0 → O0a → O0b instrument ladder. Its provisional combined R0 boundary
+has since been retired in favor of separate common and product derivations.
 Its executable [G0/S0 contract](research/landform-object-packet-g0s0-2026-07-14.md)
 now passes its manufactured planar/spherical gates and first unchanged 250k
 product observation: explicit control-volume geometry, strict shared-base
@@ -68,8 +69,14 @@ retires the provisional combined packet/product R0. O0b correspondence reads
 no O0a payload numerically even though V0 hashes all eleven; future common-core,
 reference-O0a and sensitivity artifacts therefore remain separate. Product
 hydrology is product-native evidence over the closed sphere, not planar D0 in
-disguise. The next executable boundary is a pre-arm common linked-testbed
-baseline, not a product adapter.
+disguise. Inventory corrected the proposed next boundary: linked forcing and
+shared inputs do not define an arm-neutral final terrain. Calling a
+manufactured surface a pre-arm baseline would silently privilege an
+unregistered organization owner. The next executable boundary is therefore the
+preregistered [common-core schema/equivalence split](research/landform-common-core-v0-2026-07-15.md)
+on accepted manufactured packets. A linked shared-input manifest
+comes afterward and emits no landform verdict; arm-result packets begin only
+after H/C/G produce final surfaces. This is not a product adapter.
 Do not let product diagnostics, native C flux, G's authored graph or renderer
 state leak into the instrument; competitive terrain arms remain out of scope.
 

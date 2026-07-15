@@ -313,23 +313,29 @@ The current sequence is:
    [product-boundary decision](research/landform-product-boundary-decision-2026-07-15.md)
    retires the combined packet/product R0 formulation: product-native evidence
    and common planar evidence remain separate;
-2. preregister and run one pre-arm linked-testbed baseline at 8/4/2 km over a
-   slim common evidence core. Keep reference O0a and the optional ten-run
-   sensitivity suite separately hashed, preserve historical V0 compatibility,
-   and report actual bytes, wall time and peak memory. Do not build a product
-   drainage adapter or cross-domain correspondence in this checkpoint;
-3. preregister one bounded organization-owner slice with shared admissible
+2. implement and evaluate the preregistered
+   [slim common-core boundary](research/landform-common-core-v0-2026-07-15.md)
+   on accepted manufactured V0 packets. Preserve exact historical V0 bytes and
+   mechanical O0b answers while hashing reference O0a and the optional ten-run
+   sensitivity suite separately; report actual bytes, wall time and peak
+   memory;
+3. preregister a linked shared-input manifest at 8/4/2 km. It binds exact mesh
+   identity and phase, declarative and compiled/evaluated forcing, schedule and
+   integrated work, initial state, runoff, portals, material mask, scored policy
+   and resource context, but must not manufacture an arm-neutral final terrain,
+   contain an arm conversion or emit a landform-quality verdict;
+4. preregister one bounded organization-owner slice with shared admissible
    inputs, an arm-neutral terrain-opportunity calibration, a common resource
    ceiling and independent object extraction: hold-and-carve H, reduced
    coevolution C and graph-first authentic control G;
-4. implement only the missing composition and object-output seams, reusing the
+5. implement only the missing composition and object-output seams, reusing the
    tested landscape operator library without promoting its research models;
-5. run the linked-segment base case, advance every competitive arm meeting the
+6. run the linked-segment base case, advance every competitive arm meeting the
    shared gate under the same preregistered rule, and retain H as the standing
    control in every admitted forcing-reorganization and wet/dry case;
-6. decide ownership by object topology, causal response, matched human review
+7. decide ownership by object topology, causal response, matched human review
    and compute/complexity cost; and
-7. return to the cross-system disposition table before choosing sediment,
+8. return to the cross-system disposition table before choosing sediment,
    ecology, coast or human-world expansion.
 
 Do not resume the R1 arithmetic ladder, run a global seed sweep, tune legacy

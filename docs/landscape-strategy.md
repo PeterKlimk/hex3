@@ -292,10 +292,13 @@ The [product-boundary decision](research/landform-product-boundary-decision-2026
 now retires that provisional combined packet/product R0 formulation. Product
 G0/S0 remains external noncompetitive context; product-native hydrology is a
 different derivation from common planar D0 and will not be cast into the same
-packet. The next organization prerequisite is instead a pre-arm linked-testbed
-baseline over a slim common core, with reference O0a and optional sensitivity
-suites separately hashed. This is a dependency/meaning split, not permission to
-implement H/C/G or to claim product-to-testbed correspondence.
+packet. The next organization prerequisite is the executable
+[common-core split](research/landform-common-core-v0-2026-07-15.md), proved
+against accepted manufactured packets. Inventory corrected an important
+category error: the linked scenario defines forcing and shared inputs, not a
+pre-arm final terrain. Its shared-input manifest must remain separate from
+the final-surface evidence produced by H/C/G. This is not permission to
+implement H/C/G or claim product-to-testbed correspondence.
 
 The current common packet supplies operational reference highlands,
 peak/saddle topology, drainage nodes/catchments/reaches, raw boundary evidence

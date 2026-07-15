@@ -375,15 +375,19 @@ quality scores by themselves.
    implementation accepted as a common evaluation checkpoint after amendment A
    separated the invalid linked 2 km full-packet witness and passed its isolated
    4-to-8/2, elder, remapping and reversal gates.
-5. **Pre-arm baseline:** one common linked-testbed evidence core at 8/4/2 km,
-   separately preregistered under the
-   [product-boundary decision](landform-product-boundary-decision-2026-07-15.md).
-   The completed product G0/S0 observation remains external context rather than
-   a second packet forced into common planar semantics.
+5. **Artifact boundary:** split frozen V0 into the separately hashed common
+   core, reference O0a and optional sensitivity suite under the executable
+   [common-core contract](landform-common-core-v0-2026-07-15.md), proving exact
+   V0 reconstruction and O0b mechanical equivalence on accepted manufactured
+   packets. The linked forcing has no pre-arm final terrain; shared linked
+   inputs are a later manifest, not a landform result. The completed product
+   G0/S0 observation remains external context rather than a second packet
+   forced into common planar semantics.
 
 Each rung is a separate checkpoint. Bounded common planar O0b is accepted only
-as an evaluation instrument; the slim common-core artifact, pre-arm baseline
-and any product drainage observer remain unregistered and unimplemented.
+as an evaluation instrument; the slim common-core artifact is preregistered but
+unimplemented, while the linked input manifest and any product drainage
+observer remain unregistered and unimplemented.
 Do not implement H, C or G composition while the common evidence packet is
 incomplete.
 

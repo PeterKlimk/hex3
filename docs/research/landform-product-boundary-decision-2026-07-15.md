@@ -2,8 +2,8 @@
 
 **Date:** 2026-07-15
 
-**Status:** architecture decision; executable schemas and gates not yet
-preregistered or implemented
+**Status:** architecture decision; common-core schemas and gates now separately
+preregistered but not implemented
 
 **Parents:** [landform object packet v0](landform-object-packet-v0-2026-07-14.md),
 [bounded O0b contract](landform-object-packet-o0b-2026-07-15.md),
@@ -21,10 +21,15 @@ one packet type or one correspondence problem. Split it into:
    with product-native hydrology and integration provenance in its own
    derivation namespace.
 
-The unchanged product remains an external, noncompetitive reference. The next
-organization checkpoint is a separately preregistered pre-arm linked-testbed
-baseline at 8/4/2 km. It does not wait for a product D0/O0a/O0b adapter and does
-not claim cross-domain correspondence.
+The unchanged product remains an external, noncompetitive reference. Inventory
+after this decision found that the linked testbed defines shared inputs and
+forcing, not an arm-neutral final terrain. The next checkpoint is therefore the
+separately preregistered [common-core schema and equivalence
+contract](landform-common-core-v0-2026-07-15.md), proved on accepted manufactured
+packets. A later linked-input manifest may bind shared inputs
+but may not emit final-surface landform evidence before an arm produces that
+surface. Neither checkpoint waits for a product D0/O0a/O0b adapter or claims
+cross-domain correspondence.
 
 ## Why the original boundary is wrong
 
@@ -123,8 +128,9 @@ ObjectCorrespondence
   source core hash + target core hash + mechanical O0b evidence/hash
 ```
 
-Names and exact field order remain for preregistration. The dependency
-direction is decided now: sensitivities depend on a common core; correspondence
+Names, exact field order, hashes and compatibility gates are frozen by the
+[common-core contract](landform-common-core-v0-2026-07-15.md). The dependency
+direction is unchanged: sensitivities depend on a common core; correspondence
 does not depend on a sensitivity suite. Reference O0a is requested explicitly
 by consumers that judge boundary/descent/cross-section evidence.
 
@@ -154,16 +160,21 @@ The accepted isolated-four-cone measurements are:
 Separating sensitivities is worthwhile, but it is not a complete scaling fix:
 at 2 km the remaining common/base state dominates after sensitivities are
 removed. A field-level breakdown has not established how that remainder divides
-among geometry, physical arrays, S0 and D0. The pre-arm baseline must still
-report full wall time, peak memory and retained artifact bytes under a fixed
-resource ceiling.
+among geometry, physical arrays, S0 and D0. The common-core equivalence run must
+still report full wall time, peak memory and retained artifact bytes under its
+fixed resource ceiling.
 
 ## Revised checkpoint boundary
 
-The next preregistration may cover only the common pre-arm linked-testbed
-baseline and the exact slim-core/reference/sensitivity artifact boundary. It
-must preserve V0 compatibility as historical evidence and reproduce the
-accepted O0b mechanical answers from the new core identity.
+The exact slim-core/reference/sensitivity boundary is now preregistered
+separately. It must preserve V0 compatibility as historical evidence and
+reproduce the accepted O0b mechanical answers from the new core identity.
+
+Do not call forcing an outcome. The linked deformation scenario contains no
+arm-neutral final terrain from which a pre-arm S0/D0/O0a/O0b packet could be
+derived. Its shared geometry, initial condition, forcing, runoff and portals
+belong in a later input manifest. Final-surface evidence begins
+only with separately preregistered H/C/G results.
 
 It must not include:
 
@@ -175,6 +186,7 @@ It must not include:
 - renderer or cartographic state; or
 - factorized O0a implementation without new cost/value evidence.
 
-After that baseline exists, use its objects and cost to preregister the actual
-H/C/G comparison. Product drainage work remains a separate diagnostic decision,
-not a hidden prerequisite.
+After the artifact split and shared-input manifest exist, preregister the
+actual H/C/G comparison and extract objects independently from each arm's final
+surface. Product drainage work remains a separate diagnostic decision, not a
+hidden prerequisite.
