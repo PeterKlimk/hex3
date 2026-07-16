@@ -62,7 +62,7 @@ long-term ownership.
 | History, lifecycle, carrier and named orogen ladder | **Quarantine** | Conservative transport, overlap, material-ledger, underthrust and relaxation operators remain a useful research library | Lifecycle does not consume generated reorganization history, several compositions are falsified, and the public ladder overstates product choice. Remove misleading aliases and retired named selectors after operator extraction. |
 | Coarse elevation, bathymetry and datum | **Simplify** | Efficient global envelope with explicit physical elevation and crust-column conversions | Keep ownership and units explicit. Target-land-fraction sea level is a worldbuilding constraint, not conserved ocean volume; deeper loading/sea-level physics waits for sediment or ice consumers. |
 | Temperature and prescribed circulation | **Retain** | Cheap latitude, elevation and circulation structure for water, ecology and presentation | Do not add a dynamic atmosphere. Test regional consequences before adding longitude-asymmetric heat or seasonality. |
-| Moisture transport and precipitation | **Retain** | Affordable finite-volume transport connects ocean, wind and terrain to runoff | Its advantage over cheap climatology and its normalized units remain unproved. Water-geography controls decide whether to keep or simplify it. |
+| Moisture transport and precipitation | **Retain** | Affordable finite-volume transport creates consequential geography beyond the conditional climatology null; manufactured controls confirm reversible fetch drying and windward/lee barrier response at the moisture-input seam | This validates the transport response, not the production derivation of wind/uplift. Precipitation remains a normalized relative supply, eddy diffusion is not exactly conservative, and the atmosphere/moisture face-flux operators differ. Keep those limits explicit rather than deepening the climate model without a consumer. |
 | Fine structural substrate | **Simplify** | Coarse-to-fine transfer and a minimal material/terrain substrate support the product | Quarantine inactive scarps, grain, meso relief, rebuilds and other overlapping shape owners outside product parameters and CLI. |
 | Fluvial incision and hillslope operators | **Retain** | They create real drainage-related relief and conservative surface response | The 200-step hold-and-carve composition is calibrated, expensive and not geological time. Preserve operators; simplify the composition and evaluate individual diffusion/material/sink benefits only when tied to an object. |
 | Default-off erosion, deposition and climate-feedback branches | **Quarantine** | Some branches remain useful isolated experiments | Zero defaults do not remove ownership and maintenance cost. Retire neutral or superseded paths rather than accumulating controls. |
@@ -118,10 +118,17 @@ distinct river roles, repair footprint and consistency. Dossier schema v3 adds
 the frozen-terrain conditional-climatology comparison; its nested schema v2 can
 optionally retain map fields. The canonical 1M ten-seed panel rejects the null
 as a replacement: it removes coherent geographic structure and materially
-changes river supply and roles despite identical routing. Transport therefore
-retains its product role provisionally, while the minimal barrier/wind
-correspondence controls, coast geometry/generalization and event-level repair
-provenance remain open.
+changes river supply and roles despite identical routing. A deterministic
+four-arm manufactured battery also passes at the moisture-input seam:
+precipitation dries over flat land in both wind directions, and adding one
+ridge produces windward enhancement and a lee deficit that exchange sides with
+wind reversal. Its explicit trailing-window mass ledger closes near roundoff.
+The current irregular-cell eddy diffusion is not exactly conservative, but its
+measured drift is only 0.003–0.004% of reaction throughput in this fixture;
+retain that as bounded numerical debt. Together these results retain
+transported moisture for its current product role. They do not validate how
+the production atmosphere derives wind and orographic uplift from terrain.
+Coast geometry/generalization and event-level repair provenance remain open.
 
 ## Next bounded slice: Water Geography V0
 
@@ -139,8 +146,9 @@ already informative worlds:
 
 1. **Completed:** compare current climate/runoff with a
    latitude–elevation–coast-distance baseline at the accepted reference rung;
-2. **Next:** use one-barrier wind reversal and topography removal as causal
-   correspondence controls, not a parameter sweep;
+2. **Completed at the moisture-input seam:** use matched flat/ridge and forward/
+   reverse-wind controls to establish fetch drying, barrier-side response and
+   an explicit moisture ledger without a parameter sweep;
 3. use connected ocean identity consistently when attributing moisture source;
 4. derive one shared water-geography report: oceans, lakes, basins, outlets,
    spills, river mouths/reaches/trunks, coast/island hierarchy and repair-cut

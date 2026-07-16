@@ -187,6 +187,10 @@ vertical-slice test.
   ten seeds, the null preserves routing but loses coherent wet/dry geography,
   expands thresholded reaches on every world and usually changes river roles
   and lake state;
+- **Completed moisture-input correspondence:** a deterministic flat/ridge,
+  forward/reverse-wind battery shows drying with fetch in either direction and
+  windward enhancement plus lee suppression that exchange sides with wind;
+  raw rain, recycling and the explicit trailing-window mass ledger agree;
 - **Completed first seam:** use one connected-ocean classification rule for
   thermal coast distance, moisture sources and hydrology classification;
 - **Completed first report:** derive aggregate oceans/land components,
@@ -205,11 +209,16 @@ sediment, vegetation or erosion tuning inside this slice.
 
 The conditional projection is an in-world diagnostic null, not a cheap
 replacement: it is fitted from product precipitation and the representative
-panel rejects it as a product substitute. Transport provisionally earns its
-role through coherent and consequential residual geography. Before calling that
-role physically validated, run the minimal one-barrier wind-reversal and
-topography-removal correspondence controls; do not broaden this into a climate
-feature or tuning campaign.
+panel rejects it as a product substitute. The manufactured battery establishes
+that the moisture operator itself preserves the claimed causal signs; it does
+not establish that production terrain and circulation derive the right wind
+and uplift fields. Transport therefore earns retention as a cheap,
+consequential authentic model, not as a simulation-grade atmosphere. Its
+irregular-cell eddy diffusion has small observed but nonzero mass drift, and
+its face-flux discretization differs from atmosphere projection; these are
+declared numerical debts rather than reasons to start a climate rewrite. Do
+not broaden this into a climate feature or tuning campaign without a concrete
+consumer consequence.
 
 ### Sediment candidate: research and design gate
 

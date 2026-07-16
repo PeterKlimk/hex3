@@ -57,13 +57,20 @@ Mapped reference/outlier worlds (`12345, 8675309, 1001`) show why: the null
 preserves the broad skeleton but smooths away oriented coastal/barrier wetness
 and coherent continental dry regions, producing broadly more uniform flow and
 widespread river-threshold changes. Therefore the conditional null is rejected
-as a replacement and transported moisture provisionally earns its cheap
-downstream role. This is a value verdict, not yet a physical-validation verdict.
-The next climate task is the already identified minimal correspondence battery:
-flat mixed land/ocean, one barrier, wind reversal and topography removal, with
-moisture closure. It should test whether the valuable residual changes side and
-vanishes for the claimed reasons; do not tune rainfall or add climate scope
-before that result.
+as a replacement and transported moisture earns its cheap downstream role.
+
+The minimal manufactured correspondence battery now passes at the direct
+moisture-input seam. In matched flat forward/reverse arms, coastal-entry raw
+rain exceeds continental-exit rain by 6.565x/6.523x. Relative to those flat
+controls, one analytic ridge adds `+0.011790`/`+0.011524` raw rain on the
+windward side and `-0.004000`/`-0.003972` on the lee side; reversal exchanges
+the sides. All arms converge normally in 254–291 iterations. Explicit closure
+is within `2.8e-8` of reaction throughput and paired finite-volume advection
+within `6.3e-9` of gross transport. Irregular-cell neighbor-mean diffusion is
+not exactly conservative, but its positive drift is only 0.003–0.004% of
+reaction throughput here; record this as bounded debt, not a tuning prompt.
+This is a causal-response verdict for supplied ocean/wind/uplift fields, not a
+validation of their production derivation from terrain and circulation.
 
 Do not continue the R1 arithmetic ladder, tune legacy mountain profiles or add
 another organization rung by momentum. Preserve H as a null, C as research
@@ -905,9 +912,13 @@ explicit persistent skeleton, or a physical channel-initiation threshold.
 - Climate and hydrology are cheap relative to erosion and are important future
   inputs. A simple-climatology comparison asks what additional conditional
   geography consumers may rely on; it does not assume removal is desirable.
-- Open tests: wind reversal/rain-shadow response, shared ocean identification,
-  moisture budget/normalization meaning, precipitation's effect on river
-  importance, and downstream stability.
+- Completed: shared ocean identification; conditional-climatology downstream
+  comparison; manufactured wind reversal, fetch and rain-shadow response; raw
+  rain/normalization correspondence; and an explicit moisture ledger.
+- Open boundary: whether production circulation and terrain derive suitable
+  face flux and orographic-uplift fields. The atmosphere projection and
+  moisture advection use different face-flux formulas; eddy diffusion is only
+  approximately conservative on the irregular Voronoi mesh.
 
 ### Presentation and visual evidence
 

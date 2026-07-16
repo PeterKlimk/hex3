@@ -24,6 +24,49 @@ pub struct MoistureResult {
     /// Precipitation rate per cell, normalized to an area-weighted mean of 1.0
     /// over non-ocean land so hydrology receives a stable global supply.
     pub precipitation: Vec<f32>,
+    /// Solver and trailing-window budget evidence. This is diagnostic state;
+    /// product consumers should continue to use `precipitation`.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) diagnostics: MoistureDiagnostics,
+}
+
+/// Diagnostics for the exact trailing window used to construct precipitation.
+///
+/// Every mass is area-integrated. The closure identity is
+///
+/// `end = start + evaporation - ocean_rain - land_rain + land_recycle
+///              + advection_change + diffusion_change + closure_residual`.
+#[derive(Debug)]
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) struct MoistureDiagnostics {
+    pub dt: f32,
+    pub react_dt: f32,
+    pub iterations: usize,
+    pub converged: bool,
+    pub forced_window: bool,
+    pub measurement_count: usize,
+    /// Factor mapping `raw_mean_precipitation` to product precipitation.
+    pub normalization_factor: f64,
+    pub normalization_fallback: bool,
+    pub measurement_start_airborne_mass: f64,
+    pub measurement_end_airborne_mass: f64,
+    pub evaporation_mass: f64,
+    pub ocean_rain_mass: f64,
+    pub land_rain_mass: f64,
+    pub land_recycle_mass: f64,
+    pub gross_advected_mass: f64,
+    pub advection_mass_change: f64,
+    pub diffusion_mass_change: f64,
+    pub closure_residual: f64,
+    pub raw_mean_precipitation: Vec<f32>,
+}
+
+fn area_integrated_mass(field: &[f32], areas: &[f32]) -> f64 {
+    field
+        .iter()
+        .zip(areas)
+        .map(|(&value, &area)| f64::from(value) * f64::from(area))
+        .sum()
 }
 
 /// Temperature-dependent moisture carrying capacity (warm air holds more).
@@ -71,10 +114,9 @@ pub fn simulate_moisture(
     //
     // For each edge (i, j) the volume flux is u_n * L (edge-normal wind times
     // edge length); the moisture carried is the upwind cell's. This is the
-    // standard consistent FV discretization: for the (divergence-free,
-    // post-projection) wind field the net transport per cell vanishes by
-    // construction, instead of manufacturing cell-scale convergence noise
-    // the way per-donor alignment weights do.
+    // standard consistent FV discretization. Paired transfers conserve global
+    // area-integrated moisture; local convergence still depends on the supplied
+    // face fluxes (whose discretization is not identical to wind projection).
     struct Edge {
         a: usize,
         b: usize,
@@ -165,7 +207,30 @@ pub fn simulate_moisture(
     let mut measuring = false;
     let mut measure_count = 0usize;
     let mut prev = vec![0.0f32; num_cells];
+    let mut iterations = 0usize;
+    let mut converged = false;
+    let mut forced_window = false;
+    let mut measurement_start_airborne_mass = 0.0f64;
+    let mut measurement_end_airborne_mass = 0.0f64;
+    let mut evaporation_mass = 0.0f64;
+    let mut ocean_rain_mass = 0.0f64;
+    let mut land_rain_mass = 0.0f64;
+    let mut land_recycle_mass = 0.0f64;
+    let mut gross_advected_mass = 0.0f64;
+    let mut advection_mass_change = 0.0f64;
+    let mut diffusion_mass_change = 0.0f64;
     for iter in 0..MOISTURE_MAX_ITERATIONS {
+        // Reserve the entire trailing window when convergence has not yet been
+        // observed. Starting at the beginning of this iteration avoids the old
+        // capped-run off-by-one (which collected only window - 1 samples).
+        if !measuring && iter >= force_at {
+            measuring = true;
+            forced_window = true;
+        }
+        if measuring && measure_count == 0 {
+            measurement_start_airborne_mass = area_integrated_mass(&moisture, &areas);
+        }
+
         prev.copy_from_slice(&moisture);
 
         for i in 0..num_cells {
@@ -173,7 +238,11 @@ pub fn simulate_moisture(
 
             // Evaporation: water cells relax toward carrying capacity.
             if is_ocean[i] {
-                m += evap_factor * (capacity[i] - m).max(0.0);
+                let evaporation = evap_factor * (capacity[i] - m).max(0.0);
+                m += evaporation;
+                if measuring {
+                    evaporation_mass += f64::from(evaporation) * f64::from(areas[i]);
+                }
             }
 
             // Rainout: static rate (baseline + orographic) plus convective
@@ -195,7 +264,14 @@ pub fn simulate_moisture(
             m -= rain;
             // Evapotranspiration recycling returns part of land rain to the air.
             if !is_ocean[i] {
-                m += rain * MOISTURE_RECYCLE_FRACTION;
+                let recycle = rain * MOISTURE_RECYCLE_FRACTION;
+                m += recycle;
+                if measuring {
+                    land_rain_mass += f64::from(rain) * f64::from(areas[i]);
+                    land_recycle_mass += f64::from(recycle) * f64::from(areas[i]);
+                }
+            } else if measuring {
+                ocean_rain_mass += f64::from(rain) * f64::from(areas[i]);
             }
             if measuring {
                 precip_accum[i] += rain;
@@ -206,6 +282,11 @@ pub fn simulate_moisture(
 
         // Transport pass: upwind edge fluxes (separate so all rain and
         // evaporation uses pre-transport values).
+        let mass_before_advection = if measuring {
+            area_integrated_mass(&moisture, &areas)
+        } else {
+            0.0
+        };
         next.copy_from_slice(&moisture);
         for e in &edges {
             // Upwind donor: the cell the flux leaves.
@@ -216,16 +297,28 @@ pub fn simulate_moisture(
             };
             let receiver = e.a + e.b - donor;
             let transported = dt * amount;
+            if measuring {
+                gross_advected_mass += f64::from(transported);
+            }
             next[donor] -= transported / areas[donor].max(1e-12);
             next[receiver] += transported / areas[receiver].max(1e-12);
         }
         std::mem::swap(&mut moisture, &mut next);
+        if measuring {
+            advection_mass_change +=
+                area_integrated_mass(&moisture, &areas) - mass_before_advection;
+        }
 
         // Eddy diffusion: horizontal turbulent mixing alongside advection
         // (standard in atmospheric transport models). Keeps the moisture
         // field smooth at the mesh scale for physical reasons rather than
         // post-hoc filtering. Scaled by react_dt (via mix_frac) so total mixing
         // is resolution-consistent.
+        let mass_before_diffusion = if measuring {
+            area_integrated_mass(&moisture, &areas)
+        } else {
+            0.0
+        };
         next.copy_from_slice(&moisture);
         for i in 0..num_cells {
             let neighbors = tessellation.neighbors(i);
@@ -237,6 +330,11 @@ pub fn simulate_moisture(
             next[i] = moisture[i] + mix_frac * (mean - moisture[i]);
         }
         std::mem::swap(&mut moisture, &mut next);
+        if measuring {
+            diffusion_mass_change +=
+                area_integrated_mass(&moisture, &areas) - mass_before_diffusion;
+            measurement_end_airborne_mass = area_integrated_mass(&moisture, &areas);
+        }
 
         // Convergence: max per-cell change relative to mean moisture.
         let mut max_delta = 0.0f32;
@@ -246,14 +344,16 @@ pub fn simulate_moisture(
             total_m += moisture[i];
         }
         let mean_m = total_m / num_cells as f32;
-        let converged = mean_m > 1e-12 && max_delta < MOISTURE_CONV_TOL * mean_m;
+        let converged_now = mean_m > 1e-12 && max_delta < MOISTURE_CONV_TOL * mean_m;
+        converged |= converged_now;
+        iterations = iter + 1;
 
         if measuring {
             measure_count += 1;
             if measure_count >= MOISTURE_AVG_WINDOW {
                 break;
             }
-        } else if converged || iter >= force_at {
+        } else if converged_now {
             measuring = true;
         }
     }
@@ -282,16 +382,58 @@ pub fn simulate_moisture(
             .sum::<f32>()
             / total_area.max(1e-12) // waterworld fallback
     };
-    let precipitation: Vec<f32> = if mean > 1e-12 {
-        let k = PRECIP_GLOBAL_SCALE / mean;
-        precip_accum.iter().map(|&p| p * k).collect()
+    let (precipitation, normalization_factor, normalization_fallback): (Vec<f32>, f64, bool) =
+        if mean > 1e-12 {
+            let k = PRECIP_GLOBAL_SCALE / mean;
+            (
+                precip_accum.iter().map(|&p| p * k).collect(),
+                f64::from(k) * measure_count as f64,
+                false,
+            )
+        } else {
+            (vec![PRECIP_GLOBAL_SCALE; num_cells], 0.0, true) // degenerate (no rain): uniform
+        };
+
+    let raw_mean_precipitation = if measure_count > 0 {
+        let inverse_count = 1.0 / measure_count as f32;
+        precip_accum
+            .iter()
+            .map(|&rain| rain * inverse_count)
+            .collect()
     } else {
-        vec![PRECIP_GLOBAL_SCALE; num_cells] // degenerate (no rain): uniform
+        vec![0.0; num_cells]
     };
+    let expected_end =
+        measurement_start_airborne_mass + evaporation_mass - ocean_rain_mass - land_rain_mass
+            + land_recycle_mass
+            + advection_mass_change
+            + diffusion_mass_change;
+    let closure_residual = measurement_end_airborne_mass - expected_end;
 
     MoistureResult {
         moisture,
         precipitation,
+        diagnostics: MoistureDiagnostics {
+            dt,
+            react_dt,
+            iterations,
+            converged,
+            forced_window,
+            measurement_count: measure_count,
+            normalization_factor,
+            normalization_fallback,
+            measurement_start_airborne_mass,
+            measurement_end_airborne_mass,
+            evaporation_mass,
+            ocean_rain_mass,
+            land_rain_mass,
+            land_recycle_mass,
+            gross_advected_mass,
+            advection_mass_change,
+            diffusion_mass_change,
+            closure_residual,
+            raw_mean_precipitation,
+        },
     }
 }
 
@@ -300,6 +442,203 @@ mod tests {
     use super::*;
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
+    use std::f32::consts::PI;
+
+    struct ManufacturedArm {
+        name: &'static str,
+        result: MoistureResult,
+    }
+
+    fn manufactured_arm(
+        tessellation: &Tessellation,
+        name: &'static str,
+        direction: f32,
+        with_ridge: bool,
+    ) -> ManufacturedArm {
+        let n = tessellation.num_cells();
+        let is_ocean: Vec<bool> = (0..n)
+            .map(|i| tessellation.cell_center(i).z > 0.0)
+            .collect();
+        let temperature = vec![0.7; n];
+
+        // Rotation about +Y carries equatorial air toward decreasing longitude.
+        // Scale by mean spacing so the manufactured mesh runs near the product
+        // reaction timestep instead of accidentally testing an extreme CFL arm.
+        let speed = MOISTURE_CFL * tessellation.mean_cell_area().sqrt() / MOISTURE_DT_REF;
+        let wind: Vec<Vec3> = (0..n)
+            .map(|i| direction * speed * Vec3::Y.cross(tessellation.cell_center(i)))
+            .collect();
+
+        // Analytic ridge height h(theta), centered halfway across the land
+        // hemisphere. Uplift is dh/ds along the imposed wind, normalized so its
+        // maximum absolute value is one. Reversing wind therefore swaps ascent
+        // and descent without changing the ridge itself.
+        let sigma = 0.25f32;
+        let max_abs_derivative = (-0.5f32).exp() / sigma;
+        let uplift: Vec<f32> = (0..n)
+            .map(|i| {
+                let p = tessellation.cell_center(i);
+                if !with_ridge || p.z > 0.0 {
+                    return 0.0;
+                }
+                let theta = p.z.atan2(p.x);
+                let offset = theta + PI * 0.5;
+                let height = (-0.5 * (offset / sigma).powi(2)).exp();
+                let dh_dtheta = -offset * height / sigma.powi(2);
+                -direction * dh_dtheta / max_abs_derivative
+            })
+            .collect();
+
+        ManufacturedArm {
+            name,
+            result: simulate_moisture(tessellation, &is_ocean, &temperature, &wind, &uplift),
+        }
+    }
+
+    fn band_mean(
+        tessellation: &Tessellation,
+        field: &[f32],
+        theta_min: f32,
+        theta_max: f32,
+    ) -> f64 {
+        let areas = tessellation.cell_areas();
+        let (weighted, area) = (0..tessellation.num_cells())
+            .filter_map(|i| {
+                let p = tessellation.cell_center(i);
+                let theta = p.z.atan2(p.x);
+                (p.y.abs() < 0.25 && theta >= theta_min && theta < theta_max)
+                    .then_some((f64::from(field[i] * areas[i]), f64::from(areas[i])))
+            })
+            .fold((0.0, 0.0), |(sum, area), (value, cell_area)| {
+                (sum + value, area + cell_area)
+            });
+        assert!(area > 0.0, "manufactured analysis band has no cells");
+        weighted / area
+    }
+
+    fn assert_arm_contract(tessellation: &Tessellation, arm: &ManufacturedArm) {
+        let n = tessellation.num_cells();
+        let areas = tessellation.cell_areas();
+        let is_ocean = |i: usize| tessellation.cell_center(i).z > 0.0;
+        assert!(arm
+            .result
+            .moisture
+            .iter()
+            .all(|m| m.is_finite() && *m >= 0.0));
+        assert!(arm
+            .result
+            .precipitation
+            .iter()
+            .chain(&arm.result.diagnostics.raw_mean_precipitation)
+            .all(|p| p.is_finite() && *p >= 0.0));
+
+        let (land_rain, land_area) =
+            (0..n)
+                .filter(|&i| !is_ocean(i))
+                .fold((0.0f64, 0.0f64), |(rain, area), i| {
+                    (
+                        rain + f64::from(arm.result.precipitation[i] * areas[i]),
+                        area + f64::from(areas[i]),
+                    )
+                });
+        let land_mean = land_rain / land_area;
+        assert!(
+            (land_mean - f64::from(PRECIP_GLOBAL_SCALE)).abs() < 1.0e-5,
+            "{} normalized land mean = {land_mean}",
+            arm.name
+        );
+
+        let d = &arm.result.diagnostics;
+        assert!(d.converged, "{} did not converge", arm.name);
+        assert!(!d.forced_window, "{} used forced window", arm.name);
+        assert!(
+            !d.normalization_fallback,
+            "{} normalized by fallback",
+            arm.name
+        );
+        assert!(d.normalization_factor.is_finite() && d.normalization_factor > 0.0);
+        assert!(
+            d.measurement_start_airborne_mass.is_finite()
+                && d.measurement_start_airborne_mass >= 0.0
+                && d.measurement_end_airborne_mass.is_finite()
+                && d.measurement_end_airborne_mass >= 0.0
+        );
+        assert_eq!(d.measurement_count, MOISTURE_AVG_WINDOW);
+        for (&raw, &normalized) in d
+            .raw_mean_precipitation
+            .iter()
+            .zip(&arm.result.precipitation)
+        {
+            assert!(
+                (f64::from(raw) * d.normalization_factor - f64::from(normalized)).abs() < 1.0e-5,
+                "{} normalization diagnostic does not reproduce product precipitation",
+                arm.name
+            );
+        }
+
+        let (raw_land_rain, raw_ocean_rain) = (0..n).fold((0.0f64, 0.0f64), |sum, i| {
+            let rain = f64::from(d.raw_mean_precipitation[i]) * f64::from(areas[i]);
+            if is_ocean(i) {
+                (sum.0, sum.1 + rain)
+            } else {
+                (sum.0 + rain, sum.1)
+            }
+        });
+        let sample_count = d.measurement_count as f64;
+        let ledger_match =
+            |measured: f64, ledger: f64| (measured - ledger).abs() / ledger.abs().max(f64::EPSILON);
+        assert!(
+            ledger_match(raw_land_rain * sample_count, d.land_rain_mass) < 1.0e-6,
+            "{} raw land rain does not reproduce the ledger",
+            arm.name
+        );
+        assert!(
+            ledger_match(raw_ocean_rain * sample_count, d.ocean_rain_mass) < 1.0e-6,
+            "{} raw ocean rain does not reproduce the ledger",
+            arm.name
+        );
+        assert!(
+            ledger_match(
+                d.land_recycle_mass,
+                d.land_rain_mass * f64::from(MOISTURE_RECYCLE_FRACTION),
+            ) < 1.0e-6,
+            "{} land recycling does not match its declared fraction",
+            arm.name
+        );
+
+        let reaction_throughput =
+            d.evaporation_mass + d.ocean_rain_mass + d.land_rain_mass + d.land_recycle_mass;
+        let closure_ratio = d.closure_residual.abs() / reaction_throughput.max(f64::EPSILON);
+        let advection_ratio =
+            d.advection_mass_change.abs() / d.gross_advected_mass.max(f64::EPSILON);
+        let diffusion_ratio = d.diffusion_mass_change.abs() / reaction_throughput.max(f64::EPSILON);
+        println!(
+            "{}: iterations={} dt={:.6} react_dt={:.4} closure={:+.3e} ({:.3e}) advection={:+.3e}/{:.3e} ({:.3e}) diffusion={:+.3e} ({:.3e} reaction throughput)",
+            arm.name,
+            d.iterations,
+            d.dt,
+            d.react_dt,
+            d.closure_residual,
+            closure_ratio,
+            d.advection_mass_change,
+            d.gross_advected_mass,
+            advection_ratio,
+            d.diffusion_mass_change,
+            diffusion_ratio,
+        );
+        assert!(
+            closure_ratio < 1.0e-5,
+            "{} explicit moisture ledger does not close: {closure_ratio:e}",
+            arm.name
+        );
+        assert!(
+            advection_ratio < 1.0e-6,
+            "{} finite-volume advection changed global mass: {advection_ratio:e}",
+            arm.name
+        );
+        // Deliberately no acceptance assertion on diffusion drift. The printed
+        // ratio is evidence for deciding whether this discretization is viable.
+    }
 
     #[test]
     fn precipitation_normalized_and_finite() {
@@ -353,5 +692,86 @@ mod tests {
     fn signed_uplift_suppresses_static_rainout_without_going_negative() {
         assert!(static_rain_rate(1.0) > static_rain_rate(0.0));
         assert_eq!(static_rain_rate(-10.0), 0.0);
+    }
+
+    #[test]
+    fn manufactured_moisture_correspondence() {
+        let mut rng = ChaCha8Rng::seed_from_u64(0x5eed_cafe);
+        let tessellation = Tessellation::generate(4000, 1, &mut rng);
+        let flat_forward = manufactured_arm(&tessellation, "flat-forward", 1.0, false);
+        let flat_reverse = manufactured_arm(&tessellation, "flat-reverse", -1.0, false);
+        let ridge_forward = manufactured_arm(&tessellation, "ridge-forward", 1.0, true);
+        let ridge_reverse = manufactured_arm(&tessellation, "ridge-reverse", -1.0, true);
+
+        for arm in [&flat_forward, &flat_reverse, &ridge_forward, &ridge_reverse] {
+            assert_arm_contract(&tessellation, arm);
+        }
+
+        let coast_width = 0.55;
+        let coast_gap = 0.15;
+        let forward_entry = band_mean(
+            &tessellation,
+            &flat_forward.result.diagnostics.raw_mean_precipitation,
+            -coast_width,
+            -coast_gap,
+        );
+        let forward_exit = band_mean(
+            &tessellation,
+            &flat_forward.result.diagnostics.raw_mean_precipitation,
+            -PI + coast_gap,
+            -PI + coast_width,
+        );
+        let reverse_entry = band_mean(
+            &tessellation,
+            &flat_reverse.result.diagnostics.raw_mean_precipitation,
+            -PI + coast_gap,
+            -PI + coast_width,
+        );
+        let reverse_exit = band_mean(
+            &tessellation,
+            &flat_reverse.result.diagnostics.raw_mean_precipitation,
+            -coast_width,
+            -coast_gap,
+        );
+        println!(
+            "fetch: forward entry/exit={forward_entry:.6}/{forward_exit:.6} ({:.3}x), reverse entry/exit={reverse_entry:.6}/{reverse_exit:.6} ({:.3}x)",
+            forward_entry / forward_exit,
+            reverse_entry / reverse_exit,
+        );
+        assert!(
+            forward_entry > forward_exit && reverse_entry > reverse_exit,
+            "fetch drying did not reverse with wind"
+        );
+
+        let ridge_gap = 0.12;
+        let ridge_width = 0.5;
+        let forward_windward = (-PI * 0.5 + ridge_gap, -PI * 0.5 + ridge_width);
+        let forward_leeward = (-PI * 0.5 - ridge_width, -PI * 0.5 - ridge_gap);
+        let raw = |arm: &ManufacturedArm, band: (f32, f32)| {
+            band_mean(
+                &tessellation,
+                &arm.result.diagnostics.raw_mean_precipitation,
+                band.0,
+                band.1,
+            )
+        };
+        let ff_windward_delta =
+            raw(&ridge_forward, forward_windward) - raw(&flat_forward, forward_windward);
+        let ff_leeward_delta =
+            raw(&ridge_forward, forward_leeward) - raw(&flat_forward, forward_leeward);
+        let fr_windward_delta =
+            raw(&ridge_reverse, forward_leeward) - raw(&flat_reverse, forward_leeward);
+        let fr_leeward_delta =
+            raw(&ridge_reverse, forward_windward) - raw(&flat_reverse, forward_windward);
+        println!(
+            "ridge-minus-flat raw rain: forward windward={ff_windward_delta:+.6} leeward={ff_leeward_delta:+.6}; reverse windward={fr_windward_delta:+.6} leeward={fr_leeward_delta:+.6}"
+        );
+        assert!(
+            ff_windward_delta > 0.0
+                && ff_leeward_delta < 0.0
+                && fr_windward_delta > 0.0
+                && fr_leeward_delta < 0.0,
+            "ridge enhancement/shadow did not switch sides with wind"
+        );
     }
 }
