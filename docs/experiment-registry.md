@@ -58,6 +58,7 @@ tracked independently below; none is promoted product behavior.
 | O3B | Regional organization should emerge from a frozen drainage-first scaffold | Isolate the existing A4 burn-in/trunk/interfluve idea from its parked emergent/O0 stack; compare the same objects/budgets as O3A | Paused as a product candidate after research reframe; retain as a synthetic-topology control for the organization-owner testbed |
 | O3C | An explicit persistent crest/divide graph is necessary | Joint positive and negative objects, zero-net authoritative redistribution, not crest-only; compare with O3A/O3B | Reframed as the explicit-skeleton structural upper bound in the organization-owner testbed, not a presumptive product implementation |
 | O4 | Existing erosion can dismantle a broad cap when repeated rebuild no longer suppresses reorganization | Fixed current cap; rebuild off/reduced; bounded drainage/base-level perturbation | Folded into the locked hold-and-carve/control family; secondary to the coupled representation decision |
+| HCG4 | A hold/carve, reduced coupled or graph-first owner can organize one shared linked deformation pair | Exact thin 4 km H/C/G execution, common S0/D0/O0a evidence, work/ledger closure and sharp matched physical profiles | Completed negative discriminator: shared static forcing contains long exact along-strike interiors; H preserves the roof, C adds local texture without regional segmentation, G adds steps/spikes. No arm promoted; current G stops and the forcing compiler is the next seam |
 
 Success requires authoritative pre/final morphology and at least one downstream
 hydrology or climate organization signature to improve under the declared
@@ -65,15 +66,15 @@ budget. Peak count or render appeal alone is not sufficient. Research basis:
 [`research/orogen-organization-2026-07-12.md`](research/orogen-organization-2026-07-12.md).
 
 The zoomed-out disposition supersedes O3B/O3C as separate presumed next
-implementations. The next planned discriminator is one organization-owner slice
-with three comparable families: locked hold-and-carve H, reduced coupled C and
-graph-first authentic G. Its shared admissible inputs, arm-neutral opportunity
-authority and declared arm-specific conversions, resource ceiling and
-independent object extraction must be fixed before implementation. The
+implementations. The thin H/C/G discriminator is now implemented and evaluated,
+but only as a non-authoritative 4 km source comparison. It rejects the shared
+static-ribbon representation and current G reconstruction before promotion: the
+compiler ignores segment links/vergence, has zero horizontal motion and exposes
+long exactly uniform interiors. The next experiment is an inherited,
+work-conserving finite-segment organization graph feeding H as control and C as
+evolving response. The
 [comparison design envelope](research/orogen-organization-owner-v0-2026-07-16.md)
-now freezes the families, work-matching and whole-domain/central evaluation
-boundary, but is deliberately not an executable wire/verdict contract. Status:
-design selected; exact
+remains the historical family/work/evidence boundary; exact
 [artifact/provenance](research/orogen-organization-artifact-v0-2026-07-16.md)
 and
 [numerical/admission](research/orogen-organization-numerical-v0-2026-07-16.md)
@@ -81,9 +82,9 @@ and
 [evidence/projection](research/orogen-organization-evidence-v0-2026-07-16.md)
 and
 [planar capture/human review](research/orogen-organization-planar-review-v0-2026-07-16.md)
-are preregistered; no promotion-grade arm result is implemented, evaluated or
-promoted. One non-authoritative 4 km engineering probe is authorized for
-composition debugging and cannot change an arm's experiment status. See the
+are preregistered. No promotion-grade arm result is implemented or promoted;
+the completed source probe changes the research direction, not product status.
+See the
 [landscape organization strategy](landscape-strategy.md). The
 [landform object packet v0](research/landform-object-packet-v0-2026-07-14.md)
 now preregisters the common evidence vocabulary and rung order. It does not yet
@@ -106,9 +107,10 @@ remapping and whole-artifact reversal gates; the
 [dated O0b audit](audits/landform-o0b-correspondence-2026-07-15.md) records the
 verdict and cost. Its flat-routing apron is compatibility-only, and the failed
 linked-four-cone 2 km packet remains historical S0/D0 representation evidence.
-This is not product or spherical O0b promotion. Persistent identity/events,
-the product O0a adapter and every H/C/G comparison arm remain unregistered or
-unevaluated as applicable; no terrain arm is promoted. The
+This is not product or spherical O0b promotion. Persistent identity/events and
+the product O0a adapter remain unregistered. Thin source H/C/G observations are
+now evaluated outside the promotion packet boundary; no terrain arm is
+promoted. The
 [product-boundary decision](research/landform-product-boundary-decision-2026-07-15.md)
 retires the combined packet/product R0 formulation. The executable
 [common-core contract](research/landform-common-core-v0-2026-07-15.md) is the

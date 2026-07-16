@@ -208,14 +208,40 @@ and exact
 [evidence/projection amendment](research/orogen-organization-evidence-v0-2026-07-16.md)
 and exact
 [planar capture/human-review amendment](research/orogen-organization-planar-review-v0-2026-07-16.md)
-are now preregistered. This completes the executable design boundary; no arm is
-yet implemented, evaluated or promoted.
+are now preregistered. A deliberately thin 4 km H/C/G source implementation and
+common numerical/visual discriminator now exist. They are not promotion-grade
+arm packets and no arm is promoted.
 
 ### Question
 
 Which minimum owner produces causally placed and reusable range/drainage
 organization at a justified cost: reduced coevolution or graph-first
 reconstruction?
+
+### First discriminator result
+
+The first result is negative for the shared input representation before it is a
+choice between owners. Each linked segment contains about `196 km` of exactly
+constant along-strike forcing; both segments share one synchronous episode and
+equal work. Their declared links and vergence have no compiler mechanics,
+horizontal velocity is zero, and material and runoff are homogeneous.
+
+Sharp common-crop views and matched profiles show long physical roofs in both H
+and C. H maintains them through its pointwise hold. C adds local drainage
+texture but has no regional inherited or moving state with which to break the
+roof. G turns the same opportunity into discontinuous steps and spikes. The
+current G reconstruction therefore stops; H remains the null/control; and the
+present C instance does not justify its roughly two-times-H runtime. This does
+not reject the reduced coupled family under a better causal forcing owner.
+
+The next architecture seam is upstream of H/C: a persistent orogen organization
+graph over real boundary chains and plate-bound inheritance. It should allocate
+one conserved shortening/work budget among finite linked, tapered,
+polarity-aware deformation patches that can nucleate, link, migrate and retire.
+It emits rock-uplift/loading opportunity, not elevation. Existing drainage and
+hillslope operators then determine how much extra organization C earns beyond a
+direct-forcing H control. See the updated
+[mountain-system design basis](research/mountain-system-design-basis-2026-07-13.md).
 
 ### Shared setting
 
@@ -326,8 +352,9 @@ packet. The next organization prerequisite is the executable
 against accepted manufactured packets. Inventory corrected an important
 category error: the linked scenario defines forcing and shared inputs, not a
 pre-arm final terrain. Its shared-input manifest must remain separate from
-the final-surface evidence produced by H/C/G. This is not permission to
-implement H/C/G or claim product-to-testbed correspondence.
+the final-surface evidence produced by H/C/G. The thin source implementation
+now exercises that separation, but does not establish product-to-testbed
+correspondence or authorize promotion infrastructure.
 
 The current common packet supplies operational reference highlands,
 peak/saddle topology, drainage nodes/catchments/reaches, raw boundary evidence

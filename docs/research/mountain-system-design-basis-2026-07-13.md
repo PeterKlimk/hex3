@@ -18,6 +18,119 @@ coevolve with that forcing; and surface elevation is the outcome. A synthetic
 drainage graph and an explicit ridge/valley skeleton remain valuable controls,
 not presumed product solutions.
 
+## 2026-07-16 discriminator update
+
+The thin 4 km H/C/G discriminator has resolved the first architectural question
+negatively. It did not identify a winning organization owner because the shared
+forcing representation lacks the regional degrees of freedom that the owners
+were meant to organize.
+
+The linked case consists of two geometrically equal `350 × 100 km` support
+segments, one synchronous episode, equal work shares and cosine taper confined
+to the terminal 22% of each segment. The central 56%—about `196 km`—is exactly
+constant along strike. Segment links and vergence are retained but ignored by
+the compiler, horizontal velocity is zero, material and runoff are homogeneous,
+and the overlap is stencil addition rather than a mechanical transfer zone.
+
+The sharp matched diagnostic and physical profiles show the consequence:
+
+- H restores the pointwise displacement target before every carve pass and
+  explicitly maintains the long roof;
+- C recomputes routing and erosion as the surface evolves, but receives the
+  same static spatial stencil and has no inherited localization, moving support
+  or persistent channel state; it adds local texture without breaking the roof;
+- G uses the displacement opportunity both to plan its minimax forest and to
+  scale reconstructed edge rises, converting the roof into steps and spikes;
+  and
+- one release realization costs about `323 s` for H, `636 s` for C and `2.25 s`
+  for G. G's speed does not compensate for failed morphology, while C must
+  demonstrate much more value before its cost is justified.
+
+Evidence is retained in
+`artifacts/captures/orogen-owner-hcg-4km-diagnostic-2026-07-16/`. This is a
+negative result for the shared static-ribbon representation and the current G
+reconstruction. H remains a null/control. The broader reduced-coupled family
+remains plausible, but the present C instantiation is not a viable product
+candidate or evidence that erosion alone should create massifs from a uniform
+ribbon.
+
+### Refined physical and production prior
+
+Real and simulated belts generally acquire first-order along-strike structure
+before surface erosion finishes the terrain. Persistent inherited weakness,
+strong blocks, fault-system localization, bends and stepovers, differential
+collision onset and changing motion produce finite active domains, relay zones
+and abandoned structures. Drainage competition makes those differences legible
+and can amplify them; it should not carry the entire burden of symmetry
+breaking. Inherited-rift models produce non-cylindrical belts and topographic
+transition lows ([Gouiza and Naliboff 2021](https://www.nature.com/articles/s41467-021-24945-5),
+[linked-rift inversion study](https://www.nature.com/articles/s41467-025-66695-8));
+fault observations and models retain nested segments, displacement maxima and
+intersegment lows ([Manighetti et al. 2015](https://agupubs.onlinelibrary.wiley.com/doi/full/10.1002/2014GC005691)).
+
+Graphics reaches a compatible reduction. Schott et al. author hierarchical
+curve-based **uplift** segments with varying width and along-strike intensity,
+then let stream-power erosion construct terrain. Their important lesson is that
+warping or blending final elevation damages drainage and proportions, whereas
+structure placed in the uplift domain survives the physical response
+([Large-scale Terrain Authoring through Interactive Erosion Simulation](https://artefacts-discovery.researcher.life/full_text/DA-2/33/332155303592301b8a92eeb517b04810/full_text/394ff426518242669ff7e43ffbfc4951.pdf)).
+Minimal uplift–incision–creep models likewise show how drainage competition
+creates finite ridge/valley spacing once meaningful forcing and initial
+asymmetry exist ([Perron et al. 2009](https://www.nature.com/articles/nature08174)).
+
+### Revised minimum mechanism
+
+Introduce a persistent **orogen organization graph** between boundary history
+and surface forcing. It is an authentic reduction of fault-system envelopes,
+not an explicit fault or geodynamic solver.
+
+On plate-bound material retain a small coherent inheritance field: competence
+or weakness, preferred fabric and a few strong blocks or weak lineaments. On
+each materially convergent boundary chain retain cumulative work,
+onset/maturity, local convergence and obliquity through time,
+damage/localization memory, active segment identity, endpoints, polarity and
+linkage/transfer relationships.
+
+The graph should:
+
+1. nucleate separated candidates from convergence work, inherited weakness and
+   fabric/stress alignment;
+2. grow a sparse hierarchy of overlapping finite parent/child segments rather
+   than independent Gaussian bumps;
+3. stop, bend, split or link segments at coherent material and kinematic
+   transitions, leaving finite relay zones and potential passes;
+4. make segments compete for one shortening/material-work budget;
+5. emit finite-width, polarity-aware rock-uplift/loading patches with conserved
+   integral work, never direct terrain height; and
+6. activate, migrate and abandon patches over a small number of meaningful
+   tectonic epochs, after which existing routing and erosion respond.
+
+At 4 km, useful starting *priors*, not constants, are inheritance correlation
+lengths of roughly 30–150 km, segment envelopes of 50–300 km and transfer lows
+at least 12–30 km wide. Graph construction should be approximately linear in
+cells plus active boundary faces and negligible beside repeated global routing.
+
+### Revised next bounded experiment
+
+Do not run another owner campaign yet. First replace only the flat linked
+forcing ribbon with a work-matched, inheritance-conditioned finite-segment
+graph. Inspect its uplift field and longitudinal work profiles before any long
+surface run; this prevents desired terrain from being smuggled in as elevation.
+Then run H once as a direct-forcing control and C once as the evolving response.
+
+The discriminator is whether the same total work and broad range width now
+produce persistent unequal massifs, finite passes and transfer lows without
+direct elevation noise, and whether C adds drainage/divide organization beyond
+what H simply inherits. The current G final-height reconstruction does not
+advance. Its cheap graph machinery may be reused only for segment placement or
+as a morphology upper bound, not to author the physical roof.
+
+Drainage memory, nonlinear hillslopes, analytical or implicit stream-power
+acceleration and one mobile sediment quantity remain possible later rungs.
+Flexure is broad load response and cannot create the missing segmentation;
+slab tears are exceptional events, not a universal pass generator. None belongs
+in the first causal test.
+
 ## Precise defect
 
 Reality and higher-fidelity models do not forbid plateaus. Broad high surfaces

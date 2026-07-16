@@ -293,7 +293,10 @@ and
 [evidence/projection contract](research/orogen-organization-evidence-v0-2026-07-16.md)
 and
 [planar capture/human-review contract](research/orogen-organization-planar-review-v0-2026-07-16.md)
-are now preregistered. Implementation and the frozen base campaign remain.
+are now preregistered. The thin 4 km source implementation and base observation
+are complete and negative for the shared static-ribbon representation. A frozen
+promotion campaign is not warranted. The next seam is the finite-segment
+forcing/organization graph described below.
 
 The current sequence is:
 
@@ -352,20 +355,21 @@ The current sequence is:
    [evidence/projection](research/orogen-organization-evidence-v0-2026-07-16.md);
    **completed:** exact
    [planar capture/human review](research/orogen-organization-planar-review-v0-2026-07-16.md);
-6. **source and repeatability complete; observation in progress:** build the
-   smallest end-to-end 4 km discriminator before more promotion infrastructure.
+6. **completed negative discriminator:** build the smallest end-to-end 4 km
+   discriminator before more promotion infrastructure.
    Exact H/C/G execution over the accepted linked input, deterministic repeats,
    final physical surfaces, essential ledgers/hashes and direct in-memory reuse
-   of S0/D0/reference-O0a now exist. Two release runs cost `615.98 s` for H and
-   `1111.37 s` for C; runtime is part of the ownership decision. Generate one
-   compact numerical comparison and one plain matched image from single runs
-   next. Full artifact/evidence/review machinery remains deferred until the
-   terrain shows that continuing an owner is worth that cost;
-7. run the linked-segment base case, advance every competitive arm meeting the
-   shared gate under the same preregistered rule, and retain H as the standing
-   control in every admitted forcing-reorganization and wet/dry case;
-8. decide ownership by object topology, causal response, matched human review
-   and compute/complexity cost; and
+   of S0/D0/reference-O0a now exist. Numerical output and sharp matched profiles
+   show the shared static ribbon already owns the long roof: H preserves it, C
+   only locally dissects it and G makes it discontinuous. No arm advances;
+7. **next:** replace only the linked static-ribbon forcing with a conservative,
+   inheritance-conditioned finite-segment organization graph. Validate its
+   uplift/work field and longitudinal profiles before a long terrain run. Reuse
+   boundary-front chains, plate-bound material state and actual kinematic
+   history where available; do not add direct elevation noise;
+8. run H once as the direct-forcing control and C once as the evolving response
+   only after that graph exposes justified massifs and relay lows. Decide whether
+   C's drainage/divide response earns its compute beyond inherited forcing; and
 9. return to the cross-system disposition table before choosing sediment,
    ecology, coast or human-world expansion.
 

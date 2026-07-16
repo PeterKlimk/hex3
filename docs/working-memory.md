@@ -62,8 +62,8 @@ evidence—not a witness to perturb after observation or a passing full packet.
 The [dated audit](audits/landform-o0b-correspondence-2026-07-15.md) records the
 bounded verdict and costs. Acceptance stops here: product/spherical O0b,
 persistent identity/events, the product O0a adapter, packet/product R0 and any
-H/C/G promotion remain unregistered, unimplemented or unevaluated as
-applicable.
+H/C/G promotion remain unregistered or unevaluated. The thin source
+observations recorded below do not change that promotion boundary.
 The [product-boundary decision](research/landform-product-boundary-decision-2026-07-15.md)
 retires the provisional combined packet/product R0. O0b correspondence reads
 no O0a payload numerically even though V0 hashes all eleven; future common-core,
@@ -121,19 +121,34 @@ changing causal semantics, but optimization is deferred until terrain earns
 it. G's exact planning, minimax portal forest, reverse accumulation with
 Strahler/support derivation, runoff-conditioned reconstruction and amplitude
 solve also pass a repeated in-memory run over the fully rebuilt accepted
-bundle. No probe file or matched image has yet been generated or inspected. The
-next rung is therefore one single-run H/C/G numerical and visual comparison,
-not packets, publication, blinded-review machinery or a resolution campaign.
-No arm-result packet exists.
-G must calibrate and publish 4 km before 8/2 km can bind its frozen forest and
-amplitude. Cooperative algorithmic failures are replayable semantic roots;
-resource failures are observational, while invalid input/configuration or
-publication remain external diagnostics.
-G is exactly work-matched only at 4 km. Frozen-amplitude 8/2 work drift is
-architecture evidence, not a numerical failure or permission to recalibrate.
-Likewise, H/C numerical sensitivity is measured directly but does not erase an
-otherwise valid base result; later object-level materiality belongs to the
-evidence contract.
+bundle.
+
+The single-run numerical/common-evidence comparison and corrected sharp visual
+diagnostic now exist. The first blurry whole-domain image was not fit for human
+morphology review; it is retained as a presentation failure, not terrain
+evidence. The shared forcing-support crop, robust-contrast row and four matched
+physical profiles expose the actual result: H and C both retain long flat
+longitudinal roofs, while G adds severe steps and spikes. One clean run cost
+`322.29/626.88/2.44 s` for H/C/G; the corrected diagnostic rerun reproduces the
+surfaces and retains a render cache.
+
+The causal defect begins in the shared input: each `350 km` segment has about
+`196 km` of exactly constant along-strike support; one synchronous episode and
+equal shares drive both; links and vergence are ignored; horizontal velocity is
+zero; and material/runoff are homogeneous. H pointwise-restores that roof. C
+has no regional inherited, moving or persistent state with which to break it.
+G uses the same displacement opportunity both for planning and reconstructed
+rise, converting a smooth roof into graph-depth discontinuities. Therefore no
+arm advances from this base case. H stays a null, current G stops, and current C
+does not earn its cost. No promotion-grade arm-result packet exists.
+
+The next bounded task is not 8/2 km, wet/dry, reorganization, publication or
+optimization. Replace only the static ribbon compiler with a work-conserving,
+inheritance-conditioned finite-segment organization graph. It should consume
+real boundary-chain topology, polarity, kinematic change and plate-bound
+material state, and emit time-varying uplift/loading opportunity rather than
+height. Inspect its work field and profiles first; then run H once as a direct
+forcing control and C once to determine what drainage coevolution adds.
 Keep the review findings visible: G's uniform wet/dry case changes profile but
 not topology; cross-resolution O0b discrepancy is not a generic scalar
 uncertainty; central peak-anchored and footprint-context cohorts must remain
