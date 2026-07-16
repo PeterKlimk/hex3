@@ -26,7 +26,7 @@ use hex3::render::{
 use hex3::{
     geometry::{Material, SurfaceVertex, UnifiedMesh, VoronoiMesh},
     world::{
-        BasinSpillDestination, BiomeKind, EcologySemantics, FineCacheMode, OrogenModel,
+        BasinSpillDestination, FineCacheMode, LivingSurfaceSemantics, OrogenModel,
         SemanticWaterKind, ShorelineLoop, Tessellation, VoronoiBackend, WaterBodyId,
         WaterBodySemantics, WaterGeographyGeometry, World, RELIEF_SCALE,
     },
@@ -1597,49 +1597,51 @@ fn run_water_geography_packet(opts: &SweepOptions) {
 }
 
 #[derive(Clone, Copy)]
-enum EcologyPreviewLayer {
+enum LivingPreviewLayer {
     Heat,
     RelativeWater,
-    Freshwater,
-    DominantStress,
+    DrainageSaturation,
     Vegetation,
-    Tree,
+    Bare,
+    Herbaceous,
+    Woody,
     Wetland,
-    LabelMargin,
 }
 
-impl EcologyPreviewLayer {
+impl LivingPreviewLayer {
     const ALL: [Self; 8] = [
         Self::Heat,
         Self::RelativeWater,
-        Self::Freshwater,
-        Self::DominantStress,
+        Self::DrainageSaturation,
         Self::Vegetation,
-        Self::Tree,
+        Self::Bare,
+        Self::Herbaceous,
+        Self::Woody,
         Self::Wetland,
-        Self::LabelMargin,
     ];
 
     fn id(self) -> &'static str {
         match self {
             Self::Heat => "thermal-opportunity",
-            Self::RelativeWater => "relative-water-supply",
-            Self::Freshwater => "freshwater-access",
-            Self::DominantStress => "dominant-stress",
-            Self::Vegetation => "vegetation-opportunity",
-            Self::Tree => "tree-opportunity",
-            Self::Wetland => "wetland-opportunity",
-            Self::LabelMargin => "label-dominance-margin",
+            Self::RelativeWater => "climatic-water-availability",
+            Self::DrainageSaturation => "drainage-saturation",
+            Self::Vegetation => "vegetation-cover",
+            Self::Bare => "bare-fraction",
+            Self::Herbaceous => "herbaceous-fraction",
+            Self::Woody => "woody-fraction",
+            Self::Wetland => "wetland-fraction",
         }
     }
 
     fn role(self) -> &'static str {
         match self {
-            Self::Heat | Self::RelativeWater | Self::Freshwater | Self::DominantStress => {
+            Self::Heat | Self::RelativeWater | Self::DrainageSaturation => {
                 "prototype input or limiting factor"
             }
-            Self::Vegetation | Self::Tree | Self::Wetland => "prototype continuous consequence",
-            Self::LabelMargin => "classifier ambiguity diagnostic",
+            Self::Vegetation => "continuous cover consequence",
+            Self::Bare | Self::Herbaceous | Self::Woody | Self::Wetland => {
+                "exclusive physiognomy fraction"
+            }
         }
     }
 }
@@ -1648,67 +1650,63 @@ fn mix_color(a: Vec3, b: Vec3, t: f32) -> Vec3 {
     a.lerp(b, t.clamp(0.0, 1.0))
 }
 
-fn ecology_preview_color(layer: EcologyPreviewLayer, cell: &hex3::world::EcologicalCell) -> Vec3 {
-    if cell.biome == BiomeKind::Ocean {
+fn living_preview_color(
+    layer: LivingPreviewLayer,
+    cell: &hex3::world::LivingSurfaceCell,
+    ocean: bool,
+    submerged: bool,
+) -> Vec3 {
+    if ocean {
         return Vec3::new(0.05, 0.12, 0.20);
     }
-    if cell.biome == BiomeKind::Lake {
+    if submerged {
         return Vec3::new(0.08, 0.30, 0.52);
     }
-    let p = cell.potentials;
     match layer {
-        EcologyPreviewLayer::Heat => mix_color(
+        LivingPreviewLayer::Heat => mix_color(
             Vec3::new(0.18, 0.34, 0.72),
             Vec3::new(0.96, 0.72, 0.18),
-            p.heat,
+            cell.thermal_opportunity,
         ),
-        EcologyPreviewLayer::RelativeWater => mix_color(
+        LivingPreviewLayer::RelativeWater => mix_color(
             Vec3::new(0.55, 0.27, 0.10),
             Vec3::new(0.10, 0.55, 0.42),
-            p.moisture,
+            1.0 - cell.relative_water_limitation,
         ),
-        EcologyPreviewLayer::Freshwater => mix_color(
+        LivingPreviewLayer::DrainageSaturation => mix_color(
             Vec3::new(0.34, 0.30, 0.20),
             Vec3::new(0.06, 0.74, 0.92),
-            p.freshwater_access,
+            cell.drainage_saturation,
         ),
-        EcologyPreviewLayer::DominantStress => {
-            let stresses = [
-                (p.cold_stress, Vec3::new(0.55, 0.82, 0.96)),
-                (p.water_stress, Vec3::new(0.95, 0.55, 0.12)),
-                (p.alpine_stress, Vec3::new(0.72, 0.42, 0.82)),
-                (p.terrain_stress, Vec3::new(0.80, 0.22, 0.20)),
-            ];
-            let (strength, color) = stresses
-                .into_iter()
-                .max_by(|a, b| a.0.total_cmp(&b.0))
-                .expect("four stresses");
-            mix_color(Vec3::splat(0.25), color, strength)
-        }
-        EcologyPreviewLayer::Vegetation => mix_color(
+        LivingPreviewLayer::Vegetation => mix_color(
             Vec3::new(0.50, 0.35, 0.18),
             Vec3::new(0.16, 0.66, 0.22),
-            p.vegetation,
+            cell.vegetation_cover,
         ),
-        EcologyPreviewLayer::Tree => mix_color(
+        LivingPreviewLayer::Bare => mix_color(
+            Vec3::new(0.20, 0.42, 0.20),
+            Vec3::new(0.72, 0.50, 0.24),
+            cell.fractions.bare,
+        ),
+        LivingPreviewLayer::Herbaceous => mix_color(
+            Vec3::new(0.45, 0.38, 0.22),
+            Vec3::new(0.55, 0.72, 0.18),
+            cell.fractions.herbaceous,
+        ),
+        LivingPreviewLayer::Woody => mix_color(
             Vec3::new(0.48, 0.40, 0.22),
-            Vec3::new(0.04, 0.38, 0.10),
-            p.tree,
+            Vec3::new(0.04, 0.34, 0.09),
+            cell.fractions.woody,
         ),
-        EcologyPreviewLayer::Wetland => mix_color(
+        LivingPreviewLayer::Wetland => mix_color(
             Vec3::new(0.42, 0.35, 0.23),
             Vec3::new(0.12, 0.68, 0.60),
-            p.wetland,
-        ),
-        EcologyPreviewLayer::LabelMargin => mix_color(
-            Vec3::new(0.88, 0.18, 0.54),
-            Vec3::new(0.88, 0.88, 0.72),
-            cell.classification_confidence,
+            cell.fractions.wetland,
         ),
     }
 }
 
-fn render_ecology_preview_map(
+fn render_living_preview_map(
     gpu: &GpuContext,
     renderer: &mut Renderer,
     color_view: &wgpu::TextureView,
@@ -1748,9 +1746,8 @@ fn render_ecology_preview_map(
     );
 }
 
-/// Render the quarantined ecology prototype without turning it into a product view.
-/// The packet deliberately separates limiting factors from consequences and never
-/// presents the categorical biome labels themselves as accepted world state.
+/// Render the bounded living-surface semantic proof without turning its colors
+/// into a product palette. Inputs, cover and exclusive fractions remain separate.
 fn run_living_surface_preview(opts: &SweepOptions) {
     assert_eq!(
         opts.target_stage, 4,
@@ -1758,13 +1755,15 @@ fn run_living_surface_preview(opts: &SweepOptions) {
     );
     let world = generate_tile_world(opts, &opts.base_erosion);
     let tess = world.active_tessellation();
-    let ecology = EcologySemantics::build(
+    let hydrology = world.active_hydrology().expect("stage 4 hydrology");
+    let semantic_started = std::time::Instant::now();
+    let living_surface = LivingSurfaceSemantics::build(
         tess,
-        &world.active_elevation().expect("stage 4 elevation").values,
         world.active_temperature().expect("stage 4 temperature"),
         world.active_precipitation().expect("stage 4 precipitation"),
-        world.active_hydrology(),
+        hydrology,
     );
+    let semantic_build_ms = semantic_started.elapsed().as_secs_f64() * 1_000.0;
 
     std::fs::create_dir_all(&opts.out_dir)
         .unwrap_or_else(|e| panic!("create {}: {e}", opts.out_dir.display()));
@@ -1790,19 +1789,28 @@ fn run_living_surface_preview(opts: &SweepOptions) {
     let mut montage = vec![0; (montage_w * montage_h * 4) as usize];
     let mut files = Vec::new();
 
-    for (index, layer) in EcologyPreviewLayer::ALL.into_iter().enumerate() {
+    for (index, layer) in LivingPreviewLayer::ALL.into_iter().enumerate() {
         let mut mesh = VoronoiMesh::from_voronoi_with_colors(&tess.voronoi, |cell| {
-            ecology_preview_color(layer, &ecology.cells[cell])
+            living_preview_color(
+                layer,
+                &living_surface.cells[cell],
+                hydrology.is_ocean(cell),
+                hydrology.is_submerged(cell),
+            )
         });
         // The legacy colored shader applies diffuse lighting unconditionally.
         // A constant normal keeps this semantic packet unlit and comparable.
         for vertex in &mut mesh.vertices {
             vertex.normal = Vec3::Z.to_array();
         }
-        let vertices =
-            create_vertex_buffer(&gpu.device, &mesh.vertices, "ecology_preview_vertices");
-        let indices = create_index_buffer(&gpu.device, &mesh.indices, "ecology_preview_indices");
-        render_ecology_preview_map(
+        let vertices = create_vertex_buffer(
+            &gpu.device,
+            &mesh.vertices,
+            "living_surface_preview_vertices",
+        );
+        let indices =
+            create_index_buffer(&gpu.device, &mesh.indices, "living_surface_preview_indices");
+        render_living_preview_map(
             &gpu,
             &mut renderer,
             &color_view,
@@ -1841,48 +1849,71 @@ fn run_living_surface_preview(opts: &SweepOptions) {
     );
 
     let areas = tess.cell_areas_ref();
-    let (land_area, low_margin_area, sums) = ecology.cells.iter().enumerate().fold(
-        (0.0f64, 0.0f64, [0.0f64; 5]),
-        |(area, low, mut sums), (cell, state)| {
-            if matches!(state.biome, BiomeKind::Ocean | BiomeKind::Lake) {
-                return (area, low, sums);
-            }
-            let a = areas[cell] as f64;
-            sums[0] += a * state.potentials.heat as f64;
-            sums[1] += a * state.potentials.moisture as f64;
-            sums[2] += a * state.potentials.vegetation as f64;
-            sums[3] += a * state.potentials.tree as f64;
-            sums[4] += a * state.potentials.wetland as f64;
-            (
-                area + a,
-                low + if state.classification_confidence < 0.2 {
-                    a
-                } else {
-                    0.0
-                },
-                sums,
-            )
-        },
-    );
+    let (land_area, unresolved_area, max_closure_error, sums) =
+        living_surface.cells.iter().enumerate().fold(
+            (0.0f64, 0.0f64, 0.0f32, [0.0f64; 9]),
+            |(area, unresolved, max_error, mut sums), (cell, state)| {
+                if hydrology.is_submerged(cell) {
+                    return (area, unresolved, max_error, sums);
+                }
+                let a = areas[cell] as f64;
+                sums[0] += a * state.thermal_opportunity as f64;
+                sums[1] += a * (1.0 - state.relative_water_limitation) as f64;
+                sums[2] += a * state.drainage_saturation as f64;
+                sums[3] += a * state.growth_opportunity as f64;
+                sums[4] += a * state.vegetation_cover as f64;
+                sums[5] += a * state.fractions.bare as f64;
+                sums[6] += a * state.fractions.herbaceous as f64;
+                sums[7] += a * state.fractions.woody as f64;
+                sums[8] += a * state.fractions.wetland as f64;
+                (
+                    area + a,
+                    unresolved
+                        + if state.height_above_drainage_km.is_none() {
+                            a
+                        } else {
+                            0.0
+                        },
+                    max_error.max((state.fractions.terrestrial_sum() - 1.0).abs()),
+                    sums,
+                )
+            },
+        );
     let means: Vec<f64> = sums.into_iter().map(|sum| sum / land_area).collect();
     let sidecar = serde_json::json!({
-        "schema_version": 1,
-        "purpose": "untuned evidence for deciding whether to replace the quarantined ecology prototype with a bounded living-surface product",
-        "status": "diagnostic candidate evidence; not retained world state, calibrated ecology, or a product palette",
+        "schema_version": 2,
+        "purpose": "untuned evidence for the bounded equilibrium-physiognomy semantic kernel",
+        "status": "implemented semantic proof; not retained world state, calibrated ecology, a biome map, or a product palette",
         "world_manifest": world.manifest(),
         "projection": "equirectangular; exact Voronoi cells; no relief displacement or semantic smoothing",
         "known_limitations": [
-            "relative water supply is renormalized to each world's land mean",
-            "freshwater access is distance to map-selected rivers and proper lakes, not drainage-relative wetness",
-            "vegetation, tree, and wetland are opportunity scores, not cover fractions or ecosystem state",
-            "label margin is score separation, not model confidence"
+            "temperature and precipitation are seasonless normalized inputs",
+            "planetary water-supply scale is fixed at 1.0 until one upstream control rebuilds precipitation and hydrology together",
+            "HAND uses a 2000 km2 nominal geometric drainage reference with a four-local-cell adaptive-resolution floor",
+            "drainage saturation uses a disclosed 30 m vertical decay and 0.35 subcell occupancy cap outside channel-reference cells",
+            "channel-reference membership does not estimate channel or floodplain width, so reference cells claim no wetland occupancy",
+            "terrain exposure is omitted until a scale-declared robust measure exists",
+            "woody share has no seasonal, fire, disturbance, soil, or competition owner",
+            "fractions are equilibrium opportunities, not persistent biomass or history"
         ],
-        "land_mean_raw_precipitation_demand_ratio": ecology.land_mean_raw_aridity,
+        "planetary_water_supply_scale": living_surface.planetary_water_supply_scale,
+        "drainage_reference_area_km2": living_surface.drainage_reference_area_km2,
+        "minimum_drainage_reference_cells": living_surface.minimum_drainage_reference_cells,
+        "semantic_build_ms": semantic_build_ms,
+        "semantic_cell_bytes": std::mem::size_of::<hex3::world::LivingSurfaceCell>(),
         "area_weighted_land_means": {
-            "heat": means[0], "relative_moisture": means[1],
-            "vegetation": means[2], "tree": means[3], "wetland": means[4]
+            "thermal_opportunity": means[0],
+            "climatic_water_availability": means[1],
+            "drainage_saturation": means[2],
+            "growth_opportunity": means[3],
+            "vegetation_cover": means[4],
+            "bare_fraction": means[5],
+            "herbaceous_fraction": means[6],
+            "woody_fraction": means[7],
+            "wetland_fraction": means[8]
         },
-        "land_fraction_with_label_margin_below_0_2": low_margin_area / land_area,
+        "land_fraction_without_drainage_reference": unresolved_area / land_area,
+        "maximum_land_fraction_closure_error": max_closure_error,
         "layers": files,
         "montage_filename": "montage.png"
     });

@@ -156,8 +156,8 @@ the availability of a tunable subsystem.
 
 ## Horizon 3: choose the next world expansion
 
-Status: **active; Water Geography V0 complete, next expansion not yet
-authorized**.
+Status: **active; Water Geography V0 complete, Living Surface V0 semantic proof
+implemented but not promoted**.
 
 Purpose: choose among missing systems and fundamental reworks using the Horizon
 2 evidence. No candidate is the default merely because an early prototype or
@@ -240,7 +240,10 @@ consumer consequence.
 The portfolio/design decision is complete: [Living Surface V0](living-surface.md)
 wins over promoting the existing classifier, beginning source-to-sink sediment
 now, or making no expansion. The next task is its bounded equilibrium-
-physiognomy proof, not biome-label calibration or a full ecology stage.
+physiognomy proof, not biome-label calibration or a full ecology stage. Its
+semantic kernel and scalar packet now exist; the next discriminator is whether
+a matched blended/physical presentation reads as living geography rather than
+climate bands plus drainage lines.
 
 ### Sediment candidate: research and design gate
 

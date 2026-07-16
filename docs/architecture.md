@@ -69,7 +69,9 @@ The coarse world owns:
 `EcologySemantics` is instead built on demand by diagnostics from an active
 surface. `World` does not own it, no renderer consumes it, and its provisional
 labels are not product state. The selected replacement contract is the proposed
-[Living Surface V0](living-surface.md), which is also not implemented yet.
+[Living Surface V0](living-surface.md). Its on-demand semantic kernel is
+implemented, but `World` does not retain it and no renderer/export consumer or
+product promotion exists.
 
 `FineWorld` owns the adaptive tessellation, transferred fields and two retained
 surfaces:

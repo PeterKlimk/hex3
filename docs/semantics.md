@@ -176,8 +176,10 @@ Continuous potentials should drive future coverage and rendering; labels are
 primarily for inspection, summaries and region identity.
 
 The current classifier is now selected for replacement rather than calibration.
-The proposed [Living Surface V0](living-surface.md) makes fractional
-physiognomy primary and treats labels/regions as later derived consumers.
+The [Living Surface V0](living-surface.md) on-demand semantic kernel is now
+implemented: fractional physiognomy is primary and labels/regions remain later
+derived consumers. It is not retained by `World`, rendered as product state or
+promoted.
 
 The `--biome-audit` diagnostic reports area-weighted potential means, biome
 coverage, transition coverage and region coherence. No biome palette or

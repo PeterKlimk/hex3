@@ -378,7 +378,7 @@ struct Cli {
     /// `range-ancestry` diagnostic packet (requires exactly three explicit
     /// --sweep-target values and stage 4), `water-geography` (automatically
     /// selects a coast complex and overflowing lake; stage 4), or
-    /// `living-surface-preview` (global untuned ecology evidence; stage 4).
+    /// `living-surface-preview` (global fractional-physiognomy evidence; stage 4).
     /// Ignores --sweep/--sweep-values.
     #[arg(long)]
     sweep_stack: Option<String>,

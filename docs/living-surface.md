@@ -1,6 +1,7 @@
 # Living Surface V0 decision
 
-Status: **current architecture decision; V0 proposed, not implemented**, 2026-07-17.
+Status: **current architecture decision; semantic kernel implemented and
+diagnostically evaluated, not promoted**, 2026-07-17.
 
 This decision selects the next bounded world expansion after Water Geography
 V0. It replaces the long-term role proposed for the current ecology classifier;
@@ -78,10 +79,86 @@ heat/moisture/vegetation/tree/wetland scores were
 `0.74/0.18/0.17/0.14/0.11`. These numbers do not validate or falsify the
 climate; they show that the classifier thresholds are not a product basis.
 
-The selectable `living-surface-preview` packet deliberately maps limiting
-factors and continuous consequences without presenting a biome palette. Its
-sidecar records known semantic limits. It is decision evidence, not a product
+The original `living-surface-preview` packet mapped those limiting factors and
+consequences without presenting a biome palette. The same selectable packet now
+maps the replacement kernel's causes and exclusive fractions. Its sidecar
+records known semantic limits. It remains diagnostic evidence, not a product
 view.
+
+## Implemented semantic checkpoint
+
+`LivingSurfaceSemantics` now exists as an on-demand derived product beside the
+quarantined classifier. It is not stored by `World` and has no product renderer
+or export consumer. The kernel currently implements:
+
+- final precipitation used without land-mean normalization; the current build
+  fixes its multiplier at 1.0 until one upstream control can rebuild both
+  precipitation and hydrology coherently;
+- a dimensionless temperature-dependent demand and saturating relative-water
+  response;
+- geometric contributing area routed conservatively over authoritative
+  `Hydrology::drainage_dir`, independent of precipitation and `RiverSelection`;
+- HAND against drainage-integration-aware physical elevation, proper-lake water
+  surfaces and ocean datum, with terminal dry basins left unresolved;
+- a nominal 2,000 km2 drainage reference with a four-local-cell resolution
+  floor, 30 m vertical decay and a disclosed 0.35 subcell saturation cap on
+  non-reference land; reference-network membership alone claims no channel or
+  floodplain width; and
+- exact bare/herbaceous/woody/wet partition closure on land and zero terrestrial
+  fractions under water.
+
+Fourteen manufactured tests cover water-control response, absolute-dry-world
+behavior, precipitation and
+drainage causal signs, closure, submerged state, no second elevation cutoff,
+conservative unequal-area routing, bluff/floodplain HAND, channel/dry-basin
+reference rules, explicit refusal to infer wetland occupancy from reference
+membership, adaptive large-cell anchor rejection, cell-ID permutation,
+continuous HAND response and cycle rejection. The real fine-mesh smoke test
+also checks finite bounded output and fraction closure. Direct lake-fringe and
+cross-resolution landform correspondence remain promotion gates, not claims.
+
+The first untuned 2,000 km2 / 150 m implementation failed immediately: on seed
+12345 at 255,866 cells it gave mean drainage saturation `0.833` and wetland
+fraction `0.762`, because the reference catchment was below one evidence cell
+and most cells self-referenced. That result is retained as a scale-contract
+failure, not a tuning arm.
+
+With the initial global resolution floor and still-conflated channel-reference
+semantics, seed 12345
+gives mean thermal/water/drainage/cover of `0.906/0.224/0.180/0.298` and mean
+bare/herbaceous/woody/wet fractions of `0.702/0.109/0.113/0.075`. Seed 8675309
+gives `0.878/0.226/0.183/0.306` and
+`0.694/0.098/0.131/0.077`. Maximum observed closure error is `1.2e-7`; about
+3.7-5.3% of land terminates without a drainage reference. Those values are
+retained as a failed intermediate witness, not the accepted result.
+
+Review found two distinct meanings hidden in that result. First, one locally
+large adaptive cell could self-anchor with no upstream catchment. The kernel now
+requires both 2,000 km2 and four times each candidate cell's local area. Second,
+drainage-reference membership identifies a datum but supplies no evidence for
+the channel/floodplain width inside that cell. Reference cells therefore claim
+zero wetland occupancy; low-HAND non-reference land and lake fringe can still
+carry saturation. A later width/valley-floor owner may replace that conservative
+unknown, but catchment membership alone may not.
+
+The regenerated accepted checkpoint for seed 12345 at 255,866 cells gives mean
+thermal/water/drainage/cover of `0.906/0.224/0.067/0.234` and mean
+bare/herbaceous/woody/wet fractions of `0.766/0.081/0.120/0.033`. Maximum
+closure error is `1.2e-7`; 5.0% of land terminates without a reference. The
+release derivation takes about `18 ms`. The result record is 48 bytes/cell (11.7 MiB
+there; 366 MiB at 8M), but output plus the current graph/area/HAND working
+buffers approach roughly 0.5 GiB at 8M before the already-retained world is
+counted. Peak RSS has not been isolated. Keep it on demand and retain only a
+compact fraction contract if a consumer earns ownership.
+
+The corrected maps expose latitudinal cold, transported-moisture/coastal
+gradients and low-HAND texture without the old circular freshwater-distance
+halo or an automatically wet reference network. They do **not** yet pass the
+product stop gate: the scalar views remain dominated by broad climate bands,
+interiors are mostly bare, no blended physical view has been judged, and a
+second seed has not been regenerated after the review fix. This may be an
+upstream precipitation-distribution finding or a missing cover cause; do not
+answer it by tuning biome or cover thresholds.
 
 ## V0 semantic contract
 
@@ -89,8 +166,10 @@ view.
 
 - final lapse-corrected temperature;
 - final precipitation and a declared temperature-dependent demand proxy;
-- the planetary wetness control, applied before ecology and never normalized
-  away inside this stage;
+- final precipitation with no normalization inside this stage; a future
+  planetary wetness control must alter precipitation and rebuild hydrology from
+  the same upstream setting rather than recolor vegetation after water bodies
+  have already been solved;
 - authoritative submerged/ocean/lake identity;
 - physical drainage topology and contributing area, independent of the
   cartographic river-selection threshold; and
@@ -113,7 +192,8 @@ aridity.
 Drainage saturation should use hydrologic position such as height above the
 downstream drainage reference (HAND), optionally combined with contributing
 area and slope. It must distinguish a floodplain from a bluff beside the same
-river. Euclidean distance to rendered water is rejected as the owner.
+river. Reference-network membership is not a floodplain-width estimate.
+Euclidean distance to rendered water is rejected as the owner.
 
 The final exclusive terrestrial fractions are:
 
@@ -131,11 +211,11 @@ not persistent biomass or ecological history.
 
 ### Ownership and scale
 
-V0 is a derived post-surface semantic product. The first proof may compute on
-the active tessellation and retain nothing in `World`. If a renderer, export or
+V0 is a derived post-surface semantic product. The implemented proof computes
+on the active tessellation and retains nothing in `World`. If a renderer, export or
 later stage adopts it, retain only the compact fractional contract and declare
 invalidation from temperature, precipitation, hydrology and terrain. Do not
-copy the current roughly 64-byte diagnostic record onto every maximum-density
+copy the current 48-byte diagnostic record onto every maximum-density
 cell by default.
 
 Connected physiognomy regions may be derived after continuous state is sound.
@@ -171,25 +251,28 @@ Before a product palette is judged:
    cover relationship.
 6. Lapse-corrected temperature changes cover with altitude without a second
    absolute-elevation cutoff.
-7. Low-HAND floodplain cells become wetter than nearby high bluffs; a steep
-   channel does not create a circular wetland halo.
+7. Low-HAND floodplain cells become wetter than nearby high bluffs;
+   reference-network membership alone does not assert wetland occupancy, and a
+   future width owner must distinguish a steep narrow channel from a broad flat
+   floodplain.
 8. Fractions are bounded, close exactly, are absent under water and respond
    continuously to small input changes.
 9. Cell-ID permutation and globe rotation preserve corresponding output.
-10. Area-weighted cover and region areas converge on the same manufactured
-    landform across useful mesh resolutions.
+10. Reference identity, saturation area, area-weighted cover and region areas
+    converge on the same manufactured landform across uniform and adaptive
+    useful mesh resolutions. This gate is still open.
 11. Presentation seed/noise changes placement detail but not semantic coverage.
 
 ## Product proof and stop gate
 
-The first implementation should produce one matched global packet containing:
+The complete product proof should produce one matched global packet containing:
 
-- causal inputs and limiting factors;
-- the four cover fractions and their blended semantic result;
+- causal inputs and limiting factors (**implemented**);
+- the four cover fractions (**implemented**) and their blended semantic result;
 - ordinary Physical, Authentic and Dramatic presentation at globe and regional
   scale; and
-- one sidecar with cover closure, area totals, response controls, runtime and
-  peak memory.
+- one sidecar with cover closure, area totals and runtime (**implemented**), plus
+  coupled response controls and measured peak memory.
 
 Use one representative world and one known climate outlier first. Expand only
 if the mechanism survives. V0 earns promotion only if it creates recognizable

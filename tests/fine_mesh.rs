@@ -1,7 +1,7 @@
 use hex3::world::{
     BiomeKind, EcologySemantics, ErosionParams, FineCacheMode, FineCacheOutcome, FineDensityParams,
-    FineStructureParams, FineWorld, OrogenFronts, RiverNetwork, RiverThresholdPolicy,
-    WaterBodySemantics, World,
+    FineStructureParams, FineWorld, LivingSurfaceSemantics, OrogenFronts, RiverNetwork,
+    RiverThresholdPolicy, WaterBodySemantics, World,
 };
 
 /// Build a tiny coarse world through stage 2 (atmosphere) — shared setup for the
@@ -147,6 +147,31 @@ fn fine_mesh_pipeline_smoke() {
             assert_eq!(cell.biome, BiomeKind::Ocean);
         } else if fine.pre.hydrology.is_lake_water(i) {
             assert_eq!(cell.biome, BiomeKind::Lake);
+        }
+    }
+
+    let living_surface = LivingSurfaceSemantics::build(
+        tess,
+        &fine.pre.temperature,
+        &fine.pre.precipitation,
+        &fine.pre.hydrology,
+    );
+    assert_eq!(living_surface.cells.len(), n);
+    for (cell, state) in living_surface.cells.iter().enumerate() {
+        for value in [
+            state.thermal_opportunity,
+            state.relative_water_limitation,
+            state.drainage_saturation,
+            state.growth_opportunity,
+            state.vegetation_cover,
+            state.woody_share,
+        ] {
+            assert!(value.is_finite() && (0.0..=1.0).contains(&value));
+        }
+        if fine.pre.hydrology.is_submerged(cell) {
+            assert_eq!(state.fractions.terrestrial_sum(), 0.0);
+        } else {
+            assert!((state.fractions.terrestrial_sum() - 1.0).abs() <= 2e-6);
         }
     }
 }

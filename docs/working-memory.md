@@ -19,7 +19,35 @@ and Water Geography V0 are complete. A bounded comparison selected
 [equilibrium fractional physiognomy](living-surface.md) over promoting the
 current ecology classifier, beginning source-to-sink sediment now, or making no
 expansion. Do not extend water geometry or tune biome labels by momentum. The
-active task is the smallest cause-first cover proof and its stop gate.
+semantic kernel now exists; the active task is its matched visual stop gate.
+
+The kernel does not normalize away the supplied precipitation pattern, uses geometric contributing area and
+HAND-like drainage position, distinguishes lake surfaces and terminal dry
+basins, and closes bare/herbaceous/woody/wet fractions. The naive first scale
+contract failed with 76.2% mean wetland because a 2,000 km2 channel reference
+was below one cell and 150 m was not a floodplain-scale HAND decay. The corrected
+initial global four-cell resolution floor, 30 m decay and 0.35 subcell cap reduced mean wetland
+to 7.5-7.7% on seeds 12345/8675309, with closure error `1.2e-7`.
+Those are failed intermediate values because channel membership still implied
+wetland occupancy.
+
+Review then caught an adaptive-mesh defect in that global floor and a semantic
+conflation: one locally large cell could self-anchor with no upstream catchment,
+and every reference-network cell claimed maximum saturation without a width or
+valley-floor owner. The implementation now requires both 2,000 km2 and four
+times the candidate cell's local area, and reference cells provide a datum but
+claim no wetland occupancy. On regenerated seed 12345 this yields mean drainage
+saturation `0.067`, cover `0.234` and wetland `0.033`, with 76.6% bare land; the
+release derivation takes about 18 ms at 255,866 cells. The 48-byte record alone is
+366 MiB at 8M cells and the current working-set estimate approaches 0.5 GiB plus
+retained world inputs. Keep it on demand.
+
+Do not call this success yet. The final rule has only one regenerated world;
+its scalar maps still read primarily as climate bands plus low-HAND texture.
+The next comparison must blend fractions with
+the ordinary physical surface at useful globe/regional scales and determine
+whether this is living geography, an upstream precipitation-distribution
+problem or a missing causal field. Do not tune cover thresholds to hide it.
 
 The current ecology transform remains diagnostic evidence only. Its relative
 moisture normalization cancels planetary wetness changes; its freshwater input

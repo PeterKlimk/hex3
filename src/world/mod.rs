@@ -47,6 +47,7 @@ mod history;
 mod hydrology;
 pub mod landforms;
 pub mod landscape;
+mod living_surface;
 mod moisture;
 mod plates;
 mod provenance;
@@ -85,6 +86,10 @@ pub use history::{
 };
 pub use hydrology::{
     Basin, CellWaterState, Hydrology, WaterBody, DEFAULT_CLIMATE_RATIO, MIN_LAKE_DEPTH,
+};
+pub use living_surface::{
+    LivingSurfaceCell, LivingSurfaceSemantics, PhysiognomyFractions,
+    LIVING_SURFACE_DRAINAGE_REFERENCE_KM2,
 };
 pub use plates::Plates;
 pub use provenance::{
