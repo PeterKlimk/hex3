@@ -58,14 +58,16 @@ pub mod water_geography;
 
 pub use atmosphere::Atmosphere;
 pub use boundary::{collect_plate_boundaries, BoundaryKind, PlateBoundaryEdge, SubductionPolarity};
-pub use climatology::{ClimatologyNullReport, CLIMATOLOGY_NULL_REPORT_SCHEMA_VERSION};
+pub use climatology::{
+    ClimatologyNullReport, ClimatologySpatialEvidence, CLIMATOLOGY_NULL_REPORT_SCHEMA_VERSION,
+};
 pub use constants::*;
 pub use crust::{Crust, CrustType};
 
 /// Default plate count used by the app and diagnostic tooling.
 pub const NUM_PLATES_DEFAULT: usize = 14;
 pub use deformation::CarrierOperatorAudit;
-pub use dossier::{DossierPacket, DOSSIER_SCHEMA_VERSION};
+pub use dossier::{DossierOptions, DossierPacket, DOSSIER_SCHEMA_VERSION};
 pub use dynamics::{Dynamics, EulerPole, TectonicClock};
 pub use ecology::{BiomeKind, EcologicalCell, EcologicalPotentials, EcologySemantics};
 pub use elevation::{Elevation, NoiseLayerData, OrogenModel};

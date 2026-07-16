@@ -5,7 +5,9 @@ use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 
 use clap::Parser;
-use hex3::world::{DossierPacket, FineCacheMode, VoronoiBackend, World, NUM_PLATES_DEFAULT};
+use hex3::world::{
+    DossierOptions, DossierPacket, FineCacheMode, VoronoiBackend, World, NUM_PLATES_DEFAULT,
+};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -25,6 +27,9 @@ struct Cli {
     /// Output JSON. Defaults to artifacts/dossiers/seed-<seed>.json.
     #[arg(long)]
     output: Option<PathBuf>,
+    /// Include per-cell product/null fields for external spatial mapping.
+    #[arg(long)]
+    include_climatology_spatial: bool,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -44,7 +49,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         world.generate_hydrology_with_fine_cap(cli.fine_max);
     }
-    let packet = DossierPacket::build(&world)?;
+    let packet = DossierPacket::build_with_options(
+        &world,
+        DossierOptions {
+            include_climatology_spatial_evidence: cli.include_climatology_spatial,
+        },
+    )?;
     let output = cli
         .output
         .unwrap_or_else(|| PathBuf::from(format!("artifacts/dossiers/seed-{}.json", cli.seed)));

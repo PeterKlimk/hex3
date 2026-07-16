@@ -20,6 +20,11 @@ const TARGET_LIMIT: usize = 3;
 const GEOMETRY_SAMPLE_LIMIT: usize = 64;
 const RIVER_SAMPLE_LIMIT: usize = 128;
 
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DossierOptions {
+    pub include_climatology_spatial_evidence: bool,
+}
+
 #[derive(Debug, Serialize)]
 pub struct DossierPacket {
     pub schema_version: u32,
@@ -176,6 +181,10 @@ impl DossierPacket {
     /// surface. Stage 3 and stage 4 are both supported and identified by the
     /// manifest; callers normally use the retained stage-4 product surface.
     pub fn build(world: &World) -> Result<Self, String> {
+        Self::build_with_options(world, DossierOptions::default())
+    }
+
+    pub fn build_with_options(world: &World, options: DossierOptions) -> Result<Self, String> {
         let fine = world
             .fine
             .as_ref()
@@ -206,6 +215,7 @@ impl DossierPacket {
             &network,
             &water_geography,
             river_policy,
+            options.include_climatology_spatial_evidence,
         )?;
         let mountains = build_mountains(
             world,

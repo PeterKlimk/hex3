@@ -115,9 +115,13 @@ Implementation progress: the first seam uses one connected-ocean classifier for
 climate coast distance, moisture sourcing and hydrology. A compact derived
 report covers aggregate water/land components, shoreline, basin/lake state,
 distinct river roles, repair footprint and consistency. Dossier schema v3 adds
-the first frozen-terrain conditional-climatology comparison. Its interpretation
-on a representative-resolution multi-seed panel, coast geometry/generalization
-and event-level repair provenance remain open.
+the frozen-terrain conditional-climatology comparison; its nested schema v2 can
+optionally retain map fields. The canonical 1M ten-seed panel rejects the null
+as a replacement: it removes coherent geographic structure and materially
+changes river supply and roles despite identical routing. Transport therefore
+retains its product role provisionally, while the minimal barrier/wind
+correspondence controls, coast geometry/generalization and event-level repair
+provenance remain open.
 
 ## Next bounded slice: Water Geography V0
 
@@ -133,10 +137,10 @@ provenance?
 Use frozen terrain and the existing product hydrology. On a small set of
 already informative worlds:
 
-1. compare current climate/runoff with a latitude–elevation–coast-distance
-   baseline;
-2. use wind reversal, orographic terms and uniform runoff only as causal
-   controls, not a parameter sweep;
+1. **Completed:** compare current climate/runoff with a
+   latitude–elevation–coast-distance baseline at the accepted reference rung;
+2. **Next:** use one-barrier wind reversal and topography removal as causal
+   correspondence controls, not a parameter sweep;
 3. use connected ocean identity consistently when attributing moisture source;
 4. derive one shared water-geography report: oceans, lakes, basins, outlets,
    spills, river mouths/reaches/trunks, coast/island hierarchy and repair-cut

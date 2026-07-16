@@ -183,6 +183,10 @@ vertical-slice test.
 - **Implemented diagnostic comparison:** project transported precipitation onto
   a low-capacity latitude–elevation–connected-ocean-distance climatology and
   rerun hydrology on the exact supplied terrain with its land budget preserved;
+- **Completed representative panel:** at 100k coarse / 1M fine across the fixed
+  ten seeds, the null preserves routing but loses coherent wet/dry geography,
+  expands thresholded reaches on every world and usually changes river roles
+  and lake state;
 - **Completed first seam:** use one connected-ocean classification rule for
   thermal coast distance, moisture sources and hydrology classification;
 - **Completed first report:** derive aggregate oceans/land components,
@@ -199,11 +203,13 @@ causal consequences and coherent objects suitable for presentation and a
 living-surface consumer. Do not add seasons, ocean circulation, groundwater,
 sediment, vegetation or erosion tuning inside this slice.
 
-The conditional projection is an in-world diagnostic null, not yet a cheap
-replacement: it is fitted from product precipitation. Decide retention only
-after a representative-resolution frozen-world panel shows whether the residual
-is coherent and material to rivers/lakes; add wind/barrier controls only if that
-decision needs causal discrimination.
+The conditional projection is an in-world diagnostic null, not a cheap
+replacement: it is fitted from product precipitation and the representative
+panel rejects it as a product substitute. Transport provisionally earns its
+role through coherent and consequential residual geography. Before calling that
+role physically validated, run the minimal one-barrier wind-reversal and
+topography-removal correspondence controls; do not broaden this into a climate
+feature or tuning campaign.
 
 ### Sediment candidate: research and design gate
 

@@ -14,7 +14,7 @@ use super::{
     WaterBodySemantics, WaterGeographyReport,
 };
 
-pub const CLIMATOLOGY_NULL_REPORT_SCHEMA_VERSION: u32 = 1;
+pub const CLIMATOLOGY_NULL_REPORT_SCHEMA_VERSION: u32 = 2;
 const MARGINAL_BIN_COUNT: usize = 4;
 const ESTIMATOR: &str = "land-only in-sample area-weighted joint conditional mean: signed-sin-latitude x pre-hydrology-elevation x connected-ocean-distance";
 
@@ -30,6 +30,31 @@ pub struct ClimatologyNullReport {
     pub precipitation: PrecipitationNullComparison,
     pub frozen_terrain: FrozenTerrainComparison,
     pub baseline_water_geography: WaterGeographyReport,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spatial_evidence: Option<ClimatologySpatialEvidence>,
+}
+
+/// Optional per-cell fields for mapping the product/null comparison.
+///
+/// Every array has `cell_count` entries and uses tessellation cell-index order.
+/// Areas are unit-sphere solid angles; multiply by planet radius squared for
+/// physical area.
+#[derive(Debug, Serialize)]
+pub struct ClimatologySpatialEvidence {
+    pub cell_count: usize,
+    pub array_order: &'static str,
+    pub area_unit: &'static str,
+    pub unit_xyz: Vec<[f32; 3]>,
+    pub area_steradians: Vec<f32>,
+    pub ocean: Vec<bool>,
+    pub product_precipitation: Vec<f32>,
+    pub null_precipitation: Vec<f32>,
+    pub product_flow_accumulation: Vec<f32>,
+    pub null_flow_accumulation: Vec<f32>,
+    /// 0 = not a river, 1 = all-river threshold, 2 = major-river threshold.
+    pub product_river_class: Vec<u8>,
+    /// 0 = not a river, 1 = all-river threshold, 2 = major-river threshold.
+    pub null_river_class: Vec<u8>,
 }
 
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -83,6 +108,7 @@ impl ClimatologyNullReport {
         product_rivers: &RiverNetwork,
         product_water_geography: &WaterGeographyReport,
         river_policy: RiverThresholdPolicy,
+        include_spatial_evidence: bool,
     ) -> Result<Self, String> {
         let n = tessellation.num_cells();
         validate_inputs(
@@ -153,6 +179,18 @@ impl ClimatologyNullReport {
             &baseline_rivers,
             &baseline_water_geography,
         );
+        let spatial_evidence = include_spatial_evidence.then(|| {
+            build_spatial_evidence(
+                tessellation,
+                &product_ocean,
+                product_precipitation,
+                &fit.precipitation,
+                product_hydrology,
+                &baseline_hydrology,
+                product_rivers,
+                &baseline_rivers,
+            )
+        });
 
         Ok(Self {
             schema_version: CLIMATOLOGY_NULL_REPORT_SCHEMA_VERSION,
@@ -165,7 +203,61 @@ impl ClimatologyNullReport {
             precipitation,
             frozen_terrain,
             baseline_water_geography,
+            spatial_evidence,
         })
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_spatial_evidence(
+    tessellation: &Tessellation,
+    ocean: &[bool],
+    product_precipitation: &[f32],
+    null_precipitation: &[f32],
+    product_hydrology: &Hydrology,
+    null_hydrology: &Hydrology,
+    product_rivers: &RiverNetwork,
+    null_rivers: &RiverNetwork,
+) -> ClimatologySpatialEvidence {
+    let cell_count = tessellation.num_cells();
+    ClimatologySpatialEvidence {
+        cell_count,
+        array_order: "tessellation cell index, 0..cell_count",
+        area_unit: "steradians on the unit sphere",
+        unit_xyz: (0..cell_count)
+            .map(|cell| {
+                let center = tessellation.cell_center(cell);
+                [center.x, center.y, center.z]
+            })
+            .collect(),
+        area_steradians: tessellation.cell_areas_ref().to_vec(),
+        ocean: ocean.to_vec(),
+        product_precipitation: product_precipitation.to_vec(),
+        null_precipitation: null_precipitation.to_vec(),
+        product_flow_accumulation: product_hydrology.flow_accumulation.clone(),
+        null_flow_accumulation: null_hydrology.flow_accumulation.clone(),
+        product_river_class: river_classes(product_rivers),
+        null_river_class: river_classes(null_rivers),
+    }
+}
+
+fn river_classes(rivers: &RiverNetwork) -> Vec<u8> {
+    rivers
+        .all_cells
+        .iter()
+        .zip(&rivers.major_cells)
+        .map(|(&all, &major)| river_class(all, major))
+        .collect()
+}
+
+#[inline]
+fn river_class(all: bool, major: bool) -> u8 {
+    if major {
+        2
+    } else if all {
+        1
+    } else {
+        0
     }
 }
 
@@ -690,8 +782,12 @@ mod tests {
             &rivers,
             &product_report,
             policy,
+            false,
         )
         .unwrap();
+        assert!(report.spatial_evidence.is_none());
+        let compact_json = serde_json::to_value(&report).unwrap();
+        assert!(compact_json.get("spatial_evidence").is_none());
         assert_eq!(report.baseline_water_geography.cell_count, n);
         assert_eq!(report.frozen_terrain.ocean_mask_disagreement_cell_count, 0);
         assert_eq!(
@@ -718,5 +814,43 @@ mod tests {
                 .maximum_effective_elevation_difference_km,
             0.0
         );
+
+        let spatial_report = ClimatologyNullReport::build(
+            &tess,
+            &elevation,
+            &continentality,
+            &temperature,
+            &precipitation,
+            &product,
+            &rivers,
+            &product_report,
+            policy,
+            true,
+        )
+        .unwrap();
+        let spatial = spatial_report.spatial_evidence.unwrap();
+        assert_eq!(spatial.cell_count, n);
+        assert_eq!(spatial.unit_xyz.len(), n);
+        assert_eq!(spatial.area_steradians.len(), n);
+        assert_eq!(spatial.ocean.len(), n);
+        assert_eq!(spatial.product_precipitation.len(), n);
+        assert_eq!(spatial.null_precipitation.len(), n);
+        assert_eq!(spatial.product_flow_accumulation.len(), n);
+        assert_eq!(spatial.null_flow_accumulation.len(), n);
+        assert_eq!(spatial.product_river_class.len(), n);
+        assert_eq!(spatial.null_river_class.len(), n);
+        assert!(spatial
+            .product_river_class
+            .iter()
+            .chain(&spatial.null_river_class)
+            .all(|&class| class <= 2));
+    }
+
+    #[test]
+    fn river_class_encoding_prioritizes_major_threshold() {
+        assert_eq!(river_class(false, false), 0);
+        assert_eq!(river_class(true, false), 1);
+        assert_eq!(river_class(true, true), 2);
+        assert_eq!(river_class(false, true), 2);
     }
 }

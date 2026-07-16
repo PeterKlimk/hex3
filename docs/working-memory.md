@@ -29,14 +29,13 @@ coasts or evaporation sources, and precipitation normalization now uses the
 area-weighted land supply that hydrology integrates. The dossier carries a
 derived whole-world water-geography report for components, shoreline,
 basin/lake state, independent river roles, repair footprint and consistency.
-Dossier schema v3 now adds the intended conditional projection: product
+Dossier schema v3 adds the intended conditional projection: product
 precipitation is reduced to a low-capacity joint function of signed latitude,
 authoritative pre-hydrology elevation and connected-ocean distance; land supply
 is preserved; and hydrology is rerun from the same input
 terrain. This is a per-world decomposition, not a standalone replacement
-climate. The small panel below only debugs it; retention still needs a
-representative-resolution frozen-world panel and, only if ambiguous, targeted
-wind/barrier causal controls.
+climate. Climatology-report schema v2 can optionally retain the paired per-cell
+fields for mapping without bloating ordinary dossier packets.
 
 The first comparison exposed and fixed a prerequisite contract bug: with all
 fine climate modifiers disabled, `fine_precipitation` returned before
@@ -44,16 +43,27 @@ normalization, so adaptive transfer changed the hydrologic-land mean from the
 declared 1.0 to 2.95 on the seed-12345 8k probe. Fine precipitation now
 normalizes before erosion and hydrology regardless of modifier state.
 
-A deliberately small 8k four-seed debug panel (`12345, 777, 4242, 9001`) closes
-all frozen-terrain invariants and both arm budgets at 1.0. The null explains
-46–63% of precipitation variance; flow-accumulation correlation is 0.87–0.96,
-all-river-cell Jaccard 0.51–0.64 and mouth Jaccard 0.71–0.78. The longest-trunk
-mouth survives on all four seeds and the highest-order mouth on three, but the
-highest-discharge mouth survives on only one. Lake evidence is sparse and
-unstable at this cap. Thus residual precipitation geography materially changes
-thresholded network extent and supply ranking even though fixed terrain keeps
-routing identical. This is not a retention verdict: the cap is coarse and the
-smallest occupied joint bins have weak support.
+The canonical ten-seed reference panel at 100k coarse / 1M fine closes every
+frozen-terrain invariant exactly and holds both land-supply means at 1.0. The
+in-sample null explains only 40–51% of precipitation variance. Median
+flow-accumulation correlation is 0.874, but all-river, major-river and mouth
+Jaccard medians are only 0.559, 0.505 and 0.622. The highest-discharge,
+longest-trunk and highest-order mouths survive on 4/10, 8/10 and 3/10 worlds.
+The null produces 13–26% more reaches on every seed; lake count changes on 9/10
+and lake-cell overlap ranges from 0.31 to 0.93. All of these are supply effects
+on identical terrain and routing, not changed drainage geometry.
+
+Mapped reference/outlier worlds (`12345, 8675309, 1001`) show why: the null
+preserves the broad skeleton but smooths away oriented coastal/barrier wetness
+and coherent continental dry regions, producing broadly more uniform flow and
+widespread river-threshold changes. Therefore the conditional null is rejected
+as a replacement and transported moisture provisionally earns its cheap
+downstream role. This is a value verdict, not yet a physical-validation verdict.
+The next climate task is the already identified minimal correspondence battery:
+flat mixed land/ocean, one barrier, wind reversal and topography removal, with
+moisture closure. It should test whether the valuable residual changes side and
+vanishes for the claimed reasons; do not tune rainfall or add climate scope
+before that result.
 
 Do not continue the R1 arithmetic ladder, tune legacy mountain profiles or add
 another organization rung by momentum. Preserve H as a null, C as research

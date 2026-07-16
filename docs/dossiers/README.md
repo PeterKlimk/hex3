@@ -21,5 +21,20 @@ climatology comparison. The comparison holds supplied terrain and temperature
 fixed, preserves total land runoff and reports the water geography induced by
 the simpler latitude/elevation/ocean-distance projection. Artifacts are ignored
 by Git; maintained interpretation belongs in the dossier documents.
+
+Ordinary packets omit full fields. For a bounded spatial review, opt in to the
+nested climatology schema-v2 arrays and render the paired map directly:
+
+```bash
+cargo run --release --bin dossier -- \
+  --seed 12345 --cells 100000 --fine-max 1000000 \
+  --include-climatology-spatial --output artifacts/dossiers/seed-12345.json
+python3 scripts/render_climatology_null.py \
+  artifacts/dossiers/seed-12345.json
+```
+
+The opt-in JSON is intentionally large and should be limited to predeclared
+worlds; it is evaluation evidence, not persistent product state.
+
 Matched relief captures use the Windows sweep renderer with repeated
 `--sweep-target id:lat:lon` arguments and emit a `capture.json` sidecar.
