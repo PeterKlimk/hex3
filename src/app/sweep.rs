@@ -26,9 +26,9 @@ use hex3::render::{
 use hex3::{
     geometry::{Material, SurfaceVertex, UnifiedMesh, VoronoiMesh},
     world::{
-        BasinSpillDestination, FineCacheMode, OrogenModel, SemanticWaterKind, ShorelineLoop,
-        Tessellation, VoronoiBackend, WaterBodyId, WaterBodySemantics, WaterGeographyGeometry,
-        World, RELIEF_SCALE,
+        BasinSpillDestination, BiomeKind, EcologySemantics, FineCacheMode, OrogenModel,
+        SemanticWaterKind, ShorelineLoop, Tessellation, VoronoiBackend, WaterBodyId,
+        WaterBodySemantics, WaterGeographyGeometry, World, RELIEF_SCALE,
     },
 };
 
@@ -1596,6 +1596,303 @@ fn run_water_geography_packet(opts: &SweepOptions) {
     println!("Done: water-geography packet -> {}", opts.out_dir.display());
 }
 
+#[derive(Clone, Copy)]
+enum EcologyPreviewLayer {
+    Heat,
+    RelativeWater,
+    Freshwater,
+    DominantStress,
+    Vegetation,
+    Tree,
+    Wetland,
+    LabelMargin,
+}
+
+impl EcologyPreviewLayer {
+    const ALL: [Self; 8] = [
+        Self::Heat,
+        Self::RelativeWater,
+        Self::Freshwater,
+        Self::DominantStress,
+        Self::Vegetation,
+        Self::Tree,
+        Self::Wetland,
+        Self::LabelMargin,
+    ];
+
+    fn id(self) -> &'static str {
+        match self {
+            Self::Heat => "thermal-opportunity",
+            Self::RelativeWater => "relative-water-supply",
+            Self::Freshwater => "freshwater-access",
+            Self::DominantStress => "dominant-stress",
+            Self::Vegetation => "vegetation-opportunity",
+            Self::Tree => "tree-opportunity",
+            Self::Wetland => "wetland-opportunity",
+            Self::LabelMargin => "label-dominance-margin",
+        }
+    }
+
+    fn role(self) -> &'static str {
+        match self {
+            Self::Heat | Self::RelativeWater | Self::Freshwater | Self::DominantStress => {
+                "prototype input or limiting factor"
+            }
+            Self::Vegetation | Self::Tree | Self::Wetland => "prototype continuous consequence",
+            Self::LabelMargin => "classifier ambiguity diagnostic",
+        }
+    }
+}
+
+fn mix_color(a: Vec3, b: Vec3, t: f32) -> Vec3 {
+    a.lerp(b, t.clamp(0.0, 1.0))
+}
+
+fn ecology_preview_color(layer: EcologyPreviewLayer, cell: &hex3::world::EcologicalCell) -> Vec3 {
+    if cell.biome == BiomeKind::Ocean {
+        return Vec3::new(0.05, 0.12, 0.20);
+    }
+    if cell.biome == BiomeKind::Lake {
+        return Vec3::new(0.08, 0.30, 0.52);
+    }
+    let p = cell.potentials;
+    match layer {
+        EcologyPreviewLayer::Heat => mix_color(
+            Vec3::new(0.18, 0.34, 0.72),
+            Vec3::new(0.96, 0.72, 0.18),
+            p.heat,
+        ),
+        EcologyPreviewLayer::RelativeWater => mix_color(
+            Vec3::new(0.55, 0.27, 0.10),
+            Vec3::new(0.10, 0.55, 0.42),
+            p.moisture,
+        ),
+        EcologyPreviewLayer::Freshwater => mix_color(
+            Vec3::new(0.34, 0.30, 0.20),
+            Vec3::new(0.06, 0.74, 0.92),
+            p.freshwater_access,
+        ),
+        EcologyPreviewLayer::DominantStress => {
+            let stresses = [
+                (p.cold_stress, Vec3::new(0.55, 0.82, 0.96)),
+                (p.water_stress, Vec3::new(0.95, 0.55, 0.12)),
+                (p.alpine_stress, Vec3::new(0.72, 0.42, 0.82)),
+                (p.terrain_stress, Vec3::new(0.80, 0.22, 0.20)),
+            ];
+            let (strength, color) = stresses
+                .into_iter()
+                .max_by(|a, b| a.0.total_cmp(&b.0))
+                .expect("four stresses");
+            mix_color(Vec3::splat(0.25), color, strength)
+        }
+        EcologyPreviewLayer::Vegetation => mix_color(
+            Vec3::new(0.50, 0.35, 0.18),
+            Vec3::new(0.16, 0.66, 0.22),
+            p.vegetation,
+        ),
+        EcologyPreviewLayer::Tree => mix_color(
+            Vec3::new(0.48, 0.40, 0.22),
+            Vec3::new(0.04, 0.38, 0.10),
+            p.tree,
+        ),
+        EcologyPreviewLayer::Wetland => mix_color(
+            Vec3::new(0.42, 0.35, 0.23),
+            Vec3::new(0.12, 0.68, 0.60),
+            p.wetland,
+        ),
+        EcologyPreviewLayer::LabelMargin => mix_color(
+            Vec3::new(0.88, 0.18, 0.54),
+            Vec3::new(0.88, 0.88, 0.72),
+            cell.classification_confidence,
+        ),
+    }
+}
+
+fn render_ecology_preview_map(
+    gpu: &GpuContext,
+    renderer: &mut Renderer,
+    color_view: &wgpu::TextureView,
+    vertex_buffer: &wgpu::Buffer,
+    index_buffer: &wgpu::Buffer,
+    index_count: u32,
+) {
+    // The map shader normalizes both longitude and latitude to -1..1. Rendering
+    // that square coordinate domain to a 2:1 target restores the equirectangular
+    // angular aspect (360 degrees by 180 degrees).
+    let projection = Mat4::orthographic_rh(-1.1, 1.1, -1.1, 1.1, -1.0, 1.0);
+    let uniforms = Uniforms::new(projection, Vec3::Z, Vec3::Z)
+        .with_relief_scale(0.0)
+        .with_slope_shading(false)
+        .with_hemisphere_lighting(false)
+        .with_map_mode(true)
+        .with_rivers(false);
+    renderer.render_to_view(
+        &gpu.device,
+        &gpu.queue,
+        color_view,
+        &uniforms,
+        RenderScene {
+            fill_pipeline: FillPipelineKind::Map,
+            fill: IndexedDraw {
+                vertex_buffer,
+                index_buffer,
+                index_count,
+            },
+            river_texture_bind_group: None,
+            edges: None,
+            arrows: None,
+            pole_markers: None,
+            rivers: None,
+            gpu_particles: None,
+        },
+    );
+}
+
+/// Render the quarantined ecology prototype without turning it into a product view.
+/// The packet deliberately separates limiting factors from consequences and never
+/// presents the categorical biome labels themselves as accepted world state.
+fn run_living_surface_preview(opts: &SweepOptions) {
+    assert_eq!(
+        opts.target_stage, 4,
+        "living-surface-preview requires --stage 4"
+    );
+    let world = generate_tile_world(opts, &opts.base_erosion);
+    let tess = world.active_tessellation();
+    let ecology = EcologySemantics::build(
+        tess,
+        &world.active_elevation().expect("stage 4 elevation").values,
+        world.active_temperature().expect("stage 4 temperature"),
+        world.active_precipitation().expect("stage 4 precipitation"),
+        world.active_hydrology(),
+    );
+
+    std::fs::create_dir_all(&opts.out_dir)
+        .unwrap_or_else(|e| panic!("create {}: {e}", opts.out_dir.display()));
+    let gpu = pollster::block_on(GpuContext::new_headless(opts.width, opts.height));
+    let mut renderer = Renderer::new(&gpu, &Uniforms::new(Mat4::IDENTITY, Vec3::ZERO, Vec3::Y));
+    let color_tex = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("living_surface_preview_color"),
+        size: wgpu::Extent3d {
+            width: opts.width,
+            height: opts.height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: gpu.format,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let color_view = color_tex.create_view(&Default::default());
+    let montage_w = opts.width * 4;
+    let montage_h = opts.height * 2;
+    let mut montage = vec![0; (montage_w * montage_h * 4) as usize];
+    let mut files = Vec::new();
+
+    for (index, layer) in EcologyPreviewLayer::ALL.into_iter().enumerate() {
+        let mut mesh = VoronoiMesh::from_voronoi_with_colors(&tess.voronoi, |cell| {
+            ecology_preview_color(layer, &ecology.cells[cell])
+        });
+        // The legacy colored shader applies diffuse lighting unconditionally.
+        // A constant normal keeps this semantic packet unlit and comparable.
+        for vertex in &mut mesh.vertices {
+            vertex.normal = Vec3::Z.to_array();
+        }
+        let vertices =
+            create_vertex_buffer(&gpu.device, &mesh.vertices, "ecology_preview_vertices");
+        let indices = create_index_buffer(&gpu.device, &mesh.indices, "ecology_preview_indices");
+        render_ecology_preview_map(
+            &gpu,
+            &mut renderer,
+            &color_view,
+            &vertices,
+            &indices,
+            mesh.indices.len() as u32,
+        );
+        let rgba = read_back_rgba(&gpu, &color_tex, opts.width, opts.height);
+        let filename = format!("{:02}_{}.png", index + 1, layer.id());
+        write_png(
+            &opts.out_dir.join(&filename),
+            &rgba,
+            opts.width,
+            opts.height,
+        );
+        blit_tile(
+            &mut montage,
+            montage_w,
+            &rgba,
+            opts.width,
+            opts.height,
+            (index % 4) as u32,
+            (index / 4) as u32,
+        );
+        files.push(serde_json::json!({
+            "id": layer.id(),
+            "role": layer.role(),
+            "filename": filename,
+        }));
+    }
+    write_png(
+        &opts.out_dir.join("montage.png"),
+        &montage,
+        montage_w,
+        montage_h,
+    );
+
+    let areas = tess.cell_areas_ref();
+    let (land_area, low_margin_area, sums) = ecology.cells.iter().enumerate().fold(
+        (0.0f64, 0.0f64, [0.0f64; 5]),
+        |(area, low, mut sums), (cell, state)| {
+            if matches!(state.biome, BiomeKind::Ocean | BiomeKind::Lake) {
+                return (area, low, sums);
+            }
+            let a = areas[cell] as f64;
+            sums[0] += a * state.potentials.heat as f64;
+            sums[1] += a * state.potentials.moisture as f64;
+            sums[2] += a * state.potentials.vegetation as f64;
+            sums[3] += a * state.potentials.tree as f64;
+            sums[4] += a * state.potentials.wetland as f64;
+            (
+                area + a,
+                low + if state.classification_confidence < 0.2 {
+                    a
+                } else {
+                    0.0
+                },
+                sums,
+            )
+        },
+    );
+    let means: Vec<f64> = sums.into_iter().map(|sum| sum / land_area).collect();
+    let sidecar = serde_json::json!({
+        "schema_version": 1,
+        "purpose": "untuned evidence for deciding whether to replace the quarantined ecology prototype with a bounded living-surface product",
+        "status": "diagnostic candidate evidence; not retained world state, calibrated ecology, or a product palette",
+        "world_manifest": world.manifest(),
+        "projection": "equirectangular; exact Voronoi cells; no relief displacement or semantic smoothing",
+        "known_limitations": [
+            "relative water supply is renormalized to each world's land mean",
+            "freshwater access is distance to map-selected rivers and proper lakes, not drainage-relative wetness",
+            "vegetation, tree, and wetland are opportunity scores, not cover fractions or ecosystem state",
+            "label margin is score separation, not model confidence"
+        ],
+        "land_mean_raw_precipitation_demand_ratio": ecology.land_mean_raw_aridity,
+        "area_weighted_land_means": {
+            "heat": means[0], "relative_moisture": means[1],
+            "vegetation": means[2], "tree": means[3], "wetland": means[4]
+        },
+        "land_fraction_with_label_margin_below_0_2": low_margin_area / land_area,
+        "layers": files,
+        "montage_filename": "montage.png"
+    });
+    let file = std::fs::File::create(opts.out_dir.join("living-surface-preview.json"))
+        .expect("create living-surface-preview.json");
+    serde_json::to_writer_pretty(BufWriter::new(file), &sidecar)
+        .expect("write living-surface-preview.json");
+    println!("Done: living-surface preview -> {}", opts.out_dir.display());
+}
+
 fn terrain_slope(tess: &Tessellation, elevation: &[f32]) -> Vec<f32> {
     (0..tess.num_cells())
         .map(|i| {
@@ -1832,6 +2129,10 @@ pub fn run_sweep(opts: SweepOptions) {
     }
     if opts.stack.as_deref() == Some("water-geography") {
         run_water_geography_packet(&opts);
+        return;
+    }
+    if opts.stack.as_deref() == Some("living-surface-preview") {
+        run_living_surface_preview(&opts);
         return;
     }
     // Validate knob names up front so a typo fails before any (slow) generation

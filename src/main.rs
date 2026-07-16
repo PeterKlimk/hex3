@@ -376,9 +376,10 @@ struct Cli {
 
     /// Cumulative-stack preset (o3a, p1, v3, o0, meso), or the special
     /// `range-ancestry` diagnostic packet (requires exactly three explicit
-    /// --sweep-target values and stage 4), or `water-geography` (automatically
-    /// selects a coast complex and overflowing lake; stage 4). Ignores
-    /// --sweep/--sweep-values.
+    /// --sweep-target values and stage 4), `water-geography` (automatically
+    /// selects a coast complex and overflowing lake; stage 4), or
+    /// `living-surface-preview` (global untuned ecology evidence; stage 4).
+    /// Ignores --sweep/--sweep-values.
     #[arg(long)]
     sweep_stack: Option<String>,
 

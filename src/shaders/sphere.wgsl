@@ -9,7 +9,14 @@ struct Uniforms {
     camera_pos: vec3<f32>,
     _padding1: f32,
     light_dir: vec3<f32>,
+    relief_scale: f32,
+    hemisphere_lighting: f32,
     map_mode: f32, // 0.0 = globe view, 1.0 = equirectangular map view
+    slope_shading: f32,
+    rivers_enabled: f32,
+    river_major_only: f32,
+    river_width_scale: f32,
+    _padding2: vec2<f32>,
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
