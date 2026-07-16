@@ -10,7 +10,8 @@ use hex3::world::landscape::organization_owner::run_thin_g_4km_v0;
 use hex3::world::landscape::organization_owner_c::run_thin_c_4km_v0;
 use hex3::world::landscape::organization_owner_h::run_thin_h_4km_v0;
 use hex3::world::landscape::organization_render::{
-    write_thin_hcg_matched_png_v0, ThinHcgRenderConfigV0, ThinHcgRenderMetadataV0,
+    write_thin_hcg_diagnostic_png_v0, write_thin_hcg_matched_png_v0, ThinHcgDiagnosticConfigV0,
+    ThinHcgDiagnosticMetadataV0, ThinHcgRenderConfigV0, ThinHcgRenderMetadataV0,
 };
 use serde::Serialize;
 use std::fs::{self, File};
@@ -34,7 +35,8 @@ struct TimingsV0 {
     g_seconds: f64,
     common_evidence_seconds: f64,
     numerical_summary_seconds: f64,
-    render_seconds: f64,
+    matched_render_seconds: f64,
+    diagnostic_render_seconds: f64,
     total_seconds: f64,
 }
 
@@ -46,7 +48,20 @@ struct ComparisonFileV0 {
     source_dirty: bool,
     timings: TimingsV0,
     render: ThinHcgRenderMetadataV0,
+    diagnostic_render: ThinHcgDiagnosticMetadataV0,
     numerical: ThinHcgNumericalOutputV0,
+}
+
+#[derive(Debug, Serialize)]
+struct SurfaceCacheV0<'a> {
+    schema_version: &'static str,
+    warning: &'static str,
+    input_bundle_hash: u64,
+    input_resolution_hash: u64,
+    nominal_spacing_km: f64,
+    h_elevation_km: &'a [f64],
+    c_elevation_km: &'a [f64],
+    g_elevation_km: &'a [f64],
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -89,7 +104,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &g.final_elevation_km,
         ThinHcgRenderConfigV0::default(),
     )?;
-    let render_seconds = started.elapsed().as_secs_f64();
+    let matched_render_seconds = started.elapsed().as_secs_f64();
+    let started = Instant::now();
+    let diagnostic_render = write_thin_hcg_diagnostic_png_v0(
+        cli.output_dir.join("diagnostic.png"),
+        input,
+        &h.final_elevation_km,
+        &c.final_elevation_km,
+        &g.final_elevation_km,
+        ThinHcgDiagnosticConfigV0::default(),
+    )?;
+    let diagnostic_render_seconds = started.elapsed().as_secs_f64();
+    let surface_cache = SurfaceCacheV0 {
+        schema_version: "orogen-owner-thin-hcg-surface-cache-v0",
+        warning: "DISPOSABLE RENDER CACHE: physical surfaces, not a promotion result",
+        input_bundle_hash: bundle.derived_bundle_hash,
+        input_resolution_hash: input.derived_resolution_hash,
+        nominal_spacing_km: input.nominal_spacing_km,
+        h_elevation_km: &h.final_elevation_km,
+        c_elevation_km: &c.final_elevation_km,
+        g_elevation_km: &g.final_elevation_km,
+    };
+    fs::write(
+        cli.output_dir.join("surfaces.bin"),
+        bincode::serialize(&surface_cache)?,
+    )?;
     let timings = TimingsV0 {
         linked_input_seconds,
         h_seconds,
@@ -97,7 +136,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         g_seconds,
         common_evidence_seconds,
         numerical_summary_seconds,
-        render_seconds,
+        matched_render_seconds,
+        diagnostic_render_seconds,
         total_seconds: total_started.elapsed().as_secs_f64(),
     };
     let output = ComparisonFileV0 {
@@ -107,6 +147,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         source_dirty: env!("HEX3_GIT_DIRTY") == "true",
         timings,
         render,
+        diagnostic_render,
         numerical,
     };
     let file = File::create(cli.output_dir.join("comparison.json"))?;
