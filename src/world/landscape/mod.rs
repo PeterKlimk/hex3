@@ -25,10 +25,12 @@ mod linked_input;
 mod mesh;
 pub mod organization_artifact;
 pub mod organization_comparison;
+pub mod organization_output;
 pub mod organization_owner;
 pub mod organization_owner_c;
 pub mod organization_owner_h;
 pub(crate) mod organization_process;
+pub mod organization_render;
 mod solver;
 mod voronoi_cap_fixture;
 
