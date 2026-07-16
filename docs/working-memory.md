@@ -142,13 +142,15 @@ rise, converting a smooth roof into graph-depth discontinuities. Therefore no
 arm advances from this base case. H stays a null, current G stops, and current C
 does not earn its cost. No promotion-grade arm-result packet exists.
 
-The next bounded task is not 8/2 km, wet/dry, reorganization, publication or
-optimization. Replace only the static ribbon compiler with a work-conserving,
-inheritance-conditioned finite-segment organization graph. It should consume
-real boundary-chain topology, polarity, kinematic change and plate-bound
-material state, and emit time-varying uplift/loading opportunity rather than
-height. Inspect its work field and profiles first; then run H once as a direct
-forcing control and C once to determine what drainage coevolution adds.
+The compiler-only `B/F/I` pass is complete. Its API structurally excludes
+terrain and drainage. `B`, full-cosine finite-parent `F`, and inherited-child
+`I` each close `100,625 km³` near roundoff, including the two original
+`50,312.5 km³` parent ledgers; the compiler costs about `0.020 s`. `F` removes the flat roof with two
+coherent massifs and a transfer low. `I` creates four concentrated, partly
+disconnected hot spots and fails to earn its added inheritance graph. Do not
+tune `I` or jump to the production chain/history adapter. The next bounded task
+is one H and one C response to `F`, asking whether drainage coevolution adds
+useful valleys/divides beyond the compact forcing inherited by H.
 Keep the review findings visible: G's uniform wet/dry case changes profile but
 not topology; cross-resolution O0b discrepancy is not a generic scalar
 uncertainty; central peak-anchored and footprint-context cohorts must remain
@@ -903,6 +905,8 @@ explicit persistent skeleton, or a physical channel-initiation threshold.
 - O3A ancestry:
   `artifacts/captures/seed-12345-o3a-isotropic-ancestry/` and
   `artifacts/captures/seed-12345-o3a-massif-corridor-ancestry/`
+- Compiler-only B/F/I forcing comparison:
+  `artifacts/captures/orogen-organization-bfi-parent-ledger-v1-4km-2026-07-17/`
 
 ## Focus guardrails
 

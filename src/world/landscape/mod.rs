@@ -31,6 +31,7 @@ pub mod organization_owner_c;
 pub mod organization_owner_h;
 pub(crate) mod organization_process;
 pub mod organization_render;
+pub mod orogen_organization_graph;
 mod solver;
 mod voronoi_cap_fixture;
 

@@ -1,7 +1,7 @@
 # Experiment registry
 
 This registry separates current product behavior from implemented alternatives.
-It summarizes code and recorded evidence through 2026-07-15; it is not a substitute
+It summarizes code and recorded evidence through 2026-07-17; it is not a substitute
 for the linked audits. Status terms follow the
 [documentation policy](documentation-policy.md).
 
@@ -59,6 +59,7 @@ tracked independently below; none is promoted product behavior.
 | O3C | An explicit persistent crest/divide graph is necessary | Joint positive and negative objects, zero-net authoritative redistribution, not crest-only; compare with O3A/O3B | Reframed as the explicit-skeleton structural upper bound in the organization-owner testbed, not a presumptive product implementation |
 | O4 | Existing erosion can dismantle a broad cap when repeated rebuild no longer suppresses reorganization | Fixed current cap; rebuild off/reduced; bounded drainage/base-level perturbation | Folded into the locked hold-and-carve/control family; secondary to the coupled representation decision |
 | HCG4 | A hold/carve, reduced coupled or graph-first owner can organize one shared linked deformation pair | Exact thin 4 km H/C/G execution, common S0/D0/O0a evidence, work/ledger closure and sharp matched physical profiles | Completed negative discriminator: shared static forcing contains long exact along-strike interiors; H preserves the roof, C adds local texture without regional segmentation, G adds steps/spikes. No arm promoted; current G stops and the forcing compiler is the next seam |
+| BFI4 | Does a compact finite-slip prior solve the roof before inherited graph complexity is justified? | Compiler-only B/F/I at 4 km; identical `100,625 km³` work, narrow API excludes terrain/drainage, sharp displacement fields and area-integrated profiles | Completed discriminator: full-cosine F removes the roof coherently; manufactured inherited-child I becomes separated hot spots and does not earn complexity. Advance F to one H/C response; do not tune or promote I |
 
 Success requires authoritative pre/final morphology and at least one downstream
 hydrology or climate organization signature to improve under the declared
@@ -70,9 +71,11 @@ implementations. The thin H/C/G discriminator is now implemented and evaluated,
 but only as a non-authoritative 4 km source comparison. It rejects the shared
 static-ribbon representation and current G reconstruction before promotion: the
 compiler ignores segment links/vergence, has zero horizontal motion and exposes
-long exactly uniform interiors. The next experiment is an inherited,
-work-conserving finite-segment organization graph feeding H as control and C as
-evolving response. The
+long exactly uniform interiors. The subsequent compiler-only B/F/I comparison
+finds that a full-cosine finite-parent prior solves that exact defect more
+coherently and cheaply than the first manufactured inheritance graph. The next
+experiment feeds F once to H as control and C as evolving response; real
+inheritance/history integration is not yet earned. The
 [comparison design envelope](research/orogen-organization-owner-v0-2026-07-16.md)
 remains the historical family/work/evidence boundary; exact
 [artifact/provenance](research/orogen-organization-artifact-v0-2026-07-16.md)

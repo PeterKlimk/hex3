@@ -234,13 +234,15 @@ current G reconstruction therefore stops; H remains the null/control; and the
 present C instance does not justify its roughly two-times-H runtime. This does
 not reject the reduced coupled family under a better causal forcing owner.
 
-The next architecture seam is upstream of H/C: a persistent orogen organization
-graph over real boundary chains and plate-bound inheritance. It should allocate
-one conserved shortening/work budget among finite linked, tapered,
-polarity-aware deformation patches that can nucleate, link, migrate and retire.
-It emits rock-uplift/loading opportunity, not elevation. Existing drainage and
-hillslope operators then determine how much extra organization C earns beyond a
-direct-forcing H control. See the updated
+The compiler-only `B/F/I` comparison shows that the first useful upstream change
+is smaller than a persistent product organization graph. A full-cosine
+finite-parent control removes the exact longitudinal roof while conserving the
+accepted work and width. The manufactured inheritance graph also conserves
+work, but breaks the belt into disconnected hot spots and does not earn its
+complexity. Feed the finite-parent control through H and C once before adapting
+real boundary chains, plate-bound inheritance or tectonic history. The graph
+architecture remains the plausible later seam if the simpler prior proves
+insufficient, not an assumed destination. See the updated
 [mountain-system design basis](research/mountain-system-design-basis-2026-07-13.md).
 
 ### Shared setting

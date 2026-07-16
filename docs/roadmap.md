@@ -294,9 +294,11 @@ and
 and
 [planar capture/human-review contract](research/orogen-organization-planar-review-v0-2026-07-16.md)
 are now preregistered. The thin 4 km source implementation and base observation
-are complete and negative for the shared static-ribbon representation. A frozen
-promotion campaign is not warranted. The next seam is the finite-segment
-forcing/organization graph described below.
+are complete and negative for the shared static-ribbon representation. The
+compiler-only B/F/I follow-up is also complete: full-cosine finite parents solve
+the exact roof more coherently than the first inherited-child graph. A frozen
+promotion campaign is not warranted. The next seam is the single H/C response
+comparison described below.
 
 The current sequence is:
 
@@ -362,14 +364,14 @@ The current sequence is:
    of S0/D0/reference-O0a now exist. Numerical output and sharp matched profiles
    show the shared static ribbon already owns the long roof: H preserves it, C
    only locally dissects it and G makes it discontinuous. No arm advances;
-7. **next:** replace only the linked static-ribbon forcing with a conservative,
-   inheritance-conditioned finite-segment organization graph. Validate its
-   uplift/work field and longitudinal profiles before a long terrain run. Reuse
-   boundary-front chains, plate-bound material state and actual kinematic
-   history where available; do not add direct elevation noise;
-8. run H once as the direct-forcing control and C once as the evolving response
-   only after that graph exposes justified massifs and relay lows. Decide whether
-   C's drainage/divide response earns its compute beyond inherited forcing; and
+7. **completed discriminator:** compare accepted ribbon B, work-matched
+   full-cosine finite parents F, and independent inheritance-conditioned child
+   graph I before terrain execution. F removes the exact roof coherently; I
+   creates separated hot spots and does not earn its complexity. All work
+   ledgers close; no direct elevation/drainage input enters the compiler;
+8. **next:** feed F once through H as the direct-forcing control and C once as
+   the evolving response. Decide whether C's drainage/divide response earns its
+   compute beyond compact finite forcing. Do not integrate or tune I first; and
 9. return to the cross-system disposition table before choosing sediment,
    ecology, coast or human-world expansion.
 
