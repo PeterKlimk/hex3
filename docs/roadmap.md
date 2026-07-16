@@ -182,9 +182,13 @@ vertical-slice test.
 
 - compare transported climate/runoff with a cheap latitude–elevation–coast
   baseline on frozen terrain;
-- use connected-ocean identity consistently for moisture source attribution;
-- derive a shared report for oceans, lakes, basins, outlets, spills, river
-  roles, coasts/islands and repair-cut contribution;
+- **Completed first seam:** use one connected-ocean classification rule for
+  thermal coast distance, moisture sources and hydrology classification;
+- **Completed first report:** derive aggregate oceans/land components,
+  shoreline, lakes/basins, distinct river roles, repair contribution and
+  consistency checks in the existing dossier path;
+- extend that report only where the baseline comparison needs explicit
+  outlets/spills, coast geometry or object correspondence;
 - distinguish discharge/catchment importance, network hierarchy, longest trunk
   and cartographic importance; and
 - inspect the same objects in Physical, Diagnostic and Cartographic views.

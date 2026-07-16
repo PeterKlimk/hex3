@@ -52,6 +52,8 @@ mod provenance;
 mod semantics;
 mod tessellation;
 mod units;
+mod water;
+pub mod water_geography;
 
 pub use atmosphere::Atmosphere;
 pub use boundary::{collect_plate_boundaries, BoundaryKind, PlateBoundaryEdge, SubductionPolarity};
@@ -94,6 +96,7 @@ pub use units::{
     grade_to_degrees, grade_to_elevation_per_radian, km_to_arc_radians, km_to_elevation,
     meters_to_elevation, relief_exaggeration, solid_angle_to_km2, PHYSICAL_RELIEF_SCALE,
 };
+pub use water_geography::{WaterGeographyReport, WATER_GEOGRAPHY_REPORT_SCHEMA_VERSION};
 
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -357,7 +360,8 @@ impl World {
             .elevation
             .as_ref()
             .expect("Elevation must be generated first");
-        self.atmosphere = Some(Atmosphere::generate(&self.tessellation, elevation));
+        let crust = self.crust.as_ref().expect("Crust must be generated first");
+        self.atmosphere = Some(Atmosphere::generate(&self.tessellation, crust, elevation));
     }
 
     /// Generate the full stage-4 world (fine base + pre-erosion + eroded) at the

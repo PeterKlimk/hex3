@@ -15,6 +15,7 @@ use std::time::Instant;
 use ordered_float::OrderedFloat;
 
 use super::constants::EVAP_TEMP_SENSITIVITY;
+use super::water::connected_ocean_cells;
 use super::{Crust, Elevation, Tessellation};
 
 /// Water state of a cell.
@@ -170,9 +171,6 @@ pub struct Hydrology {
     pub mean_cell_discharge: f32,
 }
 
-/// Minimum ocean component size as fraction of total cells.
-const MIN_OCEAN_AREA_FRACTION: f32 = 0.001;
-
 /// Default climate ratio (precipitation / evaporation).
 /// Values > 1.0 = wet climate (more lakes)
 /// Values < 1.0 = arid climate (fewer lakes)
@@ -278,12 +276,7 @@ impl Hydrology {
 
         // Step 1: Identify ocean cells (connected below-sea-level touching oceanic crust)
         let t0 = Instant::now();
-        let is_ocean = identify_ocean_cells_from_continentality(
-            tessellation,
-            continentality,
-            raw_elevation,
-            &areas,
-        );
+        let is_ocean = connected_ocean_cells(tessellation, continentality, raw_elevation, &areas);
         log::info!("hydrology: identify ocean cells {:.2?}", t0.elapsed());
 
         // Drainage integration: carve outlet channels for basins geologic time would have
@@ -737,70 +730,6 @@ impl Hydrology {
 
         result
     }
-}
-
-/// Identify ocean cells: connected below-sea-level regions that touch oceanic crust.
-///
-/// A connected component of elevation < 0 cells qualifies as ocean if:
-/// - It contains at least one cell of oceanic crust
-/// - It meets the minimum area threshold (fraction of total cells)
-fn identify_ocean_cells_from_continentality(
-    tessellation: &Tessellation,
-    continentality: &[f32],
-    elevation: &[f32],
-    areas: &[f32],
-) -> Vec<bool> {
-    let n = tessellation.num_cells();
-    // Minimum ocean size as a fraction of total surface AREA (not cell count):
-    // on the adaptive mesh open ocean is a few huge cells, so a count threshold
-    // would wrongly reject it.
-    let total_area: f32 = areas.iter().sum();
-    let min_ocean_area = total_area * MIN_OCEAN_AREA_FRACTION;
-    let mut is_ocean = vec![false; n];
-    let mut visited = vec![false; n];
-
-    // Find connected components of below-sea-level cells
-    for start in 0..n {
-        if visited[start] || elevation[start] >= 0.0 {
-            continue;
-        }
-
-        // BFS to find this connected component
-        let mut component = Vec::new();
-        let mut component_area = 0.0f32;
-        let mut touches_oceanic = false;
-        let mut queue = VecDeque::new();
-
-        queue.push_back(start);
-        visited[start] = true;
-
-        while let Some(cell) = queue.pop_front() {
-            component.push(cell);
-            component_area += areas[cell];
-
-            // Check if this cell is on oceanic crust
-            if continentality[cell] < 0.5 {
-                touches_oceanic = true;
-            }
-
-            // Visit neighbors
-            for &neighbor in tessellation.neighbors(cell) {
-                if !visited[neighbor] && elevation[neighbor] < 0.0 {
-                    visited[neighbor] = true;
-                    queue.push_back(neighbor);
-                }
-            }
-        }
-
-        // Mark as ocean if it touches oceanic crust and meets minimum size
-        if touches_oceanic && component_area >= min_ocean_area {
-            for &cell in &component {
-                is_ocean[cell] = true;
-            }
-        }
-    }
-
-    is_ocean
 }
 
 /// Priority-flood algorithm for depression filling with basin detection.

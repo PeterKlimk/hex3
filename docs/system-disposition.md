@@ -111,6 +111,13 @@ semantic objects and comparison-sidecar ancestry are deterministic derivatives.
 Cross-resolution correspondence is evaluation evidence until a product
 consumer demonstrates a need for persistent lineage.
 
+Implementation progress: the first seam now uses one connected-ocean classifier
+for climate coast distance, moisture sourcing and hydrology. A compact derived
+report in dossier schema v2 covers aggregate water/land components, shoreline,
+basin/lake state, distinct river roles, repair footprint and consistency. The
+climate baseline comparison, coast geometry/generalization and event-level
+repair provenance remain open.
+
 ## Next bounded slice: Water Geography V0
 
 ### Product question

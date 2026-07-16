@@ -49,7 +49,8 @@ does not generate atmosphere, hydrology or erosion.
 
 ## Stage 2: atmosphere
 
-`generate_atmosphere` consumes coarse elevation and tessellation. It computes
+`generate_atmosphere` consumes coarse elevation, crust setting and tessellation.
+It derives connected-ocean identity before hydrology exists, then computes
 temperature, circulation, pressure/wind/uplift and moisture/precipitation on the
 coarse graph. The atmosphere remains retained after refinement because wind
 particles, coarse views and fine-field transfer consume it.

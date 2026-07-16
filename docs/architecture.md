@@ -120,6 +120,10 @@ The atmosphere is a steady, simplified global model. Temperature derives from
 latitude, continentality and elevation. An analytic circulation supplies
 surface/upper winds and vertical motion. A finite-volume moisture transport
 model generates precipitation from winds, capacity, evaporation and rainout.
+One shared connected-ocean classifier now supplies both thermal distance-to-ocean
+and evaporation-source identity; an inland below-datum basin is not an ocean
+source merely because hydrology has not run yet. Precipitation is normalized to
+an area-weighted non-ocean-land mean before hydrology consumes it.
 
 Fine erosion uses transferred climate plus bounded local feedbacks such as
 lapse correction and optional orographic, lee-side and lake effects. It does
@@ -161,6 +165,12 @@ identity, river selection/hierarchy and provisional ecological potentials.
 Rendering consumes lightweight river selection; audits consume the same water,
 river and ecology definitions. Other semantic responsibilities remain
 distributed.
+
+`world::water_geography` now derives one compact whole-world report from the
+retained hydrology and those shared objects. It records ocean and geographic-land
+components, shoreline length, basin/lake states, distinct river roles,
+drainage-integration footprint and consistency failures. It is dossier evidence,
+not another persistent physical stage.
 
 These operations should be documented as interpretation rather than physical
 state or raw drawing. A future explicit semantic layer can support consistent

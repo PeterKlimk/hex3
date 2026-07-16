@@ -21,8 +21,8 @@ pub struct MoistureResult {
     /// longer stores the moisture field).
     #[cfg_attr(not(test), allow(dead_code))]
     pub moisture: Vec<f32>,
-    /// Precipitation rate per cell, normalized to mean 1.0 over the sphere
-    /// (so hydrology flow units stay "average-cell equivalents").
+    /// Precipitation rate per cell, normalized to an area-weighted mean of 1.0
+    /// over non-ocean land so hydrology receives a stable global supply.
     pub precipitation: Vec<f32>,
 }
 
@@ -39,17 +39,17 @@ fn static_rain_rate(uplift: f32) -> f32 {
 /// Simulate moisture transport to steady state and return the precipitation
 /// field.
 ///
-/// `elevation < 0` marks evaporation sources (stage-2 proxy for water; lakes
-/// are not yet known at this point and their area is negligible for the
-/// global budget).
+/// `is_ocean` marks connected ocean evaporation sources. Lakes are not yet
+/// known at this point; inland below-datum basins deliberately remain land.
 pub fn simulate_moisture(
     tessellation: &Tessellation,
-    elevation: &[f32],
+    is_ocean: &[bool],
     temperature: &[f32],
     wind: &[Vec3],
     uplift: &[f32],
 ) -> MoistureResult {
     let num_cells = tessellation.num_cells();
+    assert_eq!(is_ocean.len(), num_cells);
 
     // Per-iteration mixing fraction from the physical diffusivity
     // (explicit-scheme stability requires < ~0.5).
@@ -58,7 +58,6 @@ pub fn simulate_moisture(
 
     // --- Precompute per-cell static data ---
     let capacity: Vec<f32> = temperature.iter().map(|&t| carrying_capacity(t)).collect();
-    let is_water: Vec<bool> = elevation.iter().map(|&e| e < 0.0).collect();
 
     // Static part of the rainout rate: baseline + signed uplift.
     // Subsidence can suppress orographic/convergence rain, but rainout is
@@ -155,7 +154,7 @@ pub fn simulate_moisture(
     // This skips the ocean's fill-up transient (~1/(react_dt·EVAPORATION_RATE)
     // iterations) without changing the steady state the loop converges to.
     let mut moisture: Vec<f32> = (0..num_cells)
-        .map(|i| if is_water[i] { capacity[i] } else { 0.0 })
+        .map(|i| if is_ocean[i] { capacity[i] } else { 0.0 })
         .collect();
     let mut next = vec![0.0f32; num_cells];
     let mut precip_accum = vec![0.0f32; num_cells];
@@ -173,7 +172,7 @@ pub fn simulate_moisture(
             let mut m = moisture[i];
 
             // Evaporation: water cells relax toward carrying capacity.
-            if is_water[i] {
+            if is_ocean[i] {
                 m += evap_factor * (capacity[i] - m).max(0.0);
             }
 
@@ -184,7 +183,7 @@ pub fn simulate_moisture(
             // recycles into the ocean anyway, so modeling it would only drain
             // moisture that should make landfall.
             let humidity = (m / capacity[i]).clamp(0.0, 1.0);
-            let convective = if is_water[i] {
+            let convective = if is_ocean[i] {
                 0.0
             } else {
                 RAINOUT_CONVECTIVE * humidity * humidity * temp01[i]
@@ -195,7 +194,7 @@ pub fn simulate_moisture(
                 .min(m);
             m -= rain;
             // Evapotranspiration recycling returns part of land rain to the air.
-            if !is_water[i] {
+            if !is_ocean[i] {
                 m += rain * MOISTURE_RECYCLE_FRACTION;
             }
             if measuring {
@@ -264,15 +263,24 @@ pub fn simulate_moisture(
     // lake budgets are calibrated in average-land-cell units), and ocean rain
     // would otherwise dilute it. The scale sets the absolute water level the
     // relative pattern is multiplied up to.
-    let (land_total, land_count) = precip_accum
+    let (land_total, land_area) = precip_accum
         .iter()
-        .zip(is_water.iter())
-        .filter(|(_, &w)| !w)
-        .fold((0.0f32, 0usize), |(t, c), (&p, _)| (t + p, c + 1));
-    let mean = if land_count > 0 {
-        land_total / land_count as f32
+        .zip(is_ocean.iter())
+        .zip(areas.iter())
+        .filter(|((_, &ocean), _)| !ocean)
+        .fold((0.0f32, 0.0f32), |(rain, area), ((&p, _), &a)| {
+            (rain + p * a, area + a)
+        });
+    let mean = if land_area > 0.0 {
+        land_total / land_area
     } else {
-        precip_accum.iter().sum::<f32>() / num_cells as f32 // waterworld fallback
+        let total_area: f32 = areas.iter().sum();
+        precip_accum
+            .iter()
+            .zip(areas.iter())
+            .map(|(&p, &a)| p * a)
+            .sum::<f32>()
+            / total_area.max(1e-12) // waterworld fallback
     };
     let precipitation: Vec<f32> = if mean > 1e-12 {
         let k = PRECIP_GLOBAL_SCALE / mean;
@@ -319,18 +327,21 @@ mod tests {
             .collect();
         let uplift = vec![0.1f32; n];
 
-        let result = simulate_moisture(&tessellation, &elevation, &temperature, &wind, &uplift);
+        let is_ocean: Vec<bool> = elevation.iter().map(|&e| e < 0.0).collect();
+        let result = simulate_moisture(&tessellation, &is_ocean, &temperature, &wind, &uplift);
 
         assert_eq!(result.precipitation.len(), n);
         assert!(result
             .precipitation
             .iter()
             .all(|p| p.is_finite() && *p >= 0.0));
-        let land_precip: Vec<f32> = (0..n)
-            .filter(|&i| elevation[i] >= 0.0)
-            .map(|i| result.precipitation[i])
-            .collect();
-        let mean: f32 = land_precip.iter().sum::<f32>() / land_precip.len() as f32;
+        let areas = tessellation.cell_areas();
+        let (rain, area) = (0..n)
+            .filter(|&i| !is_ocean[i])
+            .fold((0.0f32, 0.0f32), |(rain, area), i| {
+                (rain + result.precipitation[i] * areas[i], area + areas[i])
+            });
+        let mean = rain / area;
         assert!(
             (mean - 1.0).abs() < 1e-3,
             "land precip mean {mean} should be ~1.0"

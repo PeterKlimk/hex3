@@ -13,7 +13,8 @@ use std::collections::BinaryHeap;
 use super::circulation::Circulation;
 use super::constants::*;
 use super::moisture::simulate_moisture;
-use super::{Elevation, Tessellation};
+use super::water::connected_ocean_cells;
+use super::{Crust, Elevation, Tessellation};
 
 /// Temperature lapse rate: temperature drop per unit elevation.
 /// In our normalized system (temp 0-1, elevation 0-0.8 for extreme mountains),
@@ -41,19 +42,26 @@ pub struct Atmosphere {
     /// Uplift per cell (proxy from convergence + orographic upslope flow).
     pub uplift: Vec<f32>,
 
-    /// Precipitation per cell, normalized to mean 1.0 over the sphere.
+    /// Precipitation per cell, normalized to area-weighted land mean 1.0.
     /// Drives hydrology flow accumulation and lake equilibria.
     pub precipitation: Vec<f32>,
 }
 
 impl Atmosphere {
     /// Generate atmosphere data from tessellation and elevation.
-    pub fn generate(tessellation: &Tessellation, elevation: &Elevation) -> Self {
+    pub fn generate(tessellation: &Tessellation, crust: &Crust, elevation: &Elevation) -> Self {
+        let continental_crust: Vec<f32> = (0..tessellation.num_cells())
+            .map(|cell| if crust.is_continental(cell) { 1.0 } else { 0.0 })
+            .collect();
+        let areas = tessellation.cell_areas();
+        let is_ocean =
+            connected_ocean_cells(tessellation, &continental_crust, &elevation.values, &areas);
+
         // Step 1: Surface temperature from latitude + elevation lapse (display/climate field).
         // continentality is consumed INSIDE generate_surface_temperature (the land-ocean
         // thermal contrast); the returned copy is not stored (no external consumer).
         let (temperature, _continentality) =
-            generate_surface_temperature(tessellation, &elevation.values);
+            generate_surface_temperature(tessellation, &elevation.values, &is_ocean);
 
         // Step 2: Upper-layer temperature (latitude-only; avoids "mountain high pressure" artifacts)
         let upper_temperature = generate_upper_temperature(tessellation);
@@ -84,13 +92,8 @@ impl Atmosphere {
         let uplift = compute_uplift(tessellation, elevation, &phi, &wind, &circulation);
 
         // Step 9: Moisture transport and precipitation
-        let moisture_result = simulate_moisture(
-            tessellation,
-            &elevation.values,
-            &temperature,
-            &wind,
-            &uplift,
-        );
+        let moisture_result =
+            simulate_moisture(tessellation, &is_ocean, &temperature, &wind, &uplift);
 
         log::debug!(
             "field smoothness (Moran's I): uplift={:.3}, precipitation={:.3}",
@@ -161,10 +164,11 @@ pub struct AtmosphereStats {
 fn generate_surface_temperature(
     tessellation: &Tessellation,
     elevation: &[f32],
+    is_ocean: &[bool],
 ) -> (Vec<f32>, Vec<f32>) {
     let num_cells = tessellation.num_cells();
     let mut temperature = vec![0.0; num_cells];
-    let continentality = compute_continentality(tessellation, elevation);
+    let continentality = compute_continentality(tessellation, is_ocean);
     let reference_temp = latitude_reference_temperature(tessellation);
 
     for i in 0..num_cells {
@@ -208,8 +212,8 @@ fn latitude_reference_temperature(tessellation: &Tessellation) -> f32 {
     sum / num_cells as f32
 }
 
-fn compute_continentality(tessellation: &Tessellation, elevation: &[f32]) -> Vec<f32> {
-    let ocean_distance = distance_from_ocean_cells(tessellation, elevation);
+fn compute_continentality(tessellation: &Tessellation, is_ocean: &[bool]) -> Vec<f32> {
+    let ocean_distance = distance_from_ocean_cells(tessellation, is_ocean);
     ocean_distance
         .iter()
         .map(|&d| continentality_from_ocean_distance(d, CONTINENTALITY_DISTANCE_SCALE))
@@ -227,7 +231,7 @@ fn continentality_from_ocean_distance(dist: f32, scale: f32) -> f32 {
     (1.0 - (-(dist / scale)).exp()).clamp(0.0, 1.0)
 }
 
-fn distance_from_ocean_cells(tessellation: &Tessellation, elevation: &[f32]) -> Vec<f32> {
+fn distance_from_ocean_cells(tessellation: &Tessellation, is_ocean: &[bool]) -> Vec<f32> {
     #[derive(Clone, Copy, PartialEq)]
     struct State {
         dist: f32,
@@ -255,8 +259,8 @@ fn distance_from_ocean_cells(tessellation: &Tessellation, elevation: &[f32]) -> 
     let mut dist = vec![f32::INFINITY; n];
     let mut heap = BinaryHeap::new();
 
-    for (cell, &elev) in elevation.iter().enumerate().take(n) {
-        if elev < 0.0 {
+    for (cell, &ocean) in is_ocean.iter().enumerate().take(n) {
+        if ocean {
             dist[cell] = 0.0;
             heap.push(State { dist: 0.0, cell });
         }

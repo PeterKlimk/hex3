@@ -10,8 +10,9 @@ This document describes the first implemented semantic-object slice: water
 bodies and river networks. These objects interpret modeled hydrology without
 changing it and contain no camera, relief, color or stroke settings.
 
-Hydrology semantics live in `src/world/semantics.rs`; ecological semantics live
-in `src/world/ecology.rs`.
+Hydrology semantics live in `src/world/semantics.rs`; their compact whole-world
+report lives in `src/world/water_geography.rs`; ecological semantics live in
+`src/world/ecology.rs`.
 
 ## Water bodies
 
@@ -77,12 +78,33 @@ The river audit consumes these shared masks, adjacency, Strahler values and
 mouths rather than reconstructing a renderer-like network independently. Lake
 audits consume semantic area, depth, identity and outlet classification.
 
+## Whole-world water-geography report
+
+`WaterGeographyReport` is a deterministic derived summary used by the dossier
+packet. It does not add physical state or persistent identity. From one retained
+hydrology surface plus `WaterBodySemantics` and `RiverNetwork`, it records:
+
+- connected ocean and geographic-land component counts and descending areas;
+- ocean coastline and classified-lake shoreline length;
+- basin, lake, pond, terminal and overflow counts;
+- river mouth/reach counts and independent highest-discharge, longest-trunk and
+  highest-Strahler roles;
+- drainage-integration cut/source footprint and intersection with selected
+  channel masks; and
+- semantic ownership, component and mouth consistency failures.
+
+An overflowing basin with `overflow_target == None` is reported only as having
+no basin target. Current hydrology uses that representation for normal ocean
+exit as well as rare unresolved/cyclic walks, so the report does not manufacture
+a distinction that retained physical provenance cannot support.
+
 ## Ownership
 
 | Concern | Owner |
 |---|---|
 | Drainage direction, flow and water level | `Hydrology` world state |
 | Water-body identity/type and river hierarchy | Semantic objects |
+| Whole-world water/coast/repair summary | Derived `WaterGeographyReport` |
 | All/Major importance policy | `RiverThresholdPolicy` |
 | Stroke width, color, opacity and antialiasing | Presentation/renderer |
 | Earth-reference comparisons and gates | Diagnostics/validation |
@@ -103,6 +125,10 @@ modeled input changed.
 - Ponds/wetlands need a more deliberate ecological and presentation policy.
 - River generalization still selects cells; geometry simplification and
   zoom-dependent reach aggregation remain future cartographic work.
+- Land/ocean components currently retain aggregate ranked areas rather than
+  reusable coast geometry, strait topology or cross-resolution ancestry.
+- Drainage integration retains exact sparse cuts but not per-breach event
+  identity, reason or endpoint kind.
 
 ## Ecology and biome proxies
 

@@ -9,10 +9,11 @@ use serde::Serialize;
 use super::diagnostics::{measure_components, ComponentStats};
 use super::{
     elevation_to_km, RiverMouth, RiverNetwork, RiverThresholdPolicy, RunManifest,
-    SemanticWaterKind, Tessellation, WaterBodySemantics, World, PLANET_RADIUS_KM,
+    SemanticWaterKind, Tessellation, WaterBodySemantics, WaterGeographyReport, World,
+    PLANET_RADIUS_KM,
 };
 
-pub const DOSSIER_SCHEMA_VERSION: u32 = 1;
+pub const DOSSIER_SCHEMA_VERSION: u32 = 2;
 const MOUNTAIN_ELEVATION_KM: f32 = 1.5;
 const SIGNIFICANT_MOUNTAIN_AREA_KM2: f32 = 20_000.0;
 const TARGET_LIMIT: usize = 3;
@@ -27,6 +28,7 @@ pub struct DossierPacket {
     pub mountains: Vec<MountainTarget>,
     pub lakes: Vec<LakeTarget>,
     pub rivers: Vec<RiverTarget>,
+    pub water_geography: WaterGeographyReport,
     pub hydrology_provenance: HydrologyProvenance,
     pub caveats: Vec<&'static str>,
     pub future_gaps: Vec<&'static str>,
@@ -188,6 +190,7 @@ impl DossierPacket {
         let water = WaterBodySemantics::build(tess, hydrology);
         let river_policy = RiverThresholdPolicy::default();
         let network = RiverNetwork::build(tess, hydrology, &water, river_policy);
+        let water_geography = WaterGeographyReport::build(tess, hydrology, &water, &network)?;
         let mountains = build_mountains(
             world,
             tess,
@@ -228,6 +231,7 @@ impl DossierPacket {
             mountains,
             lakes,
             rivers,
+            water_geography,
             hydrology_provenance: HydrologyProvenance {
                 integration_cut_cell_count: hydrology.integration_cut_count(),
                 maximum_integration_cut_depth_km: hydrology
@@ -244,7 +248,7 @@ impl DossierPacket {
                 "Mountain association means and fractions are fine-cell weighted on an adaptive mesh, not area weighted.",
             ],
             future_gaps: vec![
-                "Coastline hierarchy and named coastal targets are not yet represented.",
+                "Coast component geometry, straits, adjacency and topology-aware generalization are not yet represented.",
                 "Persistent cross-run object identity requires spatial matching beyond these per-run ranks.",
                 "Matched physical, diagnostic, cartographic, and dramatic renders are produced by a separate presentation tool.",
             ],

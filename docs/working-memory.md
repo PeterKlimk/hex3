@@ -22,6 +22,16 @@ presentation. It is an enabling truth-contract pass over cheap retained
 systems, not another global metrics campaign and not yet a new ecology or
 sediment stage.
 
+The first implementation seam now closes the most direct contradiction:
+atmosphere and hydrology share one connected, crust-qualified, area-thresholded
+ocean classifier. Inland below-datum basins no longer act as zero-distance
+coasts or evaporation sources, and precipitation normalization now uses the
+area-weighted land supply that hydrology integrates. Dossier schema v2 carries a
+derived whole-world water-geography report for components, shoreline,
+basin/lake state, independent river roles, repair footprint and consistency.
+This does not yet answer whether transported climate earns its residual pattern
+over the cheap conditional climatology baseline.
+
 Do not continue the R1 arithmetic ladder, tune legacy mountain profiles or add
 another organization rung by momentum. Preserve H as a null, C as research
 machinery and the completed landform packet as reusable evidence. When mountain
