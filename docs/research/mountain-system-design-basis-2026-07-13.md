@@ -110,7 +110,7 @@ lengths of roughly 30–150 km, segment envelopes of 50–300 km and transfer lo
 at least 12–30 km wide. Graph construction should be approximately linear in
 cells plus active boundary faces and negligible beside repeated global routing.
 
-### Compiler-only result and next bounded experiment
+### Compiler and response results
 
 The compiler-only `B/F/I` comparison is complete at 4 km. `B` is the accepted
 flat-interior ribbon; `F` spends the same two 50/50 work ledgers through a full
@@ -130,11 +130,32 @@ inheritance earn complexity beyond one honest finite-slip prior. Do not tune or
 promote this manufactured `I` generator. Evidence is in
 `artifacts/captures/orogen-organization-bfi-parent-ledger-v1-4km-2026-07-17/`.
 
-Next, feed `F`—not `I`—through H once as the direct-forcing control and C once as
-the evolving response. This asks whether coupled drainage creates meaningful
-valley/divide organization from a coherent compact forcing patch. It is not a
-promotion campaign. Product integration of real front chains, carrier history
-and inherited material remains conditional on this cheaper comparison.
+The one-shot `F -> H/C` response is also complete. Its independently compiled F
+field agrees with the compiler-only F probe to `3.11e-15 km` maximum error and
+again closes the `100,625 km³` budget near roundoff. Finite tips replace the
+infinite roof with two compact elongated massifs, but do not by themselves emit
+a differentiated range grammar. C removes `25,345 km³`, lengthens the largest
+portal trunk from H's `426 km` to `530 km`, and creates substantially more
+whole-domain surface critical points. Because the all-positive domain makes the
+critical-point population nonlocal, that count is not evidence of F-massif
+organization. The common physical view remains a pair of smooth massifs without
+clear valley/divide/pass organization beyond H. C's
+`746.10 s` runtime versus H's `336.43 s` does not earn that response.
+
+H continually restores its target and therefore records `130,385 km³` of gross
+restoration, while C receives the declared work gradually and preserves process
+losses. The comparison discriminates mechanisms; it does not rank two
+work-identical product models. Its architectural result is still useful: the
+static ribbon is not a product forcing owner, and more downstream coupling is
+not the first repair. When mountain work resumes, derive an auditable reduced
+forcing organizer from real front chains, carrier history and inherited
+material state. Keep H as a null/control and C as reusable research machinery,
+not selected product behavior. Evidence is in
+`artifacts/captures/orogen-f-hc-response-4km-2026-07-17/`.
+That sidecar records revision `8d8ae5e` with `source_dirty: true` and is not a
+promotion-grade reproducibility anchor; the committed runner and tests retain
+the experiment definition, while its one-shot measurements remain bounded
+decision evidence.
 
 Drainage memory, nonlinear hillslopes, analytical or implicit stream-power
 acceleration and one mobile sediment quantity remain possible later rungs.

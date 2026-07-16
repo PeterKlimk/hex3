@@ -31,6 +31,11 @@ pub const THIN_H_4KM_SCHEMA_VERSION_V0: &str = "orogen-owner-thin-h-4km-probe-v0
 const THIN_OWNER_PROFILE_V0: &str = "non-authoritative-4km-engineering-probe";
 const THIN_H_CONTROL_DOMAIN_V0: &str = "orogen-owner-thin-v0/h-control-noncanonical";
 const ELEVATION_ARRAY_DOMAIN_V0: &str = "orogen-organization-v0/elevation-array";
+const EXPERIMENTAL_DISPLACEMENT_DOMAIN_V0: &str =
+    "orogen-owner-thin-v0/experimental-cumulative-displacement";
+const EXPERIMENTAL_BUNDLE_DOMAIN_V0: &str = "orogen-owner-thin-v0/experimental-input-bundle";
+const EXPERIMENTAL_RESOLUTION_DOMAIN_V0: &str =
+    "orogen-owner-thin-v0/experimental-input-resolution";
 const TARGET_SPACING_KM: f64 = 4.0;
 const PASS_COUNT: u32 = 200;
 const CHECKPOINT_PASSES: [u32; 4] = [0, 50, 120, 200];
@@ -182,6 +187,40 @@ pub struct ThinH4KmObservationV0 {
     pub final_elevation_km: Vec<f64>,
 }
 
+/// Explicit provenance for a noncanonical forcing-response experiment.
+///
+/// These hashes identify the derivative input. Public runners recompute this
+/// binding from the supplied displacement and reject caller-selected values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ThinHExperimentalForcingBindingV0 {
+    pub synthetic_input_bundle_hash: u64,
+    pub synthetic_input_resolution_hash: u64,
+    pub cumulative_displacement_component_hash: u64,
+}
+
+/// Derive the only binding accepted for this bundle and replacement target.
+pub fn derive_thin_h_experimental_forcing_binding_4km_v0(
+    bundle: &LinkedSharedInputBundleV0,
+    cumulative_rock_displacement_km: &[f64],
+) -> Result<ThinHExperimentalForcingBindingV0, ThinHOwnerErrorV0> {
+    validate_linked_shared_input_bundle_v0(bundle)
+        .map_err(|error| fail(format!("linked input validation failed: {error}")))?;
+    let input = accepted_4km_input_v0(bundle)?;
+    validate_target_displacement_v0(input.mesh.cell_count(), cumulative_rock_displacement_km)?;
+    derived_experimental_binding_v0(
+        bundle,
+        input,
+        cumulative_rock_displacement_km,
+    )
+}
+
+#[derive(Debug, Clone, Copy)]
+struct HForcingBindingV0 {
+    input_bundle_hash: u64,
+    input_resolution_hash: u64,
+    cumulative_displacement_component_hash: u64,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 struct HCommittedStateV0 {
     physical_elevation_km: Vec<f64>,
@@ -232,7 +271,58 @@ pub fn run_thin_h_4km_v0(
 ) -> Result<ThinH4KmObservationV0, ThinHOwnerErrorV0> {
     validate_linked_shared_input_bundle_v0(bundle)
         .map_err(|error| fail(format!("linked input validation failed: {error}")))?;
-    run_validated_thin_h_4km_v0(bundle)
+    let input = accepted_4km_input_v0(bundle)?;
+    run_validated_thin_h_4km_v0(
+        input,
+        &input.cumulative_rock_displacement_km,
+        accepted_forcing_binding_v0(bundle, input),
+    )
+}
+
+/// Run the exact H process owner against caller-supplied cumulative
+/// displacement while retaining the validated accepted mesh, initial surface,
+/// runoff, portals, and schedule.
+///
+/// This is deliberately noncanonical engineering evidence. The caller must
+/// supply a distinct synthetic input identity and a component hash binding the
+/// replacement displacement; the returned observation therefore cannot be
+/// mistaken for an accepted linked-input H result.
+pub fn run_thin_h_experimental_forcing_4km_v0(
+    bundle: &LinkedSharedInputBundleV0,
+    cumulative_rock_displacement_km: &[f64],
+    binding: ThinHExperimentalForcingBindingV0,
+) -> Result<ThinH4KmObservationV0, ThinHOwnerErrorV0> {
+    validate_linked_shared_input_bundle_v0(bundle)
+        .map_err(|error| fail(format!("linked input validation failed: {error}")))?;
+    let input = accepted_4km_input_v0(bundle)?;
+    validate_target_displacement_v0(input.mesh.cell_count(), cumulative_rock_displacement_km)?;
+    let derived = derived_experimental_binding_v0(bundle, input, cumulative_rock_displacement_km)?;
+    require(
+        binding == derived,
+        "experimental H forcing binding does not match supplied displacement",
+    )?;
+    validate_experimental_binding_v0(bundle, input, binding)?;
+    let target_work: f64 = cumulative_rock_displacement_km
+        .iter()
+        .zip(&input.mesh.cell_area_km2)
+        .map(|(depth, area)| depth * area)
+        .sum();
+    require_close_with_tolerance_v0(
+        target_work,
+        bundle.declaration.analytic_rock_volume_km3,
+        1.0e-6,
+        5.0e-7,
+        "H experimental target work",
+    )?;
+    run_validated_thin_h_4km_v0(
+        input,
+        cumulative_rock_displacement_km,
+        HForcingBindingV0 {
+            input_bundle_hash: binding.synthetic_input_bundle_hash,
+            input_resolution_hash: binding.synthetic_input_resolution_hash,
+            cumulative_displacement_component_hash: binding.cumulative_displacement_component_hash,
+        },
+    )
 }
 
 /// Validate the accepted bundle once, execute the complete H probe twice and
@@ -242,8 +332,12 @@ pub fn run_repeated_thin_h_4km_v0(
 ) -> Result<ThinH4KmObservationV0, ThinHOwnerErrorV0> {
     validate_linked_shared_input_bundle_v0(bundle)
         .map_err(|error| fail(format!("linked input validation failed: {error}")))?;
-    let first = run_validated_thin_h_4km_v0(bundle)?;
-    let second = run_validated_thin_h_4km_v0(bundle)?;
+    let input = accepted_4km_input_v0(bundle)?;
+    let binding = accepted_forcing_binding_v0(bundle, input);
+    let first =
+        run_validated_thin_h_4km_v0(input, &input.cumulative_rock_displacement_km, binding)?;
+    let second =
+        run_validated_thin_h_4km_v0(input, &input.cumulative_rock_displacement_km, binding)?;
     require(
         fixed_bytes(&first)? == fixed_bytes(&second)?,
         "repeated thin H probe differs at bit-level comparison",
@@ -252,20 +346,21 @@ pub fn run_repeated_thin_h_4km_v0(
 }
 
 fn run_validated_thin_h_4km_v0(
-    bundle: &LinkedSharedInputBundleV0,
+    input: &LinkedResolutionInputV0,
+    cumulative_rock_displacement_km: &[f64],
+    forcing_binding: HForcingBindingV0,
 ) -> Result<ThinH4KmObservationV0, ThinHOwnerErrorV0> {
-    let input = bundle
-        .resolutions
-        .iter()
-        .find(|input| input.nominal_spacing_km.to_bits() == TARGET_SPACING_KM.to_bits())
-        .ok_or_else(|| fail("accepted bundle has no exact 4 km resolution"))?;
     validate_h_input_v0(input)?;
-    let control = run_opportunity_control_v0(bundle, input)?.observation;
-    let identity = identity_v0(bundle, input, OrganizationRunPurposeV0::Base);
+    validate_target_displacement_v0(input.mesh.cell_count(), cumulative_rock_displacement_km)?;
+    let control =
+        run_opportunity_control_v0(input, cumulative_rock_displacement_km, forcing_binding)?
+            .observation;
+    let identity = identity_v0(forcing_binding, OrganizationRunPurposeV0::Base);
     let config_hash = registered_base_config_hash_v0(
         input,
         &identity,
         control.noncanonical_control_binding_hash,
+        forcing_binding.cumulative_displacement_component_hash,
     )?;
 
     let initial_moment = shared_elevation_moment_v0(input, &input.initial_elevation_km)?;
@@ -312,7 +407,7 @@ fn run_validated_thin_h_4km_v0(
         execute_transactional_pass_v0(
             &mut state,
             &input.initial_elevation_km,
-            &input.cumulative_rock_displacement_km,
+            cumulative_rock_displacement_km,
             &input.mesh.cell_area_km2,
             progress,
             |scratch| carve_to_endpoint_v0(input, endpoint, scratch),
@@ -816,11 +911,19 @@ fn increment_limiter_v0(
 }
 
 fn run_opportunity_control_v0(
-    bundle: &LinkedSharedInputBundleV0,
     input: &LinkedResolutionInputV0,
+    cumulative_rock_displacement_km: &[f64],
+    forcing_binding: HForcingBindingV0,
 ) -> Result<OpportunityControlExecutionV0, ThinHOwnerErrorV0> {
-    let identity = identity_v0(bundle, input, OrganizationRunPurposeV0::OpportunityControl);
-    let config_hash = registered_control_config_hash_v0(input, &identity)?;
+    let identity = identity_v0(
+        forcing_binding,
+        OrganizationRunPurposeV0::OpportunityControl,
+    );
+    let config_hash = registered_control_config_hash_v0(
+        input,
+        &identity,
+        forcing_binding.cumulative_displacement_component_hash,
+    )?;
     let initial_moment = shared_elevation_moment_v0(input, &input.initial_elevation_km)?;
     let mut elevation = input.initial_elevation_km.clone();
     let mut gross_hold = 0.0;
@@ -832,7 +935,7 @@ fn run_opportunity_control_v0(
         let pass_hold = apply_hold_v0(
             &mut elevation,
             &input.initial_elevation_km,
-            &input.cumulative_rock_displacement_km,
+            cumulative_rock_displacement_km,
             &input.mesh.cell_area_km2,
             progress,
         )?;
@@ -852,7 +955,7 @@ fn run_opportunity_control_v0(
     for (cell, (&initial, &displacement)) in input
         .initial_elevation_km
         .iter()
-        .zip(&input.cumulative_rock_displacement_km)
+        .zip(cumulative_rock_displacement_km)
         .enumerate()
     {
         require(
@@ -896,20 +999,29 @@ fn run_opportunity_control_v0(
 fn registered_control_config_hash_v0(
     input: &LinkedResolutionInputV0,
     identity: &OrganizationArtifactIdentityV0,
+    cumulative_displacement_component_hash: u64,
 ) -> Result<u64, ThinHOwnerErrorV0> {
-    registered_h_config_hash_v0(input, identity, None, HProcessModeV0::TargetOnly)
+    registered_h_config_hash_v0(
+        input,
+        identity,
+        None,
+        HProcessModeV0::TargetOnly,
+        cumulative_displacement_component_hash,
+    )
 }
 
 fn registered_base_config_hash_v0(
     input: &LinkedResolutionInputV0,
     identity: &OrganizationArtifactIdentityV0,
     noncanonical_control_binding_hash: u64,
+    cumulative_displacement_component_hash: u64,
 ) -> Result<u64, ThinHOwnerErrorV0> {
     registered_h_config_hash_v0(
         input,
         identity,
         Some(noncanonical_control_binding_hash),
         HProcessModeV0::HoldAndCarve,
+        cumulative_displacement_component_hash,
     )
 }
 
@@ -918,6 +1030,7 @@ fn registered_h_config_hash_v0(
     identity: &OrganizationArtifactIdentityV0,
     control_binding: Option<u64>,
     mode: HProcessModeV0,
+    cumulative_displacement_component_hash: u64,
 ) -> Result<u64, ThinHOwnerErrorV0> {
     let active = mode == HProcessModeV0::HoldAndCarve;
     let active_process = active.then(|| ActiveProcessConfigWireV0 {
@@ -959,9 +1072,7 @@ fn registered_h_config_hash_v0(
             endpoint_policy: HEndpointPolicyV0::ExactZeroAndOneEndpoints,
             schedule_horizon_myr: SCHEDULE_HORIZON_MYR,
             activity_integral_myr: ACTIVITY_INTEGRAL_MYR,
-            cumulative_displacement_component_hash: input
-                .component_hashes
-                .cumulative_rock_displacement_hash,
+            cumulative_displacement_component_hash,
             operator_exposure_per_pass_myr: if active {
                 OPERATOR_EXPOSURE_PER_PASS_MYR
             } else {
@@ -983,17 +1094,97 @@ fn registered_h_config_hash_v0(
 }
 
 fn identity_v0(
-    bundle: &LinkedSharedInputBundleV0,
-    input: &LinkedResolutionInputV0,
+    forcing_binding: HForcingBindingV0,
     purpose: OrganizationRunPurposeV0,
 ) -> OrganizationArtifactIdentityV0 {
     OrganizationArtifactIdentityV0 {
-        input_bundle_hash: bundle.derived_bundle_hash,
-        input_resolution_hash: input.derived_resolution_hash,
+        input_bundle_hash: forcing_binding.input_bundle_hash,
+        input_resolution_hash: forcing_binding.input_resolution_hash,
         nominal_spacing_km: TARGET_SPACING_KM,
         arm: OrganizationArmV0::H,
         purpose,
     }
+}
+
+fn accepted_4km_input_v0(
+    bundle: &LinkedSharedInputBundleV0,
+) -> Result<&LinkedResolutionInputV0, ThinHOwnerErrorV0> {
+    bundle
+        .resolutions
+        .iter()
+        .find(|input| input.nominal_spacing_km.to_bits() == TARGET_SPACING_KM.to_bits())
+        .ok_or_else(|| fail("accepted bundle has no exact 4 km resolution"))
+}
+
+fn accepted_forcing_binding_v0(
+    bundle: &LinkedSharedInputBundleV0,
+    input: &LinkedResolutionInputV0,
+) -> HForcingBindingV0 {
+    HForcingBindingV0 {
+        input_bundle_hash: bundle.derived_bundle_hash,
+        input_resolution_hash: input.derived_resolution_hash,
+        cumulative_displacement_component_hash: input
+            .component_hashes
+            .cumulative_rock_displacement_hash,
+    }
+}
+
+fn validate_experimental_binding_v0(
+    bundle: &LinkedSharedInputBundleV0,
+    input: &LinkedResolutionInputV0,
+    binding: ThinHExperimentalForcingBindingV0,
+) -> Result<(), ThinHOwnerErrorV0> {
+    require(
+        binding.synthetic_input_bundle_hash != bundle.derived_bundle_hash
+            || binding.synthetic_input_resolution_hash != input.derived_resolution_hash,
+        "experimental H forcing reuses the accepted linked-input identity",
+    )?;
+    require(
+        binding.cumulative_displacement_component_hash
+            != input.component_hashes.cumulative_rock_displacement_hash,
+        "experimental H forcing reuses the accepted displacement component hash",
+    )
+}
+
+fn derived_experimental_binding_v0(
+    bundle: &LinkedSharedInputBundleV0,
+    input: &LinkedResolutionInputV0,
+    cumulative_rock_displacement_km: &[f64],
+) -> Result<ThinHExperimentalForcingBindingV0, ThinHOwnerErrorV0> {
+    let cumulative_displacement_component_hash = fnv1a64(&fixed_bytes(&(
+        EXPERIMENTAL_DISPLACEMENT_DOMAIN_V0,
+        cumulative_rock_displacement_km,
+    ))?);
+    let identity_payload = (
+        bundle.derived_bundle_hash,
+        input.derived_resolution_hash,
+        cumulative_displacement_component_hash,
+    );
+    Ok(ThinHExperimentalForcingBindingV0 {
+        synthetic_input_bundle_hash: fnv1a64(&fixed_bytes(&(
+            EXPERIMENTAL_BUNDLE_DOMAIN_V0,
+            identity_payload,
+        ))?),
+        synthetic_input_resolution_hash: fnv1a64(&fixed_bytes(&(
+            EXPERIMENTAL_RESOLUTION_DOMAIN_V0,
+            identity_payload,
+        ))?),
+        cumulative_displacement_component_hash,
+    })
+}
+
+fn validate_target_displacement_v0(
+    cell_count: usize,
+    cumulative_rock_displacement_km: &[f64],
+) -> Result<(), ThinHOwnerErrorV0> {
+    require(
+        cumulative_rock_displacement_km.len() == cell_count,
+        "H target displacement length mismatch",
+    )?;
+    for &value in cumulative_rock_displacement_km {
+        require_nonnegative(value, "target cumulative displacement")?;
+    }
+    Ok(())
 }
 
 fn validate_h_input_v0(input: &LinkedResolutionInputV0) -> Result<(), ThinHOwnerErrorV0> {
@@ -1288,12 +1479,42 @@ mod tests {
             .find(|input| input.nominal_spacing_km == 4.0)
             .unwrap();
         validate_h_input_v0(input).unwrap();
-        let first = run_opportunity_control_v0(&bundle, input).unwrap();
-        let second = run_opportunity_control_v0(&bundle, input).unwrap();
+        let binding = accepted_forcing_binding_v0(&bundle, input);
+        let first =
+            run_opportunity_control_v0(input, &input.cumulative_rock_displacement_km, binding)
+                .unwrap();
+        let second =
+            run_opportunity_control_v0(input, &input.cumulative_rock_displacement_km, binding)
+                .unwrap();
         assert_eq!(
             fixed_bytes(&first.observation).unwrap(),
             fixed_bytes(&second.observation).unwrap()
         );
+        assert_eq!(
+            first.observation.identity.input_bundle_hash,
+            bundle.derived_bundle_hash
+        );
+        assert_eq!(
+            first.observation.identity.input_resolution_hash,
+            input.derived_resolution_hash
+        );
+        assert_eq!(
+            first.observation.config_hash,
+            registered_control_config_hash_v0(
+                input,
+                &first.observation.identity,
+                input.component_hashes.cumulative_rock_displacement_hash,
+            )
+            .unwrap()
+        );
+    }
+
+    #[test]
+    fn experimental_target_validation_rejects_wrong_shape_and_nonfinite_values() {
+        assert!(validate_target_displacement_v0(2, &[0.0]).is_err());
+        let mut invalid = vec![0.0; 2];
+        invalid[0] = f64::NAN;
+        assert!(validate_target_displacement_v0(2, &invalid).is_err());
     }
 
     #[test]
@@ -1314,6 +1535,20 @@ mod tests {
                 .unwrap()
                 .physical_elevation_component_hash,
             result.final_elevation_component_hash
+        );
+        let input = accepted_4km_input_v0(&bundle).unwrap();
+        let binding = accepted_forcing_binding_v0(&bundle, input);
+        let expected_identity = identity_v0(binding, OrganizationRunPurposeV0::Base);
+        assert_eq!(result.identity, expected_identity);
+        assert_eq!(
+            result.config_hash,
+            registered_base_config_hash_v0(
+                input,
+                &expected_identity,
+                result.control.noncanonical_control_binding_hash,
+                input.component_hashes.cumulative_rock_displacement_hash,
+            )
+            .unwrap()
         );
     }
 }

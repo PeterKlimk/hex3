@@ -295,10 +295,11 @@ and
 [planar capture/human-review contract](research/orogen-organization-planar-review-v0-2026-07-16.md)
 are now preregistered. The thin 4 km source implementation and base observation
 are complete and negative for the shared static-ribbon representation. The
-compiler-only B/F/I follow-up is also complete: full-cosine finite parents solve
-the exact roof more coherently than the first inherited-child graph. A frozen
-promotion campaign is not warranted. The next seam is the single H/C response
-comparison described below.
+compiler-only B/F/I follow-up finds full-cosine finite parents more coherent
+than the first inherited-child graph, while the completed F-to-H/C response
+shows that C adds process consequences but not enough visible range-scale
+organization to justify its cost. A frozen promotion campaign is not warranted.
+The active next step is the cross-system disposition, not another mountain rung.
 
 The current sequence is:
 
@@ -369,11 +370,17 @@ The current sequence is:
    graph I before terrain execution. F removes the exact roof coherently; I
    creates separated hot spots and does not earn its complexity. All work
    ledgers close; no direct elevation/drainage input enters the compiler;
-8. **next:** feed F once through H as the direct-forcing control and C once as
-   the evolving response. Decide whether C's drainage/divide response earns its
-   compute beyond compact finite forcing. Do not integrate or tune I first; and
-9. return to the cross-system disposition table before choosing sediment,
-   ecology, coast or human-world expansion.
+8. **completed negative discriminator:** feed F once through H as the
+   direct-forcing control and C once as the evolving response. Finite support
+   removes the exact roof, but both outputs remain smooth elongated massifs. C
+   adds real denudation and drainage differences without coherent visible
+   valley/divide/pass organization sufficient to earn roughly `2.22x` H's
+   runtime. This is not a fair owner tournament because H restores its target
+   while C receives gradual uplift; and
+9. **next:** return to the cross-system disposition table before choosing
+   sediment, ecology, coast or human-world expansion. Preserve the mountain
+   conclusion: when this slice resumes, improve causal forcing from real front
+   topology/history/material state before adding deeper terrain physics.
 
 Do not resume the R1 arithmetic ladder, run a global seed sweep, tune legacy
 shape amplitudes or optimize an undecided composition. The organization slice

@@ -81,7 +81,7 @@ pub struct DeformationFrame {
     pub dominant_episode: Vec<Option<EpisodeId>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct DeformationEvaluator {
     cell_area_km2: Vec<f64>,
     episodes: Vec<DeformationEpisode>,

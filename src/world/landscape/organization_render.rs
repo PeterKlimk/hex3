@@ -17,6 +17,8 @@ use super::{
 
 pub const THIN_HCG_RENDER_SCHEMA_V0: &str = "orogen-owner-thin-hcg-render-v0";
 pub const THIN_HCG_DIAGNOSTIC_SCHEMA_V0: &str = "orogen-owner-thin-hcg-diagnostic-sheet-v0";
+pub const THIN_THREE_SURFACE_DIAGNOSTIC_SCHEMA_V0: &str =
+    "orogen-owner-thin-three-surface-sidecar-diagnostic-v0";
 pub const THIN_HCG_PANEL_ORDER_V0: [&str; 3] = ["H", "C", "G"];
 const ACCEPTED_SPACING_KM: f64 = 4.0;
 
@@ -288,6 +290,92 @@ pub fn render_thin_hcg_diagnostic_rgba_v0(
     )
 }
 
+/// Render three explicitly labelled physical surfaces using a caller-supplied
+/// forcing crop and profile fields. This is the noncanonical sidecar seam used
+/// for comparisons such as `[z0 + F, H(F), C(F)]`; it does not consult or
+/// relabel the accepted B displacement/stencils.
+#[allow(clippy::too_many_arguments)]
+pub fn render_thin_three_surface_diagnostic_rgba_v0(
+    mesh: &LandscapeMesh,
+    forcing_support: &[bool],
+    forcing_km: &[f64],
+    profile_forcing: &[&[f64]],
+    surfaces_km: [&[f64]; 3],
+    panel_labels: [&str; 3],
+    config: ThinHcgDiagnosticConfigV0,
+) -> Result<(Vec<u8>, ThinHcgDiagnosticMetadataV0), ThinHcgRenderErrorV0> {
+    validate_sidecar_labels(panel_labels)?;
+    render_diagnostic_mesh_labeled(
+        mesh,
+        forcing_support,
+        forcing_km,
+        profile_forcing,
+        surfaces_km,
+        panel_labels,
+        THIN_THREE_SURFACE_DIAGNOSTIC_SCHEMA_V0,
+        "caller-profile-stencil",
+        "caller-positive-forcing-support-plus-padding; caller-profile-weighted-axis",
+        config,
+    )
+}
+
+/// Write the explicitly labelled three-surface diagnostic as RGBA8 PNG.
+#[allow(clippy::too_many_arguments)]
+pub fn write_thin_three_surface_diagnostic_png_v0(
+    path: impl AsRef<Path>,
+    title: &str,
+    mesh: &LandscapeMesh,
+    forcing_support: &[bool],
+    forcing_km: &[f64],
+    profile_forcing: &[&[f64]],
+    surfaces_km: [&[f64]; 3],
+    panel_labels: [&str; 3],
+    config: ThinHcgDiagnosticConfigV0,
+) -> Result<ThinHcgDiagnosticMetadataV0, ThinHcgRenderErrorV0> {
+    if title.trim().is_empty() {
+        return Err(invalid("sidecar diagnostic title is empty"));
+    }
+    let (rgba, mut metadata) = render_thin_three_surface_diagnostic_rgba_v0(
+        mesh,
+        forcing_support,
+        forcing_km,
+        profile_forcing,
+        surfaces_km,
+        panel_labels,
+        config,
+    )?;
+    let file = File::create(path)?;
+    let mut encoder = png::Encoder::new(
+        BufWriter::new(file),
+        metadata.image_width_px,
+        metadata.image_height_px,
+    );
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    encoder.add_text_chunk("Title".into(), title.into())?;
+    encoder.add_text_chunk("Panel order".into(), panel_labels.join(","))?;
+    encoder.add_text_chunk(
+        "Rows".into(),
+        "shared physical elevation; per-panel robust diagnostic contrast; matched physical profiles"
+            .into(),
+    )?;
+    encoder.add_text_chunk(
+        "Physical elevation range km".into(),
+        format!(
+            "{:.17},{:.17}",
+            metadata.physical_elevation_range_km[0], metadata.physical_elevation_range_km[1]
+        ),
+    )?;
+    encoder.add_text_chunk(
+        "Diagnostic warning".into(),
+        "row two normalization is renderer-only and differs by panel".into(),
+    )?;
+    let mut writer = encoder.write_header()?;
+    writer.write_image_data(&rgba)?;
+    metadata.panel_labels_embedded_as_png_text = true;
+    Ok(metadata)
+}
+
 pub fn write_thin_hcg_diagnostic_png_v0(
     path: impl AsRef<Path>,
     input: &LinkedResolutionInputV0,
@@ -346,6 +434,33 @@ fn render_diagnostic_mesh(
     g_elevation_km: &[f64],
     config: ThinHcgDiagnosticConfigV0,
 ) -> Result<(Vec<u8>, ThinHcgDiagnosticMetadataV0), ThinHcgRenderErrorV0> {
+    render_diagnostic_mesh_labeled(
+        mesh,
+        candidate,
+        forcing,
+        profile_forcing,
+        [h_elevation_km, c_elevation_km, g_elevation_km],
+        THIN_HCG_PANEL_ORDER_V0,
+        THIN_HCG_DIAGNOSTIC_SCHEMA_V0,
+        "compiled-stencil",
+        "positive-compiled-stencil-union-plus-padding; forcing-weighted-profile-axis",
+        config,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_diagnostic_mesh_labeled(
+    mesh: &LandscapeMesh,
+    candidate: &[bool],
+    forcing: &[f64],
+    profile_forcing: &[&[f64]],
+    surfaces: [&[f64]; 3],
+    panel_labels: [&str; 3],
+    schema_version: &str,
+    profile_source_prefix: &str,
+    crop_source: &str,
+    config: ThinHcgDiagnosticConfigV0,
+) -> Result<(Vec<u8>, ThinHcgDiagnosticMetadataV0), ThinHcgRenderErrorV0> {
     mesh.validate()
         .map_err(|error| invalid(format!("invalid landscape mesh: {error}")))?;
     let n = mesh.cell_count();
@@ -356,8 +471,7 @@ fn render_diagnostic_mesh(
     {
         return Err(invalid("diagnostic crop field length mismatch"));
     }
-    let surfaces = [h_elevation_km, c_elevation_km, g_elevation_km];
-    for (label, surface) in THIN_HCG_PANEL_ORDER_V0.into_iter().zip(surfaces) {
+    for (label, surface) in panel_labels.into_iter().zip(surfaces) {
         if surface.len() != n || surface.iter().any(|value| !value.is_finite()) {
             return Err(invalid(format!("{label} diagnostic surface is invalid")));
         }
@@ -386,20 +500,20 @@ fn render_diagnostic_mesh(
     let owner = raster_owners(mesh, bounds, spacing, config.panel_width_px, map_height)?;
     let shared = physical_range(surfaces, None)?;
     let robust = [
-        quantile_range(h_elevation_km, candidate, config)?,
-        quantile_range(c_elevation_km, candidate, config)?,
-        quantile_range(g_elevation_km, candidate, config)?,
+        quantile_range(surfaces[0], candidate, config)?,
+        quantile_range(surfaces[1], candidate, config)?,
+        quantile_range(surfaces[2], candidate, config)?,
     ];
     let mut profiles = Vec::with_capacity(profile_forcing.len() * 2);
     for (stencil, weights) in profile_forcing.iter().enumerate() {
         let (center, axis) = profile_frame(mesh, candidate, weights)?;
         profiles.push(ThinNamedProfileV0 {
-            source: format!("compiled-stencil-{stencil}"),
+            source: format!("{profile_source_prefix}-{stencil}"),
             orientation: "longitudinal".into(),
             axis: clipped_axis(center, axis, bounds, config.panel_width_px),
         });
         profiles.push(ThinNamedProfileV0 {
-            source: format!("compiled-stencil-{stencil}"),
+            source: format!("{profile_source_prefix}-{stencil}"),
             orientation: "transverse".into(),
             axis: clipped_axis(center, [-axis[1], axis[0]], bounds, config.panel_width_px),
         });
@@ -485,15 +599,14 @@ fn render_diagnostic_mesh(
     Ok((
         rgba,
         ThinHcgDiagnosticMetadataV0 {
-            schema_version: THIN_HCG_DIAGNOSTIC_SCHEMA_V0.into(),
-            panel_order: ["H".into(), "C".into(), "G".into()],
+            schema_version: schema_version.into(),
+            panel_order: panel_labels.map(str::to_owned),
             image_width_px: image_width,
             image_height_px: image_height,
             map_height_px: map_height,
             profiles_height_px: config.profiles_height_px,
             planar_crop_bounds_km: bounds,
-            crop_source:
-                "positive-compiled-stencil-union-plus-padding; forcing-weighted-profile-axis".into(),
+            crop_source: crop_source.into(),
             physical_elevation_range_km: shared,
             diagnostic_robust_ranges_km: robust,
             row_semantics: [
@@ -526,6 +639,20 @@ fn validate_diagnostic_config(
         || config.robust_lower_quantile >= config.robust_upper_quantile
     {
         return Err(invalid("diagnostic robust quantiles are invalid"));
+    }
+    Ok(())
+}
+
+fn validate_sidecar_labels(panel_labels: [&str; 3]) -> Result<(), ThinHcgRenderErrorV0> {
+    if panel_labels.iter().any(|label| label.trim().is_empty()) {
+        return Err(invalid("sidecar diagnostic contains an empty panel label"));
+    }
+    for left in 0..panel_labels.len() {
+        for right in left + 1..panel_labels.len() {
+            if panel_labels[left] == panel_labels[right] {
+                return Err(invalid("sidecar diagnostic panel labels are not unique"));
+            }
+        }
     }
     Ok(())
 }
@@ -1278,5 +1405,41 @@ mod tests {
             first.0.len(),
             first.1.image_width_px as usize * first.1.image_height_px as usize * 4
         );
+
+        let sidecar_first = render_thin_three_surface_diagnostic_rgba_v0(
+            &mesh,
+            &selected,
+            &forcing,
+            &profile_forcing,
+            [&g, &h, &c],
+            ["F target", "H(F)", "C(F)"],
+            config,
+        )
+        .unwrap();
+        let sidecar_second = render_thin_three_surface_diagnostic_rgba_v0(
+            &mesh,
+            &selected,
+            &forcing,
+            &profile_forcing,
+            [&g, &h, &c],
+            ["F target", "H(F)", "C(F)"],
+            config,
+        )
+        .unwrap();
+        assert_eq!(sidecar_first, sidecar_second);
+        assert_eq!(
+            sidecar_first.1.schema_version,
+            THIN_THREE_SURFACE_DIAGNOSTIC_SCHEMA_V0
+        );
+        assert_eq!(sidecar_first.1.panel_order, ["F target", "H(F)", "C(F)"]);
+        assert_eq!(
+            sidecar_first.1.planar_crop_bounds_km,
+            first.1.planar_crop_bounds_km
+        );
+        assert!(sidecar_first
+            .1
+            .profiles
+            .iter()
+            .all(|profile| profile.source.starts_with("caller-profile-stencil-")));
     }
 }

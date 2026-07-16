@@ -31,6 +31,7 @@ use serde::{Deserialize, Serialize};
 pub const THIN_C_4KM_SCHEMA_VERSION_V0: &str = "orogen-owner-thin-c-4km-probe-v0";
 
 const TARGET_SPACING_KM: f64 = 4.0;
+const ACTIVITY_INTEGRAL_MYR: f64 = 5.75;
 const REQUESTED_MAXIMUM_DT_MYR: f64 = 0.01;
 const MINIMUM_DT_MYR: f64 = 1.0e-8;
 const MAXIMUM_ADAPTIVE_ATTEMPTS: u32 = 16;
@@ -55,6 +56,14 @@ const CONTROL_CELL_TOLERANCE_KM: f64 = 2.0e-5;
 const ELEVATION_ARRAY_DOMAIN_V0: &str = "orogen-organization-v0/elevation-array";
 const THIN_CONTROL_BINDING_DOMAIN_V0: &str = "orogen-owner-thin-v0/c-control-binding";
 const THIN_CHECKPOINT_DOMAIN_V0: &str = "orogen-owner-thin-v0/c-checkpoint";
+const EXPERIMENTAL_STENCILS_DOMAIN_V0: &str = "orogen-owner-thin-v0/experimental-compiled-stencils";
+const EXPERIMENTAL_EVALUATOR_DOMAIN_V0: &str =
+    "orogen-owner-thin-v0/experimental-evaluator-chronology";
+const EXPERIMENTAL_DISPLACEMENT_DOMAIN_V0: &str =
+    "orogen-owner-thin-v0/experimental-cumulative-displacement";
+const EXPERIMENTAL_BUNDLE_DOMAIN_V0: &str = "orogen-owner-thin-v0/experimental-input-bundle";
+const EXPERIMENTAL_RESOLUTION_DOMAIN_V0: &str =
+    "orogen-owner-thin-v0/experimental-input-resolution";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ThinCStepLimiterV0 {
@@ -174,6 +183,42 @@ pub struct ThinC4KmObservationV0 {
     pub final_elevation_km: Vec<f64>,
 }
 
+/// Explicit provenance for a noncanonical C forcing-response experiment.
+///
+/// Public runners recompute every field from the supplied evaluator and target
+/// and reject caller-selected provenance values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ThinCExperimentalForcingBindingV0 {
+    pub synthetic_input_bundle_hash: u64,
+    pub synthetic_input_resolution_hash: u64,
+    pub compiled_stencils_component_hash: u64,
+    pub frame_witnesses_component_hash: u64,
+    pub cumulative_displacement_component_hash: u64,
+}
+
+/// Derive the only binding accepted for this bundle, evaluator and target.
+pub fn derive_thin_c_experimental_forcing_binding_4km_v0(
+    bundle: &LinkedSharedInputBundleV0,
+    evaluator: &DeformationEvaluator,
+    cumulative_rock_displacement_km: &[f64],
+) -> Result<ThinCExperimentalForcingBindingV0, ThinOwnerErrorV0> {
+    validate_linked_shared_input_bundle_v0(bundle)
+        .map_err(|error| fail(format!("linked input validation failed: {error}")))?;
+    let input = accepted_4km_input(bundle)?;
+    validate_target_displacement(input.mesh.cell_count(), cumulative_rock_displacement_km)?;
+    validate_evaluator(input, evaluator)?;
+    derived_experimental_binding(bundle, input, evaluator, cumulative_rock_displacement_km)
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CForcingBindingV0 {
+    input_bundle_hash: u64,
+    input_resolution_hash: u64,
+    compiled_stencils_component_hash: u64,
+    frame_witnesses_component_hash: u64,
+    cumulative_displacement_component_hash: u64,
+}
+
 #[derive(Debug, Clone)]
 struct ControlRunV0 {
     identity: OrganizationArtifactIdentityV0,
@@ -262,7 +307,62 @@ pub fn run_thin_c_4km_v0(
 ) -> Result<ThinC4KmObservationV0, ThinOwnerErrorV0> {
     validate_linked_shared_input_bundle_v0(bundle)
         .map_err(|error| fail(format!("linked input validation failed: {error}")))?;
-    run_validated_thin_c_4km_v0(bundle)
+    let input = accepted_4km_input(bundle)?;
+    let evaluator = accepted_evaluator(bundle, input)?;
+    run_validated_thin_c_4km_v0(
+        bundle,
+        input,
+        &evaluator,
+        &input.cumulative_rock_displacement_km,
+        accepted_forcing_binding(bundle, input),
+    )
+}
+
+/// Run the exact C owner against an explicit replacement forcing evaluator and
+/// cumulative target while retaining the validated accepted mesh, initial
+/// surface, runoff, portals, time domain, and process configuration.
+///
+/// The target is used by the uplift-only opportunity audit; the evaluator is
+/// the rate authority for both that control and the coevolving base. This is
+/// noncanonical engineering evidence and requires a distinct synthetic input
+/// identity plus explicit component bindings.
+pub fn run_thin_c_experimental_forcing_4km_v0(
+    bundle: &LinkedSharedInputBundleV0,
+    evaluator: &DeformationEvaluator,
+    cumulative_rock_displacement_km: &[f64],
+    binding: ThinCExperimentalForcingBindingV0,
+) -> Result<ThinC4KmObservationV0, ThinOwnerErrorV0> {
+    validate_linked_shared_input_bundle_v0(bundle)
+        .map_err(|error| fail(format!("linked input validation failed: {error}")))?;
+    let input = accepted_4km_input(bundle)?;
+    validate_target_displacement(input.mesh.cell_count(), cumulative_rock_displacement_km)?;
+    validate_evaluator(input, evaluator)?;
+    let derived =
+        derived_experimental_binding(bundle, input, evaluator, cumulative_rock_displacement_km)?;
+    require(
+        binding == derived,
+        "experimental C forcing binding does not match supplied evaluator and displacement",
+    )?;
+    validate_experimental_binding(bundle, input, binding)?;
+    validate_experimental_forcing_target(
+        input,
+        evaluator,
+        cumulative_rock_displacement_km,
+        bundle.declaration.analytic_rock_volume_km3,
+    )?;
+    run_validated_thin_c_4km_v0(
+        bundle,
+        input,
+        evaluator,
+        cumulative_rock_displacement_km,
+        CForcingBindingV0 {
+            input_bundle_hash: binding.synthetic_input_bundle_hash,
+            input_resolution_hash: binding.synthetic_input_resolution_hash,
+            compiled_stencils_component_hash: binding.compiled_stencils_component_hash,
+            frame_witnesses_component_hash: binding.frame_witnesses_component_hash,
+            cumulative_displacement_component_hash: binding.cumulative_displacement_component_hash,
+        },
+    )
 }
 
 pub fn run_repeated_thin_c_4km_v0(
@@ -270,8 +370,23 @@ pub fn run_repeated_thin_c_4km_v0(
 ) -> Result<ThinC4KmObservationV0, ThinOwnerErrorV0> {
     validate_linked_shared_input_bundle_v0(bundle)
         .map_err(|error| fail(format!("linked input validation failed: {error}")))?;
-    let first = run_validated_thin_c_4km_v0(bundle)?;
-    let second = run_validated_thin_c_4km_v0(bundle)?;
+    let input = accepted_4km_input(bundle)?;
+    let evaluator = accepted_evaluator(bundle, input)?;
+    let binding = accepted_forcing_binding(bundle, input);
+    let first = run_validated_thin_c_4km_v0(
+        bundle,
+        input,
+        &evaluator,
+        &input.cumulative_rock_displacement_km,
+        binding,
+    )?;
+    let second = run_validated_thin_c_4km_v0(
+        bundle,
+        input,
+        &evaluator,
+        &input.cumulative_rock_displacement_km,
+        binding,
+    )?;
     require(
         fixed_bytes(&first)? == fixed_bytes(&second)?,
         "repeated thin C probe differs at bit-level comparison",
@@ -281,25 +396,22 @@ pub fn run_repeated_thin_c_4km_v0(
 
 fn run_validated_thin_c_4km_v0(
     bundle: &LinkedSharedInputBundleV0,
+    input: &LinkedResolutionInputV0,
+    evaluator: &DeformationEvaluator,
+    cumulative_rock_displacement_km: &[f64],
+    forcing_binding: CForcingBindingV0,
 ) -> Result<ThinC4KmObservationV0, ThinOwnerErrorV0> {
-    let input = bundle
-        .resolutions
-        .iter()
-        .find(|value| value.nominal_spacing_km.to_bits() == TARGET_SPACING_KM.to_bits())
-        .ok_or_else(|| fail("accepted bundle has no exact 4 km resolution"))?;
     validate_c_input(input)?;
-    let evaluator = bundle
-        .declaration
-        .scenario
-        .compile(&input.mesh)
-        .map_err(|error| fail(format!("C forcing compilation failed: {error}")))?;
-    require(
-        evaluator.support_stencils() == input.compiled_stencils.as_slice(),
-        "fresh C compiler stencils differ from accepted input",
+    validate_target_displacement(input.mesh.cell_count(), cumulative_rock_displacement_km)?;
+    validate_evaluator(input, evaluator)?;
+    let control = run_control(
+        input,
+        evaluator,
+        cumulative_rock_displacement_km,
+        bundle.declaration.analytic_rock_volume_km3,
+        forcing_binding,
     )?;
-
-    let control = run_control(bundle, input, &evaluator)?;
-    run_base(bundle, input, &evaluator, control)
+    run_base(input, evaluator, forcing_binding, control)
 }
 
 fn validate_c_input(input: &LinkedResolutionInputV0) -> Result<(), ThinOwnerErrorV0> {
@@ -333,14 +445,216 @@ fn validate_c_input(input: &LinkedResolutionInputV0) -> Result<(), ThinOwnerErro
     )
 }
 
-fn identity(
+fn accepted_4km_input(
+    bundle: &LinkedSharedInputBundleV0,
+) -> Result<&LinkedResolutionInputV0, ThinOwnerErrorV0> {
+    bundle
+        .resolutions
+        .iter()
+        .find(|value| value.nominal_spacing_km.to_bits() == TARGET_SPACING_KM.to_bits())
+        .ok_or_else(|| fail("accepted bundle has no exact 4 km resolution"))
+}
+
+fn accepted_evaluator(
     bundle: &LinkedSharedInputBundleV0,
     input: &LinkedResolutionInputV0,
+) -> Result<DeformationEvaluator, ThinOwnerErrorV0> {
+    let evaluator = bundle
+        .declaration
+        .scenario
+        .compile(&input.mesh)
+        .map_err(|error| fail(format!("C forcing compilation failed: {error}")))?;
+    require(
+        evaluator.support_stencils() == input.compiled_stencils.as_slice(),
+        "fresh C compiler stencils differ from accepted input",
+    )?;
+    Ok(evaluator)
+}
+
+fn accepted_forcing_binding(
+    bundle: &LinkedSharedInputBundleV0,
+    input: &LinkedResolutionInputV0,
+) -> CForcingBindingV0 {
+    CForcingBindingV0 {
+        input_bundle_hash: bundle.derived_bundle_hash,
+        input_resolution_hash: input.derived_resolution_hash,
+        compiled_stencils_component_hash: input.component_hashes.compiled_stencils_hash,
+        frame_witnesses_component_hash: input.component_hashes.frame_witnesses_hash,
+        cumulative_displacement_component_hash: input
+            .component_hashes
+            .cumulative_rock_displacement_hash,
+    }
+}
+
+fn validate_experimental_binding(
+    bundle: &LinkedSharedInputBundleV0,
+    input: &LinkedResolutionInputV0,
+    binding: ThinCExperimentalForcingBindingV0,
+) -> Result<(), ThinOwnerErrorV0> {
+    require(
+        binding.synthetic_input_bundle_hash != bundle.derived_bundle_hash
+            || binding.synthetic_input_resolution_hash != input.derived_resolution_hash,
+        "experimental C forcing reuses the accepted linked-input identity",
+    )?;
+    require(
+        binding.compiled_stencils_component_hash != input.component_hashes.compiled_stencils_hash
+            && binding.frame_witnesses_component_hash
+                != input.component_hashes.frame_witnesses_hash
+            && binding.cumulative_displacement_component_hash
+                != input.component_hashes.cumulative_rock_displacement_hash,
+        "experimental C forcing reuses an accepted forcing component hash",
+    )
+}
+
+fn derived_experimental_binding(
+    bundle: &LinkedSharedInputBundleV0,
+    input: &LinkedResolutionInputV0,
+    evaluator: &DeformationEvaluator,
+    cumulative_rock_displacement_km: &[f64],
+) -> Result<ThinCExperimentalForcingBindingV0, ThinOwnerErrorV0> {
+    let compiled_stencils_component_hash = fnv1a64(&fixed_bytes(&(
+        EXPERIMENTAL_STENCILS_DOMAIN_V0,
+        evaluator.support_stencils(),
+    ))?);
+    // The accepted path binds its registered frame-witness component. The
+    // experimental path binds the complete compiled evaluator so distinct
+    // between-witness chronology cannot share a C configuration identity.
+    let frame_witnesses_component_hash = fnv1a64(&fixed_bytes(&(
+        EXPERIMENTAL_EVALUATOR_DOMAIN_V0,
+        evaluator,
+    ))?);
+    let cumulative_displacement_component_hash = fnv1a64(&fixed_bytes(&(
+        EXPERIMENTAL_DISPLACEMENT_DOMAIN_V0,
+        cumulative_rock_displacement_km,
+    ))?);
+    let identity_payload = (
+        bundle.derived_bundle_hash,
+        input.derived_resolution_hash,
+        cumulative_displacement_component_hash,
+    );
+    Ok(ThinCExperimentalForcingBindingV0 {
+        synthetic_input_bundle_hash: fnv1a64(&fixed_bytes(&(
+            EXPERIMENTAL_BUNDLE_DOMAIN_V0,
+            identity_payload,
+        ))?),
+        synthetic_input_resolution_hash: fnv1a64(&fixed_bytes(&(
+            EXPERIMENTAL_RESOLUTION_DOMAIN_V0,
+            identity_payload,
+        ))?),
+        compiled_stencils_component_hash,
+        frame_witnesses_component_hash,
+        cumulative_displacement_component_hash,
+    })
+}
+
+fn validate_target_displacement(
+    cell_count: usize,
+    cumulative_rock_displacement_km: &[f64],
+) -> Result<(), ThinOwnerErrorV0> {
+    require(
+        cumulative_rock_displacement_km.len() == cell_count,
+        "C target displacement length mismatch",
+    )?;
+    require(
+        cumulative_rock_displacement_km.iter().all(|value| {
+            value.is_finite()
+                && *value >= 0.0
+                && (*value != 0.0 || value.to_bits() == 0.0f64.to_bits())
+        }),
+        "C target displacement contains invalid values",
+    )
+}
+
+fn validate_evaluator(
+    input: &LinkedResolutionInputV0,
+    evaluator: &DeformationEvaluator,
+) -> Result<(), ThinOwnerErrorV0> {
+    let n = input.mesh.cell_count();
+    require(
+        !evaluator.support_stencils().is_empty(),
+        "C forcing evaluator has no support stencils",
+    )?;
+    for stencil in evaluator.support_stencils() {
+        require(
+            stencil.weight_per_km2.len() == n
+                && stencil
+                    .weight_per_km2
+                    .iter()
+                    .all(|weight| weight.is_finite() && *weight >= 0.0),
+            "C forcing evaluator has an invalid support stencil",
+        )?;
+        let integral: f64 = stencil
+            .weight_per_km2
+            .iter()
+            .zip(&input.mesh.cell_area_km2)
+            .map(|(weight, area)| weight * area)
+            .sum();
+        require(
+            integral.is_finite() && (integral - 1.0).abs() <= 1.0e-8,
+            "C forcing evaluator stencil is not area normalized",
+        )?;
+    }
+    for &time in &[0.0, 3.0, 6.0, 10.0] {
+        let frame = evaluator.evaluate(time);
+        validate_forcing_frame(input, &frame, time)?;
+    }
+    Ok(())
+}
+
+fn validate_experimental_forcing_target(
+    input: &LinkedResolutionInputV0,
+    evaluator: &DeformationEvaluator,
+    cumulative_rock_displacement_km: &[f64],
+    declared_work_km3: f64,
+) -> Result<(), ThinOwnerErrorV0> {
+    let target_work: f64 = cumulative_rock_displacement_km
+        .iter()
+        .zip(&input.mesh.cell_area_km2)
+        .map(|(depth, area)| depth * area)
+        .sum();
+    require_close(
+        target_work,
+        declared_work_km3,
+        CONTROL_VOLUME_ABSOLUTE_TOLERANCE_KM3,
+        CONTROL_VOLUME_RELATIVE_TOLERANCE,
+        "C experimental target work",
+    )?;
+
+    // At full activity the registered 0--6 Myr schedule integrates to 5.75
+    // Myr. This cheap audit rejects an evaluator that does not actually encode
+    // the supplied cumulative target before the expensive process run starts.
+    let peak = evaluator.evaluate(3.0);
+    let implied_displacement = peak
+        .rock_vertical_rate_km_myr
+        .iter()
+        .map(|rate| f64::from(*rate) * ACTIVITY_INTEGRAL_MYR)
+        .collect::<Vec<_>>();
+    let zero = vec![0.0; input.mesh.cell_count()];
+    let audit = displacement_audit_arrays(
+        &zero,
+        cumulative_rock_displacement_km,
+        &input.mesh.cell_area_km2,
+        &implied_displacement,
+    )?;
+    require(
+        audit.signed_volume_error_km3.abs()
+            <= CONTROL_VOLUME_ABSOLUTE_TOLERANCE_KM3
+                + CONTROL_VOLUME_RELATIVE_TOLERANCE * declared_work_km3,
+        "C evaluator full-activity rate does not close to target work",
+    )?;
+    require(
+        audit.maximum_error_km <= CONTROL_CELL_TOLERANCE_KM,
+        "C evaluator full-activity rate does not match target displacement",
+    )
+}
+
+fn identity(
+    forcing_binding: CForcingBindingV0,
     purpose: OrganizationRunPurposeV0,
 ) -> OrganizationArtifactIdentityV0 {
     OrganizationArtifactIdentityV0 {
-        input_bundle_hash: bundle.derived_bundle_hash,
-        input_resolution_hash: input.derived_resolution_hash,
+        input_bundle_hash: forcing_binding.input_bundle_hash,
+        input_resolution_hash: forcing_binding.input_resolution_hash,
         nominal_spacing_km: TARGET_SPACING_KM,
         arm: OrganizationArmV0::C,
         purpose,
@@ -351,6 +665,7 @@ fn registered_c_config_hash(
     input: &LinkedResolutionInputV0,
     identity: &OrganizationArtifactIdentityV0,
     control_binding: Option<u64>,
+    forcing_binding: CForcingBindingV0,
 ) -> Result<u64, ThinOwnerErrorV0> {
     let active = identity.purpose == OrganizationRunPurposeV0::Base;
     let active_process = active.then_some(ActiveProcessConfigWireV0 {
@@ -399,11 +714,10 @@ fn registered_c_config_hash(
             vertical_rate_authority:
                 CVerticalRateAuthorityV0::FreshCompilerEvaluatedF32AtCandidateMidpoint,
             forcing_compiler_id: "linked-cosine-support-area-normalized-v0".into(),
-            compiled_stencils_component_hash: input.component_hashes.compiled_stencils_hash,
-            frame_witnesses_component_hash: input.component_hashes.frame_witnesses_hash,
-            cumulative_displacement_component_hash: input
-                .component_hashes
-                .cumulative_rock_displacement_hash,
+            compiled_stencils_component_hash: forcing_binding.compiled_stencils_component_hash,
+            frame_witnesses_component_hash: forcing_binding.frame_witnesses_component_hash,
+            cumulative_displacement_component_hash: forcing_binding
+                .cumulative_displacement_component_hash,
             adaptive_integration: AdaptiveIntegrationConfigWireV0 {
                 maximum_uplift_depth_km: Some(MAXIMUM_UPLIFT_DEPTH_KM),
                 minimum_dt_myr: MINIMUM_DT_MYR,
@@ -422,12 +736,17 @@ fn registered_c_config_hash(
 }
 
 fn run_control(
-    bundle: &LinkedSharedInputBundleV0,
     input: &LinkedResolutionInputV0,
     evaluator: &DeformationEvaluator,
+    cumulative_rock_displacement_km: &[f64],
+    declared_work_km3: f64,
+    forcing_binding: CForcingBindingV0,
 ) -> Result<ControlRunV0, ThinOwnerErrorV0> {
-    let identity = identity(bundle, input, OrganizationRunPurposeV0::OpportunityControl);
-    let config_hash = registered_c_config_hash(input, &identity, None)?;
+    let identity = identity(
+        forcing_binding,
+        OrganizationRunPurposeV0::OpportunityControl,
+    );
+    let config_hash = registered_c_config_hash(input, &identity, None, forcing_binding)?;
     let mut state = initial_driver_state(input, &identity)?;
     let initial_moment = elevation_moment_v0(&input.mesh, &state.elevation_km)
         .map_err(|error| fail(format!("C control initial moment failed: {error}")))?;
@@ -522,11 +841,12 @@ fn run_control(
     )?;
     let solid_closure_error = canonical_zero(final_moment - expected_final_moment);
     let final_hash = elevation_component_hash(&identity, &state.elevation_km)?;
-    let displacement = control_displacement_audit(bundle, input, &state.elevation_km)?;
+    let displacement =
+        control_displacement_audit(input, cumulative_rock_displacement_km, &state.elevation_km)?;
     require(
         displacement.signed_volume_error_km3.abs()
             <= CONTROL_VOLUME_ABSOLUTE_TOLERANCE_KM3
-                + (CONTROL_VOLUME_RELATIVE_TOLERANCE * bundle.declaration.analytic_rock_volume_km3),
+                + (CONTROL_VOLUME_RELATIVE_TOLERANCE * declared_work_km3),
         "C opportunity control failed its signed displacement-volume gate",
     )?;
     require(
@@ -573,14 +893,18 @@ fn run_control(
 }
 
 fn run_base(
-    bundle: &LinkedSharedInputBundleV0,
     input: &LinkedResolutionInputV0,
     evaluator: &DeformationEvaluator,
+    forcing_binding: CForcingBindingV0,
     control: ControlRunV0,
 ) -> Result<ThinC4KmObservationV0, ThinOwnerErrorV0> {
-    let base_identity = identity(bundle, input, OrganizationRunPurposeV0::Base);
-    let base_config_hash =
-        registered_c_config_hash(input, &base_identity, Some(control.binding_hash))?;
+    let base_identity = identity(forcing_binding, OrganizationRunPurposeV0::Base);
+    let base_config_hash = registered_c_config_hash(
+        input,
+        &base_identity,
+        Some(control.binding_hash),
+        forcing_binding,
+    )?;
     let mut state = initial_driver_state(input, &base_identity)?;
     let initial_moment = elevation_moment_v0(&input.mesh, &state.elevation_km)
         .map_err(|error| fail(format!("C base initial moment failed: {error}")))?;
@@ -1136,13 +1460,13 @@ struct ControlDisplacementV0 {
 }
 
 fn control_displacement_audit(
-    _bundle: &LinkedSharedInputBundleV0,
     input: &LinkedResolutionInputV0,
+    cumulative_rock_displacement_km: &[f64],
     final_elevation_km: &[f64],
 ) -> Result<ControlDisplacementV0, ThinOwnerErrorV0> {
     displacement_audit_arrays(
         &input.initial_elevation_km,
-        &input.cumulative_rock_displacement_km,
+        cumulative_rock_displacement_km,
         &input.mesh.cell_area_km2,
         final_elevation_km,
     )
@@ -1357,6 +1681,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn experimental_target_validation_rejects_wrong_shape_and_nonfinite_values() {
+        assert!(validate_target_displacement(2, &[0.0]).is_err());
+        let mut invalid = vec![0.0; 2];
+        invalid[0] = f64::INFINITY;
+        assert!(validate_target_displacement(2, &invalid).is_err());
+    }
+
+    #[test]
     fn endpoint_driver_lands_on_registered_bits_without_epsilon() {
         let start = 2.9975;
         let endpoint = 3.0;
@@ -1507,6 +1839,20 @@ mod tests {
         assert_eq!(
             result.final_elevation_km.len(),
             bundle.resolutions[1].mesh.cell_count()
+        );
+        let input = accepted_4km_input(&bundle).unwrap();
+        let binding = accepted_forcing_binding(&bundle, input);
+        let expected_identity = identity(binding, OrganizationRunPurposeV0::Base);
+        assert_eq!(result.base_identity, expected_identity);
+        assert_eq!(
+            result.base_config_hash,
+            registered_c_config_hash(
+                input,
+                &expected_identity,
+                Some(result.noncanonical_control_binding_hash),
+                binding,
+            )
+            .unwrap()
         );
     }
 }

@@ -1,6 +1,6 @@
 # Hex3 working memory
 
-Status: **active, non-authoritative scratchpad**. Last consolidated 2026-07-16.
+Status: **active, non-authoritative scratchpad**. Last consolidated 2026-07-17.
 
 This document preserves medium-term context across evaluation passes so the
 active investigation does not erase other important findings. It is a queue of
@@ -14,17 +14,19 @@ it become a chronological activity log.
 
 ## Active focus
 
-**Landscape organization and ownership.** The zoomed-out review identifies the
-weakest architectural seam as the conversion from broad tectonic, climate and
-water fields into coherent ranges, ridges, divides, passes, valleys, basins and
-river hierarchy. The accepted comparison is recorded in the
+**Return to cross-system disposition.** The bounded landscape-organization
+comparison is complete. It identifies the conversion from broad tectonic
+setting into coherent range-scale forcing as a real weak seam, but does not
+select H, C, G or manufactured I as a product owner. The result and retained
+causal target are recorded in the
 [landscape organization strategy](landscape-strategy.md).
 
-Do not continue the R1 arithmetic ladder, tune legacy mountain profiles or
-assume the most physical candidate must win. Compare the current hold-and-carve
-baseline with a reduced coevolving owner and a graph-first authentic control on
-one bounded object-level slice. Landform semantics are required evidence for
-that comparison, not a decorative follow-up.
+Do not continue the R1 arithmetic ladder, tune legacy mountain profiles or add
+another organization rung by momentum. Preserve H as a null, C as research
+machinery and the completed landform packet as reusable evidence. The active
+task is to compare this disposition with the unresolved river, lake, climate,
+coast, repair-provenance and presentation findings before selecting the next
+vertical slice.
 
 The [landform object packet v0](research/landform-object-packet-v0-2026-07-14.md)
 freezes the arm-neutral evidence vocabulary and the completed
@@ -142,15 +144,28 @@ rise, converting a smooth roof into graph-depth discontinuities. Therefore no
 arm advances from this base case. H stays a null, current G stops, and current C
 does not earn its cost. No promotion-grade arm-result packet exists.
 
-The compiler-only `B/F/I` pass is complete. Its API structurally excludes
-terrain and drainage. `B`, full-cosine finite-parent `F`, and inherited-child
-`I` each close `100,625 km³` near roundoff, including the two original
-`50,312.5 km³` parent ledgers; the compiler costs about `0.020 s`. `F` removes the flat roof with two
-coherent massifs and a transfer low. `I` creates four concentrated, partly
-disconnected hot spots and fails to earn its added inheritance graph. Do not
-tune `I` or jump to the production chain/history adapter. The next bounded task
-is one H and one C response to `F`, asking whether drainage coevolution adds
-useful valleys/divides beyond the compact forcing inherited by H.
+The compiler-only `B/F/I` pass and the one-shot `F -> H/C` response are
+complete. Their sidecar APIs structurally exclude product promotion. `F`
+matches the compiler probe to `3.11e-15 km` maximum error and closes the
+`100,625 km³` work budget near roundoff. Finite tips remove the exact roof, but
+the result remains two smooth elongated massifs rather than a differentiated
+range. C materially changes the response--`25,345 km³` of denudation, a
+`530 km` versus `426 km` longest portal trunk, and `357` versus `82` extracted
+peaks--yet the sharp physical diagnostic still shows the same smooth massif
+grammar, not coherent valleys, divides and passes beyond H. The `357` versus
+`82` extracted peaks are whole-positive-domain counts, not F-massif-local
+objects, and do not override that visual/relational result. C's `746.10 s`
+runtime versus H's `336.43 s` therefore does not earn it here.
+
+This is a mechanism discriminator, not a fair owner tournament: H repeatedly
+restores the target and records `130,385 km³` of gross restoration, whereas C
+receives the declared `100,625 km³` gradually and can retain erosion. H remains
+a null/control; current C, G and manufactured I do not advance; and the static
+ribbon compiler is not a product foundation. Return now to the cross-system
+disposition. When mountains resume, start from real front topology, tectonic
+history and inherited material state, then compress their causal consequences;
+do not tune the toy inheritance graph or assume deeper terrain physics is the
+missing mechanism.
 Keep the review findings visible: G's uniform wet/dry case changes profile but
 not topology; cross-resolution O0b discrepancy is not a generic scalar
 uncertainty; central peak-anchored and footprint-context cohorts must remain
@@ -907,6 +922,8 @@ explicit persistent skeleton, or a physical channel-initiation threshold.
   `artifacts/captures/seed-12345-o3a-massif-corridor-ancestry/`
 - Compiler-only B/F/I forcing comparison:
   `artifacts/captures/orogen-organization-bfi-parent-ledger-v1-4km-2026-07-17/`
+- One-shot finite-parent F response through H/C:
+  `artifacts/captures/orogen-f-hc-response-4km-2026-07-17/`
 
 ## Focus guardrails
 

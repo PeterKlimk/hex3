@@ -5,7 +5,9 @@
 //! comparison, not a campaign packet, score, or promotion decision.
 
 use super::organization_artifact::OrganizationArmV0;
-use super::organization_comparison::{ThinArmCommonEvidenceV0, ThinHcgCommonEvidenceV0};
+use super::organization_comparison::{
+    ThinArmCommonEvidenceV0, ThinHcSidecarCommonEvidenceV0, ThinHcgCommonEvidenceV0,
+};
 use super::organization_owner::{ThinG4KmObservationV0, ThinGQueueCountersV0};
 use super::organization_owner_c::{ThinC4KmObservationV0, ThinCLimiterHistogramV0};
 use super::organization_owner_h::{ThinH4KmObservationV0, ThinHLimiterHistogramV0};
@@ -20,6 +22,8 @@ use serde::Serialize;
 use std::fmt;
 
 pub const THIN_HCG_NUMERICAL_OUTPUT_SCHEMA_V0: &str = "orogen-owner-thin-hcg-numerical-output-v0";
+pub const THIN_HC_SIDECAR_NUMERICAL_OUTPUT_SCHEMA_V0: &str =
+    "orogen-owner-thin-hc-sidecar-numerical-output-v0";
 const TARGET_SPACING_KM: f64 = 4.0;
 const PLATEAU_GENTLE_GRADE: f64 = 0.01;
 const REFERENCE_SUMMIT_CAP_DEPTH_KM: f64 = 0.5;
@@ -34,6 +38,20 @@ pub struct ThinHcgNumericalOutputV0 {
     pub h: ThinArmNumericalOutputV0,
     pub c: ThinArmNumericalOutputV0,
     pub g: ThinArmNumericalOutputV0,
+}
+
+/// Descriptive numerical evidence for two responses to one explicitly bound
+/// noncanonical forcing sidecar.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ThinHcSidecarNumericalOutputV0 {
+    pub schema_version: String,
+    pub warning: String,
+    pub input_bundle_hash: u64,
+    pub input_resolution_hash: u64,
+    pub forcing_binding_hash: u64,
+    pub quantile_definition: String,
+    pub h: ThinArmNumericalOutputV0,
+    pub c: ThinArmNumericalOutputV0,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -243,23 +261,23 @@ pub fn build_thin_hcg_numerical_output_v0(
         ));
     }
 
-    let h = build_arm(
+    let h = build_thin_arm_numerical_output_v0(
         input,
         OrganizationArmV0::H,
         h.final_elevation_component_hash,
         &h.final_elevation_km,
         &evidence.h,
-        ArmNumericalWorkV0::H(h_work(h)),
+        ArmNumericalWorkV0::H(thin_h_numerical_work_v0(h)),
     )?;
-    let c = build_arm(
+    let c = build_thin_arm_numerical_output_v0(
         input,
         OrganizationArmV0::C,
         c.final_elevation_component_hash,
         &c.final_elevation_km,
         &evidence.c,
-        ArmNumericalWorkV0::C(c_work(c)),
+        ArmNumericalWorkV0::C(thin_c_numerical_work_v0(c)),
     )?;
-    let g = build_arm(
+    let g = build_thin_arm_numerical_output_v0(
         input,
         OrganizationArmV0::G,
         g.final_elevation_component_hash,
@@ -282,7 +300,9 @@ pub fn build_thin_hcg_numerical_output_v0(
     })
 }
 
-fn build_arm(
+/// Reduce one physical response surface and its already-built common evidence
+/// with the exact descriptive calculations used by the H/C/G comparison.
+fn build_thin_arm_numerical_output_v0(
     input: &LinkedResolutionInputV0,
     arm: OrganizationArmV0,
     elevation_hash: u64,
@@ -319,6 +339,63 @@ fn build_arm(
         drainage: drainage_summary(&evidence.drainage, input.summary.actual_domain_area_km2),
         relationships: relationship_summary(&evidence.relationships),
         numerical_work,
+    })
+}
+
+/// Reduce two sidecar-bound H/C response surfaces without requiring canonical
+/// HCG owner identities. The work witnesses are supplied explicitly so this
+/// helper remains independent of the sidecar execution representation.
+#[allow(clippy::too_many_arguments)]
+pub fn build_thin_hc_sidecar_numerical_output_v0(
+    bundle: &LinkedSharedInputBundleV0,
+    evidence: &ThinHcSidecarCommonEvidenceV0,
+    h_elevation_component_hash: u64,
+    h_elevation_km: &[f64],
+    h_work: HNumericalWorkV0,
+    c_elevation_component_hash: u64,
+    c_elevation_km: &[f64],
+    c_work: CNumericalWorkV0,
+) -> Result<ThinHcSidecarNumericalOutputV0, ThinNumericalOutputErrorV0> {
+    let input = bundle
+        .resolutions
+        .iter()
+        .find(|value| value.nominal_spacing_km.to_bits() == TARGET_SPACING_KM.to_bits())
+        .ok_or_else(|| fail("accepted bundle has no exact 4 km resolution"))?;
+    if evidence.input_bundle_hash != bundle.derived_bundle_hash
+        || evidence.input_resolution_hash != input.derived_resolution_hash
+    {
+        return Err(fail(
+            "sidecar common evidence does not bind the accepted 4 km geometry",
+        ));
+    }
+    let h = build_thin_arm_numerical_output_v0(
+        input,
+        OrganizationArmV0::H,
+        h_elevation_component_hash,
+        h_elevation_km,
+        &evidence.h,
+        ArmNumericalWorkV0::H(h_work),
+    )?;
+    let c = build_thin_arm_numerical_output_v0(
+        input,
+        OrganizationArmV0::C,
+        c_elevation_component_hash,
+        c_elevation_km,
+        &evidence.c,
+        ArmNumericalWorkV0::C(c_work),
+    )?;
+    Ok(ThinHcSidecarNumericalOutputV0 {
+        schema_version: THIN_HC_SIDECAR_NUMERICAL_OUTPUT_SCHEMA_V0.into(),
+        warning:
+            "DISPOSABLE SIDECAR COMPARISON: descriptive evidence, not a score or promotion result"
+                .into(),
+        input_bundle_hash: bundle.derived_bundle_hash,
+        input_resolution_hash: input.derived_resolution_hash,
+        forcing_binding_hash: evidence.forcing_binding_hash,
+        quantile_definition:
+            "left-continuous inverse of cumulative physical cell area; no interpolation".into(),
+        h,
+        c,
     })
 }
 
@@ -616,7 +693,7 @@ fn relationship_summary(value: &LandformRelationshipsV0) -> RelationshipSummaryV
     }
 }
 
-fn h_work(value: &ThinH4KmObservationV0) -> HNumericalWorkV0 {
+pub fn thin_h_numerical_work_v0(value: &ThinH4KmObservationV0) -> HNumericalWorkV0 {
     HNumericalWorkV0 {
         completed_pass_count: value.completion.completed_pass_count,
         accepted_step_count: value.completion.accepted_step_count,
@@ -634,7 +711,7 @@ fn h_work(value: &ThinH4KmObservationV0) -> HNumericalWorkV0 {
     }
 }
 
-fn c_work(value: &ThinC4KmObservationV0) -> CNumericalWorkV0 {
+pub fn thin_c_numerical_work_v0(value: &ThinC4KmObservationV0) -> CNumericalWorkV0 {
     CNumericalWorkV0 {
         reached_time_myr: value.completion.reached_time_myr,
         accepted_step_count: value.completion.accepted_step_count,

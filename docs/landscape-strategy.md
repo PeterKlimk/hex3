@@ -3,9 +3,9 @@
 Status: **current architecture decision**, 2026-07-14.
 
 This document decides how terrain, drainage and landform meaning should fit
-together after the first geographic-coherence pass. It does not promote a new
-terrain model. It narrows the next comparison and records which parts of the
-current system have earned a role.
+together after the geographic-coherence pass. It does not promote a new terrain
+model. It records the completed comparison, the rejected ownership shortcuts
+and which parts of the current system have earned a role.
 
 See the [project thesis](thesis.md), [model strategy](model-strategy.md),
 [current architecture](architecture.md), [mountain-system design basis](research/mountain-system-design-basis-2026-07-13.md)
@@ -17,7 +17,7 @@ Hex3's weakest architectural seam is **regional geographic organization**:
 the transformation from broad tectonic, climatic and hydrologic causes into
 coherent ranges, ridges, divides, passes, valleys, basins and river networks.
 
-Adopt this target causal shape:
+Retain this target causal shape:
 
 ```text
 plate/crust setting + linked deformation forcing
@@ -30,11 +30,13 @@ plate/crust setting + linked deformation forcing
 ```
 
 This is a statement about ownership and preserved consequences, not a demand
-for a full geodynamic or hydraulic simulation. The next architecture comparison
-must allow a reduced coupled model and a cheaper graph-first authentic hack to
-compete on the same geographic outcomes under a common resource ceiling. Their
-forcing conversions and chronology must remain dimensionally honest rather
-than be declared equivalent by sharing one scalar knob.
+for a full geodynamic or hydraulic simulation. The completed architecture
+comparison allowed a reduced coupled model and cheaper graph-first controls to
+compete on common geographic outcomes. None earned product ownership: current
+G and manufactured I impose the wrong structure, while C's real process effects
+do not justify their cost under the compact F forcing. The next mountain owner
+must therefore begin with better causal forcing organization from product
+fronts, history and material state; it need not be a deeper simulation.
 
 The unchanged current legacy path remains the product reference. A separately
 defined idealized hold-and-carve adapter is the bounded testbed control; it must
@@ -239,10 +241,27 @@ is smaller than a persistent product organization graph. A full-cosine
 finite-parent control removes the exact longitudinal roof while conserving the
 accepted work and width. The manufactured inheritance graph also conserves
 work, but breaks the belt into disconnected hot spots and does not earn its
-complexity. Feed the finite-parent control through H and C once before adapting
-real boundary chains, plate-bound inheritance or tectonic history. The graph
-architecture remains the plausible later seam if the simpler prior proves
-insufficient, not an assumed destination. See the updated
+complexity.
+
+### Second discriminator result
+
+The one-shot F response confirms that finite support fixes only the exact roof.
+H and C both receive the same compact F opportunity; F closes `100,625 km³`
+near roundoff and matches the compiler probe to `3.11e-15 km`. C coevolution
+produces real process consequences--`25,345 km³` of denudation and longer portal
+trunks--but the sharp physical view remains two smooth elongated massifs. Its
+larger whole-domain critical-point count is not massif-local evidence because
+the entire domain is positive land. C does not supply coherent range-scale valleys,
+divides or passes that justify `746.10 s` versus H's `336.43 s`.
+
+H's repeated target restoration (`130,385 km³` gross) makes this a mechanism
+discriminator rather than a fair work-matched owner tournament. The result does
+not reject coupled landscape response in general. It does reject the idea that
+more terrain coupling should precede better causal forcing organization here.
+Current G and manufactured I stop; H remains a control; C remains research
+machinery rather than selected product behavior. On return to mountains, derive
+the next forcing owner from real front chains, tectonic history and inherited
+material state rather than tuning these toy fields. See the updated
 [mountain-system design basis](research/mountain-system-design-basis-2026-07-13.md).
 
 ### Shared setting

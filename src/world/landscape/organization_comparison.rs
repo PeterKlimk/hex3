@@ -18,6 +18,8 @@ use serde::Serialize;
 use std::fmt;
 
 pub const THIN_HCG_COMMON_EVIDENCE_SCHEMA_V0: &str = "orogen-owner-thin-hcg-common-evidence-v0";
+pub const THIN_HC_SIDECAR_COMMON_EVIDENCE_SCHEMA_V0: &str =
+    "orogen-owner-thin-hc-sidecar-common-evidence-v0";
 const TARGET_SPACING_KM: f64 = 4.0;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -39,6 +41,87 @@ pub struct ThinHcgCommonEvidenceV0 {
     pub h: ThinArmCommonEvidenceV0,
     pub c: ThinArmCommonEvidenceV0,
     pub g: ThinArmCommonEvidenceV0,
+}
+
+/// Common S0/D0/O0a evidence for two noncanonical terrain responses which
+/// reuse the accepted geometry, initial conditions and runoff but replace the
+/// registered forcing through an explicitly bound sidecar.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ThinHcSidecarCommonEvidenceV0 {
+    pub schema_version: String,
+    pub warning: String,
+    pub input_bundle_hash: u64,
+    pub input_resolution_hash: u64,
+    pub forcing_binding_hash: u64,
+    pub relationship_graph_hash: u64,
+    pub h: ThinArmCommonEvidenceV0,
+    pub c: ThinArmCommonEvidenceV0,
+}
+
+struct CommonEvidenceContextV0 {
+    graph: crate::world::landforms::EvaluationSurfaceGraphV0,
+    graph_hash: u64,
+    scored_cell: Vec<bool>,
+    surface_config: SurfaceHierarchyConfigV0,
+    drainage_config: DrainageConfigV0,
+    geometry_identity: PacketGeometryIdentityV0,
+    relationship_config: LandformRelationshipConfigV0,
+}
+
+/// Build matched H/C common evidence without asserting the frozen HCG owner
+/// identities. `forcing_binding_hash` is caller-owned and must bind the
+/// sidecar compiler/result used by both response surfaces.
+#[allow(clippy::too_many_arguments)]
+pub fn build_thin_hc_sidecar_common_evidence_v0(
+    bundle: &LinkedSharedInputBundleV0,
+    forcing_binding_hash: u64,
+    h_physical_elevation_component_hash: u64,
+    h_elevation_km: &[f64],
+    c_physical_elevation_component_hash: u64,
+    c_elevation_km: &[f64],
+) -> Result<ThinHcSidecarCommonEvidenceV0, ThinComparisonErrorV0> {
+    let input = bundle
+        .resolutions
+        .iter()
+        .find(|value| value.nominal_spacing_km.to_bits() == TARGET_SPACING_KM.to_bits())
+        .ok_or_else(|| fail("accepted bundle has no exact 4 km resolution"))?;
+    validate_sidecar_surface(input, OrganizationArmV0::H, h_elevation_km)?;
+    validate_sidecar_surface(input, OrganizationArmV0::C, c_elevation_km)?;
+    let context = common_evidence_context(input)?;
+    let h = build_arm_evidence(
+        OrganizationArmV0::H,
+        h_physical_elevation_component_hash,
+        h_elevation_km,
+        input,
+        &context.graph,
+        &context.scored_cell,
+        context.surface_config,
+        context.drainage_config,
+        context.geometry_identity,
+        context.relationship_config,
+    )?;
+    let c = build_arm_evidence(
+        OrganizationArmV0::C,
+        c_physical_elevation_component_hash,
+        c_elevation_km,
+        input,
+        &context.graph,
+        &context.scored_cell,
+        context.surface_config,
+        context.drainage_config,
+        context.geometry_identity,
+        context.relationship_config,
+    )?;
+    Ok(ThinHcSidecarCommonEvidenceV0 {
+        schema_version: THIN_HC_SIDECAR_COMMON_EVIDENCE_SCHEMA_V0.into(),
+        warning: "DISPOSABLE SIDECAR COMMON EVIDENCE: not an accepted input, campaign packet or promotion result".into(),
+        input_bundle_hash: bundle.derived_bundle_hash,
+        input_resolution_hash: input.derived_resolution_hash,
+        forcing_binding_hash,
+        relationship_graph_hash: context.graph_hash,
+        h,
+        c,
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -65,6 +148,63 @@ pub fn build_thin_hcg_common_evidence_v0(
         .ok_or_else(|| fail("accepted bundle has no exact 4 km resolution"))?;
     validate_owner_bindings(bundle, input, h, c, g)?;
 
+    let context = common_evidence_context(input)?;
+
+    let h_evidence = build_arm_evidence(
+        OrganizationArmV0::H,
+        h.final_elevation_component_hash,
+        &h.final_elevation_km,
+        input,
+        &context.graph,
+        &context.scored_cell,
+        context.surface_config,
+        context.drainage_config,
+        context.geometry_identity,
+        context.relationship_config,
+    )?;
+    let c_evidence = build_arm_evidence(
+        OrganizationArmV0::C,
+        c.final_elevation_component_hash,
+        &c.final_elevation_km,
+        input,
+        &context.graph,
+        &context.scored_cell,
+        context.surface_config,
+        context.drainage_config,
+        context.geometry_identity,
+        context.relationship_config,
+    )?;
+    let g_evidence = build_arm_evidence(
+        OrganizationArmV0::G,
+        g.final_elevation_component_hash,
+        &g.final_elevation_km,
+        input,
+        &context.graph,
+        &context.scored_cell,
+        context.surface_config,
+        context.drainage_config,
+        context.geometry_identity,
+        context.relationship_config,
+    )?;
+
+    Ok(ThinHcgCommonEvidenceV0 {
+        schema_version: THIN_HCG_COMMON_EVIDENCE_SCHEMA_V0.into(),
+        warning: "DISPOSABLE COMMON EVIDENCE: not a campaign packet or promotion result".into(),
+        input_bundle_hash: bundle.derived_bundle_hash,
+        input_resolution_hash: input.derived_resolution_hash,
+        relationship_graph_hash: context.graph_hash,
+        h: h_evidence,
+        c: c_evidence,
+        g: g_evidence,
+    })
+}
+
+fn common_evidence_context(
+    input: &LinkedResolutionInputV0,
+) -> Result<CommonEvidenceContextV0, ThinComparisonErrorV0> {
+    if input.nominal_spacing_km.to_bits() != TARGET_SPACING_KM.to_bits() {
+        return Err(fail("common evidence requires exact 4 km geometry"));
+    }
     let surface_config = SurfaceHierarchyConfigV0::default();
     let drainage_config = DrainageConfigV0::default();
     let relationship_config = LandformRelationshipConfigV0::default();
@@ -79,54 +219,31 @@ pub fn build_thin_hcg_common_evidence_v0(
         canonical_graph_hash: graph_hash,
     };
     let scored_cell = vec![true; graph.cell_count()];
-
-    let h_evidence = build_arm_evidence(
-        OrganizationArmV0::H,
-        h.final_elevation_component_hash,
-        &h.final_elevation_km,
-        input,
-        &graph,
-        &scored_cell,
+    Ok(CommonEvidenceContextV0 {
+        graph,
+        graph_hash,
+        scored_cell,
         surface_config,
         drainage_config,
         geometry_identity,
         relationship_config,
-    )?;
-    let c_evidence = build_arm_evidence(
-        OrganizationArmV0::C,
-        c.final_elevation_component_hash,
-        &c.final_elevation_km,
-        input,
-        &graph,
-        &scored_cell,
-        surface_config,
-        drainage_config,
-        geometry_identity,
-        relationship_config,
-    )?;
-    let g_evidence = build_arm_evidence(
-        OrganizationArmV0::G,
-        g.final_elevation_component_hash,
-        &g.final_elevation_km,
-        input,
-        &graph,
-        &scored_cell,
-        surface_config,
-        drainage_config,
-        geometry_identity,
-        relationship_config,
-    )?;
-
-    Ok(ThinHcgCommonEvidenceV0 {
-        schema_version: THIN_HCG_COMMON_EVIDENCE_SCHEMA_V0.into(),
-        warning: "DISPOSABLE COMMON EVIDENCE: not a campaign packet or promotion result".into(),
-        input_bundle_hash: bundle.derived_bundle_hash,
-        input_resolution_hash: input.derived_resolution_hash,
-        relationship_graph_hash: graph_hash,
-        h: h_evidence,
-        c: c_evidence,
-        g: g_evidence,
     })
+}
+
+fn validate_sidecar_surface(
+    input: &LinkedResolutionInputV0,
+    arm: OrganizationArmV0,
+    elevation_km: &[f64],
+) -> Result<(), ThinComparisonErrorV0> {
+    if input.nominal_spacing_km.to_bits() != TARGET_SPACING_KM.to_bits()
+        || elevation_km.len() != input.mesh.cell_count()
+        || elevation_km.iter().any(|value| !value.is_finite())
+    {
+        return Err(fail(format!(
+            "{arm:?} sidecar surface does not fit the shared finite 4 km geometry"
+        )));
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
