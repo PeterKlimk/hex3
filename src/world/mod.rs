@@ -30,6 +30,7 @@
 mod atmosphere;
 mod boundary;
 mod circulation;
+mod climatology;
 mod constants;
 mod crust;
 mod deformation;
@@ -57,6 +58,7 @@ pub mod water_geography;
 
 pub use atmosphere::Atmosphere;
 pub use boundary::{collect_plate_boundaries, BoundaryKind, PlateBoundaryEdge, SubductionPolarity};
+pub use climatology::{ClimatologyNullReport, CLIMATOLOGY_NULL_REPORT_SCHEMA_VERSION};
 pub use constants::*;
 pub use crust::{Crust, CrustType};
 

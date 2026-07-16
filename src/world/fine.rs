@@ -17,6 +17,7 @@ use super::elevation::{coarse_elevation_fields, isostasy_slope, ElevationFields,
 use super::erosion::ErosionParams;
 use super::features::build_cell_pair_edge_endpoints;
 use super::fine_cache::{self, FineCacheMode};
+use super::water::connected_ocean_cells;
 use super::{
     Atmosphere, CellWaterState, Crust, Elevation, FeatureFields, FineCacheOutcome, FineCacheRecord,
     Hydrology, Plates, Tessellation,
@@ -974,7 +975,12 @@ impl FineSurface {
         // modulation of the COARSE field on the CURRENT relief, so it tracks the
         // carved ranges. Converges in a couple of passes.
         let iters = params.precip_outer_iters.max(1);
-        let mut precip = base.fields.precipitation.clone();
+        let mut precip = normalize_fine_precipitation(
+            &base.tessellation,
+            structured_base,
+            &base.fields.elevation_fields.continentality,
+            &base.fields.precipitation,
+        );
         let mut eroded = structured_base.clone();
         // The neighbour geometry (chord distances + finite-volume edge weights) is
         // a function of the immutable tessellation, so build it once and reuse it
@@ -1054,6 +1060,12 @@ impl FineSurface {
                 params.orographic_precip_strength,
                 params.downwind_shadow_strength,
             );
+            precip = normalize_fine_precipitation(
+                &base.tessellation,
+                &eroded,
+                &base.fields.elevation_fields.continentality,
+                &precip,
+            );
             log::info!(
                 "fine mesh: erode+precip pass {}/{} (erode {:.2?}, precip {:.2?})",
                 outer + 1,
@@ -1112,7 +1124,12 @@ impl FineSurface {
         };
 
         let t0 = Instant::now();
-        let mut precip = precipitation.to_vec();
+        let mut precip = normalize_fine_precipitation(
+            &base.tessellation,
+            &elevation.values,
+            &base.fields.elevation_fields.continentality,
+            precipitation,
+        );
         let mut hydrology = hydro(&precip);
         log::info!("fine mesh: hydrology {:.2?}", t0.elapsed());
 
@@ -1121,12 +1138,18 @@ impl FineSurface {
         // (no transport on the fine mesh), one pass = no runaway lake growth.
         if lake_evap_strength > 0.0 {
             let t0 = Instant::now();
-            precip = boost_precip_near_lakes(
+            let boosted = boost_precip_near_lakes(
                 &base.tessellation,
                 &elevation.values,
                 &precip,
                 &hydrology,
                 lake_evap_strength,
+            );
+            precip = normalize_fine_precipitation(
+                &base.tessellation,
+                &elevation.values,
+                &base.fields.elevation_fields.continentality,
+                &boosted,
             );
             hydrology = hydro(&precip);
             log::info!("fine mesh: lake-evap + re-hydrology {:.2?}", t0.elapsed());
@@ -1144,6 +1167,81 @@ impl FineSurface {
             precipitation: precip,
             temperature,
         }
+    }
+}
+
+/// Normalize the precipitation actually supplied to fine hydrology against the
+/// same connected-ocean rule hydrology uses. This must run even when every
+/// optional fine-climate modifier is off: interpolation onto an adaptive mesh
+/// does not preserve an area-weighted land integral by itself.
+fn normalize_fine_precipitation(
+    tessellation: &Tessellation,
+    elevation: &[f32],
+    continentality: &[f32],
+    precipitation: &[f32],
+) -> Vec<f32> {
+    let areas = tessellation.cell_areas_ref();
+    let ocean = connected_ocean_cells(tessellation, continentality, elevation, areas);
+    let (weighted_supply, land_area) = (0..tessellation.num_cells())
+        .filter(|&cell| !ocean[cell])
+        .fold((0.0f64, 0.0f64), |(supply, area), cell| {
+            (
+                supply + precipitation[cell].max(0.0) as f64 * areas[cell] as f64,
+                area + areas[cell] as f64,
+            )
+        });
+    let mean = if land_area > 0.0 {
+        weighted_supply / land_area
+    } else {
+        0.0
+    };
+    let scale = if mean > 1e-12 {
+        PRECIP_GLOBAL_SCALE as f64 / mean
+    } else {
+        1.0
+    };
+    precipitation
+        .iter()
+        .map(|&value| (value.max(0.0) as f64 * scale) as f32)
+        .collect()
+}
+
+#[cfg(test)]
+mod precipitation_normalization_tests {
+    use super::*;
+
+    #[test]
+    fn adaptive_transfer_is_normalized_over_hydrologic_land() {
+        let mut rng = ChaCha8Rng::seed_from_u64(817);
+        let tessellation = Tessellation::generate(800, 0, &mut rng);
+        let n = tessellation.num_cells();
+        let elevation: Vec<f32> = (0..n)
+            .map(|cell| 0.2 * tessellation.cell_center(cell).y)
+            .collect();
+        let continentality = vec![0.0; n];
+        let precipitation: Vec<f32> = (0..n)
+            .map(|cell| 0.5 + 3.0 * tessellation.cell_center(cell).x.max(0.0))
+            .collect();
+
+        let normalized = normalize_fine_precipitation(
+            &tessellation,
+            &elevation,
+            &continentality,
+            &precipitation,
+        );
+        let areas = tessellation.cell_areas_ref();
+        let ocean = connected_ocean_cells(&tessellation, &continentality, &elevation, areas);
+        let (supply, area) =
+            (0..n)
+                .filter(|&cell| !ocean[cell])
+                .fold((0.0f64, 0.0f64), |(supply, area), cell| {
+                    (
+                        supply + normalized[cell] as f64 * areas[cell] as f64,
+                        area + areas[cell] as f64,
+                    )
+                });
+
+        assert!((supply / area - PRECIP_GLOBAL_SCALE as f64).abs() < 1e-6);
     }
 }
 

@@ -128,6 +128,10 @@ an area-weighted non-ocean-land mean before hydrology consumes it.
 Fine erosion uses transferred climate plus bounded local feedbacks such as
 lapse correction and optional orographic, lee-side and lake effects. It does
 not rerun a global dynamic climate after every surface change.
+Fine precipitation is normalized before either erosion or hydrology consumes
+it, using the declared area-weighted connected-ocean-land mean. This includes
+the default path where all optional fine-climate modifiers are disabled;
+adaptive transfer is not assumed to preserve that extensive budget.
 
 Hydrology identifies ocean, resolves drainage and depressions, accumulates
 flow, constructs basin/overflow relationships, and derives equilibrium lakes
@@ -171,6 +175,13 @@ retained hydrology and those shared objects. It records ocean and geographic-lan
 components, shoreline length, basin/lake states, distinct river roles,
 drainage-integration footprint and consistency failures. It is dossier evidence,
 not another persistent physical stage.
+
+The dossier also owns a diagnostic conditional-climatology projection. It fits
+an area-weighted land precipitation mean within a deliberately coarse joint
+latitude/elevation/ocean-distance partition, preserves the product runoff
+budget, and reruns hydrology from the same supplied terrain. The projection is
+derived evaluation evidence: it is neither retained world state nor an
+independently generative replacement climate.
 
 These operations should be documented as interpretation rather than physical
 state or raw drawing. A future explicit semantic layer can support consistent

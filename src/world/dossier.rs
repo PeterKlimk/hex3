@@ -8,12 +8,12 @@ use serde::Serialize;
 
 use super::diagnostics::{measure_components, ComponentStats};
 use super::{
-    elevation_to_km, RiverMouth, RiverNetwork, RiverThresholdPolicy, RunManifest,
-    SemanticWaterKind, Tessellation, WaterBodySemantics, WaterGeographyReport, World,
-    PLANET_RADIUS_KM,
+    elevation_to_km, ClimatologyNullReport, Elevation, RiverMouth, RiverNetwork,
+    RiverThresholdPolicy, RunManifest, SemanticWaterKind, Tessellation, WaterBodySemantics,
+    WaterGeographyReport, World, PLANET_RADIUS_KM,
 };
 
-pub const DOSSIER_SCHEMA_VERSION: u32 = 2;
+pub const DOSSIER_SCHEMA_VERSION: u32 = 3;
 const MOUNTAIN_ELEVATION_KM: f32 = 1.5;
 const SIGNIFICANT_MOUNTAIN_AREA_KM2: f32 = 20_000.0;
 const TARGET_LIMIT: usize = 3;
@@ -29,6 +29,7 @@ pub struct DossierPacket {
     pub lakes: Vec<LakeTarget>,
     pub rivers: Vec<RiverTarget>,
     pub water_geography: WaterGeographyReport,
+    pub climatology_null: ClimatologyNullReport,
     pub hydrology_provenance: HydrologyProvenance,
     pub caveats: Vec<&'static str>,
     pub future_gaps: Vec<&'static str>,
@@ -191,6 +192,21 @@ impl DossierPacket {
         let river_policy = RiverThresholdPolicy::default();
         let network = RiverNetwork::build(tess, hydrology, &water, river_policy);
         let water_geography = WaterGeographyReport::build(tess, hydrology, &water, &network)?;
+        let pre_hydrology_values: Vec<f32> = (0..tess.num_cells())
+            .map(|cell| hydrology.pre_integration_elevation(cell))
+            .collect();
+        let pre_hydrology_elevation = Elevation::refine_from_base(tess, &pre_hydrology_values);
+        let climatology_null = ClimatologyNullReport::build(
+            tess,
+            &pre_hydrology_elevation,
+            &fine.base.fields.elevation_fields.continentality,
+            &surface.temperature,
+            &surface.precipitation,
+            hydrology,
+            &network,
+            &water_geography,
+            river_policy,
+        )?;
         let mountains = build_mountains(
             world,
             tess,
@@ -232,6 +248,7 @@ impl DossierPacket {
             lakes,
             rivers,
             water_geography,
+            climatology_null,
             hydrology_provenance: HydrologyProvenance {
                 integration_cut_cell_count: hydrology.integration_cut_count(),
                 maximum_integration_cut_depth_km: hydrology
@@ -246,6 +263,9 @@ impl DossierPacket {
                 "Climate values are normalized model fields intended as cheap downstream inputs, not observed SI climatology.",
                 "Geometry arrays are capped samples; areas and component measurements use the complete objects.",
                 "Mountain association means and fractions are fine-cell weighted on an adaptive mesh, not area weighted.",
+                "The climatology null is fitted in-sample from this world's product precipitation; it is a diagnostic projection, not an independently generative replacement climate.",
+                "Conditional-null fit statistics must be read with the reported occupied-bin area support; sparse joint bins can overstate in-sample explanatory power.",
+                "The frozen-terrain comparison does not rewind climate-shaped mesh refinement, erosion, or other upstream history.",
             ],
             future_gaps: vec![
                 "Coast component geometry, straits, adjacency and topology-aware generalization are not yet represented.",

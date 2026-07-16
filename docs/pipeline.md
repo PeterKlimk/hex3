@@ -69,6 +69,11 @@ Stage 2 changes modeled state but not spatial resolution.
 6. derives a `FineSurface` named `pre`;
 7. computes hydrology on that un-eroded surface.
 
+Before fine erosion or hydrology consumes it, transferred or locally adjusted
+precipitation is area-normalized over land defined by the same connected-ocean
+classifier. This is required even with climate modifiers disabled because
+adaptive transfer does not preserve the land water budget automatically.
+
 Creating fine state clears the legacy top-level hydrology fallback. From this
 stage onward, active terrain normally comes from `FineWorld`.
 

@@ -15,10 +15,11 @@ Current dossiers:
   slice establishing the method and identifying the next evidence packet.
 
 CPU spatial packets are generated with the `dossier` binary. Their JSON
-artifacts contain exact run manifests, selected-object coordinates and the
-schema-v2 aggregate water-geography report: ocean/land components, shoreline,
-basin/lake states, independent river roles, drainage-repair footprint and
-consistency checks. Artifacts are ignored by Git; maintained interpretation
-belongs in the dossier documents.
+artifacts contain exact run manifests, selected-object coordinates, the
+aggregate water-geography report and the schema-v3 diagnostic conditional-
+climatology comparison. The comparison holds supplied terrain and temperature
+fixed, preserves total land runoff and reports the water geography induced by
+the simpler latitude/elevation/ocean-distance projection. Artifacts are ignored
+by Git; maintained interpretation belongs in the dossier documents.
 Matched relief captures use the Windows sweep renderer with repeated
 `--sweep-target id:lat:lon` arguments and emit a `capture.json` sidecar.

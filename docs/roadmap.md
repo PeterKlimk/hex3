@@ -180,8 +180,9 @@ vertical-slice test.
 
 ### Water Geography V0: selected enabling slice
 
-- compare transported climate/runoff with a cheap latitude–elevation–coast
-  baseline on frozen terrain;
+- **Implemented diagnostic comparison:** project transported precipitation onto
+  a low-capacity latitude–elevation–connected-ocean-distance climatology and
+  rerun hydrology on the exact supplied terrain with its land budget preserved;
 - **Completed first seam:** use one connected-ocean classification rule for
   thermal coast distance, moisture sources and hydrology classification;
 - **Completed first report:** derive aggregate oceans/land components,
@@ -197,6 +198,12 @@ Exit gate: the retained climate and hydrology have declared meanings, stable
 causal consequences and coherent objects suitable for presentation and a
 living-surface consumer. Do not add seasons, ocean circulation, groundwater,
 sediment, vegetation or erosion tuning inside this slice.
+
+The conditional projection is an in-world diagnostic null, not yet a cheap
+replacement: it is fitted from product precipitation. Decide retention only
+after a representative-resolution frozen-world panel shows whether the residual
+is coherent and material to rivers/lakes; add wind/barrier controls only if that
+decision needs causal discrimination.
 
 ### Sediment candidate: research and design gate
 

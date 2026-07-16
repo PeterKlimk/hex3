@@ -215,6 +215,10 @@ supply them separately.
 - `cargo build`/`cargo clippy`/`cargo fmt` provide compilation and static hygiene.
 - `diagnose` supplies general statistics and dedicated drainage, lake, mountain,
   rebuild-fidelity, detail-survival, tectonic-history and river audits.
+- `dossier` supplies selected spatial objects, aggregate water geography and a
+  frozen-terrain diagnostic conditional-climatology comparison. That null is
+  fitted from each product world and therefore tests residual value, not
+  out-of-sample replacement-climate performance.
 - `tectonic_scorecard` performs cross-seed/carrier-resolution promotion checks
   without fine erosion or rendering.
 - comparison/sample binaries support targeted orogen experiments.
