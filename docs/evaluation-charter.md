@@ -1,12 +1,13 @@
 # World evaluation charter
 
-Status: strategy decision reached; geographic correspondence pass active,
-2026-07-12.
+Status: **first geographic-coherence/disposition pass complete; retained
+evaluation contract**, 2026-07-17.
 
-This pass pauses feature expansion to determine what Hex3 currently generates,
-which systems earn their complexity, where authenticity breaks, and which model
-class should guide later work. It evaluates numerical state, semantic
-interpretation and presentation separately, then studies their relationships.
+The completed first pass paused feature expansion to determine what Hex3
+currently generates, which systems earn their complexity, where authenticity
+breaks, and which model class should guide later work. Its evaluation contract
+remains applicable to bounded slices: evaluate numerical state, semantic
+interpretation and presentation separately, then study their relationships.
 
 The charter governs evaluation and research. It does not promote current
 thresholds, classifiers or historical scorecards merely by cataloguing them.
@@ -34,11 +35,11 @@ The pass should leave five durable products:
 - comparable external research briefs;
 - a model-strategy decision that revises system assessments and the roadmap.
 
-The [model-strategy decision](model-strategy.md) is now complete. It selects a
-hybrid authentic systemic world generator and makes coherent geographic objects
-and matched physical/cartographic inspection the next evidence target. This
-charter remains active for that correspondence pass; it is not a mandate for
-further parameter optimization.
+The [model-strategy decision](model-strategy.md) selects a hybrid authentic
+systemic world generator. The first correspondence pass and
+[cross-system disposition](system-disposition.md) are complete enough to select
+Water Geography V0. This charter constrains that slice; it is not a mandate for
+further parameter optimization or a new global evaluation campaign.
 
 The first application is the preliminary
 [seed-12345 planet dossier](dossiers/seed-12345.md). It records causal lineage
@@ -223,12 +224,12 @@ future consumers.
 5. inspect numerical outliers with matched views;
 6. synthesize focused external research;
 7. **Complete:** write the model-strategy decision and revise the roadmap;
-8. extract geographic objects, inspect matched views and make final system
-   dispositions before choosing another stage.
+8. **Complete enough to choose work:** extract geographic objects, inspect
+   matched views and make cross-system dispositions before choosing another
+   stage.
 
-Feature expansion remains paused until geographic objects, causal
-correspondence and matched views can identify its opportunity cost. Small
-instrumentation or semantic extraction changes are allowed when they expose
-existing state without tuning the generated world. Local ablations require a
-specific object-level decision and stop condition; producing another optimizable
-metric is not sufficient reason.
+The first actual expansion remains conditional on Water Geography V0 providing
+coherent climate/water inputs. Small instrumentation or semantic extraction
+changes are allowed when they expose existing state without tuning the generated
+world. Local ablations require a specific object-level decision and stop
+condition; producing another optimizable metric is not sufficient reason.

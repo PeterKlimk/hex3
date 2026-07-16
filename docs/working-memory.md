@@ -14,19 +14,21 @@ it become a chronological activity log.
 
 ## Active focus
 
-**Return to cross-system disposition.** The bounded landscape-organization
-comparison is complete. It identifies the conversion from broad tectonic
-setting into coherent range-scale forcing as a real weak seam, but does not
-select H, C, G or manufactured I as a product owner. The result and retained
-causal target are recorded in the
-[landscape organization strategy](landscape-strategy.md).
+**Water Geography V0.** The cross-system pass is complete and recorded in the
+[current disposition](system-disposition.md). The next bounded slice joins
+climate/runoff value, connected-ocean identity, basin/lake/outlet state, river
+roles, drainage-repair provenance, coast/island hierarchy and scale-aware
+presentation. It is an enabling truth-contract pass over cheap retained
+systems, not another global metrics campaign and not yet a new ecology or
+sediment stage.
 
 Do not continue the R1 arithmetic ladder, tune legacy mountain profiles or add
 another organization rung by momentum. Preserve H as a null, C as research
-machinery and the completed landform packet as reusable evidence. The active
-task is to compare this disposition with the unresolved river, lake, climate,
-coast, repair-provenance and presentation findings before selecting the next
-vertical slice.
+machinery and the completed landform packet as reusable evidence. When mountain
+work resumes, start from real front topology, history and inherited material
+state. If Water Geography V0 establishes coherent inputs, Living Surface V0 is
+the likely first actual expansion; persistent sediment remains behind its
+material/time/river-ownership design gate.
 
 The [landform object packet v0](research/landform-object-packet-v0-2026-07-14.md)
 freezes the arm-neutral evidence vocabulary and the completed
@@ -889,12 +891,14 @@ explicit persistent skeleton, or a physical channel-initiation threshold.
 - Range/plateau/pass/valley/divide semantics remain provisional; water and
   river semantics are further along but incomplete.
 - Persistent sediment/source-to-sink, storage/wetlands, cryosphere, soils,
-  ecology, resources and human geography remain candidates. Revisit them after
-  the current geographic-coherence disposition, not after every local finding.
+  ecology, resources and human geography remain candidates. Water Geography V0
+  now precedes Living Surface V0; sediment and later domains retain their stated
+  gates rather than advancing after any single local finding.
 
 ## Current evidence anchors
 
 - [Model strategy](model-strategy.md)
+- [Cross-system disposition](system-disposition.md)
 - [Evaluation synthesis](evaluation-synthesis.md)
 - [Subtractive architecture audit](subtractive-audit.md)
 - [Seed-12345 planet dossier](dossiers/seed-12345.md)
@@ -927,8 +931,8 @@ explicit persistent skeleton, or a physical channel-initiation threshold.
 
 ## Focus guardrails
 
-- Do not let the active mountain investigation erase the lake, river, climate,
-  coast, repair-provenance or presentation findings above.
+- Do not let the active water-geography slice erase the mountain, presentation,
+  living-surface, sediment or later human-geography findings above.
 - For every important failure mode, ask **“how does reality avoid this, and how
   do higher-fidelity simulations preserve that mechanism?”** Build the causal
   graph before choosing its compression. Hex3 need not afford the full process,
@@ -939,5 +943,6 @@ explicit persistent skeleton, or a physical channel-initiation threshold.
 - Do not infer physical success from attractive cartography or Earth-like
   marginal statistics.
 - Prefer a decisive object/cause comparison over another global metric.
-- When the mountain decision is reached, return to the cross-system disposition
-  table before choosing the next implementation target.
+- Keep the selected slice bounded: it establishes water/climate truth and shared
+  geographic objects; it does not absorb seasons, groundwater, sediment,
+  vegetation or another mountain model.

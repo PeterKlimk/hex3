@@ -168,10 +168,12 @@ their present behavior rather than silently inventing a cleaner API.
 
 ## Beyond Stage 4
 
-No Stage 5 or later milestone is currently canonical. Candidate domains include
-cryosphere, oceans/coasts, persistent sediment and soils, biomes, vegetation,
-ecology, resources, and eventually culture/civilization. Their dependency shape
-is likely a graph rather than a simple numbered sequence:
+No Stage 5 or later number is currently canonical. Water Geography V0 is the
+selected enabling slice over current climate/hydrology/semantic state; Living
+Surface V0 is the conditional first expansion. Other candidates include
+cryosphere, persistent sediment and soils, resources, and eventually
+culture/civilization. Their dependency shape is likely a graph rather than a
+simple numbered sequence:
 
 ```text
 terrain + climate + water
@@ -183,7 +185,8 @@ terrain + climate + water
 ```
 
 This diagram identifies plausible dependencies, not committed implementations.
-Before assigning stage numbers, the roadmap should determine which candidates
-need persistent simulated state, which can be derived semantically, which feed
-back into existing systems, and which produce enough emergence or visible value
-to justify their cost.
+The [cross-system disposition](system-disposition.md) supplies the current
+ordering; stage numbers wait until a candidate demonstrates whether it needs
+persistent simulated state, can be derived semantically, feeds back into
+existing systems and produces enough emergence or visible value to justify its
+cost.

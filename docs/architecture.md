@@ -239,8 +239,9 @@ Plausible later domains include:
 - culture, settlement, infrastructure and civilization-scale systems;
 - semantic regions and cartographic generalization for board/game views.
 
-These do not yet have an approved order or fidelity. Some may be semantic
-derivations, some simulations, some authentic hacks, and some presentation-only
-systems. Several may share inputs and run in parallel rather than form one
-linear Stage 5–N chain. The roadmap should compare them by prerequisite
-readiness, downstream reach, emergence, visible payoff and compute cost.
+The [cross-system disposition](system-disposition.md) now selects Water
+Geography V0 as an enabling slice and Living Surface V0 as the conditional first
+expansion; sediment and later human geography remain behind explicit gates.
+This ordering does not assign a fidelity class or linear stage number. Some
+domains may be semantic derivations, some simulations, some authentic hacks and
+some presentation-only systems, with graph-shaped dependencies.

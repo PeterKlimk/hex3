@@ -7,8 +7,9 @@ to review as evidence and project priorities change.
 
 Prioritization based on these assessments lives in the
 [gap analysis](gaps.md) and [roadmap](roadmap.md).
-Implementation/code dispositions live in the
-[subtractive architecture audit](subtractive-audit.md).
+Current implementation and product-role dispositions live in the
+[cross-system disposition](system-disposition.md). The
+[subtractive architecture audit](subtractive-audit.md) is earlier evidence.
 
 No “Foundation” or “Retain” label protects a system from fundamental rework. It
 means the capability is valuable under current evidence, not that its present
@@ -232,10 +233,10 @@ the integrated planet.
 - **Purpose/payoff:** turns climate, terrain, water and soils into recognizable
   regions and living structure; provides one of the clearest routes from planet
   model to visual richness and board/game semantics.
-- **Fidelity:** absent. Likely architecture ranges from semantically derived
-  biome envelopes through authentic vegetation succession/resource models; a
-  tree renderer would be presentation driven by that state, not the ecology
-  model itself.
+- **Fidelity:** a diagnostic semantic potential/constraint prototype exists;
+  ecological regions, vegetation state and a living-surface product stage are
+  absent. A tree renderer would be presentation driven by that state, not the
+  ecology model itself.
 - **Cost:** semantic biomes can be cheap; persistent vegetation, competition,
   disturbance and fine tree placement can become large state/render problems.
 - **Pareto posture:** **Missing candidate.** Split the problem by scale: global
@@ -301,20 +302,23 @@ the integrated planet.
 
 ## Portfolio-level conclusions
 
-1. The weakest current seam is regional geographic organization: broad causal
-   fields do not yet reliably become coherent ranges, divides, valleys, basins
-   and river hierarchy.
-2. The best current comparison is one organization owner at a time—reduced
-   coevolution versus a graph-first authentic hack—not isolated solver depth or
-   stacked terrain-shape mechanisms. See the
+1. The bounded mountain comparison located a real forcing/organization defect,
+   but H remains a control and C, G and manufactured I do not earn product
+   ownership. Mountain work is parked pending real front topology, history and
+   inherited material state. See the
    [landscape organization strategy](landscape-strategy.md).
-3. Coarse climate is already near a useful Pareto point; deeper climate must
-   prove regional geographic payoff.
-4. A semantic layer and reproducible presentation profiles are comparatively
-   cheap, high-leverage missing architecture.
-5. Persistent sediment is the strongest large missing-system candidate because
-   it can connect several existing systems, but it follows the organization-
-   owner decision and needs a deliberately small first scope.
+2. The strongest shared current seam is water geography: connected ocean
+   identity, moisture source, lakes/basins/outlets, river roles, repair
+   provenance, coasts and cartographic selection do not yet form one coherent
+   account.
+3. Coarse climate remains near a useful Pareto point, but transported moisture
+   must prove stable regional and hydrologic consequences over a cheaper
+   climatology inside Water Geography V0.
+4. Semantic derivation and reproducible presentation profiles are comparatively
+   cheap, high-leverage architecture, not substitutes for physical state.
+5. A bounded living surface is the likely first expansion once water/climate
+   inputs have declared meaning. Persistent sediment remains the strongest large
+   physical candidate, behind a deliberate time/material/river design gate.
 6. Geological time matters only if processes share it. A physical clock attached
    to otherwise uncoupled or non-convergent operators is not progress by itself.
 7. The implemented Stage 4 frontier leaves major creative space: living worlds

@@ -2,9 +2,10 @@
 
 This roadmap turns the [project thesis](thesis.md), chosen
 [model strategy](model-strategy.md), [system assessments](system-assessments.md),
-and [gap analysis](gaps.md) into an ordered decision process. It is intentionally
-revisable: evidence may reorder work or justify fundamental rework of any
-current system.
+[gap analysis](gaps.md) and current
+[cross-system disposition](system-disposition.md) into an ordered decision
+process. It is intentionally revisable: evidence may reorder work or justify
+fundamental rework of any current system.
 
 The roadmap optimizes for coherent emergence, visual appeal, explanatory depth,
 iteration speed and “wow” value—not for completing a conventional list of
@@ -107,7 +108,7 @@ mode is mistaken for physical evidence.
 
 ## Horizon 2: geographic coherence decision
 
-Status: **active**.
+Status: **complete enough to select the next slice**.
 
 Purpose: determine whether the current pipeline creates coherent, memorable
 geography before adding another domain or optimizing an isolated mechanism.
@@ -143,9 +144,10 @@ geography before adding another domain or optimizing an isolated mechanism.
 
 ### 2D. System disposition
 
-Update every material system to **retain**, **simplify**, **replace**,
+**Completed:** update every material system to **retain**, **simplify**, **replace**,
 **quarantine**, **remove** or **research**. Each decision must name its truth
 contract, visible/downstream payoff, evidence, cost and cheaper alternative.
+See the [cross-system disposition](system-disposition.md).
 
 Exit gate: representative worlds can be discussed in terms of geographic
 objects and causes; physical and cartographic judgments cannot be confused; and
@@ -154,24 +156,43 @@ the availability of a tunable subsystem.
 
 ## Horizon 3: choose the next world expansion
 
+Status: **active; Water Geography V0 selected as the enabling slice**.
+
 Purpose: choose among missing systems and fundamental reworks using the Horizon
 2 evidence. No candidate is the default merely because an early prototype or
 research note exists.
 
-Candidate vertical slices include:
+The current frontier is ordered rather than tied:
 
-- living surface: ecological constraints, vegetation coverage and bounded
-  disturbance;
-- source-to-sink geography: sediment, floodplains, basin fill and deltas;
-- climate/water repair: seasonality, ocean heat shortcut, storage or wetlands;
-- tectonic/landform repair: a cheaper history representation or shared forcing
-  where object correspondence demonstrates the need;
-- coast, ice or soil systems where they unlock several visible consequences;
-- semantic geography for resources, traversability, settlement and routes.
+1. water geography: climate/runoff value, connected ocean identity, lakes,
+   basins, outlets, river roles, repair provenance, coasts and presentation;
+2. living surface: ecological constraints, semantic regions, vegetation
+   coverage and multiscale presentation, conditional on coherent inputs;
+3. source-to-sink geography: persistent sediment, basin fill, floodplains and
+   deltas, conditional on a design gate;
+4. aggregate resources, traversability, routes and settlement; and
+5. reduced tectonic forcing replacement when it can consume real fronts,
+   history and material state.
 
 Selection requires a bounded authentic model, at least one striking visible
 outcome, meaningful downstream leverage, explicit cost and a discriminating
 vertical-slice test.
+
+### Water Geography V0: selected enabling slice
+
+- compare transported climate/runoff with a cheap latitude–elevation–coast
+  baseline on frozen terrain;
+- use connected-ocean identity consistently for moisture source attribution;
+- derive a shared report for oceans, lakes, basins, outlets, spills, river
+  roles, coasts/islands and repair-cut contribution;
+- distinguish discharge/catchment importance, network hierarchy, longest trunk
+  and cartographic importance; and
+- inspect the same objects in Physical, Diagnostic and Cartographic views.
+
+Exit gate: the retained climate and hydrology have declared meanings, stable
+causal consequences and coherent objects suitable for presentation and a
+living-surface consumer. Do not add seasons, ocean circulation, groundwater,
+sediment, vegetation or erosion tuning inside this slice.
 
 ### Sediment candidate: research and design gate
 
@@ -281,27 +302,26 @@ benefit recommendation, not only a survey.
 
 ## Near-term sequence
 
-Feature expansion remains paused for the geographic-coherence decision. The
-zoomed-out pass now identifies regional organization—not missing global model
-depth—as the weak seam. The [landscape organization strategy](landscape-strategy.md)
-selects the next comparison family; its high-level arms, work-matching, budgets
-and gates are now frozen by the organization-owner design envelope. The exact
-[artifact/provenance contract](research/orogen-organization-artifact-v0-2026-07-16.md)
-and the exact
-[numerical/admission contract](research/orogen-organization-numerical-v0-2026-07-16.md)
-and
-[evidence/projection contract](research/orogen-organization-evidence-v0-2026-07-16.md)
-and
-[planar capture/human-review contract](research/orogen-organization-planar-review-v0-2026-07-16.md)
-are now preregistered. The thin 4 km source implementation and base observation
-are complete and negative for the shared static-ribbon representation. The
-compiler-only B/F/I follow-up finds full-cosine finite parents more coherent
-than the first inherited-child graph, while the completed F-to-H/C response
-shows that C adds process consequences but not enough visible range-scale
-organization to justify its cost. A frozen promotion campaign is not warranted.
-The active next step is the cross-system disposition, not another mountain rung.
+The current sequence is deliberately short:
 
-The current sequence is:
+1. implement **Water Geography V0** as the bounded climate/water truth-contract
+   and semantic integration slice described above;
+2. decide whether transported moisture earns retention over the cheap baseline
+   and whether current lake/repair hacks remain acceptable with object-level
+   provenance;
+3. if the inputs are coherent, design and build **Living Surface V0** as the
+   first actual expansion; and
+4. keep sediment, human geography and renewed mountain forcing in their stated
+   order and behind their gates.
+
+Do not turn this into another broad scoring campaign. Use a small set of known
+worlds and causal controls, inspect named objects at suitable framing, and stop
+when the retained truth contract and next consumer decision are clear.
+
+### Completed mountain discriminator (history)
+
+The following sequence records the completed organization work. It is retained
+for provenance and is not the active queue:
 
 1. extract the minimum shared object packet needed to compare ranges, ridge/
    divide graphs, passes, valleys, basins and river hierarchy, reusing existing
@@ -377,10 +397,10 @@ The current sequence is:
    valley/divide/pass organization sufficient to earn roughly `2.22x` H's
    runtime. This is not a fair owner tournament because H restores its target
    while C receives gradual uplift; and
-9. **next:** return to the cross-system disposition table before choosing
-   sediment, ecology, coast or human-world expansion. Preserve the mountain
-   conclusion: when this slice resumes, improve causal forcing from real front
-   topology/history/material state before adding deeper terrain physics.
+9. **completed:** return to the cross-system disposition table. It selects Water
+   Geography V0 and preserves the mountain conclusion: when this slice resumes,
+   improve causal forcing from real front topology/history/material state before
+   adding deeper terrain physics.
 
 Do not resume the R1 arithmetic ladder, run a global seed sweep, tune legacy
 shape amplitudes or optimize an undecided composition. The organization slice
@@ -392,10 +412,9 @@ not a standing optimization queue. Cleanup, ablation or performance work enters
 this sequence only when it resolves an identified geographic or iteration-cost
 decision.
 
-Seed 12345 now has a first spatial dossier packet with diverse mountain, lake
-and river targets and exact drainage-integration provenance. This is evidence
-toward steps 1–2, not completion: range/plateau/divide semantics and matched
-diagnostic layers outside the completed range-ancestry packet remain open.
+Seed 12345 has a first spatial dossier packet with diverse mountain, lake and
+river targets and exact drainage-integration provenance. Its lake, river and
+repair targets are starting evidence for Water Geography V0, not its verdict.
 
 ### Research evidence constraining this sequence
 

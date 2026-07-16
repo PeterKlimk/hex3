@@ -60,7 +60,7 @@ tracked independently below; none is promoted product behavior.
 | O4 | Existing erosion can dismantle a broad cap when repeated rebuild no longer suppresses reorganization | Fixed current cap; rebuild off/reduced; bounded drainage/base-level perturbation | Folded into the locked hold-and-carve/control family; secondary to the coupled representation decision |
 | HCG4 | A hold/carve, reduced coupled or graph-first owner can organize one shared linked deformation pair | Exact thin 4 km H/C/G execution, common S0/D0/O0a evidence, work/ledger closure and sharp matched physical profiles | Completed negative discriminator: shared static forcing contains long exact along-strike interiors; H preserves the roof, C adds local texture without regional segmentation, G adds steps/spikes. No arm promoted; current G stops and the forcing compiler is the next seam |
 | BFI4 | Does a compact finite-slip prior solve the roof before inherited graph complexity is justified? | Compiler-only B/F/I at 4 km; identical `100,625 km³` work, narrow API excludes terrain/drainage, sharp displacement fields and area-integrated profiles | Completed discriminator: full-cosine F removes the roof coherently; manufactured inherited-child I becomes separated hot spots and does not earn complexity. Advanced to FHC4; do not tune or promote I |
-| FHC4 | Does reduced coevolution add useful range/drainage organization beyond the same compact finite-parent forcing? | One H and one C run at 4 km; identical F field and static inputs; common S0/D0/O0a evidence and sharp physical view; no sweep or promotion packet | Completed negative discriminator: C adds real denudation and longer portal trunks, but both surfaces remain smooth elongated massifs and C does not earn `746.10 s` versus H's `336.43 s`. Whole-domain critical-point counts are not massif-local evidence. H's repeated target restoration makes this a mechanism test, not a fair owner tournament. Return to cross-system disposition |
+| FHC4 | Does reduced coevolution add useful range/drainage organization beyond the same compact finite-parent forcing? | One H and one C run at 4 km; identical F field and static inputs; common S0/D0/O0a evidence and sharp physical view; no sweep or promotion packet | Completed negative discriminator: C adds real denudation and longer portal trunks, but both surfaces remain smooth elongated massifs and C does not earn `746.10 s` versus H's `336.43 s`. Whole-domain critical-point counts are not massif-local evidence. H's repeated target restoration makes this a mechanism test, not a fair owner tournament. Mountain branch parked by the cross-system disposition |
 
 Success requires authoritative pre/final morphology and at least one downstream
 hydrology or climate organization signature to improve under the declared
@@ -83,8 +83,9 @@ coherently and cheaply than the first manufactured inheritance graph. The FHC4
 response then finds that C's real process and drainage changes do not become
 clear range-scale valleys, divides or passes under F and do not justify its
 roughly two-times-H runtime. H remains a null/control; C, current G and
-manufactured I do not advance. The roadmap returns to cross-system disposition;
-when mountain work resumes, the next principled seam is causal forcing from real
+manufactured I do not advance. The
+[cross-system disposition](system-disposition.md) parks this branch; when
+mountain work resumes, the next principled seam is causal forcing from real
 front topology, history and inherited material state, not tuning these toy
 fields. The
 [comparison design envelope](research/orogen-organization-owner-v0-2026-07-16.md)

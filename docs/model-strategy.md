@@ -1,6 +1,6 @@
 # Hex3 model strategy
 
-Status: **current project decision**, 2026-07-12.
+Status: **current project decision**, 2026-07-17.
 
 Hex3 is an **authentic systemic world generator** built from reduced causal
 models. It uses different fidelity levels by domain, but one common rule:
@@ -23,14 +23,12 @@ The world model owns causes and state. The semantic model owns geographic
 meaning. The presentation model owns visual emphasis. Fidelity may differ
 between domains, but these ownership boundaries do not.
 
-The immediate objective is not another stage. It is to establish whether the
-existing stages jointly produce a coherent, interesting geography and which
-mechanisms deserve to remain part of that explanation.
-
-The first pass now identifies regional geographic organization as the weakest
-seam and narrows the next terrain/drainage comparison in the
-[landscape organization strategy](landscape-strategy.md). This is a bounded
-architecture decision, not a promotion of deeper simulation by default.
+The first coherence and disposition pass is complete enough to choose work. It
+found a real mountain-organization defect but did not justify the tested deeper
+terrain owners. The broader decision in the
+[cross-system disposition](system-disposition.md) keeps the cheap causal spine,
+parks that mountain branch, and selects **Water Geography V0** as the next
+enabling slice. This is not a commitment to deepen every retained system.
 
 ## Alternatives considered
 
@@ -129,7 +127,7 @@ transform.
 
 ## Strategic sequence
 
-The next pass answers four questions in order:
+The completed first pass asked four questions in order:
 
 1. **What geography exists?** Extract ranges, plateaus, passes, valleys,
    divides, basins, coasts and river hierarchy as scale-aware objects rather
@@ -143,9 +141,20 @@ The next pass answers four questions in order:
    based on causal correspondence, visible payoff, downstream leverage and
    cost.
 
-Only after this pass should ecology, sediment, ocean heat, cryosphere or human
-systems compete to be the next vertical slice. Missing systems remain central,
-but they compete against fixing, simplifying or deleting current systems.
+That pass produced explicit system dispositions rather than one universal
+fidelity direction. The selected sequence is now:
+
+1. repair and validate the shared climate–water–basin–river–coast truth contract
+   using existing cheap systems;
+2. if those inputs become coherent, build a bounded living surface as the first
+   actual world expansion;
+3. keep persistent source-to-sink sediment behind an explicit time, material,
+   river-ownership and memory design gate; and
+4. return to tectonic forcing only with real front topology, history and
+   inherited material state—not another manufactured mountain rung.
+
+Missing systems remain central, but continue to compete against fixing,
+simplifying or deleting current systems.
 
 ## Gates against local optimization
 

@@ -2,8 +2,8 @@
 
 This catalogue supplies candidates to the [model strategy](model-strategy.md)
 and [roadmap](roadmap.md). It is not a queue. Missing systems compete with
-repairing, simplifying or removing implemented systems, and the active
-geographic-coherence pass precedes feature expansion.
+repairing, simplifying or removing implemented systems. The current selection
+and ordering live in the [cross-system disposition](system-disposition.md).
 
 This document compares missing capabilities, weak couplings and possible
 fundamental reworks. It asks what would most improve coherent emergence, visual
@@ -35,19 +35,24 @@ visible consequences.
 
 ## Comparative matrix
 
+The completed disposition pass selects **Water Geography V0** as the immediate
+enabling slice, then conditionally a **Living Surface V0**. Persistent sediment
+is the leading large physical candidate but remains behind a design gate.
+
 | Candidate | Visible payoff | Emergence / reach | Cost / readiness | Provisional Pareto view |
 |---|---|---|---|---|
-| Landform semantics: ranges, plateaus, ridges, valleys, divides and passes | High through inspection and feature-aware rendering | Very high across causal validation, cartography, ecology and later culture | Medium; diagnostics contain prototypes but definitions conflict | **Highest-priority evaluation extraction** |
-| Regional organization owner: reduced coevolution versus graph-first reconstruction | Very high; directly targets tableland grammar and weak drainage hierarchy | Very high across terrain, water, climate barriers, semantics and later worlds | Medium–high; bounded testbed and many operators exist, product composition does not | **Next architecture discriminator** |
-| Controlled correspondence batteries for current systems | Indirect visually; prevents expensive false confidence | Very high across tectonics, climate, hydrology, erosion and remapping | Low–medium; idealized cases and ablations | **Do before mechanism expansion** |
+| Landform semantics: ranges, plateaus, ridges, valleys, divides and passes | High through inspection and feature-aware rendering | Very high across causal validation, cartography, ecology and later culture | Medium; the completed packet is reusable evidence but product definitions remain incomplete | **Retain evidence; continue only for a consumer** |
+| Regional mountain organization owner | Very high; targets tableland grammar and weak drainage hierarchy | Very high across terrain, water, climate barriers, semantics and later worlds | High; bounded H/C/G/F/I discriminators found no winning owner | **Park; replace forcing basis before resuming** |
+| Water-geography truth contract and object integration | High for lakes, rivers, coasts, inspection and cartography | Very high across climate validation, hydrology, ecology and later settlement | Low–medium; most physical/topological inputs already exist | **Immediate selected slice** |
+| Controlled correspondence batteries for current systems | Indirect visually; prevents expensive false confidence | Very high across tectonics, climate, hydrology, erosion and remapping | Low–medium; idealized cases and ablations | **Use inside bounded decisions** |
 | Presentation transform ledger plus matched physical/cartographic views | High clarity and prevents false geometric inference | High diagnostic and rendering leverage | Low; physical/cartographic split already exists | **Immediate** |
 | Explicit semantic objects and regions | High through inspection, cartography and later gameplay | Very high; reused by rendering, validation, ecology and civilization | Low–medium; much logic already exists implicitly | **Do early** |
 | Presentation profiles, legends and capture metadata | High clarity; moderate spectacle | High diagnostic and decision value | Low; ready now | **Do early** |
 | Consistent scale-dependent rivers/overlays | High at globe/map scales | Medium; improves all thematic views | Medium; semantic generalization needed first | **Early** |
 | Elevation/unit/scale contract | Indirect visually, critical diagnostically | Very high across terrain, erosion and rendering | Low–medium; requires careful normalization audit | **Do early** |
 | Unified experiment/config provenance | Indirect but prevents invalid decisions | Very high across all development | Low–medium | **Do early** |
-| Biome constraints and ecological regions | Very high recognizability and world identity | High; consumes climate, water, elevation and future soils/resources | Medium; prototype exposes 14–40% transition coverage and unvalidated climate inputs | **Paused pending climate/landform correspondence** |
-| Vegetation coverage and scale-aware forest rendering | Very high spectacle and board/globe richness | Medium–high; feeds ecology, resources and settlement | Medium; split state from tree rendering | **Paused behind evaluation** |
+| Biome constraints and ecological regions | Very high recognizability and world identity | High; consumes climate, water, elevation and future soils/resources | Medium; diagnostic prototype exposes unvalidated inputs, not an ecology stage | **Conditional next expansion after water geography** |
+| Vegetation coverage and scale-aware forest rendering | Very high spectacle and board/globe richness | Medium–high; feeds ecology, resources and settlement | Medium; split state from tree rendering | **Part of conditional Living Surface V0** |
 | Persistent sediment budget v0 | High potential at rivers, basins, coasts and range surroundings | Very high coupling across erosion, lithology, flexure and hydrology | Medium–high; time/material ownership needed | **Research then bounded prototype** |
 | Soil/moisture substrate | Moderate directly, high through vegetation/agriculture | High for ecology and civilization | Medium; depends partly on sediment/weathering choices | **After biome prototype clarifies need** |
 | Same-clock tectonics and erosion | Potentially high terrain authenticity | Very high if stable; connects mountain age, uplift and denudation | High; tectonic carrier operators currently fail convergence | **Research gate, not product rewrite yet** |
@@ -83,12 +88,12 @@ The first semantic work should reuse existing derivations rather than begin with
 a generic entity framework. Rivers/water bodies and ranges are the best initial
 objects because their topology and diagnostics already exist.
 
-These objects are also the required evidence packet for the competing landscape
-owners. Semantics alone can improve explanation and presentation, but it cannot
-repair an unorganized physical surface. The bounded comparison is defined in
-the [landscape organization strategy](landscape-strategy.md).
+These objects supplied evidence for the completed landscape-owner discriminator.
+Semantics alone can improve explanation and presentation, but it cannot repair
+an unorganized physical surface. Water objects now provide the most useful
+semantic integration boundary because they also test climate and hydrology.
 
-## High-leverage visible domain, currently paused: living surface
+## High-leverage visible domain, conditionally next: living surface
 
 Biomes and vegetation can produce a large visual and semantic jump using current
 temperature, precipitation, elevation, continentality, water and terrain state.

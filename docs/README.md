@@ -11,8 +11,11 @@ experimental, superseded, or awaiting classification.
 - [Model strategy](model-strategy.md) — chosen hybrid causal world-generator
   identity, domain truth contracts and gates against local optimization.
 - [Landscape organization strategy](landscape-strategy.md) — current decision
-  for terrain, drainage and landform ownership, including the next bounded
-  architecture comparison.
+  for terrain, drainage and landform ownership after the completed bounded
+  organization comparison.
+- [Cross-system disposition](system-disposition.md) — current retain, simplify,
+  replace, quarantine and research decisions, selected water-geography slice
+  and post-slice Pareto frontier.
 - [Documentation policy](documentation-policy.md) — authority, status,
   terminology, evidence and lifecycle rules.
 - [Current architecture](architecture.md) — accepted system ownership and data
@@ -32,14 +35,15 @@ experimental, superseded, or awaiting classification.
   hierarchy, and seasonless ecological/biome potentials.
 - [Validation policy](validation.md) — evidence dimensions, controlled A/Bs,
   reproducibility, performance and promotion gates.
-- [World evaluation charter](evaluation-charter.md) — current zoomed-out
-  evaluation questions, canonical corpus, research contract and stop conditions.
+- [World evaluation charter](evaluation-charter.md) — retained zoomed-out
+  evaluation questions, corpus/research contract and stop conditions after the
+  completed first pass.
 - [World evaluation synthesis](evaluation-synthesis.md) — first ten-seed
   numerical, correspondence and outlier assessment.
 - [Planet dossiers](dossiers/README.md) — end-to-end generated-world autopsies
   connecting geographic objects, causes, presentation and system dispositions.
-- [Subtractive architecture audit](subtractive-audit.md) — retain, validate,
-  simplify, quarantine and removal dispositions for current systems.
+- [Subtractive architecture audit](subtractive-audit.md) — historical evidence
+  from the earlier provisional cleanup/disposition pass; not the current queue.
 - [Metric registry](metric-registry.md) — measurement schema, decision roles and
   initial numerical-inventory scope.
 - [Numerical instrumentation inventory](inventory/numerical-instrumentation.md)
