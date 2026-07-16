@@ -14,12 +14,30 @@ it become a chronological activity log.
 
 ## Active focus
 
-**Portfolio reset after Water Geography V0.** The cross-system pass and water
-enabling slice are complete and recorded in the
-[current disposition](system-disposition.md). Do not extend the accepted raw
-water geometry by momentum. The active question is which bounded new system
-has the best visible cross-domain payoff: Living Surface V0, the more expensive
-source-to-sink sediment candidate, or no expansion pending a clearer target.
+**Living Surface V0 proof after the portfolio decision.** The cross-system pass
+and Water Geography V0 are complete. A bounded comparison selected
+[equilibrium fractional physiognomy](living-surface.md) over promoting the
+current ecology classifier, beginning source-to-sink sediment now, or making no
+expansion. Do not extend water geometry or tune biome labels by momentum. The
+active task is the smallest cause-first cover proof and its stop gate.
+
+The current ecology transform remains diagnostic evidence only. Its relative
+moisture normalization cancels planetary wetness changes; its freshwater input
+is distance from map-selected rivers/lakes rather than drainage-relative
+wetness; elevation stress duplicates part of final lapse-corrected temperature;
+and the label margin is score separation, not model confidence. On seed 12345
+at 100k coarse / 255,866 fine cells it yields 67.8% Desert and mean
+heat/moisture/vegetation/tree/wetland of `0.74/0.18/0.17/0.14/0.11`. The
+untuned preview shows plausible temperature but vegetation/wetland consequences
+dominated by sparse relative moisture and drainage/coastal halos. Replace the
+causal owners; do not calibrate the twelve labels.
+
+Sediment remains the leading large physical coupling, not a rejected idea. Its
+smallest honest form needs bedrock plus alluvial cover, mobile load, one route,
+accommodation, rerouting and ledgers. Current lowland/ocean resolution is poorly
+matched to floodplains and resolved deltas. Revisit after surface-material
+ownership and localized lowland/coastal resolution, rather than re-enabling the
+parked deposition scalar.
 
 The first implementation seam now closes the most direct contradiction:
 atmosphere and hydrology share one connected, crust-qualified, area-thresholded

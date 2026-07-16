@@ -148,8 +148,8 @@ fidelity direction. The selected sequence is now:
 
 1. repair and validate the shared climate–water–basin–river–coast truth contract
    using existing cheap systems;
-2. if those inputs become coherent, build a bounded living surface as the first
-   actual world expansion;
+2. build the selected bounded equilibrium-physiognomy proof as the first actual
+   world expansion, now that those inputs are coherent;
 3. keep persistent source-to-sink sediment behind an explicit time, material,
    river-ownership and memory design gate; and
 4. return to tectonic forcing only with real front topology, history and

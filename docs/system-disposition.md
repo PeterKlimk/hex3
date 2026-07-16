@@ -39,12 +39,12 @@ This is primarily a truth-contract and semantic integration pass over cheap
 systems already worth retaining. It does not require transient hydrology,
 seasons, ocean circulation, groundwater or coastal morphodynamics.
 
-That slice now establishes coherent inputs and readable raw objects. The first
-actual world-expansion candidate remains a bounded **living surface**: continuous
-ecological constraints, semantic regions, vegetation coverage and multiscale
-presentation. Persistent sediment remains the strongest large physical
-candidate, but follows a river/material/time design gate. This is a portfolio
-direction, not authorization to skip a bounded living-surface design review.
+That slice now establishes coherent inputs and readable raw objects. The bounded
+design review selects [**Living Surface V0**](living-surface.md) as the first
+actual world expansion: equilibrium fractional physiognomy followed by optional
+regions and multiscale presentation. Persistent sediment remains the strongest
+large physical candidate, but follows a river/material/time and lowland-scale
+design gate.
 
 ## Dispositions
 
@@ -73,14 +73,14 @@ long-term ownership.
 | Water-body and river semantics | **Retain** | Shared identity, mouths, reaches, hierarchy and catchment policy cheaply support diagnostics and rendering | Separate catchment/discharge importance, hierarchy, trunk length and cartographic importance. Add scale generalization or comparison-sidecar ancestry only for a concrete consumer, without a generic entity framework. |
 | Coast and island semantics | **Retain** | Exact categorical shoreline loops, landmass ownership and raw topology cheaply support inspection and later consumers | Current coast is still a datum/repair-dependent cell-mask boundary, not a coastal process. Add straits or scale generalization only for a concrete map, ecology or settlement consumer; dynamic coastal processes and deltas wait for sediment. |
 | Drainage-repair provenance | **Retain** | Exact cuts explain where authoritative terrain was changed | Make repair contribution visible in river, lake, range and capture evidence. Do not call repair erosion or assume every repaired object is invalid. |
-| Ecology/biome prototype | **Quarantine** | Continuous constraints and uncertainty are useful diagnostic scaffolding | It is implemented semantics, not an ecology stage. Do not calibrate labels or create product dependencies before climate/water correspondence. |
+| Ecology/biome prototype | **Replace** | Preserve its pure derived seam, continuous-first shape, water mask and area-weighted audits | Its world-normalized moisture cancels global wetness, freshwater halos are not hydrologic position, and its labels overclaim the inputs. Keep as diagnostic evidence while Living Surface V0 replaces its formulas and categorical ownership. |
 | Glacial shaping pass | **Quarantine** | A later cryosphere could provide high-latitude water and terrain consequences | The current pass lacks ice mass balance, dynamics, widening and loading; do not use it as generic mountain texture. |
 | Relief, river styling, color and lighting | **Retain** | Authentic and Dramatic profiles make true physical state legible and appealing | Consolidate around semantic inputs and declared profiles. Fix scale selection and path parity before heavier material rendering. |
 | GPU wind particles | **Retain** | Model-grounded motion has strong explanatory and spectacle value | Validate runtime and representative performance on Windows independently of the atmosphere's physical claim. |
 | Stage orchestration, snapshots and cache | **Simplify** | Retained stages and caches support inspection and iteration | Keep snapshot semantics, but add a dependency graph only when ecology/sediment creates concrete invalidation pressure. Do not build framework first. |
 | Diagnostics, corpus and experiment tooling | **Simplify** | Reproducible evidence and operator tests prevent false promotion | Move shared promoted measurements into library adapters; keep historical or invalid probes out of normal product configuration and contributor workflow. |
-| Persistent sediment | **Research** | One conserved mobile/deposited material could connect erosion, basins, floodplains, deltas, coasts, soil and loading | Require one visible source-to-sink target, explicit time/units, river ownership and memory budget before implementation. No stratigraphic simulator. |
-| Living surface | **Research** | Climate, terrain and water can yield major visual identity, ecological regions and inputs to resources/settlement | Leading expansion candidate now that water geography passes, but require a bounded design review. Begin with continuous limitations, regions and coverage—not succession or individual-tree ecology. |
+| Persistent sediment | **Research** | One conserved mobile/deposited material could connect erosion, basins, floodplains, deltas, coasts, soil and loading | Require bedrock/alluvial-cover ownership, a visible source-to-sink target, explicit time/units, one routing owner, localized lowland/coastal resolution and a memory budget. No stratigraphic simulator. |
+| Living surface | **Replace/build proposed V0** | Climate, terrain and water can yield major visual identity, reusable fractional cover and inputs to resources/settlement | Design review passed. Implement equilibrium bare/herbaceous/woody/wet fractions with drainage-relative saturation and explicit limits; labels, regions and rendering follow the continuous state. No succession, fire or individual-tree ecology in V0. |
 | Human geography | **Research** | Traversability, resources, routes and settlement can make geography consequential and produce board-like stories | Follow living geography with aggregate suitability/routes/settlement before agents, economies or full civilization simulation. |
 
 ## Resolved shared seam: water geography
@@ -204,8 +204,8 @@ or cartographic generalization, none of which is claimed by V0.
 
 1. **Water Geography V0** — completed enabling slice; low–medium cost and broad
    leverage.
-2. **Living Surface V0** — leading first-expansion candidate; very high visible
-   payoff, subject to a bounded design review rather than automatic build-out.
+2. **Living Surface V0** — selected first-expansion proof; very high visible
+   payoff, bounded by its fractional-cover contract and stop gate.
 3. **Source-to-sink Sediment V0** — strongest large physical coupling, but
    requires a design gate for river ownership, time, mass and memory.
 4. **Geography-to-human semantics** — aggregate productivity, traversability,

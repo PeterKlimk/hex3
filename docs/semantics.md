@@ -167,12 +167,17 @@ Confidence measures dominance over the runner-up label; low confidence is an
 explicit transition zone. Oceans and retained lake water come directly from
 hydrology.
 
-These labels are calibrated, seasonless ecological proxies. They are **not**
-Köppen classes or claims about real vegetation. The climate has no seasonality,
+These labels are hand-authored, provisional seasonless ecological proxies. They
+are **not** calibrated biomes, Köppen classes or claims about real vegetation.
+The climate has no seasonality,
 precipitation has no calibrated physical unit, and the model lacks soil,
 substrate, disturbance, ecological history and interspecies dynamics.
 Continuous potentials should drive future coverage and rendering; labels are
 primarily for inspection, summaries and region identity.
+
+The current classifier is now selected for replacement rather than calibration.
+The proposed [Living Surface V0](living-surface.md) makes fractional
+physiognomy primary and treats labels/regions as later derived consumers.
 
 The `--biome-audit` diagnostic reports area-weighted potential means, biome
 coverage, transition coverage and region coherence. No biome palette or

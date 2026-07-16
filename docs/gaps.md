@@ -37,7 +37,7 @@ visible consequences.
 
 The completed disposition pass selected **Water Geography V0** as the immediate
 enabling slice; that slice now passes. **Living Surface V0** is the leading
-first-expansion candidate but still requires a bounded design review. Persistent
+first-expansion proof and its bounded design review now passes. Persistent
 sediment is the leading large physical candidate and remains behind its own
 design gate.
 
@@ -53,8 +53,8 @@ design gate.
 | Consistent scale-dependent rivers/overlays | High at globe/map scales | Medium; improves all thematic views | Medium; semantic generalization needed first | **Early** |
 | Elevation/unit/scale contract | Indirect visually, critical diagnostically | Very high across terrain, erosion and rendering | Low–medium; requires careful normalization audit | **Do early** |
 | Unified experiment/config provenance | Indirect but prevents invalid decisions | Very high across all development | Low–medium | **Do early** |
-| Biome constraints and ecological regions | Very high recognizability and world identity | High; consumes climate, water, elevation and future soils/resources | Medium; diagnostic prototype exposes unvalidated inputs, not an ecology stage | **Conditional next expansion after water geography** |
-| Vegetation coverage and scale-aware forest rendering | Very high spectacle and board/globe richness | Medium–high; feeds ecology, resources and settlement | Medium; split state from tree rendering | **Part of conditional Living Surface V0** |
+| Biome constraints and ecological regions | Very high recognizability and world identity | High; consumes climate, water, elevation and future soils/resources | Medium; diagnostic prototype exposes unvalidated inputs, not an ecology stage | **Derive after selected fractional-cover proof** |
+| Vegetation coverage and scale-aware forest rendering | Very high spectacle and board/globe richness | Medium–high; feeds ecology, resources and settlement | Medium; split state from tree rendering | **Selected Living Surface V0; rendering follows semantic cover** |
 | Persistent sediment budget v0 | High potential at rivers, basins, coasts and range surroundings | Very high coupling across erosion, lithology, flexure and hydrology | Medium–high; time/material ownership needed | **Research then bounded prototype** |
 | Soil/moisture substrate | Moderate directly, high through vegetation/agriculture | High for ecology and civilization | Medium; depends partly on sediment/weathering choices | **After biome prototype clarifies need** |
 | Same-clock tectonics and erosion | Potentially high terrain authenticity | Very high if stable; connects mountain age, uplift and denudation | High; tectonic carrier operators currently fail convergence | **Research gate, not product rewrite yet** |
@@ -95,30 +95,33 @@ Semantics alone can improve explanation and presentation, but it cannot repair
 an unorganized physical surface. Water objects now provide the most useful
 semantic integration boundary because they also test climate and hydrology.
 
-## High-leverage visible domain, conditionally next: living surface
+## Selected high-leverage visible domain: living surface
 
 Biomes and vegetation can produce a large visual and semantic jump using current
 temperature, precipitation, elevation, continentality, water and terrain state.
-The problem should be split into layers:
+The bounded design review selects equilibrium physiognomy and splits the
+problem into layers:
 
 1. ecological constraints and limiting factors;
-2. semantic biome/vegetation regions;
-3. coverage, density and disturbance state;
+2. fractional bare/herbaceous/woody/wet coverage;
+3. optional semantic regions and later disturbance state;
 4. scale-dependent presentation—from globe color/texture to regional canopy and
    optional local tree instances.
 
 The first version should not simulate individual trees or full succession. It
-should make forests, grasslands, deserts, wetlands and alpine/polar zones arise
-from coherent inputs, expose why a region received its state, and preserve room
-for later soils, fire, disturbance or human land use.
+should make physiognomic cover arise from coherent inputs, expose why a region
+received its state, and preserve room for later soils, fire, disturbance or
+human land use. Named biomes are summaries, not the primary state. See the
+[V0 decision](living-surface.md).
 
 The first corpus shows provisional biome transition coverage ranging from about
 14% to 40% across seeds. This does not diagnose climate quality, but it confirms
 that calibration should not advance before climate controls and landform
 semantics are evaluated.
 
-Risks include producing a climate lookup-table painted over terrain, allowing
-noisy cell classifications, or treating rendered trees as ecological state.
+Risks include producing a climate lookup-table painted over terrain, circular
+wetland halos around map-selected rivers, allowing noisy cell classifications,
+or treating rendered trees as ecological state.
 
 ## Highest-leverage large coupling: sediment
 

@@ -237,10 +237,10 @@ declared numerical debts rather than reasons to start a climate rewrite. Do
 not broaden this into a climate feature or tuning campaign without a concrete
 consumer consequence.
 
-The next task is a portfolio/design decision, not automatic ecology
-implementation: bound Living Surface V0 against the existing ecological
-prototype and the sediment source-to-sink candidate, then select the smallest
-new system with visible cross-domain payoff.
+The portfolio/design decision is complete: [Living Surface V0](living-surface.md)
+wins over promoting the existing classifier, beginning source-to-sink sediment
+now, or making no expansion. The next task is its bounded equilibrium-
+physiognomy proof, not biome-label calibration or a full ecology stage.
 
 ### Sediment candidate: research and design gate
 
@@ -356,9 +356,11 @@ The current sequence is deliberately short:
    truth-contract and semantic integration slice described above;
 2. **Completed:** retain transported moisture over the cheap null and accept
    current lake/repair topology with explicit object-level provenance;
-3. bound **Living Surface V0** against the existing ecological prototype and
-   the sediment candidate before authorizing the first actual expansion; and
-4. keep sediment, human geography and renewed mountain forcing in their stated
+3. **Completed:** bound Living Surface V0 against the existing ecological
+   prototype, sediment and no expansion; select fractional physiognomy;
+4. implement the bounded Living Surface V0 proof and stop if it only paints
+   climate bands or drainage halos; and
+5. keep sediment, human geography and renewed mountain forcing in their stated
    order and behind their gates.
 
 Do not turn this into another broad scoring campaign. Use a small set of known

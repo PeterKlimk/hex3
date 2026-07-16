@@ -239,9 +239,10 @@ the integrated planet.
   ecology model itself.
 - **Cost:** semantic biomes can be cheap; persistent vegetation, competition,
   disturbance and fine tree placement can become large state/render problems.
-- **Pareto posture:** **Missing candidate.** Split the problem by scale: global
-  ecological constraints, region/biome meaning, vegetation coverage, and
-  visible tree representation need not share one fidelity or resolution.
+- **Pareto posture:** **Selected proposed V0.** Implement equilibrium fractional
+  physiognomy before labels: global limitations, vegetation coverage, optional
+  regions and visible tree representation need not share one fidelity or
+  resolution. See [Living Surface V0](living-surface.md).
 
 ### Culture, settlement and civilization
 
@@ -316,10 +317,10 @@ the integrated planet.
    stable regional and hydrologic consequences plus manufactured causal signs.
 4. Semantic derivation and reproducible presentation profiles are comparatively
    cheap, high-leverage architecture, not substitutes for physical state.
-5. Water/climate inputs now have declared meaning. A bounded living surface is
-   the leading first-expansion candidate, but still needs a design review;
+5. Water/climate inputs now have declared meaning. The bounded design review
+   selects equilibrium fractional physiognomy as the first-expansion proof;
    persistent sediment remains the strongest large physical candidate behind a
-   deliberate time/material/river gate.
+   deliberate surface-material/time/river/lowland-scale gate.
 6. Geological time matters only if processes share it. A physical clock attached
    to otherwise uncoupled or non-convergent operators is not progress by itself.
 7. The implemented Stage 4 frontier leaves major creative space: living worlds

@@ -65,8 +65,11 @@ The coarse world owns:
 - `TectonicHistory` and `FeatureFields`: boundary history and tectonic response;
 - `Elevation`: coarse terrain/bathymetry;
 - `Atmosphere`: temperature, pressure, wind, uplift and precipitation.
-- `EcologySemantics`: derived seasonless ecological constraints and broad biome
-  labels; interpretive and replaceable, not physical pipeline state.
+
+`EcologySemantics` is instead built on demand by diagnostics from an active
+surface. `World` does not own it, no renderer consumes it, and its provisional
+labels are not product state. The selected replacement contract is the proposed
+[Living Surface V0](living-surface.md), which is also not implemented yet.
 
 `FineWorld` owns the adaptive tessellation, transferred fields and two retained
 surfaces:
