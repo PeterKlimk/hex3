@@ -18,6 +18,7 @@ use std::str::FromStr;
 
 use glam::{Mat4, Vec3};
 use serde::Serialize;
+use wgpu::util::DeviceExt;
 
 use hex3::render::{
     create_index_buffer, create_vertex_buffer, FillPipelineKind, GpuContext, IndexedDraw,
@@ -32,7 +33,8 @@ use hex3::{
     },
 };
 
-use super::view::RiverMode;
+use super::coloring::{cell_color_terrain, cell_material};
+use super::view::{ReliefPreset, RiverMode};
 use super::world::{
     advance_to_stage_2, advance_to_stage_3, advance_to_stage_3_with_cap, advance_to_stage_4,
     create_world_with_orogen_model, generate_world_buffers, ErosionOverrides,
@@ -1706,6 +1708,107 @@ fn living_preview_color(
     }
 }
 
+const LIVING_HERBACEOUS_COLOR: Vec3 = Vec3::new(0.45, 0.56, 0.20);
+const LIVING_WOODY_COLOR: Vec3 = Vec3::new(0.10, 0.34, 0.13);
+const LIVING_WETLAND_COLOR: Vec3 = Vec3::new(0.10, 0.42, 0.39);
+
+/// Diagnostic presentation blend. Bare cover exposes the ordinary terrain
+/// substrate; the three living fractions contribute fixed authored tints.
+/// There are no thresholds, per-world normalization or presentation noise.
+fn living_surface_blended_color(
+    substrate: Vec3,
+    fractions: hex3::world::PhysiognomyFractions,
+    submerged: bool,
+) -> Vec3 {
+    if submerged {
+        return substrate;
+    }
+    substrate * fractions.bare
+        + LIVING_HERBACEOUS_COLOR * fractions.herbaceous
+        + LIVING_WOODY_COLOR * fractions.woody
+        + LIVING_WETLAND_COLOR * fractions.wetland
+}
+
+fn living_presentation_mesh<F>(
+    device: &wgpu::Device,
+    world: &World,
+    color_fn: F,
+) -> DiagnosticMeshBuffers
+where
+    F: Fn(usize) -> Vec3,
+{
+    let tess = world.active_tessellation();
+    let elevation = world.active_elevation().expect("stage 4 elevation");
+    let hydrology = world.active_hydrology().expect("stage 4 hydrology");
+    let mesh = UnifiedMesh::from_voronoi_shared_vertices(
+        &tess.voronoi,
+        color_fn,
+        |cell| cell_material(world, cell),
+        |cell| {
+            if hydrology.is_ocean(cell) {
+                0.0
+            } else if hydrology.is_lake_water(cell) {
+                hydrology
+                    .basin(cell)
+                    .map(|basin| basin.water_level)
+                    .unwrap_or(0.0)
+            } else {
+                elevation.values[cell].max(0.0)
+            }
+        },
+    );
+    DiagnosticMeshBuffers {
+        vertices: create_vertex_buffer(device, &mesh.vertices, "living_presentation_vertices"),
+        indices: create_index_buffer(device, &mesh.indices, "living_presentation_indices"),
+        index_count: mesh.indices.len() as u32,
+    }
+}
+
+/// The unified globe pipeline always requires its river texture group, even
+/// when rivers are disabled. A transparent texel avoids constructing the full
+/// product river texture and keeps this diagnostic bounded.
+fn transparent_river_binding(gpu: &GpuContext) -> (wgpu::Texture, wgpu::BindGroup) {
+    let texture = gpu.device.create_texture_with_data(
+        &gpu.queue,
+        &wgpu::TextureDescriptor {
+            label: Some("living_surface_transparent_river"),
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        },
+        wgpu::util::TextureDataOrder::LayerMajor,
+        &[0, 0, 0, 0],
+    );
+    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+    let sampler = gpu.device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("living_surface_transparent_river_sampler"),
+        ..Default::default()
+    });
+    let bind_group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("living_surface_transparent_river_bind_group"),
+        layout: &hex3::render::create_river_bind_group_layout(&gpu.device),
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(&sampler),
+            },
+        ],
+    });
+    (texture, bind_group)
+}
+
 fn render_living_preview_map(
     gpu: &GpuContext,
     renderer: &mut Renderer,
@@ -1848,6 +1951,128 @@ fn run_living_surface_preview(opts: &SweepOptions) {
         montage_h,
     );
 
+    // Matched presentation discriminator: ordinary terrain at the default
+    // authentic/cartographic scale, then the same fractional surface at all
+    // three declared relief scales. Rivers stay off so they cannot make the
+    // drainage-relative semantic signal appear stronger than it is.
+    let views = build_views(&world, opts);
+    let presentation_montage_w = opts.width * views.len() as u32;
+    let presentation_montage_h = opts.height * 4;
+    let mut presentation_montage =
+        vec![0; (presentation_montage_w * presentation_montage_h * 4) as usize];
+    let (_transparent_river_texture, transparent_river_bind_group) =
+        transparent_river_binding(&gpu);
+    let mut presentation_rows = Vec::new();
+
+    let ordinary_mesh =
+        living_presentation_mesh(&gpu.device, &world, |cell| cell_color_terrain(&world, cell));
+    let mut ordinary_files = Vec::with_capacity(views.len());
+    for (column, view) in views.iter().enumerate() {
+        render_diagnostic(
+            &gpu,
+            &mut renderer,
+            &color_view,
+            &ordinary_mesh,
+            &transparent_river_bind_group,
+            view.view_proj,
+            view.eye,
+            ReliefPreset::Authentic.scale(),
+            true,
+        );
+        let rgba = read_back_rgba(&gpu, &color_tex, opts.width, opts.height);
+        let filename = format!("presentation_01_ordinary-authentic_{}.png", view.label);
+        write_png(
+            &opts.out_dir.join(&filename),
+            &rgba,
+            opts.width,
+            opts.height,
+        );
+        blit_tile(
+            &mut presentation_montage,
+            presentation_montage_w,
+            &rgba,
+            opts.width,
+            opts.height,
+            column as u32,
+            0,
+        );
+        ordinary_files.push(filename);
+    }
+    presentation_rows.push(serde_json::json!({
+        "id": "ordinary-authentic",
+        "role": "control: ordinary terrain colors without living-surface fractions",
+        "semantic_blend": false,
+        "relief_preset": ReliefPreset::Authentic.name(),
+        "relief_scale": ReliefPreset::Authentic.scale(),
+        "image_filenames": ordinary_files,
+    }));
+    let blended_mesh = living_presentation_mesh(&gpu.device, &world, |cell| {
+        living_surface_blended_color(
+            cell_color_terrain(&world, cell),
+            living_surface.cells[cell].fractions,
+            hydrology.is_submerged(cell),
+        )
+    });
+    let relief_rows = [
+        ("physical", ReliefPreset::Physical),
+        ("authentic", ReliefPreset::Authentic),
+        ("dramatic", ReliefPreset::Dramatic),
+    ];
+    for (row_offset, (id, preset)) in relief_rows.into_iter().enumerate() {
+        let row = row_offset + 1;
+        let mut filenames = Vec::with_capacity(views.len());
+        for (column, view) in views.iter().enumerate() {
+            render_diagnostic(
+                &gpu,
+                &mut renderer,
+                &color_view,
+                &blended_mesh,
+                &transparent_river_bind_group,
+                view.view_proj,
+                view.eye,
+                preset.scale(),
+                true,
+            );
+            let rgba = read_back_rgba(&gpu, &color_tex, opts.width, opts.height);
+            let filename = format!(
+                "presentation_{:02}_living-{}_{}.png",
+                row + 1,
+                id,
+                view.label
+            );
+            write_png(
+                &opts.out_dir.join(&filename),
+                &rgba,
+                opts.width,
+                opts.height,
+            );
+            blit_tile(
+                &mut presentation_montage,
+                presentation_montage_w,
+                &rgba,
+                opts.width,
+                opts.height,
+                column as u32,
+                row as u32,
+            );
+            filenames.push(filename);
+        }
+        presentation_rows.push(serde_json::json!({
+            "id": format!("living-{id}"),
+            "role": "fractional living surface blended over the ordinary terrain substrate",
+            "semantic_blend": true,
+            "relief_preset": preset.name(),
+            "relief_scale": preset.scale(),
+            "image_filenames": filenames,
+        }));
+    }
+    write_png(
+        &opts.out_dir.join("presentation-montage.png"),
+        &presentation_montage,
+        presentation_montage_w,
+        presentation_montage_h,
+    );
+
     let areas = tess.cell_areas_ref();
     let (land_area, unresolved_area, max_closure_error, sums) =
         living_surface.cells.iter().enumerate().fold(
@@ -1881,7 +2106,7 @@ fn run_living_surface_preview(opts: &SweepOptions) {
         );
     let means: Vec<f64> = sums.into_iter().map(|sum| sum / land_area).collect();
     let sidecar = serde_json::json!({
-        "schema_version": 2,
+        "schema_version": 3,
         "purpose": "untuned evidence for the bounded equilibrium-physiognomy semantic kernel",
         "status": "implemented semantic proof; not retained world state, calibrated ecology, a biome map, or a product palette",
         "world_manifest": world.manifest(),
@@ -1915,7 +2140,23 @@ fn run_living_surface_preview(opts: &SweepOptions) {
         "land_fraction_without_drainage_reference": unresolved_area / land_area,
         "maximum_land_fraction_closure_error": max_closure_error,
         "layers": files,
-        "montage_filename": "montage.png"
+        "montage_filename": "montage.png",
+        "presentation": {
+            "status": "diagnostic palette and matched-camera relief comparison; not a product palette",
+            "color_contract": {
+                "formula": "ordinary_terrain * bare + herbaceous_color * herbaceous + woody_color * woody + wetland_color * wetland; authoritative water keeps ordinary terrain color",
+                "herbaceous_linear_rgb": [LIVING_HERBACEOUS_COLOR.x, LIVING_HERBACEOUS_COLOR.y, LIVING_HERBACEOUS_COLOR.z],
+                "woody_linear_rgb": [LIVING_WOODY_COLOR.x, LIVING_WOODY_COLOR.y, LIVING_WOODY_COLOR.z],
+                "wetland_linear_rgb": [LIVING_WETLAND_COLOR.x, LIVING_WETLAND_COLOR.y, LIVING_WETLAND_COLOR.z],
+                "normalization": "none",
+                "semantic_noise": "none",
+                "rivers": "disabled to avoid confounding drainage-relative cover"
+            },
+            "sampling": "cell colors and elevation are averaged onto shared Voronoi vertices for the relief view; exact cell fractions remain in the flat scalar layers",
+            "cameras": views.iter().map(|view| view.sidecar.clone()).collect::<Vec<_>>(),
+            "rows": presentation_rows,
+            "montage_filename": "presentation-montage.png"
+        }
     });
     let file = std::fs::File::create(opts.out_dir.join("living-surface-preview.json"))
         .expect("create living-surface-preview.json");
@@ -2415,9 +2656,15 @@ pub fn run_sweep(opts: SweepOptions) {
 
 #[cfg(test)]
 mod tests {
-    use super::{apply_knob, build_stack_tiles, robust_scale, selected_orogen_model, SweepTarget};
+    use glam::Vec3;
+
+    use super::{
+        apply_knob, build_stack_tiles, living_surface_blended_color, robust_scale,
+        selected_orogen_model, SweepTarget, LIVING_HERBACEOUS_COLOR, LIVING_WETLAND_COLOR,
+        LIVING_WOODY_COLOR,
+    };
     use crate::app::world::ErosionOverrides;
-    use hex3::world::OrogenModel;
+    use hex3::world::{OrogenModel, PhysiognomyFractions};
 
     #[test]
     fn parses_dossier_target_in_project_coordinates() {
@@ -2451,6 +2698,50 @@ mod tests {
         let (lo, hi) = robust_scale(&[4.0; 8]);
         assert_eq!(lo, 4.0);
         assert!(hi > lo);
+    }
+
+    #[test]
+    fn living_surface_presentation_is_a_linear_fraction_blend() {
+        let substrate = Vec3::new(0.7, 0.5, 0.3);
+        for (fractions, expected) in [
+            (
+                PhysiognomyFractions {
+                    bare: 1.0,
+                    ..Default::default()
+                },
+                substrate,
+            ),
+            (
+                PhysiognomyFractions {
+                    herbaceous: 1.0,
+                    ..Default::default()
+                },
+                LIVING_HERBACEOUS_COLOR,
+            ),
+            (
+                PhysiognomyFractions {
+                    woody: 1.0,
+                    ..Default::default()
+                },
+                LIVING_WOODY_COLOR,
+            ),
+            (
+                PhysiognomyFractions {
+                    wetland: 1.0,
+                    ..Default::default()
+                },
+                LIVING_WETLAND_COLOR,
+            ),
+        ] {
+            assert_eq!(
+                living_surface_blended_color(substrate, fractions, false),
+                expected
+            );
+        }
+
+        let submerged =
+            living_surface_blended_color(substrate, PhysiognomyFractions::default(), true);
+        assert_eq!(submerged, substrate);
     }
 
     #[test]

@@ -155,18 +155,50 @@ The corrected maps expose latitudinal cold, transported-moisture/coastal
 gradients and low-HAND texture without the old circular freshwater-distance
 halo or an automatically wet reference network. They do **not** yet pass the
 product stop gate: the scalar views remain dominated by broad climate bands,
-interiors are mostly bare, no blended physical view has been judged, and a
-second seed has not been regenerated after the review fix. This may be an
-upstream precipitation-distribution finding or a missing cover cause; do not
-answer it by tuning biome or cover thresholds.
+interiors are mostly bare, and a second seed has not been regenerated after the
+review fix. This may be an upstream precipitation-distribution finding or a
+missing cover cause; do not answer it by tuning biome or cover thresholds.
+
+## Matched presentation checkpoint
+
+The diagnostic packet now also renders an ordinary-terrain Authentic control
+and the same fractional surface under Physical, Authentic and Dramatic relief
+at identical globe/regional cameras. Its presentation rule is deliberately
+linear:
+
+```text
+color = ordinary_terrain * bare
+      + fixed_herbaceous_tint * herbaceous
+      + fixed_woody_tint * woody
+      + fixed_wetland_tint * wetland
+```
+
+It adds no normalization, category threshold or semantic noise. Authoritative
+water retains ordinary water color. Rivers are disabled so they cannot make the
+drainage-relative result appear stronger than it is. Exact per-cell maps remain
+the coverage evidence; shared-vertex averaging is used only for the relief
+presentation.
+
+The clean seed-12345 packet contains the globe plus broadest-range,
+highest-discharge and terminal-lake dossier cameras. Preliminary inspection is
+unfavorable: the fractional globe is only subtly different from the
+already-green ordinary terrain view. Regionally, the range and lake views add
+mostly broad green/brown structure, and the discharge view exposes bands around
+water more clearly than a coherent floodplain identity. Physical relief is
+predictably flat; Authentic and Dramatic improve terrain legibility but do not
+create a stronger living-geography signal. The ordinary control already has
+flow-accumulation greening, but that is the actual product baseline the new
+state must beat. This is not a human promotion verdict yet, but it is positive
+evidence against palette tuning as the missing mechanism. Keep V0 unpromoted
+pending that human read.
 
 ## V0 semantic contract
 
 ### Inputs
 
 - final lapse-corrected temperature;
-- final precipitation and a declared temperature-dependent demand proxy;
-- final precipitation with no normalization inside this stage; a future
+- final precipitation and a declared temperature-dependent demand proxy, with
+  no normalization inside this stage; a future
   planetary wetness control must alter precipitation and rebuild hydrology from
   the same upstream setting rather than recolor vegetation after water bodies
   have already been solved;
@@ -268,9 +300,11 @@ Before a product palette is judged:
 The complete product proof should produce one matched global packet containing:
 
 - causal inputs and limiting factors (**implemented**);
-- the four cover fractions (**implemented**) and their blended semantic result;
-- ordinary Physical, Authentic and Dramatic presentation at globe and regional
-  scale; and
+- the four cover fractions and their linear blended semantic result
+  (**implemented**);
+- matched ordinary-terrain control plus Physical, Authentic and Dramatic living
+  presentation at globe and regional scale (**implemented; human verdict
+  pending**); and
 - one sidecar with cover closure, area totals and runtime (**implemented**), plus
   coupled response controls and measured peak memory.
 

@@ -19,11 +19,13 @@ and Water Geography V0 are complete. A bounded comparison selected
 [equilibrium fractional physiognomy](living-surface.md) over promoting the
 current ecology classifier, beginning source-to-sink sediment now, or making no
 expansion. Do not extend water geometry or tune biome labels by momentum. The
-semantic kernel now exists; the active task is its matched visual stop gate.
+semantic kernel and matched presentation packet now exist; the active task is
+the human visual stop-gate verdict.
 
-The kernel does not normalize away the supplied precipitation pattern, uses geometric contributing area and
-HAND-like drainage position, distinguishes lake surfaces and terminal dry
-basins, and closes bare/herbaceous/woody/wet fractions. The naive first scale
+The kernel does not normalize away the supplied precipitation pattern, uses
+geometric contributing area and HAND-like drainage position, distinguishes lake
+surfaces and terminal dry basins, and closes bare/herbaceous/woody/wet
+fractions. The naive first scale
 contract failed with 76.2% mean wetland because a 2,000 km2 channel reference
 was below one cell and 150 m was not a floodplain-scale HAND decay. The corrected
 initial global four-cell resolution floor, 30 m decay and 0.35 subcell cap reduced mean wetland
@@ -44,10 +46,18 @@ retained world inputs. Keep it on demand.
 
 Do not call this success yet. The final rule has only one regenerated world;
 its scalar maps still read primarily as climate bands plus low-HAND texture.
-The next comparison must blend fractions with
-the ordinary physical surface at useful globe/regional scales and determine
-whether this is living geography, an upstream precipitation-distribution
-problem or a missing causal field. Do not tune cover thresholds to hide it.
+The matched comparison uses an ordinary Authentic control and
+the identical linear fractional color blend under Physical, Authentic and
+Dramatic relief, with fixed cameras, no rivers, no thresholds, no normalization
+and no semantic noise. The clean seed-12345 globe plus broadest-range,
+highest-discharge and terminal-lake packet is preliminarily unfavorable: the
+globe changes only subtly; regional views mostly expose broad climate/water
+bands and weak low-HAND texture rather than a new living identity. The ordinary
+control already contains flow-based greening, but it is the actual product
+baseline. Relief exaggeration helps terrain legibility but does not supply
+missing living geography. Keep V0 unpromoted until human inspection; a negative
+verdict should redirect attention to upstream climate expressiveness or missing
+causal state, not palette or cover-threshold tuning.
 
 The current ecology transform remains diagnostic evidence only. Its relative
 moisture normalization cancels planetary wetness changes; its freshwater input

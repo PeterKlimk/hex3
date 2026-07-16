@@ -243,7 +243,10 @@ now, or making no expansion. The next task is its bounded equilibrium-
 physiognomy proof, not biome-label calibration or a full ecology stage. Its
 semantic kernel and scalar packet now exist; the next discriminator is whether
 a matched blended/physical presentation reads as living geography rather than
-climate bands plus drainage lines.
+climate bands plus drainage lines. That packet now exists with a linear blend,
+matched relief/cameras and an ordinary-terrain control. Preliminary inspection
+is unfavorable and the human stop-gate verdict is pending; do not respond by
+tuning the diagnostic palette or adding biome labels.
 
 ### Sediment candidate: research and design gate
 
