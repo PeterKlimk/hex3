@@ -562,6 +562,24 @@ impl Tessellation {
         ((n as f64 / weight_count.max(1) as f64) * cross / variance as f64) as f32
     }
 
+    /// The two vertices of the shared boundary edge, in `cell_a`'s polygon order.
+    ///
+    /// Voronoi polygons are stored counter-clockwise when viewed from outside the
+    /// sphere. Returning the pair in that order lets boundary consumers retain an
+    /// exact, meaningful half-edge orientation without copying vertex positions.
+    pub fn shared_edge_vertices(&self, cell_a: usize, cell_b: usize) -> Option<[u32; 2]> {
+        let verts_a = self.voronoi.cell(cell_a).vertex_indices;
+        let verts_b = self.voronoi.cell(cell_b).vertex_indices;
+        for i in 0..verts_a.len() {
+            let a = verts_a[i];
+            let b = verts_a[(i + 1) % verts_a.len()];
+            if verts_b.contains(&a) && verts_b.contains(&b) {
+                return Some([a, b]);
+            }
+        }
+        None
+    }
+
     /// Length of the shared boundary edge of two adjacent cells.
     ///
     /// Returned as the CHORD between the two shared vertices, not the great-circle
@@ -571,30 +589,14 @@ impl Tessellation {
     /// identical to the arc to ~1e-8 at these scales. Coarse-mesh consumers
     /// (atmosphere/moisture/boundary) are unaffected.
     pub fn shared_edge_length(&self, cell_a: usize, cell_b: usize) -> f32 {
-        // Voronoi cells have ~6 vertices, so a nested scan finds the two shared
-        // ones without the HashSet allocations the old version paid per call
-        // (this runs millions of times building fine-mesh geometry).
-        let verts_a = self.voronoi.cell(cell_a).vertex_indices;
-        let verts_b = self.voronoi.cell(cell_b).vertex_indices;
-        let mut shared = [0u32; 2];
-        let mut shared_len = 0usize;
-        for &v in verts_a {
-            if verts_b.contains(&v) {
-                if shared_len < 2 {
-                    shared[shared_len] = v;
-                }
-                shared_len += 1;
-            }
-        }
-
-        if shared_len == 2 {
+        if let Some(shared) = self.shared_edge_vertices(cell_a, cell_b) {
             let v0 = self.voronoi.vertices[shared[0] as usize];
             let v1 = self.voronoi.vertices[shared[1] as usize];
             (v0 - v1).length()
         } else {
-            debug_assert_eq!(
-                shared_len, 2,
-                "adjacent cells {cell_a} and {cell_b} share {shared_len} vertices"
+            debug_assert!(
+                false,
+                "adjacent cells {cell_a} and {cell_b} do not share a polygon edge"
             );
             // Fallback: approximate the boundary edge length from the cell-center separation.
             // This should be unreachable for valid Voronoi topology.

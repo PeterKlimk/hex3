@@ -106,9 +106,13 @@ per-breach event identity.
 
 Landmasses are ordered by physical area. The report deliberately does not label
 them continents or islands: that distinction needs geological and scale policy,
-not connectivity alone. Raw coastline loops and cartographic simplification are
-also separate future products; the compact report retains ownership and weight
-without serializing every fine-mesh boundary edge.
+not connectivity alone. The separate, on-demand `WaterGeographyGeometry`
+retains exact ocean/lake mask-boundary loops as source Voronoi vertex IDs,
+per-cell landmass ownership and full potential basin-spill routes. Every loop is
+directed with water on the left. Non-manifold vertices and unclosed edges are
+reported rather than paired arbitrarily. This raw geometry remains outside the
+compact dossier; it is neither an interpolated zero-elevation contour nor a
+cartographically generalized coastline.
 
 ## Ownership
 
@@ -117,6 +121,7 @@ without serializing every fine-mesh boundary edge.
 | Drainage direction, flow and water level | `Hydrology` world state |
 | Water-body identity/type and river hierarchy | Semantic objects |
 | Whole-world water/coast/repair summary | Derived `WaterGeographyReport` |
+| Exact raw shoreline and spill-route geometry | On-demand `WaterGeographyGeometry` |
 | All/Major importance policy | `RiverThresholdPolicy` |
 | Stroke width, color, opacity and antialiasing | Presentation/renderer |
 | Earth-reference comparisons and gates | Diagnostics/validation |

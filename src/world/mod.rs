@@ -51,6 +51,7 @@ mod moisture;
 mod plates;
 mod provenance;
 mod semantics;
+mod shoreline;
 mod tessellation;
 mod units;
 mod water;
@@ -94,13 +95,20 @@ pub use semantics::{
     SemanticWaterKind, WaterBodyId, WaterBodySemantics, WaterOutlet,
     DEFAULT_RIVER_MIN_CATCHMENT_KM2,
 };
+pub use shoreline::{
+    DirectedShorelineEdge, ShorelineGeometry, ShorelineLoop, ShorelineTopologyIssue,
+    UnresolvedShorelineEdge,
+};
 pub use tessellation::{CellAdjacency, Tessellation};
 pub use units::{
     arc_radians_to_km, elevation_per_radian_to_grade, elevation_to_km, elevation_to_meters,
     grade_to_degrees, grade_to_elevation_per_radian, km_to_arc_radians, km_to_elevation,
     meters_to_elevation, relief_exaggeration, solid_angle_to_km2, PHYSICAL_RELIEF_SCALE,
 };
-pub use water_geography::{WaterGeographyReport, WATER_GEOGRAPHY_REPORT_SCHEMA_VERSION};
+pub use water_geography::{
+    BasinSpillDestination, BasinSpillRouteGeometry, BasinSpillUnresolvedReason,
+    WaterGeographyGeometry, WaterGeographyReport, WATER_GEOGRAPHY_REPORT_SCHEMA_VERSION,
+};
 
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;

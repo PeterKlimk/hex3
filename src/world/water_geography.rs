@@ -11,11 +11,70 @@ use std::collections::VecDeque;
 use serde::Serialize;
 
 use super::{
-    elevation_to_km, solid_angle_to_km2, Hydrology, RiverNetwork, SemanticWaterKind, Tessellation,
-    WaterBodyId, WaterBodySemantics, WaterOutlet, PLANET_RADIUS_KM,
+    elevation_to_km, solid_angle_to_km2, Hydrology, RiverNetwork, SemanticWaterKind,
+    ShorelineGeometry, Tessellation, WaterBodyId, WaterBodySemantics, WaterOutlet,
+    PLANET_RADIUS_KM,
 };
 
 pub const WATER_GEOGRAPHY_REPORT_SCHEMA_VERSION: u32 = 2;
+
+/// Exact, on-demand geometry for diagnostic and presentation consumers.
+///
+/// Unlike [`WaterGeographyReport`], this intentionally retains arrays whose size
+/// grows with shoreline and route complexity. It is not embedded in dossiers.
+#[derive(Clone, Debug, Serialize)]
+pub struct WaterGeographyGeometry {
+    pub shoreline: ShorelineGeometry,
+    pub basin_spill_routes: Vec<BasinSpillRouteGeometry>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct BasinSpillRouteGeometry {
+    pub basin_id: usize,
+    pub destination: BasinSpillDestination,
+    /// Potential topographic route beginning at the basin spill target.
+    pub cells: Vec<usize>,
+}
+
+impl WaterGeographyGeometry {
+    pub fn build(
+        tessellation: &Tessellation,
+        hydrology: &Hydrology,
+        water: &WaterBodySemantics,
+    ) -> Result<Self, String> {
+        let shoreline = ShorelineGeometry::build(tessellation, hydrology, water)?;
+        let ocean_owners: Vec<Option<WaterBodyId>> = (0..hydrology.elevation.len())
+            .map(|cell| semantic_ocean_id(water, cell))
+            .collect();
+        let mut visit_stamps = vec![0usize; hydrology.elevation.len()];
+        let basin_spill_routes = hydrology
+            .basins
+            .iter()
+            .enumerate()
+            .map(|(basin_id, basin)| {
+                let trace = trace_spill_route(
+                    basin_id,
+                    basin.spill_target_cell,
+                    &hydrology.is_ocean,
+                    &hydrology.basin_id,
+                    &hydrology.drainage_dir,
+                    &ocean_owners,
+                    &mut visit_stamps,
+                    basin_id + 1,
+                );
+                BasinSpillRouteGeometry {
+                    basin_id,
+                    destination: trace.destination,
+                    cells: trace.cells,
+                }
+            })
+            .collect();
+        Ok(Self {
+            shoreline,
+            basin_spill_routes,
+        })
+    }
+}
 
 #[derive(Clone, Debug, Serialize)]
 pub struct WaterGeographyReport {
@@ -1001,6 +1060,7 @@ mod tests {
         );
         let report =
             WaterGeographyReport::build(&tessellation, &hydrology, &water, &rivers).unwrap();
+        let geometry = WaterGeographyGeometry::build(&tessellation, &hydrology, &water).unwrap();
 
         assert_eq!(report.schema_version, 2);
         assert!(report.ocean.component_count > 0);
@@ -1030,6 +1090,28 @@ mod tests {
         assert_eq!(report.consistency.non_submerged_cells_with_wet_owner, 0);
         assert_eq!(report.consistency.body_membership_mismatches, 0);
         assert_eq!(report.consistency.body_state_mismatches, 0);
+        assert!(geometry.shoreline.unresolved_edges.is_empty());
+        assert!(geometry.shoreline.issues.is_empty());
+        assert_close(
+            geometry
+                .shoreline
+                .loops
+                .iter()
+                .filter(|shore| shore.water_kind == SemanticWaterKind::Ocean)
+                .map(|shore| shore.length_km)
+                .sum(),
+            report.land.ocean_coastline_km,
+        );
+        assert_close(
+            geometry
+                .shoreline
+                .loops
+                .iter()
+                .filter(|shore| shore.water_kind == SemanticWaterKind::Lake)
+                .map(|shore| shore.length_km)
+                .sum(),
+            report.land.inland_shoreline_km,
+        );
         assert_eq!(
             report.consistency.semantic_ocean_component_count,
             report.consistency.hydrologic_ocean_component_count
@@ -1091,7 +1173,11 @@ mod tests {
         assert_eq!(report.basin_spills.len(), hydrology.basins.len());
         for (basin_id, relation) in report.basin_spills.iter().enumerate() {
             let basin = &hydrology.basins[basin_id];
+            let route = &geometry.basin_spill_routes[basin_id];
             assert_eq!(relation.basin_id, basin_id);
+            assert_eq!(route.basin_id, basin_id);
+            assert_eq!(route.destination, relation.destination);
+            assert_eq!(route.cells.len(), relation.route_cell_count);
             assert_eq!(relation.spill_target_cell, basin.spill_target_cell);
             assert_eq!(relation.wet, basin.has_water());
             assert_eq!(relation.overflowing, basin.is_overflowing());

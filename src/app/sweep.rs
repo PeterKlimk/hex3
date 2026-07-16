@@ -21,11 +21,15 @@ use serde::Serialize;
 
 use hex3::render::{
     create_index_buffer, create_vertex_buffer, FillPipelineKind, GpuContext, IndexedDraw,
-    OrbitCamera, RenderScene, Renderer, Uniforms,
+    OrbitCamera, RenderScene, Renderer, SurfaceLineDraw, Uniforms,
 };
 use hex3::{
-    geometry::{Material, UnifiedMesh},
-    world::{FineCacheMode, OrogenModel, Tessellation, VoronoiBackend, World, RELIEF_SCALE},
+    geometry::{Material, SurfaceVertex, UnifiedMesh, VoronoiMesh},
+    world::{
+        BasinSpillDestination, FineCacheMode, OrogenModel, SemanticWaterKind, ShorelineLoop,
+        Tessellation, VoronoiBackend, WaterBodyId, WaterBodySemantics, WaterGeographyGeometry,
+        World, RELIEF_SCALE,
+    },
 };
 
 use super::view::RiverMode;
@@ -957,6 +961,641 @@ fn render_diagnostic(
     );
 }
 
+struct WaterGeographyBuffers {
+    vertices: wgpu::Buffer,
+    indices: wgpu::Buffer,
+    index_count: u32,
+    lines: wgpu::Buffer,
+    line_count: u32,
+}
+
+#[derive(Debug, Serialize)]
+struct WaterGeographyPacketSidecar {
+    schema_version: u32,
+    purpose: &'static str,
+    coordinate_convention: &'static str,
+    geometry_contract: &'static str,
+    world_manifest: hex3::world::RunManifest,
+    cameras: Vec<ViewRecord>,
+    coast_selection: CoastSelectionRecord,
+    spill_selection: SpillSelectionRecord,
+    topology: ShorelineTopologyRecord,
+    layers: Vec<WaterGeographyLayerRecord>,
+    colors: WaterGeographyColorRecord,
+    montage_filename: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct CoastSelectionRecord {
+    rule: &'static str,
+    fallback_used: bool,
+    ocean_water_body_id: WaterBodyId,
+    loop_anchor_edges: Vec<[u32; 2]>,
+    landmass_anchor_cells: Vec<usize>,
+    loop_lengths_km: Vec<f32>,
+    nearest_sample_distance_km: f32,
+}
+
+#[derive(Debug, Serialize)]
+struct SpillSelectionRecord {
+    rule: &'static str,
+    fallback_used: bool,
+    basin_id: usize,
+    water_body_id: Option<WaterBodyId>,
+    currently_overflowing: bool,
+    destination: BasinSpillDestination,
+    route_cell_count: usize,
+    integration_cut_cell_count: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct ShorelineTopologyRecord {
+    loop_count: usize,
+    edge_count: usize,
+    unresolved_edge_count: usize,
+    issue_count: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct WaterGeographyLayerRecord {
+    id: &'static str,
+    role: &'static str,
+    relief_scale: f32,
+    image_filenames: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct WaterGeographyColorRecord {
+    ocean_shoreline: &'static str,
+    lake_shoreline: &'static str,
+    selected_coast_a: &'static str,
+    selected_coast_b: &'static str,
+    spill_route: &'static str,
+    integration_cut_route: &'static str,
+    unresolved_shoreline: &'static str,
+}
+
+struct CoastSelection {
+    loop_indices: Vec<usize>,
+    target: Vec3,
+    nearest_distance_km: f32,
+    fallback_used: bool,
+}
+
+struct SpillSelection {
+    route_index: usize,
+    water_body_index: Option<usize>,
+    target: Vec3,
+    fallback_used: bool,
+}
+
+fn sampled_loop_positions<'a>(
+    tess: &'a Tessellation,
+    shoreline: &'a ShorelineLoop,
+) -> impl Iterator<Item = Vec3> + 'a {
+    let stride = shoreline.edges.len().div_ceil(128).max(1);
+    shoreline
+        .edges
+        .iter()
+        .step_by(stride)
+        .map(|edge| tess.voronoi.vertices[edge.from_vertex as usize])
+}
+
+fn nearest_loop_sample_pair(
+    tess: &Tessellation,
+    a: &ShorelineLoop,
+    b: &ShorelineLoop,
+) -> (Vec3, Vec3, f32) {
+    let a_positions: Vec<Vec3> = sampled_loop_positions(tess, a).collect();
+    let b_positions: Vec<Vec3> = sampled_loop_positions(tess, b).collect();
+    let mut best = (a_positions[0], b_positions[0], -1.0f32);
+    for &pa in &a_positions {
+        for &pb in &b_positions {
+            let dot = pa.dot(pb);
+            if dot > best.2 {
+                best = (pa, pb, dot);
+            }
+        }
+    }
+    let distance_km = (best.0 - best.1).length() * hex3::world::PLANET_RADIUS_KM;
+    (best.0, best.1, distance_km)
+}
+
+fn select_coast_complex(tess: &Tessellation, geometry: &WaterGeographyGeometry) -> CoastSelection {
+    const MIN_COMPLEX_LOOP_LENGTH_KM: f32 = 500.0;
+    let loops = &geometry.shoreline.loops;
+    let ocean_indices: Vec<usize> = loops
+        .iter()
+        .enumerate()
+        .filter(|(_, shoreline)| shoreline.water_kind == SemanticWaterKind::Ocean)
+        .map(|(index, _)| index)
+        .collect();
+    assert!(
+        !ocean_indices.is_empty(),
+        "water-geography packet requires an ocean coast"
+    );
+
+    let mut best: Option<(usize, usize, Vec3, Vec3, f32, f32)> = None;
+    for (position, &a_index) in ocean_indices.iter().enumerate() {
+        let a = &loops[a_index];
+        for &b_index in &ocean_indices[position + 1..] {
+            let b = &loops[b_index];
+            if a.water_body_id != b.water_body_id
+                || a.adjacent_landmass_anchor_cells == b.adjacent_landmass_anchor_cells
+                || a.length_km < MIN_COMPLEX_LOOP_LENGTH_KM
+                || b.length_km < MIN_COMPLEX_LOOP_LENGTH_KM
+            {
+                continue;
+            }
+            let (pa, pb, distance) = nearest_loop_sample_pair(tess, a, b);
+            let scale = a.length_km.min(b.length_km);
+            let replace = best
+                .as_ref()
+                .map(|current| distance < current.4 || (distance == current.4 && scale > current.5))
+                .unwrap_or(true);
+            if replace {
+                best = Some((a_index, b_index, pa, pb, distance, scale));
+            }
+        }
+    }
+    if let Some((a, b, pa, pb, distance, _)) = best {
+        return CoastSelection {
+            loop_indices: vec![a, b],
+            target: (pa + pb).normalize_or_zero(),
+            nearest_distance_km: distance,
+            fallback_used: false,
+        };
+    }
+
+    let &index = ocean_indices
+        .iter()
+        .max_by(|&&a, &&b| loops[a].length_km.total_cmp(&loops[b].length_km))
+        .unwrap();
+    let edge = loops[index].edges[0];
+    let from = tess.voronoi.vertices[edge.from_vertex as usize];
+    let to = tess.voronoi.vertices[edge.to_vertex as usize];
+    CoastSelection {
+        loop_indices: vec![index],
+        target: (from + to).normalize(),
+        nearest_distance_km: 0.0,
+        fallback_used: true,
+    }
+}
+
+fn select_spill(
+    tess: &Tessellation,
+    hydrology: &hex3::world::Hydrology,
+    water: &WaterBodySemantics,
+    geometry: &WaterGeographyGeometry,
+) -> SpillSelection {
+    let selected_lake = water
+        .bodies
+        .iter()
+        .enumerate()
+        .filter(|(_, body)| body.kind == SemanticWaterKind::Lake)
+        .filter_map(|(body_index, body)| {
+            let basin_id = body.id.basin_id?;
+            let basin = hydrology.basins.get(basin_id)?;
+            (basin.has_water() && basin.is_overflowing()).then_some((body_index, body.area_km2))
+        })
+        .max_by(|a, b| a.1.total_cmp(&b.1));
+
+    if let Some((body_index, _)) = selected_lake {
+        let body = &water.bodies[body_index];
+        let basin_id = body.id.basin_id.unwrap();
+        let route_index = geometry
+            .basin_spill_routes
+            .iter()
+            .position(|route| route.basin_id == basin_id)
+            .expect("selected lake basin has spill route geometry");
+        return SpillSelection {
+            route_index,
+            water_body_index: Some(body_index),
+            target: tess.cell_center(body.id.anchor_cell),
+            fallback_used: false,
+        };
+    }
+
+    let (route_index, route) = geometry
+        .basin_spill_routes
+        .iter()
+        .enumerate()
+        .filter(|(_, route)| !route.cells.is_empty())
+        .max_by_key(|(_, route)| route.cells.len())
+        .expect("water-geography packet requires at least one spill route");
+    SpillSelection {
+        route_index,
+        water_body_index: None,
+        target: tess.cell_center(route.cells[0]),
+        fallback_used: true,
+    }
+}
+
+fn derived_capture_view(id: &str, center: Vec3, aspect: f32, altitude: f32) -> CaptureView {
+    let n = center.normalize();
+    // The ordinary close-up helper aims at radius 1.08 to frame exaggerated
+    // mountains. This packet must also show a flat semantic sphere with the exact
+    // same camera, so aim near the physical surface instead of pushing it to the
+    // limb in the diagnostic row.
+    let aim = n * 1.02;
+    let up_ref = if n.y.abs() < 0.95 { Vec3::Y } else { Vec3::Z };
+    let east = n.cross(up_ref).normalize();
+    let north = east.cross(n).normalize();
+    let eye = aim + n * altitude + north * (altitude * 0.55);
+    let view = Mat4::look_at_rh(eye, aim, n);
+    let projection = Mat4::perspective_rh(std::f32::consts::FRAC_PI_4, aspect, 0.01, 10.0);
+    let view_proj = projection * view;
+    let target = SweepTarget {
+        id: id.to_string(),
+        latitude_deg: center.y.clamp(-1.0, 1.0).asin().to_degrees(),
+        longitude_deg: center.z.atan2(center.x).to_degrees(),
+    };
+    CaptureView {
+        view_proj,
+        eye,
+        label: id.to_string(),
+        sidecar: ViewRecord {
+            id: id.to_string(),
+            kind: "derived-water-geography",
+            target: Some(target),
+            camera: CameraRecord {
+                eye_xyz: vec3_array(eye),
+                aim_xyz: vec3_array(aim),
+                up_xyz: vec3_array(n),
+                vertical_fov_deg: 45.0,
+                aspect,
+                near: 0.01,
+                far: 10.0,
+                target_altitude: Some(altitude),
+                orbit_yaw_deg: None,
+                orbit_pitch_deg: None,
+                orbit_distance: None,
+            },
+        },
+    }
+}
+
+fn ownership_color(
+    cell: usize,
+    geometry: &WaterGeographyGeometry,
+    hydrology: &hex3::world::Hydrology,
+    water: &WaterBodySemantics,
+    coast_landmasses: &[usize],
+    spill_body_index: Option<usize>,
+) -> Vec3 {
+    if hydrology.is_submerged(cell) {
+        let body_index = water.cell_body[cell].expect("submerged cell has semantic owner");
+        let body = &water.bodies[body_index];
+        return match body.kind {
+            SemanticWaterKind::Ocean => Vec3::new(0.05, 0.14, 0.27),
+            SemanticWaterKind::Lake if Some(body_index) == spill_body_index => {
+                Vec3::new(0.05, 0.75, 0.78)
+            }
+            SemanticWaterKind::Lake => Vec3::new(0.08, 0.38, 0.50),
+            SemanticWaterKind::Pond => Vec3::new(0.65, 0.45, 0.10),
+        };
+    }
+    let anchor = geometry.shoreline.landmass_anchor_by_cell[cell].unwrap_or(cell);
+    if coast_landmasses.first() == Some(&anchor) {
+        return Vec3::new(0.95, 0.58, 0.12);
+    }
+    if coast_landmasses.get(1) == Some(&anchor) {
+        return Vec3::new(0.45, 0.85, 0.24);
+    }
+    let hash = (anchor as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    let tint = ((hash >> 56) as f32) / 255.0;
+    Vec3::new(0.30 + 0.18 * tint, 0.34 + 0.12 * (1.0 - tint), 0.26)
+}
+
+fn water_geography_buffers(
+    device: &wgpu::Device,
+    world: &World,
+    water: &WaterBodySemantics,
+    geometry: &WaterGeographyGeometry,
+    coast: &CoastSelection,
+    spill: &SpillSelection,
+) -> WaterGeographyBuffers {
+    let tess = world.active_tessellation();
+    let hydrology = world.active_hydrology().expect("water geography hydrology");
+    let selected_loops: std::collections::BTreeSet<usize> =
+        coast.loop_indices.iter().copied().collect();
+    let mut coast_landmasses = Vec::new();
+    for &loop_index in &coast.loop_indices {
+        coast_landmasses.extend(
+            geometry.shoreline.loops[loop_index]
+                .adjacent_landmass_anchor_cells
+                .iter()
+                .copied(),
+        );
+    }
+    coast_landmasses.sort_unstable();
+    coast_landmasses.dedup();
+    let mesh = VoronoiMesh::from_voronoi_with_colors(&tess.voronoi, |cell| {
+        ownership_color(
+            cell,
+            geometry,
+            hydrology,
+            water,
+            &coast_landmasses,
+            spill.water_body_index,
+        )
+    });
+
+    let mut lines = Vec::new();
+    for (loop_index, shoreline) in geometry.shoreline.loops.iter().enumerate() {
+        let color = if selected_loops.contains(&loop_index) {
+            if coast.loop_indices.first() == Some(&loop_index) {
+                Vec3::new(1.0, 0.92, 0.20)
+            } else {
+                Vec3::new(0.95, 0.25, 0.85)
+            }
+        } else if shoreline.water_kind == SemanticWaterKind::Ocean {
+            Vec3::new(0.15, 0.65, 0.95)
+        } else {
+            Vec3::new(0.95, 0.62, 0.15)
+        };
+        for edge in &shoreline.edges {
+            lines.push(SurfaceVertex::new(
+                tess.voronoi.vertices[edge.from_vertex as usize],
+                0.0,
+                color,
+                1.0,
+            ));
+            lines.push(SurfaceVertex::new(
+                tess.voronoi.vertices[edge.to_vertex as usize],
+                0.0,
+                color,
+                1.0,
+            ));
+        }
+    }
+    for unresolved in &geometry.shoreline.unresolved_edges {
+        let edge = unresolved.edge;
+        for vertex in [edge.from_vertex, edge.to_vertex] {
+            lines.push(SurfaceVertex::new(
+                tess.voronoi.vertices[vertex as usize],
+                0.0,
+                Vec3::new(1.0, 0.05, 0.05),
+                1.0,
+            ));
+        }
+    }
+    let route = &geometry.basin_spill_routes[spill.route_index];
+    for pair in route.cells.windows(2) {
+        let cut = hydrology.was_lowered_by_integration(pair[0])
+            || hydrology.was_lowered_by_integration(pair[1]);
+        let color = if cut {
+            Vec3::new(1.0, 0.08, 0.05)
+        } else {
+            Vec3::new(0.95, 0.10, 0.95)
+        };
+        for &cell in pair {
+            lines.push(SurfaceVertex::new(tess.cell_center(cell), 0.0, color, 1.0));
+        }
+    }
+
+    WaterGeographyBuffers {
+        vertices: create_vertex_buffer(device, &mesh.vertices, "water_geography_vertices"),
+        indices: create_index_buffer(device, &mesh.indices, "water_geography_indices"),
+        index_count: mesh.indices.len() as u32,
+        lines: create_vertex_buffer(device, &lines, "water_geography_lines"),
+        line_count: lines.len() as u32,
+    }
+}
+
+fn render_water_geography(
+    gpu: &GpuContext,
+    renderer: &mut Renderer,
+    color_view: &wgpu::TextureView,
+    buffers: &WaterGeographyBuffers,
+    view: &CaptureView,
+) {
+    let uniforms = Uniforms::new(
+        view.view_proj,
+        view.eye,
+        Vec3::new(0.5, 1.0, 0.3).normalize(),
+    )
+    .with_relief_scale(0.0)
+    .with_hemisphere_lighting(false)
+    .with_map_mode(false)
+    .with_rivers(false);
+    renderer.render_to_view(
+        &gpu.device,
+        &gpu.queue,
+        color_view,
+        &uniforms,
+        RenderScene {
+            fill_pipeline: FillPipelineKind::Globe,
+            fill: IndexedDraw {
+                vertex_buffer: &buffers.vertices,
+                index_buffer: &buffers.indices,
+                index_count: buffers.index_count,
+            },
+            river_texture_bind_group: None,
+            edges: None,
+            arrows: None,
+            pole_markers: None,
+            rivers: Some(SurfaceLineDraw {
+                vertex_buffer: &buffers.lines,
+                vertex_count: buffers.line_count,
+            }),
+            gpu_particles: None,
+        },
+    );
+}
+
+fn run_water_geography_packet(opts: &SweepOptions) {
+    assert_eq!(
+        opts.target_stage, 4,
+        "water-geography packet requires --stage 4"
+    );
+    let world = generate_tile_world(opts, &opts.base_erosion);
+    let tess = world.active_tessellation();
+    let hydrology = world.active_hydrology().expect("stage 4 hydrology");
+    let water = WaterBodySemantics::build(tess, hydrology);
+    let geometry = WaterGeographyGeometry::build(tess, hydrology, &water)
+        .expect("derive exact water-geography geometry");
+    let coast = select_coast_complex(tess, &geometry);
+    let spill = select_spill(tess, hydrology, &water, &geometry);
+    let aspect = opts.width as f32 / opts.height as f32;
+    let views = [
+        derived_capture_view("coast-complex", coast.target, aspect, opts.zoom_alt),
+        derived_capture_view("lake-spill", spill.target, aspect, opts.zoom_alt),
+    ];
+
+    std::fs::create_dir_all(&opts.out_dir)
+        .unwrap_or_else(|e| panic!("create {}: {e}", opts.out_dir.display()));
+    let gpu = pollster::block_on(GpuContext::new_headless(opts.width, opts.height));
+    let mut renderer = Renderer::new(&gpu, &Uniforms::new(Mat4::IDENTITY, Vec3::ZERO, Vec3::Y));
+    let color_tex = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("water_geography_color"),
+        size: wgpu::Extent3d {
+            width: opts.width,
+            height: opts.height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: gpu.format,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let color_view = color_tex.create_view(&Default::default());
+    let montage_w = opts.width * 2;
+    let montage_h = opts.height * 2;
+    let mut montage = vec![0; (montage_w * montage_h * 4) as usize];
+
+    let physical_buffers = generate_world_buffers(&gpu.device, &gpu.queue, &world);
+    let mut physical_files = Vec::new();
+    for (column, view) in views.iter().enumerate() {
+        render_relief(
+            &gpu,
+            &mut renderer,
+            &color_view,
+            &physical_buffers,
+            view.view_proj,
+            view.eye,
+            opts.river_mode,
+            RELIEF_SCALE,
+            1.0,
+        );
+        let rgba = read_back_rgba(&gpu, &color_tex, opts.width, opts.height);
+        let filename = format!("01_physical_{}.png", view.label);
+        write_png(
+            &opts.out_dir.join(&filename),
+            &rgba,
+            opts.width,
+            opts.height,
+        );
+        blit_tile(
+            &mut montage,
+            montage_w,
+            &rgba,
+            opts.width,
+            opts.height,
+            column as u32,
+            0,
+        );
+        physical_files.push(filename);
+    }
+    drop(physical_buffers);
+
+    let diagnostic_buffers =
+        water_geography_buffers(&gpu.device, &world, &water, &geometry, &coast, &spill);
+    let mut diagnostic_files = Vec::new();
+    for (column, view) in views.iter().enumerate() {
+        render_water_geography(&gpu, &mut renderer, &color_view, &diagnostic_buffers, view);
+        let rgba = read_back_rgba(&gpu, &color_tex, opts.width, opts.height);
+        let filename = format!("02_diagnostic_{}.png", view.label);
+        write_png(
+            &opts.out_dir.join(&filename),
+            &rgba,
+            opts.width,
+            opts.height,
+        );
+        blit_tile(
+            &mut montage,
+            montage_w,
+            &rgba,
+            opts.width,
+            opts.height,
+            column as u32,
+            1,
+        );
+        diagnostic_files.push(filename);
+    }
+    write_png(
+        &opts.out_dir.join("montage.png"),
+        &montage,
+        montage_w,
+        montage_h,
+    );
+
+    let selected_loops: Vec<&ShorelineLoop> = coast
+        .loop_indices
+        .iter()
+        .map(|&index| &geometry.shoreline.loops[index])
+        .collect();
+    let selected_route = &geometry.basin_spill_routes[spill.route_index];
+    let selected_basin = &hydrology.basins[selected_route.basin_id];
+    let selected_water_body = spill.water_body_index.map(|index| water.bodies[index].id);
+    let sidecar = WaterGeographyPacketSidecar {
+        schema_version: 1,
+        purpose: "matched physical and semantic views of coastline ownership and a basin spill route",
+        coordinate_convention: "latitude=asin(y); longitude=atan2(z,x); degrees; positive longitude rotates +X toward +Z",
+        geometry_contract: "exact boundaries of categorical ocean/lake Voronoi-cell masks; water is left of every directed edge; no contour interpolation or cartographic simplification",
+        world_manifest: world.manifest(),
+        cameras: views.iter().map(|view| view.sidecar.clone()).collect(),
+        coast_selection: CoastSelectionRecord {
+            rule: "nearest sampled pair of raw ocean shoreline loops at least 500 km long, belonging to distinct landmasses but the same semantic ocean; largest ocean loop fallback",
+            fallback_used: coast.fallback_used,
+            ocean_water_body_id: selected_loops[0].water_body_id,
+            loop_anchor_edges: selected_loops.iter().map(|shore| shore.anchor_edge).collect(),
+            landmass_anchor_cells: selected_loops
+                .iter()
+                .flat_map(|shore| shore.adjacent_landmass_anchor_cells.iter().copied())
+                .collect(),
+            loop_lengths_km: selected_loops.iter().map(|shore| shore.length_km).collect(),
+            nearest_sample_distance_km: coast.nearest_distance_km,
+        },
+        spill_selection: SpillSelectionRecord {
+            rule: "largest-area wet overflowing semantic lake; longest available potential basin route fallback",
+            fallback_used: spill.fallback_used,
+            basin_id: selected_route.basin_id,
+            water_body_id: selected_water_body,
+            currently_overflowing: selected_basin.is_overflowing(),
+            destination: selected_route.destination.clone(),
+            route_cell_count: selected_route.cells.len(),
+            integration_cut_cell_count: selected_route
+                .cells
+                .iter()
+                .filter(|&&cell| hydrology.was_lowered_by_integration(cell))
+                .count(),
+        },
+        topology: ShorelineTopologyRecord {
+            loop_count: geometry.shoreline.loops.len(),
+            edge_count: geometry
+                .shoreline
+                .loops
+                .iter()
+                .map(|shore| shore.edges.len())
+                .sum(),
+            unresolved_edge_count: geometry.shoreline.unresolved_edges.len(),
+            issue_count: geometry.shoreline.issues.len(),
+        },
+        layers: vec![
+            WaterGeographyLayerRecord {
+                id: "physical",
+                role: "authentic final relief with ordinary river presentation",
+                relief_scale: RELIEF_SCALE,
+                image_filenames: physical_files,
+            },
+            WaterGeographyLayerRecord {
+                id: "diagnostic",
+                role: "flat categorical ownership plus exact raw shorelines and selected spill provenance",
+                relief_scale: 0.0,
+                image_filenames: diagnostic_files,
+            },
+        ],
+        colors: WaterGeographyColorRecord {
+            ocean_shoreline: "#26a6f2",
+            lake_shoreline: "#f29e26",
+            selected_coast_a: "#ffeb33",
+            selected_coast_b: "#f240d9",
+            spill_route: "#f21af2",
+            integration_cut_route: "#ff140d",
+            unresolved_shoreline: "#ff0d0d",
+        },
+        montage_filename: "montage.png",
+    };
+    let sidecar_file = std::fs::File::create(opts.out_dir.join("water-geography.json"))
+        .expect("create water-geography.json");
+    serde_json::to_writer_pretty(BufWriter::new(sidecar_file), &sidecar)
+        .expect("write water-geography.json");
+    println!("Done: water-geography packet -> {}", opts.out_dir.display());
+}
+
 fn terrain_slope(tess: &Tessellation, elevation: &[f32]) -> Vec<f32> {
     (0..tess.num_cells())
         .map(|i| {
@@ -1189,6 +1828,10 @@ pub fn run_sweep(opts: SweepOptions) {
     }
     if opts.stack.as_deref() == Some("range-ancestry") {
         run_range_ancestry(&opts);
+        return;
+    }
+    if opts.stack.as_deref() == Some("water-geography") {
+        run_water_geography_packet(&opts);
         return;
     }
     // Validate knob names up front so a typo fails before any (slow) generation

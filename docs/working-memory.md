@@ -47,8 +47,20 @@ independently traced potential spill route whose destination distinguishes
 ocean, another basin and unresolved self/cycle/no-drainage cases; present
 overflow state remains separate. The generated 400-cell contract world has no
 unresolved routes. Route-cut overlap is exact, but post-integration basin/source
-overlap is not recovered per-breach event causality. Raw coast loops, straits,
-scale generalization and event-level repair identity remain open.
+overlap is not recovered per-breach event causality.
+
+The first concrete geometry consumer now derives exact categorical ocean/lake
+shoreline loops from the retained Voronoi topology, with water-left direction,
+source vertex IDs, per-edge land/water ownership and explicit unresolved
+topology. It also retains full independently traced potential spill paths
+outside the compact report. The `water-geography` headless packet uses two
+derived cameras and four matched images: ordinary physical relief plus a flat
+ownership/shoreline/spill diagnostic for a same-ocean landmass pair and the
+largest overflowing lake (with disclosed fallbacks). The generated 400-cell
+contract closes shoreline length against the compact report and has no
+unresolved edges. This earns inspection, not promotion of a coast hierarchy.
+Straits, scale generalization, shoreline antialiasing and event-level repair
+identity remain open.
 
 The first comparison exposed and fixed a prerequisite contract bug: with all
 fine climate modifiers disabled, `fine_precipitation` returned before

@@ -223,7 +223,9 @@ supply them separately.
   without fine erosion or rendering.
 - comparison/sample binaries support targeted orogen experiments.
 - the offscreen sweep harness produces fixed-camera tiles/contact sheets for
-  parameter and presentation comparisons.
+  parameter and presentation comparisons; its bounded `water-geography` packet
+  pairs ordinary relief with exact categorical ownership, raw shorelines and
+  spill/integration-cut provenance at two derived cameras.
 - interactive stage navigation enables retained pre/post comparisons.
 - JSON/gzip export supports external object/field analysis.
 

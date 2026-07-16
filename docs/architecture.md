@@ -176,6 +176,12 @@ components, shoreline length, basin/lake states, distinct river roles,
 drainage-integration footprint and consistency failures. It is dossier evidence,
 not another persistent physical stage.
 
+For consumers that genuinely need geometry, `WaterGeographyGeometry` is built
+on demand. It keeps exact categorical ocean/lake boundary loops by source
+Voronoi vertex ID, landmass ownership and full potential spill-route cells. It
+is intentionally not retained in `World` or serialized into the compact
+dossier, and it does not own cartographic simplification or stroke policy.
+
 The dossier also owns a diagnostic conditional-climatology projection. It fits
 an area-weighted land precipitation mean within a deliberately coarse joint
 latitude/elevation/ocean-distance partition, preserves the product runoff
