@@ -105,20 +105,26 @@ now freezes common and central evidence, authored-G/D0 and direct numerical
 sidecars, O0b correspondence, materiality and publication. The
 [planar capture/human-review amendment](research/orogen-organization-planar-review-v0-2026-07-16.md)
 now closes deterministic presentation, primary-before-resolution observation
-and reveal. All four executable amendments are preregistered; implementation
-has begun at the passive artifact boundary. Exact H/C/G configuration wire
-types, local legal-matrix validation and canonical configuration hashing now
-exist. Do not now implement the entire promotion bureaucracy before seeing
-terrain. The next rung is a noncanonical but numerically faithful 4 km H/C/G
-discriminator retaining final surfaces, essential ledgers/hashes/cost, existing
-common evidence and plain matched images. Full result/provenance/trace/
-checkpoint/failure, publication and blinded-review machinery is conditional on
-that discriminator justifying further investment. No arm-result packet exists
-yet. The first bounded source slice is G at 4 km: its exact planning, minimax
-portal forest, reverse accumulation with Strahler/support derivation,
-runoff-conditioned reconstruction and amplitude solve now pass a repeated
-in-memory run over the fully rebuilt accepted bundle. No probe file has been
-generated or inspected; H/C and matched evidence/images remain missing.
+and reveal. All four executable amendments are preregistered. Exact H/C/G
+configuration wire types, local legal-matrix validation and canonical
+configuration hashing exist, but the full promotion bureaucracy remains
+deliberately deferred. The noncanonical 4 km source discriminator now has
+repeatable H, C and G owners, final physical surfaces, essential ledgers/hashes,
+a shared conservative routing/denudation/linear-hillslope process kernel for
+H/C, and a direct in-memory seam into the existing S0/D0/reference-O0a evidence.
+Exact release repeats passed: two H runs took `615.98 s`; two C runs took
+`1111.37 s`. These costs are comparison evidence, not incidental test overhead:
+both owners run roughly 1,000 fresh whole-domain process solves per realization,
+and C also re-evaluates coevolving forcing. Immutable mesh/operator caching
+could remove some redundant validation and geometry reconstruction without
+changing causal semantics, but optimization is deferred until terrain earns
+it. G's exact planning, minimax portal forest, reverse accumulation with
+Strahler/support derivation, runoff-conditioned reconstruction and amplitude
+solve also pass a repeated in-memory run over the fully rebuilt accepted
+bundle. No probe file or matched image has yet been generated or inspected. The
+next rung is therefore one single-run H/C/G numerical and visual comparison,
+not packets, publication, blinded-review machinery or a resolution campaign.
+No arm-result packet exists.
 G must calibrate and publish 4 km before 8/2 km can bind its frozen forest and
 amplitude. Cooperative algorithmic failures are replayable semantic roots;
 resource failures are observational, while invalid input/configuration or

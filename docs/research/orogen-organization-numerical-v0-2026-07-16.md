@@ -269,17 +269,26 @@ coordinate `x` and next endpoint `e`:
 
 ```text
 remaining = e - x
-requested = min(configured_maximum_dt, remaining)
+ordinary = min(configured_maximum_dt, remaining)
+tail = e - (x + ordinary)
+requested = remaining if tail < minimum_dt, otherwise ordinary
 ```
 
-`remaining` and `requested` must be finite and positive. Adaptive trials may
-accept less than `remaining`. When an accepted dt bit-equals `remaining`, the
+`remaining`, `ordinary` and `requested` must be finite and positive. The
+look-ahead branch prevents ordinary binary64 addition from manufacturing a
+sub-minimum final sliver when real-number arithmetic would land on the event;
+it may exceed the configured maximum only by less than `minimum_dt` and is
+reported explicitly as endpoint closure. Adaptive trials may accept less than
+`remaining`. When an accepted dt bit-equals `remaining`, the
 committed coordinate is assigned the registered endpoint bits `e`; the trace
-still records `coordinate_end-coordinate_start == accepted_dt` under the same
-subtraction. Otherwise the committed coordinate is the ordinary
-`x+accepted_dt` and must be strictly between `x` and `e`. Crossing, epsilon
-completion, silent snapping of a non-remaining step, or failure to land on an
-endpoint is `EndpointNotReached`.
+records the authoritative accepted dt used by every physical operator. The
+derived subtraction `coordinate_end-coordinate_start` is recomputed and
+retained as a diagnostic, but is not required to reproduce the accepted-dt
+bits: ordinary floating-point addition and subsequent subtraction do not
+generally have that inverse property. Otherwise the committed coordinate is
+the ordinary `x+accepted_dt` and must be strictly between `x` and `e`.
+Crossing, epsilon completion, silent snapping of a non-remaining step, or
+failure to land on an endpoint is `EndpointNotReached`.
 
 This explicit event assignment is coordinate bookkeeping, not a modification
 of the physical update: every operator consumes the unmodified accepted dt.
@@ -470,8 +479,9 @@ activity f64 rates `[0,1/1024,1/8,1] km/Myr`. At every midpoint it evaluates
 the analytic smoothstep activity above, multiplies by the full rate, casts that
 product to f32, converts back to f64 and applies the exact C endpoint driver
 with maximum dt `0.01`, uplift depth limit `0.02`, and endpoints `[3,6,10]`.
-It has no retries and exactly 1,003 accepted steps under the registered endpoint
-arithmetic.
+It has no retries and exactly 1,000 accepted steps under the registered
+endpoint arithmetic. The endpoint look-ahead removes three sub-minimum
+roundoff slivers without changing the emitted displacement bits below.
 
 The f64 analytic displacements are the full rates times `5.75`; their weighted
 volume is exactly `68.298095703125 km3`. The emitted displacements must bit-
