@@ -39,12 +39,12 @@ This is primarily a truth-contract and semantic integration pass over cheap
 systems already worth retaining. It does not require transient hydrology,
 seasons, ocean circulation, groundwater or coastal morphodynamics.
 
-That slice now establishes coherent inputs and readable raw objects. The bounded
-design review selects [**Living Surface V0**](living-surface.md) as the first
-actual world expansion: equilibrium fractional physiognomy followed by optional
-regions and multiscale presentation. Persistent sediment remains the strongest
-large physical candidate, but follows a river/material/time and lowland-scale
-design gate.
+That slice now establishes coherent inputs and readable raw objects. The
+completed [**Living Surface V0**](living-surface.md) decision retains
+equilibrium fractional physiognomy and its linear blend as a bounded on-demand
+layer. Optional regions and richer vegetation rendering were not promoted.
+Persistent sediment remains the strongest large physical candidate, but
+follows a river/material/time and lowland-scale design gate.
 
 ## Dispositions
 
@@ -80,7 +80,7 @@ long-term ownership.
 | Stage orchestration, snapshots and cache | **Simplify** | Retained stages and caches support inspection and iteration | Keep snapshot semantics, but add a dependency graph only when ecology/sediment creates concrete invalidation pressure. Do not build framework first. |
 | Diagnostics, corpus and experiment tooling | **Simplify** | Reproducible evidence and operator tests prevent false promotion | Move shared promoted measurements into library adapters; keep historical or invalid probes out of normal product configuration and contributor workflow. |
 | Persistent sediment | **Research** | One conserved mobile/deposited material could connect erosion, basins, floodplains, deltas, coasts, soil and loading | Require bedrock/alluvial-cover ownership, a visible source-to-sink target, explicit time/units, one routing owner, localized lowland/coastal resolution and a memory budget. No stratigraphic simulator. |
-| Living surface | **Replace/implemented proof** | Climate, terrain and water can yield major visual identity, reusable fractional cover and inputs to resources/settlement | The on-demand equilibrium kernel, HAND-like saturation, fractions and manufactured gates exist. It is not retained or promoted; matched blended/physical review must show more than climate bands and drainage lines before labels, regions or rendering gain product ownership. No succession, fire or individual-tree ecology in V0. |
+| Living surface | **Retain (bounded layer)** | Climate, terrain and water yield useful visible identity, reusable fractional cover and inputs to resources/settlement | The on-demand equilibrium kernel, HAND-like saturation and closed fractions exist; human matched review found its linear blend improves the ordinary terrain baseline. It is selectable for final Stage-4 relief but not retained in `World` or exported. No biome calibration, regions, succession, fire or individual-tree ecology in V0. |
 | Human geography | **Research** | Traversability, resources, routes and settlement can make geography consequential and produce board-like stories | Follow living geography with aggregate suitability/routes/settlement before agents, economies or full civilization simulation. |
 
 ## Resolved shared seam: water geography
@@ -204,8 +204,8 @@ or cartographic generalization, none of which is claimed by V0.
 
 1. **Water Geography V0** — completed enabling slice; low–medium cost and broad
    leverage.
-2. **Living Surface V0** — selected first-expansion proof; very high visible
-   payoff, bounded by its fractional-cover contract and stop gate.
+2. **Living Surface V0** — accepted bounded fractional-cover and presentation
+   layer; richer ecology and vegetation rendering remain separate gated work.
 3. **Source-to-sink Sediment V0** — strongest large physical coupling, but
    requires a design gate for river ownership, time, mass and memory.
 4. **Geography-to-human semantics** — aggregate productivity, traversability,

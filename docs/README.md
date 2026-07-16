@@ -13,8 +13,8 @@ experimental, superseded, or awaiting classification.
 - [Landscape organization strategy](landscape-strategy.md) — current decision
   for terrain, drainage and landform ownership after the completed bounded
   organization comparison.
-- [Living Surface V0 decision](living-surface.md) — selected next expansion,
-  fractional physiognomy contract, prototype replacement and stop gates.
+- [Living Surface V0 decision](living-surface.md) — accepted bounded on-demand
+  fractional physiognomy and presentation layer, with richer ecology still gated.
 - [Cross-system disposition](system-disposition.md) — current retain, simplify,
   replace, quarantine and research decisions, selected water-geography slice
   and post-slice Pareto frontier.

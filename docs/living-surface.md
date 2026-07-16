@@ -1,7 +1,7 @@
 # Living Surface V0 decision
 
-Status: **current architecture decision; semantic kernel implemented and
-diagnostically evaluated, not promoted**, 2026-07-17.
+Status: **bounded semantic/presentation layer accepted and selectable; not a
+retained ecology stage or calibrated ecological model**, 2026-07-17.
 
 This decision selects the next bounded world expansion after Water Geography
 V0. It replaces the long-term role proposed for the current ecology classifier;
@@ -88,8 +88,10 @@ view.
 ## Implemented semantic checkpoint
 
 `LivingSurfaceSemantics` now exists as an on-demand derived product beside the
-quarantined classifier. It is not stored by `World` and has no product renderer
-or export consumer. The kernel currently implements:
+quarantined classifier. It is not stored by `World` or exported. The interactive
+renderer can derive it for the final Stage-4 surface, bake its fractional blend
+into the existing relief mesh and immediately discard the semantic working
+state. The kernel currently implements:
 
 - final precipitation used without land-mean normalization; the current build
   fixes its multiplier at 1.0 until one upstream control can rebuild both
@@ -153,11 +155,11 @@ compact fraction contract if a consumer earns ownership.
 
 The corrected maps expose latitudinal cold, transported-moisture/coastal
 gradients and low-HAND texture without the old circular freshwater-distance
-halo or an automatically wet reference network. They do **not** yet pass the
-product stop gate: the scalar views remain dominated by broad climate bands,
-interiors are mostly bare, and a second seed has not been regenerated after the
-review fix. This may be an upstream precipitation-distribution finding or a
-missing cover cause; do not answer it by tuning biome or cover thresholds.
+halo or an automatically wet reference network. The scalar views remain
+dominated by broad climate bands, interiors are mostly bare, and a second seed
+has not been regenerated after the review fix. Those are limits on ecological
+interpretation and any future retained stage, not reasons to hide the useful
+bounded presentation behind palette tuning.
 
 ## Matched presentation checkpoint
 
@@ -180,17 +182,21 @@ the coverage evidence; shared-vertex averaging is used only for the relief
 presentation.
 
 The clean seed-12345 packet contains the globe plus broadest-range,
-highest-discharge and terminal-lake dossier cameras. Preliminary inspection is
-unfavorable: the fractional globe is only subtly different from the
-already-green ordinary terrain view. Regionally, the range and lake views add
-mostly broad green/brown structure, and the discharge view exposes bands around
-water more clearly than a coherent floodplain identity. Physical relief is
-predictably flat; Authentic and Dramatic improve terrain legibility but do not
-create a stronger living-geography signal. The ordinary control already has
-flow-accumulation greening, but that is the actual product baseline the new
-state must beat. This is not a human promotion verdict yet, but it is positive
-evidence against palette tuning as the missing mechanism. Keep V0 unpromoted
-pending that human read.
+highest-discharge and terminal-lake dossier cameras. The fractional globe is
+only subtly different from the already-green ordinary terrain view. Regionally,
+the range and lake views add broad green/brown structure, and the discharge
+view exposes bands around water more clearly than a distinct floodplain
+identity. Physical relief is predictably flat; Authentic and Dramatic improve
+terrain legibility. The ordinary control already has flow-accumulation
+greening, so it remains the meaningful baseline.
+
+Human inspection judged the Living presentation an improvement over that
+baseline. This passes the bounded visible-utility stop gate: retain the causal
+fractional layer and make its linear blend selectable. It does not establish
+calibrated ecology, every desired geographic grammar, a default palette or a
+case for regions, biome labels or vegetation simulation. The modest effect and
+remaining climate/HAND signatures stay recorded as evidence against trying to
+manufacture spectacle through palette tuning.
 
 ## V0 semantic contract
 
@@ -303,17 +309,19 @@ The complete product proof should produce one matched global packet containing:
 - the four cover fractions and their linear blended semantic result
   (**implemented**);
 - matched ordinary-terrain control plus Physical, Authentic and Dramatic living
-  presentation at globe and regional scale (**implemented; human verdict
-  pending**); and
+  presentation at globe and regional scale (**implemented; human verdict:
+  visible improvement, bounded utility gate passed**); and
 - one sidecar with cover closure, area totals and runtime (**implemented**), plus
   coupled response controls and measured peak memory.
 
-Use one representative world and one known climate outlier first. Expand only
-if the mechanism survives. V0 earns promotion only if it creates recognizable
-rain-shadow, latitudinal, riparian/floodplain and exposed-terrain structure,
-reads as a living planet, and supplies more useful causal state than a direct
-climate color lookup. If it merely paints smooth climate bands or drainage
-halos, revise the causal owner or stop; do not tune category thresholds.
+The representative-world comparison earns bounded use as an on-demand semantic
+and presentation layer. Stronger claims still require a known climate outlier,
+cross-resolution correspondence, coupled response controls and measured peak
+memory. A retained ecology stage or richer vegetation rendering must create
+recognizable rain-shadow, latitudinal, riparian/floodplain and exposed-terrain
+structure and supply more useful causal state than a direct climate lookup. If
+future work merely paints smooth bands or drainage halos, revise the causal
+owner or stop; do not tune category thresholds.
 
 ## Research basis
 

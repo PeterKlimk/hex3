@@ -105,8 +105,13 @@ impl ApplicationHandler for App {
                         state.window.request_redraw();
                     }
                     PhysicalKey::Code(KeyCode::Digit1) => {
-                        state.render_mode = RenderMode::Relief;
-                        // Relief uses unified mesh, no color regeneration needed
+                        if state.render_mode == RenderMode::Relief && !event.repeat {
+                            state.cycle_surface_palette();
+                        } else {
+                            state.render_mode = RenderMode::Relief;
+                        }
+                        // Relief uses the unified mesh; palette cycling rewrites
+                        // only that mesh's vertex colors.
                         state.window.request_redraw();
                     }
                     PhysicalKey::Code(KeyCode::Digit2) => {

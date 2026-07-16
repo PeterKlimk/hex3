@@ -59,6 +59,33 @@ impl ReliefPreset {
     }
 }
 
+/// Color source for the material-aware relief mesh. This is presentation-only:
+/// neither choice changes physical world state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum SurfacePalette {
+    /// Ordinary hypsometric terrain and water colors.
+    #[default]
+    Terrain,
+    /// Fractional equilibrium physiognomy blended over the terrain substrate.
+    LivingSurface,
+}
+
+impl SurfacePalette {
+    pub fn cycle(self) -> Self {
+        match self {
+            Self::Terrain => Self::LivingSurface,
+            Self::LivingSurface => Self::Terrain,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Terrain => "Terrain",
+            Self::LivingSurface => "Living Surface",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ViewMode {
     Globe,
@@ -246,7 +273,7 @@ impl RenderMode {
 
 #[cfg(test)]
 mod tests {
-    use super::ReliefPreset;
+    use super::{ReliefPreset, SurfacePalette};
     use hex3::world::{relief_exaggeration, PHYSICAL_RELIEF_SCALE};
 
     #[test]
@@ -258,6 +285,18 @@ mod tests {
         assert_eq!(
             ReliefPreset::from_scale(ReliefPreset::PHYSICAL_SCALE),
             ReliefPreset::Physical
+        );
+    }
+
+    #[test]
+    fn surface_palette_cycle_is_reversible() {
+        assert_eq!(
+            SurfacePalette::Terrain.cycle(),
+            SurfacePalette::LivingSurface
+        );
+        assert_eq!(
+            SurfacePalette::LivingSurface.cycle(),
+            SurfacePalette::Terrain
         );
     }
 }

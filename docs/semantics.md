@@ -178,8 +178,9 @@ primarily for inspection, summaries and region identity.
 The current classifier is now selected for replacement rather than calibration.
 The [Living Surface V0](living-surface.md) on-demand semantic kernel is now
 implemented: fractional physiognomy is primary and labels/regions remain later
-derived consumers. It is not retained by `World`, rendered as product state or
-promoted.
+derived consumers. It is not retained by `World` or exported. Its linear
+fractional blend is a selectable presentation for the final Stage-4 relief
+surface; that bounded use does not promote biome labels or an ecology stage.
 
 The `--biome-audit` diagnostic reports area-weighted potential means, biome
 coverage, transition coverage and region coherence. No biome palette or

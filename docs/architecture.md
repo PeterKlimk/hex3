@@ -70,8 +70,10 @@ The coarse world owns:
 surface. `World` does not own it, no renderer consumes it, and its provisional
 labels are not product state. The selected replacement contract is the proposed
 [Living Surface V0](living-surface.md). Its on-demand semantic kernel is
-implemented, but `World` does not retain it and no renderer/export consumer or
-product promotion exists.
+implemented and its fractional blend is a selectable Stage-4 relief palette.
+The renderer derives it transiently and rewrites the existing unified mesh;
+`World` retains no ecology state and export contains no Living Surface product.
+This is a bounded presentation/semantic promotion, not a new simulation stage.
 
 `FineWorld` owns the adaptive tessellation, transferred fields and two retained
 surfaces:
@@ -271,9 +273,10 @@ Plausible later domains include:
 - culture, settlement, infrastructure and civilization-scale systems;
 - semantic regions and cartographic generalization for board/game views.
 
-The [cross-system disposition](system-disposition.md) now selects Water
-Geography V0 as an enabling slice and Living Surface V0 as the conditional first
-expansion; sediment and later human geography remain behind explicit gates.
+The [cross-system disposition](system-disposition.md) retains Water Geography
+V0 as an enabling slice and the completed bounded Living Surface V0 as an
+on-demand semantic/presentation layer; sediment, richer ecology and later human
+geography remain behind explicit gates.
 This ordering does not assign a fidelity class or linear stage number. Some
 domains may be semantic derivations, some simulations, some authentic hacks and
 some presentation-only systems, with graph-shaped dependencies.

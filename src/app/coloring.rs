@@ -7,7 +7,28 @@ use glam::Vec3;
 
 use super::view::{ClimateLayer, FeatureLayer, NoiseLayer};
 use hex3::geometry::Material;
-use hex3::world::{CellWaterState, World};
+use hex3::world::{CellWaterState, PhysiognomyFractions, World};
+
+pub const LIVING_HERBACEOUS_COLOR: Vec3 = Vec3::new(0.45, 0.56, 0.20);
+pub const LIVING_WOODY_COLOR: Vec3 = Vec3::new(0.10, 0.34, 0.13);
+pub const LIVING_WETLAND_COLOR: Vec3 = Vec3::new(0.10, 0.42, 0.39);
+
+/// Blend continuous living-surface fractions over the ordinary terrain
+/// substrate. Water remains authoritative. This deliberately adds no biome
+/// thresholds, per-world normalization or presentation noise.
+pub fn living_surface_blended_color(
+    substrate: Vec3,
+    fractions: PhysiognomyFractions,
+    submerged: bool,
+) -> Vec3 {
+    if submerged {
+        return substrate;
+    }
+    substrate * fractions.bare
+        + LIVING_HERBACEOUS_COLOR * fractions.herbaceous
+        + LIVING_WOODY_COLOR * fractions.woody
+        + LIVING_WETLAND_COLOR * fractions.wetland
+}
 
 /// Convert HSL to RGB.
 pub fn hsl_to_rgb(h: f32, s: f32, l: f32) -> Vec3 {

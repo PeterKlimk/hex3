@@ -33,7 +33,10 @@ use hex3::{
     },
 };
 
-use super::coloring::{cell_color_terrain, cell_material};
+use super::coloring::{
+    cell_color_terrain, cell_material, living_surface_blended_color, LIVING_HERBACEOUS_COLOR,
+    LIVING_WETLAND_COLOR, LIVING_WOODY_COLOR,
+};
 use super::view::{ReliefPreset, RiverMode};
 use super::world::{
     advance_to_stage_2, advance_to_stage_3, advance_to_stage_3_with_cap, advance_to_stage_4,
@@ -1708,27 +1711,6 @@ fn living_preview_color(
     }
 }
 
-const LIVING_HERBACEOUS_COLOR: Vec3 = Vec3::new(0.45, 0.56, 0.20);
-const LIVING_WOODY_COLOR: Vec3 = Vec3::new(0.10, 0.34, 0.13);
-const LIVING_WETLAND_COLOR: Vec3 = Vec3::new(0.10, 0.42, 0.39);
-
-/// Diagnostic presentation blend. Bare cover exposes the ordinary terrain
-/// substrate; the three living fractions contribute fixed authored tints.
-/// There are no thresholds, per-world normalization or presentation noise.
-fn living_surface_blended_color(
-    substrate: Vec3,
-    fractions: hex3::world::PhysiognomyFractions,
-    submerged: bool,
-) -> Vec3 {
-    if submerged {
-        return substrate;
-    }
-    substrate * fractions.bare
-        + LIVING_HERBACEOUS_COLOR * fractions.herbaceous
-        + LIVING_WOODY_COLOR * fractions.woody
-        + LIVING_WETLAND_COLOR * fractions.wetland
-}
-
 fn living_presentation_mesh<F>(
     device: &wgpu::Device,
     world: &World,
@@ -2658,9 +2640,9 @@ pub fn run_sweep(opts: SweepOptions) {
 mod tests {
     use glam::Vec3;
 
-    use super::{
-        apply_knob, build_stack_tiles, living_surface_blended_color, robust_scale,
-        selected_orogen_model, SweepTarget, LIVING_HERBACEOUS_COLOR, LIVING_WETLAND_COLOR,
+    use super::{apply_knob, build_stack_tiles, robust_scale, selected_orogen_model, SweepTarget};
+    use crate::app::coloring::{
+        living_surface_blended_color, LIVING_HERBACEOUS_COLOR, LIVING_WETLAND_COLOR,
         LIVING_WOODY_COLOR,
     };
     use crate::app::world::ErosionOverrides;

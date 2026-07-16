@@ -4,13 +4,16 @@ use wgpu::util::DeviceExt;
 use hex3::geometry::{MeshVertex, SurfaceVertex, UnifiedMesh, VoronoiMesh};
 use hex3::render::{create_index_buffer, create_vertex_buffer, ElevationVertex};
 use hex3::util::Timed;
-use hex3::world::{FineCacheMode, OrogenModel, VoronoiBackend, World, FINE_MAX_CELLS};
+use hex3::world::{
+    FineCacheMode, LivingSurfaceSemantics, OrogenModel, VoronoiBackend, World, FINE_MAX_CELLS,
+};
 
 use super::coloring::{
     cell_color_climate, cell_color_elevation, cell_color_feature, cell_color_hydrology,
     cell_color_noise, cell_color_plate, cell_color_terrain, cell_material,
+    living_surface_blended_color,
 };
-use super::view::{ClimateLayer, FeatureLayer, NoiseLayer, RenderMode};
+use super::view::{ClimateLayer, FeatureLayer, NoiseLayer, RenderMode, SurfacePalette};
 use super::visualization::{
     build_boundary_edge_colors, generate_pole_markers, generate_velocity_arrows,
 };
@@ -52,6 +55,8 @@ pub struct WorldBuffers {
     pub unified_vertex_buffer: wgpu::Buffer,
     pub unified_index_buffer: wgpu::Buffer,
     pub num_unified_indices: u32,
+    /// Presentation palette currently baked into the unified relief mesh.
+    pub surface_palette: SurfacePalette,
     // Relief wireframe: built lazily the first time edges are shown, so its
     // large allocation (hundreds of MiB at the 2.5M-cell fine mesh) never
     // coincides with the fill-mesh rebuild. `None` after every buffer regen.
@@ -75,6 +80,115 @@ pub struct WorldBuffers {
     pub pole_marker_index_buffer: wgpu::Buffer,
     pub num_arrow_vertices: u32,
     pub num_pole_marker_indices: u32,
+}
+
+fn build_unified_mesh<C>(world: &World, color_fn: C) -> UnifiedMesh
+where
+    C: Fn(usize) -> Vec3,
+{
+    let voronoi = &world.active_tessellation().voronoi;
+    let elevation = world
+        .active_elevation()
+        .expect("elevation must exist before rendering");
+    let elevation_for_cell = |i| {
+        if let Some(hydrology) = world.active_hydrology() {
+            if hydrology.is_ocean(i) {
+                return 0.0;
+            }
+            if hydrology.is_lake_water(i) {
+                return hydrology.basin(i).map(|b| b.water_level).unwrap_or(0.0);
+            }
+        }
+        elevation.values[i].max(0.0)
+    };
+
+    if world.shows_fine() {
+        UnifiedMesh::from_voronoi_shared_vertices(
+            voronoi,
+            color_fn,
+            |i| cell_material(world, i),
+            elevation_for_cell,
+        )
+    } else {
+        UnifiedMesh::from_voronoi_with_elevation(
+            voronoi,
+            color_fn,
+            |i| cell_material(world, i),
+            elevation_for_cell,
+        )
+    }
+}
+
+fn build_surface_palette_mesh(
+    world: &World,
+    palette: SurfacePalette,
+) -> Result<UnifiedMesh, &'static str> {
+    match palette {
+        SurfacePalette::Terrain => Ok(build_unified_mesh(world, |i| cell_color_terrain(world, i))),
+        SurfacePalette::LivingSurface => {
+            if world.view_stage() < 4 {
+                return Err("Living Surface requires the final Stage-4 surface");
+            }
+            let temperature = world
+                .active_temperature()
+                .ok_or("Living Surface requires final temperature")?;
+            let precipitation = world
+                .active_precipitation()
+                .ok_or("Living Surface requires final precipitation")?;
+            let hydrology = world
+                .active_hydrology()
+                .ok_or("Living Surface requires final hydrology")?;
+            let living = LivingSurfaceSemantics::build(
+                world.active_tessellation(),
+                temperature,
+                precipitation,
+                hydrology,
+            );
+            Ok(build_unified_mesh(world, |i| {
+                living_surface_blended_color(
+                    cell_color_terrain(world, i),
+                    living.cells[i].fractions,
+                    hydrology.is_submerged(i),
+                )
+            }))
+        }
+    }
+}
+
+/// Rebuild only the material-aware relief mesh for a presentation palette.
+/// Living Surface semantics are derived locally and dropped after colors have
+/// been baked into GPU vertices; `World` retains no ecology state.
+pub fn regenerate_surface_palette(
+    queue: &wgpu::Queue,
+    world: &World,
+    buffers: &mut WorldBuffers,
+    palette: SurfacePalette,
+) -> Result<(), &'static str> {
+    if buffers.surface_palette == palette {
+        return Ok(());
+    }
+    let mesh = build_surface_palette_mesh(world, palette)?;
+    if mesh.indices.len() as u32 != buffers.num_unified_indices {
+        return Err("surface palette unexpectedly changed relief topology");
+    }
+    let bytes = bytemuck::cast_slice(&mesh.vertices);
+    if bytes.len() as u64 != buffers.unified_vertex_buffer.size() {
+        return Err("surface palette unexpectedly changed relief vertex count");
+    }
+    queue.write_buffer(&buffers.unified_vertex_buffer, 0, bytes);
+    buffers.surface_palette = palette;
+    Ok(())
+}
+
+fn create_unified_vertex_buffer(
+    device: &wgpu::Device,
+    vertices: &[hex3::geometry::UnifiedVertex],
+) -> wgpu::Buffer {
+    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("unified_vertex"),
+        contents: bytemuck::cast_slice(vertices),
+        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+    })
 }
 
 impl WorldBuffers {
@@ -644,7 +758,6 @@ pub fn generate_world_buffers(
 ) -> WorldBuffers {
     let use_fine = world.shows_fine();
     let voronoi = &world.active_tessellation().voronoi;
-    let elevation = world.active_elevation().unwrap();
 
     let _t = Timed::debug("Build world buffers");
 
@@ -658,34 +771,9 @@ pub fn generate_world_buffers(
         ClimateLayer::Temperature,
     );
 
-    // Unified mesh with material-aware lighting for Relief mode
-    let elevation_for_cell = |i| {
-        if let Some(hydrology) = world.active_hydrology() {
-            if hydrology.is_ocean(i) {
-                return 0.0;
-            }
-            if hydrology.is_lake_water(i) {
-                return hydrology.basin(i).map(|b| b.water_level).unwrap_or(0.0);
-            }
-        }
-        elevation.values[i].max(0.0)
-    };
-
-    let unified_mesh = if use_fine {
-        UnifiedMesh::from_voronoi_shared_vertices(
-            voronoi,
-            |i| cell_color_terrain(world, i),
-            |i| cell_material(world, i),
-            elevation_for_cell,
-        )
-    } else {
-        UnifiedMesh::from_voronoi_with_elevation(
-            voronoi,
-            |i| cell_color_terrain(world, i),
-            |i| cell_material(world, i),
-            elevation_for_cell,
-        )
-    };
+    // Unified mesh with material-aware lighting for Relief mode.
+    let unified_mesh = build_surface_palette_mesh(world, SurfacePalette::Terrain)
+        .expect("ordinary terrain palette is available at every stage");
 
     // Edge lines: default gray + plates with colored boundaries
     let edge_color = Vec3::new(0.35, 0.35, 0.35);
@@ -832,13 +920,10 @@ pub fn generate_world_buffers(
         num_edge_vertices_plates: edge_vertices_plates.len() as u32,
 
         // Relief mode
-        unified_vertex_buffer: create_vertex_buffer(
-            device,
-            &unified_mesh.vertices,
-            "unified_vertex",
-        ),
+        unified_vertex_buffer: create_unified_vertex_buffer(device, &unified_mesh.vertices),
         unified_index_buffer: create_index_buffer(device, &unified_mesh.indices, "unified_index"),
         num_unified_indices: unified_mesh.indices.len() as u32,
+        surface_palette: SurfacePalette::Terrain,
         // Built lazily on first show; see generate_relief_edge_buffers.
         relief_edge: None,
 

@@ -14,13 +14,16 @@ it become a chronological activity log.
 
 ## Active focus
 
-**Living Surface V0 proof after the portfolio decision.** The cross-system pass
-and Water Geography V0 are complete. A bounded comparison selected
+**Return to the cross-system portfolio after the bounded Living Surface V0
+decision.** Water Geography V0 is complete. A bounded comparison selected
 [equilibrium fractional physiognomy](living-surface.md) over promoting the
-current ecology classifier, beginning source-to-sink sediment now, or making no
-expansion. Do not extend water geometry or tune biome labels by momentum. The
-semantic kernel and matched presentation packet now exist; the active task is
-the human visual stop-gate verdict.
+current ecology classifier, beginning source-to-sink sediment immediately, or
+making no expansion. Its on-demand kernel and matched presentation exist, and
+human inspection judged the blend an improvement over ordinary terrain. Retain
+it as a selectable semantic/presentation layer, not a new ecology stage. Do not
+extend into biome labels, regions or trees by momentum; the next choice should
+again compare current wrong/overbuilt systems, missing high-leverage systems
+and fundamental reworks against the project thesis.
 
 The kernel does not normalize away the supplied precipitation pattern, uses
 geometric contributing area and HAND-like drainage position, distinguishes lake
@@ -44,19 +47,18 @@ release derivation takes about 18 ms at 255,866 cells. The 48-byte record alone 
 366 MiB at 8M cells and the current working-set estimate approaches 0.5 GiB plus
 retained world inputs. Keep it on demand.
 
-Do not call this success yet. The final rule has only one regenerated world;
-its scalar maps still read primarily as climate bands plus low-HAND texture.
+Do not inflate the bounded success. The final rule has only one regenerated
+world; its scalar maps still read primarily as climate bands plus low-HAND texture.
 The matched comparison uses an ordinary Authentic control and
 the identical linear fractional color blend under Physical, Authentic and
 Dramatic relief, with fixed cameras, no rivers, no thresholds, no normalization
 and no semantic noise. The clean seed-12345 globe plus broadest-range,
-highest-discharge and terminal-lake packet is preliminarily unfavorable: the
-globe changes only subtly; regional views mostly expose broad climate/water
-bands and weak low-HAND texture rather than a new living identity. The ordinary
-control already contains flow-based greening, but it is the actual product
-baseline. Relief exaggeration helps terrain legibility but does not supply
-missing living geography. Keep V0 unpromoted until human inspection; a negative
-verdict should redirect attention to upstream climate expressiveness or missing
+highest-discharge and terminal-lake packet changes the globe subtly; regional
+views mostly expose broad climate/water bands and low-HAND texture. The ordinary
+control already contains flow-based greening, but human inspection still found
+the Living blend an improvement. That earns bounded selectable use, not a claim
+of calibrated ecology or complete living-geography grammar. Future attempts at
+stronger identity should address upstream climate expressiveness or missing
 causal state, not palette or cover-threshold tuning.
 
 The current ecology transform remains diagnostic evidence only. Its relative
@@ -165,8 +167,9 @@ another organization rung by momentum. Preserve H as a null, C as research
 machinery and the completed landform packet as reusable evidence. When mountain
 work resumes, start from real front topology, history and inherited material
 state. Water Geography V0 has established coherent inputs. Living Surface V0 is
-the leading first actual expansion candidate; persistent sediment remains
-behind its material/time/river-ownership design gate.
+now an accepted bounded on-demand layer, not the next active build. Return to
+the cross-system portfolio; persistent sediment remains behind its
+material/time/river-ownership design gate.
 
 The [landform object packet v0](research/landform-object-packet-v0-2026-07-14.md)
 freezes the arm-neutral evidence vocabulary and the completed

@@ -15,12 +15,13 @@ use hex3::render::{
 use hex3::world::{FineCacheMode, OrogenModel, VoronoiBackend, World};
 
 use super::view::{
-    ClimateLayer, FeatureLayer, NoiseLayer, ReliefPreset, RenderMode, RiverMode, ViewMode,
+    ClimateLayer, FeatureLayer, NoiseLayer, ReliefPreset, RenderMode, RiverMode, SurfacePalette,
+    ViewMode,
 };
 use super::world::{
     advance_to_stage_2, advance_to_stage_3, advance_to_stage_4, create_world_with_orogen_model,
     generate_colored_mesh, generate_elevation_mesh_buffers, generate_relief_edge_buffers,
-    generate_world_buffers, ErosionOverrides, WorldBuffers, NUM_CELLS,
+    generate_world_buffers, regenerate_surface_palette, ErosionOverrides, WorldBuffers, NUM_CELLS,
 };
 
 pub struct AppState {
@@ -32,6 +33,9 @@ pub struct AppState {
 
     pub view_mode: ViewMode,
     pub render_mode: RenderMode,
+    /// Requested presentation palette for the unified relief surface. Living
+    /// Surface is effective only on the final Stage-4 surface.
+    pub surface_palette: SurfacePalette,
 
     pub world_data: World,
     pub world_buffers: WorldBuffers,
@@ -135,6 +139,7 @@ impl AppState {
         println!("Ready! Drag to rotate, scroll to zoom.");
         println!("  Tab: toggle map view");
         println!("  1-8: Relief/Terrain/Elevation/Plates/Noise/Hydrology/Features/Climate");
+        println!("  1 again: cycle Relief palette (Terrain/Living Surface) [Stage 4]");
         println!("  E: toggle edges | V: cycle rivers (Off/Major/All)");
         println!("  X: cycle relief (Flat/Physical/Authentic/Dramatic)");
         println!("  H: toggle hemisphere lighting | D: export data");
@@ -149,6 +154,7 @@ impl AppState {
             camera_controller,
             view_mode: ViewMode::Globe,
             render_mode: RenderMode::Relief,
+            surface_palette: SurfacePalette::Terrain,
             world_data,
             world_buffers,
             seed,
@@ -219,6 +225,7 @@ impl AppState {
         self.inactive_buffers.clear(); // stale across a new world
         self.world_buffers =
             generate_world_buffers(&self.gpu.device, &self.gpu.queue, &self.world_data);
+        self.apply_surface_palette();
         self.seed = seed;
         self.rng = ChaCha8Rng::seed_from_u64(seed);
         self.gpu_particles = None; // Will be recreated on stage advance
@@ -254,6 +261,46 @@ impl AppState {
         self.world_buffers.colored_vertex_buffer = vertex_buffer;
         self.world_buffers.colored_index_buffer = index_buffer;
         self.world_buffers.num_colored_indices = num_indices;
+    }
+
+    /// Cycle the presentation-only relief palette. The Living Surface contract
+    /// consumes final terrain, climate and hydrology, so it is selectable only
+    /// while viewing Stage 4.
+    pub fn cycle_surface_palette(&mut self) -> bool {
+        if self.viewed_stage < 4 {
+            println!("Living Surface requires the final Stage-4 surface");
+            return false;
+        }
+        let previous = self.surface_palette;
+        self.surface_palette = self.surface_palette.cycle();
+        if !self.apply_surface_palette() {
+            self.surface_palette = previous;
+            return false;
+        }
+        println!("Relief palette: {}", self.surface_palette.name());
+        true
+    }
+
+    /// Ensure the active unified mesh matches the requested palette. Earlier
+    /// stages remain ordinary terrain while the Stage-4 choice stays armed.
+    fn apply_surface_palette(&mut self) -> bool {
+        let effective = if self.viewed_stage >= 4 {
+            self.surface_palette
+        } else {
+            SurfacePalette::Terrain
+        };
+        match regenerate_surface_palette(
+            &self.gpu.queue,
+            &self.world_data,
+            &mut self.world_buffers,
+            effective,
+        ) {
+            Ok(()) => true,
+            Err(error) => {
+                eprintln!("Could not apply {} palette: {error}", effective.name());
+                false
+            }
+        }
     }
 
     /// Advance to the next simulation stage.
@@ -327,6 +374,7 @@ impl AppState {
         if leaving != target {
             self.inactive_buffers.insert(leaving, prev);
         }
+        self.apply_surface_palette();
         // generate_world_buffers builds the colored mesh for Terrain; a non-Relief
         // mode needs its colored mesh re-derived for the now-active surface.
         if self.render_mode != RenderMode::Relief {
@@ -376,6 +424,7 @@ impl AppState {
         // Now regenerate buffers (needs immutable borrow of world_data)
         self.world_buffers =
             generate_world_buffers(&self.gpu.device, &self.gpu.queue, &self.world_data);
+        self.apply_surface_palette();
 
         println!(
             "Climate ratio: {:.2} | Lakes: {} with water, {} overflowing",
@@ -596,9 +645,10 @@ impl AppState {
         };
         let stage = self.viewed_stage;
         self.window.set_title(&format!(
-            "Hex3 - {} | {} | {} | Stage {} | {:.0} FPS",
+            "Hex3 - {} | {} | {} | {} | Stage {} | {:.0} FPS",
             view,
             self.render_mode.name(),
+            self.world_buffers.surface_palette.name(),
             self.relief_preset.name(),
             stage,
             self.current_fps

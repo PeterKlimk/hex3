@@ -156,8 +156,8 @@ the availability of a tunable subsystem.
 
 ## Horizon 3: choose the next world expansion
 
-Status: **active; Water Geography V0 complete, Living Surface V0 semantic proof
-implemented but not promoted**.
+Status: **active; Water Geography V0 complete, Living Surface V0 accepted as a
+bounded on-demand semantic/presentation layer**.
 
 Purpose: choose among missing systems and fundamental reworks using the Horizon
 2 evidence. No candidate is the default merely because an early prototype or
@@ -239,14 +239,13 @@ consumer consequence.
 
 The portfolio/design decision is complete: [Living Surface V0](living-surface.md)
 wins over promoting the existing classifier, beginning source-to-sink sediment
-now, or making no expansion. The next task is its bounded equilibrium-
-physiognomy proof, not biome-label calibration or a full ecology stage. Its
-semantic kernel and scalar packet now exist; the next discriminator is whether
-a matched blended/physical presentation reads as living geography rather than
-climate bands plus drainage lines. That packet now exists with a linear blend,
-matched relief/cameras and an ordinary-terrain control. Preliminary inspection
-is unfavorable and the human stop-gate verdict is pending; do not respond by
-tuning the diagnostic palette or adding biome labels.
+immediately, or making no expansion. Its equilibrium-physiognomy kernel,
+scalar packet and matched presentation now exist. Human inspection judged the
+linear fractional blend an improvement over the ordinary-terrain control, so
+it is retained as an on-demand selectable Stage-4 relief palette. This bounded
+acceptance does not authorize biome calibration, regions, trees or a full
+ecology stage. Return to the cross-system portfolio before choosing another
+build or fundamental rework.
 
 ### Sediment candidate: research and design gate
 
@@ -364,8 +363,9 @@ The current sequence is deliberately short:
    current lake/repair topology with explicit object-level provenance;
 3. **Completed:** bound Living Surface V0 against the existing ecological
    prototype, sediment and no expansion; select fractional physiognomy;
-4. implement the bounded Living Surface V0 proof and stop if it only paints
-   climate bands or drainage halos; and
+4. **Completed:** implement the bounded Living Surface V0 proof; retain its
+   useful causal fractions and selectable blend without promoting an ecology
+   stage; and
 5. keep sediment, human geography and renewed mountain forcing in their stated
    order and behind their gates.
 

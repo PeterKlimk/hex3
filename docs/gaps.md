@@ -36,10 +36,10 @@ visible consequences.
 ## Comparative matrix
 
 The completed disposition pass selected **Water Geography V0** as the immediate
-enabling slice; that slice now passes. **Living Surface V0** is the leading
-first-expansion proof and its bounded design review now passes. Persistent
-sediment is the leading large physical candidate and remains behind its own
-design gate.
+enabling slice; that slice now passes. **Living Surface V0** also passes its
+bounded proof and is retained as an on-demand semantic/presentation layer.
+Persistent sediment is the leading large physical candidate and remains behind
+its own design gate.
 
 | Candidate | Visible payoff | Emergence / reach | Cost / readiness | Provisional Pareto view |
 |---|---|---|---|---|
@@ -53,10 +53,10 @@ design gate.
 | Consistent scale-dependent rivers/overlays | High at globe/map scales | Medium; improves all thematic views | Medium; semantic generalization needed first | **Early** |
 | Elevation/unit/scale contract | Indirect visually, critical diagnostically | Very high across terrain, erosion and rendering | Low–medium; requires careful normalization audit | **Do early** |
 | Unified experiment/config provenance | Indirect but prevents invalid decisions | Very high across all development | Low–medium | **Do early** |
-| Biome constraints and ecological regions | Very high recognizability and world identity | High; consumes climate, water, elevation and future soils/resources | Medium; diagnostic prototype exposes unvalidated inputs, not an ecology stage | **Derive after selected fractional-cover proof** |
-| Vegetation coverage and scale-aware forest rendering | Very high spectacle and board/globe richness | Medium–high; feeds ecology, resources and settlement | Medium; split state from tree rendering | **Selected Living Surface V0; rendering follows semantic cover** |
+| Biome constraints and ecological regions | Very high recognizability and world identity | High; consumes climate, water, elevation and future soils/resources | Medium; diagnostic prototype exposes unvalidated inputs, not an ecology stage | **Still unselected; require a consumer and stronger causal grammar beyond the accepted fractional layer** |
+| Vegetation coverage and scale-aware forest rendering | Very high spectacle and board/globe richness | Medium–high; feeds ecology, resources and settlement | Medium; split state from tree rendering | **Fractional Living Surface cover accepted; forest rendering remains unselected and gated** |
 | Persistent sediment budget v0 | High potential at rivers, basins, coasts and range surroundings | Very high coupling across erosion, lithology, flexure and hydrology | Medium–high; time/material ownership needed | **Research then bounded prototype** |
-| Soil/moisture substrate | Moderate directly, high through vegetation/agriculture | High for ecology and civilization | Medium; depends partly on sediment/weathering choices | **After biome prototype clarifies need** |
+| Soil/moisture substrate | Moderate directly, high through vegetation/agriculture | High for ecology and civilization | Medium; depends partly on sediment/weathering choices | **After a concrete ecology, sediment or human-geography consumer clarifies need** |
 | Same-clock tectonics and erosion | Potentially high terrain authenticity | Very high if stable; connects mountain age, uplift and denudation | High; tectonic carrier operators currently fail convergence | **Research gate, not product rewrite yet** |
 | Force-derived plate motion | Low direct; potentially broad tectonic coherence | Medium–high | High uncertainty; current kinematics already useful | **Hold pending causal payoff study** |
 | Ocean currents and heat transport | Moderate/high regional climate/coast payoff | High for climate, ecology and ice | High; global dynamic solve not ready or necessary | **Research authentic shortcut** |
