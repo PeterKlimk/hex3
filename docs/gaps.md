@@ -35,15 +35,17 @@ visible consequences.
 
 ## Comparative matrix
 
-The completed disposition pass selects **Water Geography V0** as the immediate
-enabling slice, then conditionally a **Living Surface V0**. Persistent sediment
-is the leading large physical candidate but remains behind a design gate.
+The completed disposition pass selected **Water Geography V0** as the immediate
+enabling slice; that slice now passes. **Living Surface V0** is the leading
+first-expansion candidate but still requires a bounded design review. Persistent
+sediment is the leading large physical candidate and remains behind its own
+design gate.
 
 | Candidate | Visible payoff | Emergence / reach | Cost / readiness | Provisional Pareto view |
 |---|---|---|---|---|
 | Landform semantics: ranges, plateaus, ridges, valleys, divides and passes | High through inspection and feature-aware rendering | Very high across causal validation, cartography, ecology and later culture | Medium; the completed packet is reusable evidence but product definitions remain incomplete | **Retain evidence; continue only for a consumer** |
 | Regional mountain organization owner | Very high; targets tableland grammar and weak drainage hierarchy | Very high across terrain, water, climate barriers, semantics and later worlds | High; bounded H/C/G/F/I discriminators found no winning owner | **Park; replace forcing basis before resuming** |
-| Water-geography truth contract and object integration | High for lakes, rivers, coasts, inspection and cartography | Very high across climate validation, hydrology, ecology and later settlement | Low–medium; most physical/topological inputs already exist | **Immediate selected slice** |
+| Water-geography truth contract and object integration | High for lakes, rivers, coasts, inspection and cartography | Very high across climate validation, hydrology, ecology and later settlement | Low–medium; retained inputs, compact graph and exact diagnostic geometry now exist | **Completed enabling slice** |
 | Controlled correspondence batteries for current systems | Indirect visually; prevents expensive false confidence | Very high across tectonics, climate, hydrology, erosion and remapping | Low–medium; idealized cases and ablations | **Use inside bounded decisions** |
 | Presentation transform ledger plus matched physical/cartographic views | High clarity and prevents false geometric inference | High diagnostic and rendering leverage | Low; physical/cartographic split already exists | **Immediate** |
 | Explicit semantic objects and regions | High through inspection, cartography and later gameplay | Very high; reused by rendering, validation, ecology and civilization | Low–medium; much logic already exists implicitly | **Do early** |

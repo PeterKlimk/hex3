@@ -38,14 +38,16 @@ The pass should leave five durable products:
 The [model-strategy decision](model-strategy.md) selects a hybrid authentic
 systemic world generator. The first correspondence pass and
 [cross-system disposition](system-disposition.md) are complete enough to select
-Water Geography V0. This charter constrains that slice; it is not a mandate for
-further parameter optimization or a new global evaluation campaign.
+Water Geography V0, which has since passed its bounded exit gate. This charter
+continues to constrain portfolio decisions; it is not a mandate for further
+parameter optimization or a new global evaluation campaign.
 
 The first application is the preliminary
 [seed-12345 planet dossier](dossiers/seed-12345.md). It records causal lineage
-and object probes. A CPU packet now selects diverse named mountain, lake and
-river targets with sparse drainage-repair provenance; matched Windows views and
-diagnostic overlays remain required.
+and object probes. CPU packets select diverse named mountain, lake and river
+targets with sparse drainage-repair provenance. Matched non-particle relief and
+water-geography views now run on Linux/WSL as well as Windows; broader plate,
+pre/post-surface and climate overlays remain incomplete.
 
 The first corpus/research synthesis is maintained in
 [evaluation-synthesis.md](evaluation-synthesis.md); it remains provisional until
@@ -228,8 +230,9 @@ future consumers.
    matched views and make cross-system dispositions before choosing another
    stage.
 
-The first actual expansion remains conditional on Water Geography V0 providing
-coherent climate/water inputs. Small instrumentation or semantic extraction
-changes are allowed when they expose existing state without tuning the generated
-world. Local ablations require a specific object-level decision and stop
-condition; producing another optimizable metric is not sufficient reason.
+Water Geography V0 now provides coherent climate/water inputs. The first actual
+expansion remains conditional on a separate bounded design decision. Small
+instrumentation or semantic extraction changes are allowed when they expose
+existing state without tuning the generated world. Local ablations require a
+specific object-level decision and stop condition; producing another
+optimizable metric is not sufficient reason.

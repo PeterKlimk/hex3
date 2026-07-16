@@ -307,18 +307,19 @@ the integrated planet.
    ownership. Mountain work is parked pending real front topology, history and
    inherited material state. See the
    [landscape organization strategy](landscape-strategy.md).
-2. The strongest shared current seam is water geography: connected ocean
-   identity, moisture source, lakes/basins/outlets, river roles, repair
-   provenance, coasts and cartographic selection do not yet form one coherent
-   account.
-3. Coarse climate remains near a useful Pareto point, but transported moisture
-   must prove stable regional and hydrologic consequences over a cheaper
-   climatology inside Water Geography V0.
+2. Water Geography V0 now joins connected ocean identity, moisture source,
+   lakes/basins/outlets, river roles, repair provenance and exact raw coast
+   geometry into one coherent derived account. Scale-aware cartographic
+   selection remains consumer-owned.
+3. Coarse climate remains near a useful Pareto point. Transported moisture has
+   earned retention over the tested cheaper conditional climatology through
+   stable regional and hydrologic consequences plus manufactured causal signs.
 4. Semantic derivation and reproducible presentation profiles are comparatively
    cheap, high-leverage architecture, not substitutes for physical state.
-5. A bounded living surface is the likely first expansion once water/climate
-   inputs have declared meaning. Persistent sediment remains the strongest large
-   physical candidate, behind a deliberate time/material/river design gate.
+5. Water/climate inputs now have declared meaning. A bounded living surface is
+   the leading first-expansion candidate, but still needs a design review;
+   persistent sediment remains the strongest large physical candidate behind a
+   deliberate time/material/river gate.
 6. Geological time matters only if processes share it. A physical clock attached
    to otherwise uncoupled or non-convergent operators is not progress by itself.
 7. The implemented Stage 4 frontier leaves major creative space: living worlds

@@ -27,8 +27,10 @@ The first coherence and disposition pass is complete enough to choose work. It
 found a real mountain-organization defect but did not justify the tested deeper
 terrain owners. The broader decision in the
 [cross-system disposition](system-disposition.md) keeps the cheap causal spine,
-parks that mountain branch, and selects **Water Geography V0** as the next
-enabling slice. This is not a commitment to deepen every retained system.
+parks that mountain branch, and selected **Water Geography V0** as the next
+enabling slice. That slice has since passed its bounded exit gate; the next
+expansion still requires a separate portfolio/design decision. This is not a
+commitment to deepen every retained system.
 
 ## Alternatives considered
 

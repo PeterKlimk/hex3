@@ -30,19 +30,21 @@ spherical/adaptive geometry
 Shrink the experiment and configuration surface around it. The project has
 more valuable operators than valuable named model compositions.
 
-The next bounded slice is **water geography**, not another mountain model and
-not yet ecology or sediment. It joins climate source and runoff, connected
+The completed bounded enabling slice is **Water Geography V0**, not another
+mountain model. It joins climate source and runoff, connected
 ocean identity, basin/lake state, outlets and spills, drainage-repair
-provenance, river roles, coast/island hierarchy and scale-aware presentation.
+provenance, river roles, raw coast/landmass ownership and a declared
+presentation boundary.
 This is primarily a truth-contract and semantic integration pass over cheap
 systems already worth retaining. It does not require transient hydrology,
 seasons, ocean circulation, groundwater or coastal morphodynamics.
 
-If that slice establishes coherent inputs and readable objects, the first
-actual world expansion should be a bounded **living surface**: continuous
+That slice now establishes coherent inputs and readable raw objects. The first
+actual world-expansion candidate remains a bounded **living surface**: continuous
 ecological constraints, semantic regions, vegetation coverage and multiscale
 presentation. Persistent sediment remains the strongest large physical
-candidate, but follows a river/material/time design gate.
+candidate, but follows a river/material/time design gate. This is a portfolio
+direction, not authorization to skip a bounded living-surface design review.
 
 ## Dispositions
 
@@ -68,8 +70,8 @@ long-term ownership.
 | Default-off erosion, deposition and climate-feedback branches | **Quarantine** | Some branches remain useful isolated experiments | Zero defaults do not remove ownership and maintenance cost. Retire neutral or superseded paths rather than accumulating controls. |
 | Hydrologic topology and routing | **Retain** | Basins, outlets, spills, accumulation and flow topology are a central emergence engine and future input | Keep the physical/topological core; clarify transient claims, runoff units and resolution effects instead of replacing it with a deeper water solver. |
 | Equilibrium lakes and drainage integration | **Simplify** | Storage and terrain-repair hacks make difficult terrain usable and preserve exact sparse provenance | One lake-ratio dial is not whole-world climate. Bind lake state, outlet/spill relations and repair cuts to shared objects; judge object consequences before changing the hack. |
-| Water-body and river semantics | **Retain** | Shared identity, mouths, reaches, hierarchy and catchment policy cheaply support diagnostics and rendering | Separate catchment/discharge importance, hierarchy, trunk length and cartographic importance. Add scale generalization and comparison-sidecar ancestry without a generic entity framework. |
-| Coast and island semantics | **Research** | Cheap hierarchy/generalization can improve maps, inspection and later settlement immediately | Current coast is only the zero-elevation boundary. Derive semantic coasts/islands/straits now; dynamic coastal processes and deltas wait for sediment. |
+| Water-body and river semantics | **Retain** | Shared identity, mouths, reaches, hierarchy and catchment policy cheaply support diagnostics and rendering | Separate catchment/discharge importance, hierarchy, trunk length and cartographic importance. Add scale generalization or comparison-sidecar ancestry only for a concrete consumer, without a generic entity framework. |
+| Coast and island semantics | **Retain** | Exact categorical shoreline loops, landmass ownership and raw topology cheaply support inspection and later consumers | Current coast is still a datum/repair-dependent cell-mask boundary, not a coastal process. Add straits or scale generalization only for a concrete map, ecology or settlement consumer; dynamic coastal processes and deltas wait for sediment. |
 | Drainage-repair provenance | **Retain** | Exact cuts explain where authoritative terrain was changed | Make repair contribution visible in river, lake, range and capture evidence. Do not call repair erosion or assume every repaired object is invalid. |
 | Ecology/biome prototype | **Quarantine** | Continuous constraints and uncertainty are useful diagnostic scaffolding | It is implemented semantics, not an ecology stage. Do not calibrate labels or create product dependencies before climate/water correspondence. |
 | Glacial shaping pass | **Quarantine** | A later cryosphere could provide high-latitude water and terrain consequences | The current pass lacks ice mass balance, dynamics, widening and loading; do not use it as generic mountain texture. |
@@ -78,21 +80,22 @@ long-term ownership.
 | Stage orchestration, snapshots and cache | **Simplify** | Retained stages and caches support inspection and iteration | Keep snapshot semantics, but add a dependency graph only when ecology/sediment creates concrete invalidation pressure. Do not build framework first. |
 | Diagnostics, corpus and experiment tooling | **Simplify** | Reproducible evidence and operator tests prevent false promotion | Move shared promoted measurements into library adapters; keep historical or invalid probes out of normal product configuration and contributor workflow. |
 | Persistent sediment | **Research** | One conserved mobile/deposited material could connect erosion, basins, floodplains, deltas, coasts, soil and loading | Require one visible source-to-sink target, explicit time/units, river ownership and memory budget before implementation. No stratigraphic simulator. |
-| Living surface | **Research** | Climate, terrain and water can yield major visual identity, ecological regions and inputs to resources/settlement | Conditional next expansion after water geography. Begin with continuous limitations, regions and coverage—not succession or individual-tree ecology. |
+| Living surface | **Research** | Climate, terrain and water can yield major visual identity, ecological regions and inputs to resources/settlement | Leading expansion candidate now that water geography passes, but require a bounded design review. Begin with continuous limitations, regions and coverage—not succession or individual-tree ecology. |
 | Human geography | **Research** | Traversability, resources, routes and settlement can make geography consequential and produce board-like stories | Follow living geography with aggregate suitability/routes/settlement before agents, economies or full civilization simulation. |
 
-## Shared unresolved seam: water geography
+## Resolved shared seam: water geography
 
-Several apparently separate defects share one ownership problem:
+Before V0, several apparently separate defects shared one ownership problem:
 
-- climate currently decides moisture sources before connected-ocean identity;
-- lake storage can change independently of precipitation, rivers and erosion;
-- lake survival and area change materially with fine resolution;
-- river “major” status conflates catchment, hierarchy, length and visibility;
-- repair cuts can contribute to selected trunks and ranges without appearing in
-  their semantic provenance;
-- coast/island hierarchy and topology-aware generalization do not exist; and
-- Globe/Map and surface paths do not consistently present the same objects.
+- climate decided moisture sources before connected-ocean identity;
+- lake storage could change independently of precipitation, rivers and erosion;
+- lake survival and area changed materially with fine resolution;
+- river “major” status conflated catchment, hierarchy, length and visibility;
+- repair cuts could contribute to selected trunks and ranges without appearing
+  in their semantic provenance;
+- coast ownership and exact raw loops did not exist, while topology-aware
+  generalization still does not; and
+- Globe/Map and surface paths did not consistently present the same objects.
 
 A shared account should relate, without conflating:
 
@@ -130,11 +133,18 @@ measured drift is only 0.003–0.004% of reaction throughput in this fixture;
 retain that as bounded numerical debt. Together these results retain
 transported moisture for its current product role. They do not validate how
 the production atmosphere derives wind and orographic uplift from terrain.
-Raw coast loops/generalization and true event-level repair provenance remain
-open; current hydrology does not retain enough information to reconstruct the
-latter honestly.
+An on-demand geometry derivative now retains exact water-left ocean/lake loops,
+per-cell landmass ownership and full potential spill routes without bloating
+the compact dossier. Its bounded generated-world contract reconciles loop
+lengths and spill destinations with the compact graph, and the representative
+packet has no unresolved topology. Human inspection reads the selected subjects
+as two exterior-water islands and an inset lake with an outflow; this is enough
+to accept the raw system, not evidence for coastal grammar or cartographic
+quality. Scale generalization, straits and true event-level repair provenance
+remain future consumer questions; current hydrology does not retain enough
+information to reconstruct the latter honestly.
 
-## Next bounded slice: Water Geography V0
+## Completed bounded slice: Water Geography V0
 
 ### Product question
 
@@ -158,10 +168,12 @@ already informative worlds:
 4. **Completed relationship graph:** derive one shared water-geography report:
    oceans, ranked landmasses/coast ownership, lakes, basins, traced outlets,
    spills, river mouths/reaches/trunks and repair-cut contribution;
-5. distinguish physical supply, network hierarchy, longest trunk and
-   cartographic importance; and
-6. inspect the same objects in Physical, Diagnostic and Cartographic views with
-   scale-appropriate framing.
+5. **Completed for retained semantics:** distinguish physical supply, network
+   hierarchy and longest trunk; cartographic importance remains presentation
+   policy rather than another hydrologic truth; and
+6. **Completed at the bounded acceptance level:** inspect matched ordinary
+   physical/presentation and exact diagnostic views. A generalized coast map is
+   deferred until a real consumer defines its scale and preservation needs.
 
 Do not add seasons, dynamic weather, ocean circulation, groundwater, wetlands,
 vegetation, sediment transport, coastal evolution or erosion tuning inside
@@ -178,12 +190,22 @@ this slice.
 - Advance the living-surface slice only when ecological inputs have declared
   meaning and water objects are coherent enough to consume.
 
+### Exit verdict
+
+**Passed, complete enough to leave the active queue.** Transported moisture is
+cheap, causally consequential and preferable to the tested conditional null.
+Hydrology, water ownership, river roles, repair provenance and exact raw
+shoreline/spill geometry now form a coherent derived account. The human packet
+review found the topology understandable and the system operational. It did
+not validate naturalistic coast grammar, lake morphology, transient discharge
+or cartographic generalization, none of which is claimed by V0.
+
 ## Pareto frontier after this decision
 
-1. **Water Geography V0** — immediate enabling slice; low–medium cost and broad
+1. **Water Geography V0** — completed enabling slice; low–medium cost and broad
    leverage.
-2. **Living Surface V0** — likely first expansion; very high visible payoff,
-   conditional on the water/climate result.
+2. **Living Surface V0** — leading first-expansion candidate; very high visible
+   payoff, subject to a bounded design review rather than automatic build-out.
 3. **Source-to-sink Sediment V0** — strongest large physical coupling, but
    requires a design gate for river ownership, time, mass and memory.
 4. **Geography-to-human semantics** — aggregate productivity, traversability,

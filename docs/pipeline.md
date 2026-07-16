@@ -174,10 +174,10 @@ their present behavior rather than silently inventing a cleaner API.
 
 ## Beyond Stage 4
 
-No Stage 5 or later number is currently canonical. Water Geography V0 is the
-selected enabling slice over current climate/hydrology/semantic state; Living
-Surface V0 is the conditional first expansion. Other candidates include
-cryosphere, persistent sediment and soils, resources, and eventually
+No Stage 5 or later number is currently canonical. Water Geography V0 is a
+completed enabling slice over current climate/hydrology/semantic state; Living
+Surface V0 is the leading but not-yet-authorized first expansion. Other
+candidates include cryosphere, persistent sediment and soils, resources, and eventually
 culture/civilization. Their dependency shape is likely a graph rather than a
 simple numbered sequence:
 

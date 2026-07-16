@@ -14,13 +14,12 @@ it become a chronological activity log.
 
 ## Active focus
 
-**Water Geography V0.** The cross-system pass is complete and recorded in the
-[current disposition](system-disposition.md). The next bounded slice joins
-climate/runoff value, connected-ocean identity, basin/lake/outlet state, river
-roles, drainage-repair provenance, coast/island hierarchy and scale-aware
-presentation. It is an enabling truth-contract pass over cheap retained
-systems, not another global metrics campaign and not yet a new ecology or
-sediment stage.
+**Portfolio reset after Water Geography V0.** The cross-system pass and water
+enabling slice are complete and recorded in the
+[current disposition](system-disposition.md). Do not extend the accepted raw
+water geometry by momentum. The active question is which bounded new system
+has the best visible cross-domain payoff: Living Surface V0, the more expensive
+source-to-sink sediment candidate, or no expansion pending a clearer target.
 
 The first implementation seam now closes the most direct contradiction:
 atmosphere and hydrology share one connected, crust-qualified, area-thresholded
@@ -62,6 +61,14 @@ unresolved edges. This earns inspection, not promotion of a coast hierarchy.
 Straits, scale generalization, shoreline antialiasing and event-level repair
 identity remain open.
 
+Human review of the representative packet accepts the raw system. The coast
+subject reads as a pair of landmasses in exterior sea; the lake reads as an
+inset water body with a connecting outflow. Route direction is not strongly
+communicated, but that is a diagnostic-glyph issue rather than a topology
+failure. Do not spend another pass polishing this packet. Water Geography V0
+is complete enough to leave the active queue; its remaining items belong to a
+future scale-specific presentation, coastal-process or repair-event consumer.
+
 The first comparison exposed and fixed a prerequisite contract bug: with all
 fine climate modifiers disabled, `fine_precipitation` returned before
 normalization, so adaptive transfer changed the hydrologic-land mean from the
@@ -101,9 +108,9 @@ Do not continue the R1 arithmetic ladder, tune legacy mountain profiles or add
 another organization rung by momentum. Preserve H as a null, C as research
 machinery and the completed landform packet as reusable evidence. When mountain
 work resumes, start from real front topology, history and inherited material
-state. If Water Geography V0 establishes coherent inputs, Living Surface V0 is
-the likely first actual expansion; persistent sediment remains behind its
-material/time/river-ownership design gate.
+state. Water Geography V0 has established coherent inputs. Living Surface V0 is
+the leading first actual expansion candidate; persistent sediment remains
+behind its material/time/river-ownership design gate.
 
 The [landform object packet v0](research/landform-object-packet-v0-2026-07-14.md)
 freezes the arm-neutral evidence vocabulary and the completed
@@ -966,9 +973,9 @@ explicit persistent skeleton, or a physical channel-initiation threshold.
 - Coastline is currently a zero-elevation boundary after a target-land-fraction
   datum shift and hydrologic repair, not a coastal process or water-volume
   solution.
-- There is now a deterministic per-stage landmass area hierarchy and explicit
-  coast ownership, but no raw closed-loop geometry, continent/island naming,
-  strait topology or topology-preserving scale generalization.
+- There is now a deterministic per-stage landmass area hierarchy, explicit
+  coast ownership and exact raw closed-loop geometry. Continent/island naming,
+  strait topology and topology-preserving scale generalization remain absent.
 - Range/plateau/pass/valley/divide semantics remain provisional; water and
   river semantics are further along but incomplete.
 - Persistent sediment/source-to-sink, storage/wetlands, cryosphere, soils,

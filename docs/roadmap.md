@@ -156,16 +156,19 @@ the availability of a tunable subsystem.
 
 ## Horizon 3: choose the next world expansion
 
-Status: **active; Water Geography V0 selected as the enabling slice**.
+Status: **active; Water Geography V0 complete, next expansion not yet
+authorized**.
 
 Purpose: choose among missing systems and fundamental reworks using the Horizon
 2 evidence. No candidate is the default merely because an early prototype or
 research note exists.
 
-The current frontier is ordered rather than tied:
+The current frontier is ordered rather than tied; the first item is completed
+infrastructure rather than another active build:
 
-1. water geography: climate/runoff value, connected ocean identity, lakes,
-   basins, outlets, river roles, repair provenance, coasts and presentation;
+1. completed water geography: climate/runoff value, connected ocean identity,
+   lakes, basins, outlets, river roles, repair provenance, coasts and
+   presentation;
 2. living surface: ecological constraints, semantic regions, vegetation
    coverage and multiscale presentation, conditional on coherent inputs;
 3. source-to-sink geography: persistent sediment, basin fill, floodplains and
@@ -179,6 +182,8 @@ outcome, meaningful downstream leverage, explicit cost and a discriminating
 vertical-slice test.
 
 ### Water Geography V0: selected enabling slice
+
+Status: **complete enough to leave the active queue**.
 
 - **Implemented diagnostic comparison:** project transported precipitation onto
   a low-capacity latitude–elevation–connected-ocean-distance climatology and
@@ -203,17 +208,21 @@ vertical-slice test.
   Voronoi-mask loops, landmass ownership and full spill routes on demand, then
   inspect them in a matched physical/diagnostic headless packet. Raw geometry
   stays out of compact dossiers and ordinary rendering;
-- inspect the representative packet before choosing any cartographic
-  generalization; do not infer continent/island labels or straits from
-  connectivity alone;
-- distinguish discharge/catchment importance, network hierarchy, longest trunk
-  and cartographic importance; and
-- inspect the same objects in Physical, Diagnostic and Cartographic views.
+- **Completed human geometry review:** the packet reads as two landmasses in
+  exterior sea and an inset lake with an outflow. The core topology works; the
+  automatic subjects are not evidence of rich coastal grammar;
+- **Completed retained-role separation:** discharge/catchment importance,
+  network hierarchy and longest trunk remain distinct. Cartographic importance
+  is deferred to a scale-specific presentation consumer; and
+- **Completed bounded matched inspection:** ordinary physical/presentation and
+  exact diagnostic views are sufficient for V0. Do not infer continent/island
+  labels or straits from connectivity alone.
 
 Exit gate: the retained climate and hydrology have declared meanings, stable
 causal consequences and coherent objects suitable for presentation and a
-living-surface consumer. Do not add seasons, ocean circulation, groundwater,
-sediment, vegetation or erosion tuning inside this slice.
+living-surface consumer. **This gate passes.** Do not add seasons, ocean
+circulation, groundwater, sediment, vegetation or erosion tuning inside this
+slice.
 
 The conditional projection is an in-world diagnostic null, not a cheap
 replacement: it is fitted from product precipitation and the representative
@@ -227,6 +236,11 @@ its face-flux discretization differs from atmosphere projection; these are
 declared numerical debts rather than reasons to start a climate rewrite. Do
 not broaden this into a climate feature or tuning campaign without a concrete
 consumer consequence.
+
+The next task is a portfolio/design decision, not automatic ecology
+implementation: bound Living Surface V0 against the existing ecological
+prototype and the sediment source-to-sink candidate, then select the smallest
+new system with visible cross-domain payoff.
 
 ### Sediment candidate: research and design gate
 
@@ -338,13 +352,12 @@ benefit recommendation, not only a survey.
 
 The current sequence is deliberately short:
 
-1. implement **Water Geography V0** as the bounded climate/water truth-contract
-   and semantic integration slice described above;
-2. decide whether transported moisture earns retention over the cheap baseline
-   and whether current lake/repair hacks remain acceptable with object-level
-   provenance;
-3. if the inputs are coherent, design and build **Living Surface V0** as the
-   first actual expansion; and
+1. **Completed:** implement **Water Geography V0** as the bounded climate/water
+   truth-contract and semantic integration slice described above;
+2. **Completed:** retain transported moisture over the cheap null and accept
+   current lake/repair topology with explicit object-level provenance;
+3. bound **Living Surface V0** against the existing ecological prototype and
+   the sediment candidate before authorizing the first actual expansion; and
 4. keep sediment, human geography and renewed mountain forcing in their stated
    order and behind their gates.
 
