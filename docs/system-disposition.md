@@ -113,9 +113,11 @@ consumer demonstrates a need for persistent lineage.
 
 Implementation progress: the first seam uses one connected-ocean classifier for
 climate coast distance, moisture sourcing and hydrology. A compact derived
-report covers aggregate water/land components, shoreline, basin/lake state,
-distinct river roles, repair footprint and consistency. Dossier schema v3 adds
-the frozen-terrain conditional-climatology comparison; its nested schema v2 can
+report covers water/land components, ranked landmasses, landmass-to-ocean coast
+ownership, basin/lake state, independently traced spill destinations, distinct
+river roles, repair footprint and consistency. Dossier schema v4 contains this
+water-geography schema v2 relationship graph and the frozen-terrain
+conditional-climatology comparison; its nested climatology schema v3 can
 optionally retain map fields. The canonical 1M ten-seed panel rejects the null
 as a replacement: it removes coherent geographic structure and materially
 changes river supply and roles despite identical routing. A deterministic
@@ -128,7 +130,9 @@ measured drift is only 0.003–0.004% of reaction throughput in this fixture;
 retain that as bounded numerical debt. Together these results retain
 transported moisture for its current product role. They do not validate how
 the production atmosphere derives wind and orographic uplift from terrain.
-Coast geometry/generalization and event-level repair provenance remain open.
+Raw coast loops/generalization and true event-level repair provenance remain
+open; current hydrology does not retain enough information to reconstruct the
+latter honestly.
 
 ## Next bounded slice: Water Geography V0
 
@@ -149,10 +153,11 @@ already informative worlds:
 2. **Completed at the moisture-input seam:** use matched flat/ridge and forward/
    reverse-wind controls to establish fetch drying, barrier-side response and
    an explicit moisture ledger without a parameter sweep;
-3. use connected ocean identity consistently when attributing moisture source;
-4. derive one shared water-geography report: oceans, lakes, basins, outlets,
-   spills, river mouths/reaches/trunks, coast/island hierarchy and repair-cut
-   contribution;
+3. **Completed:** use connected ocean identity consistently when attributing
+   moisture source;
+4. **Completed relationship graph:** derive one shared water-geography report:
+   oceans, ranked landmasses/coast ownership, lakes, basins, traced outlets,
+   spills, river mouths/reaches/trunks and repair-cut contribution;
 5. distinguish physical supply, network hierarchy, longest trunk and
    cartographic importance; and
 6. inspect the same objects in Physical, Diagnostic and Cartographic views with

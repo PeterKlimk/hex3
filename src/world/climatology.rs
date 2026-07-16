@@ -14,7 +14,7 @@ use super::{
     WaterBodySemantics, WaterGeographyReport,
 };
 
-pub const CLIMATOLOGY_NULL_REPORT_SCHEMA_VERSION: u32 = 2;
+pub const CLIMATOLOGY_NULL_REPORT_SCHEMA_VERSION: u32 = 3;
 const MARGINAL_BIN_COUNT: usize = 4;
 const ESTIMATOR: &str = "land-only in-sample area-weighted joint conditional mean: signed-sin-latitude x pre-hydrology-elevation x connected-ocean-distance";
 

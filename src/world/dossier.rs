@@ -13,7 +13,7 @@ use super::{
     WaterGeographyReport, World, PLANET_RADIUS_KM,
 };
 
-pub const DOSSIER_SCHEMA_VERSION: u32 = 3;
+pub const DOSSIER_SCHEMA_VERSION: u32 = 4;
 const MOUNTAIN_ELEVATION_KM: f32 = 1.5;
 const SIGNIFICANT_MOUNTAIN_AREA_KM2: f32 = 20_000.0;
 const TARGET_LIMIT: usize = 3;

@@ -27,15 +27,28 @@ atmosphere and hydrology share one connected, crust-qualified, area-thresholded
 ocean classifier. Inland below-datum basins no longer act as zero-distance
 coasts or evaporation sources, and precipitation normalization now uses the
 area-weighted land supply that hydrology integrates. The dossier carries a
-derived whole-world water-geography report for components, shoreline,
-basin/lake state, independent river roles, repair footprint and consistency.
-Dossier schema v3 adds the intended conditional projection: product
+derived whole-world water-geography report for ranked landmasses,
+semantic-ocean coast ownership, basin/lake state, explicit spill destinations,
+independent river roles, repair footprint and consistency. Dossier schema v4
+adds this water-geography schema v2 graph alongside the intended conditional
+projection: product
 precipitation is reduced to a low-capacity joint function of signed latitude,
 authoritative pre-hydrology elevation and connected-ocean distance; land supply
 is preserved; and hydrology is rerun from the same input
 terrain. This is a per-world decomposition, not a standalone replacement
-climate. Climatology-report schema v2 can optionally retain the paired per-cell
+climate. Climatology-report schema v3 can optionally retain the paired per-cell
 fields for mapping without bloating ordinary dossier packets.
+
+The relationship pass deliberately calls disconnected dry components
+**landmasses**, ordered by area, rather than manufacturing a continent/island
+threshold. Each coast relation binds a landmass to an existing semantic ocean
+and closes back to the aggregate coastline length. Each basin has an
+independently traced potential spill route whose destination distinguishes
+ocean, another basin and unresolved self/cycle/no-drainage cases; present
+overflow state remains separate. The generated 400-cell contract world has no
+unresolved routes. Route-cut overlap is exact, but post-integration basin/source
+overlap is not recovered per-breach event causality. Raw coast loops, straits,
+scale generalization and event-level repair identity remain open.
 
 The first comparison exposed and fixed a prerequisite contract bug: with all
 fine climate modifiers disabled, `fine_precipitation` returned before
@@ -941,7 +954,9 @@ explicit persistent skeleton, or a physical channel-initiation threshold.
 - Coastline is currently a zero-elevation boundary after a target-land-fraction
   datum shift and hydrologic repair, not a coastal process or water-volume
   solution.
-- There is no stable island/coast hierarchy or topology-aware generalization.
+- There is now a deterministic per-stage landmass area hierarchy and explicit
+  coast ownership, but no raw closed-loop geometry, continent/island naming,
+  strait topology or topology-preserving scale generalization.
 - Range/plateau/pass/valley/divide semantics remain provisional; water and
   river semantics are further along but incomplete.
 - Persistent sediment/source-to-sink, storage/wetlands, cryosphere, soils,

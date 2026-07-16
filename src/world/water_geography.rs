@@ -1,9 +1,10 @@
 //! Compact whole-world water-geography account derived from retained hydrology.
 //!
-//! This module adds no physical state or geographic identity. It summarizes one
-//! tessellation and its already-derived water and river semantics so causal
-//! comparisons can use the same definitions for oceans, land, lakes, rivers,
-//! coastlines, and drainage-integration provenance.
+//! This module adds no physical state or persistent cross-stage identity. It
+//! summarizes one retained hydrology stage and gives its components and
+//! relationships compact, deterministic identities so causal comparisons can
+//! use the same definitions for oceans, landmasses, lakes, rivers, coastlines,
+//! spill routes, and drainage-integration provenance.
 
 use std::collections::VecDeque;
 
@@ -11,10 +12,10 @@ use serde::Serialize;
 
 use super::{
     elevation_to_km, solid_angle_to_km2, Hydrology, RiverNetwork, SemanticWaterKind, Tessellation,
-    WaterBodySemantics, WaterOutlet, PLANET_RADIUS_KM,
+    WaterBodyId, WaterBodySemantics, WaterOutlet, PLANET_RADIUS_KM,
 };
 
-pub const WATER_GEOGRAPHY_REPORT_SCHEMA_VERSION: u32 = 1;
+pub const WATER_GEOGRAPHY_REPORT_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Clone, Debug, Serialize)]
 pub struct WaterGeographyReport {
@@ -27,12 +28,85 @@ pub struct WaterGeographyReport {
     pub rivers: RiverGeographySummary,
     pub integration: DrainageIntegrationSummary,
     pub consistency: WaterGeographyConsistency,
+    /// Hydrologic ocean components, ordered by descending area then anchor cell.
+    pub ocean_components: Vec<OceanComponentObject>,
+    /// Geographic land components, ordered by descending area then anchor cell.
+    /// This is a scale-neutral hierarchy, not a continent/island classification.
+    pub landmasses: Vec<LandmassObject>,
+    pub ocean_coasts: Vec<OceanCoastRelation>,
+    pub basin_spills: Vec<BasinSpillRelation>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct OceanComponentObject {
+    pub water_body_id: WaterBodyId,
+    pub anchor_cell: usize,
+    pub cell_count: usize,
+    pub area_km2: f32,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct LandmassObject {
+    pub anchor_cell: usize,
+    pub cell_count: usize,
+    pub area_km2: f32,
+    pub ocean_coastline_km: f32,
+    pub inland_shoreline_km: f32,
+    pub adjacent_ocean_water_body_ids: Vec<WaterBodyId>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct OceanCoastRelation {
+    pub landmass_anchor_cell: usize,
+    pub ocean_water_body_id: WaterBodyId,
+    pub edge_count: usize,
+    pub length_km: f32,
+    pub anchor_land_cell: usize,
+    pub anchor_ocean_cell: usize,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct BasinSpillRelation {
+    pub basin_id: usize,
+    pub inland_water_body_ids: Vec<WaterBodyId>,
+    pub wet: bool,
+    pub overflowing: bool,
+    /// The first cell outside the basin, not the spill saddle itself.
+    pub spill_target_cell: usize,
+    pub spill_elevation_km: f32,
+    pub water_elevation_km: f32,
+    pub destination: BasinSpillDestination,
+    /// Potential topographic route from `spill_target_cell`, whether or not the
+    /// basin's present water level activates overflow.
+    pub route_cell_count: usize,
+    pub route_integration_cut_cell_count: usize,
+    pub route_maximum_integration_cut_depth_km: f32,
+    /// This retained basin overlaps cells marked as a pre-integration breached source.
+    /// It does not reconstruct identity of the pre-integration basin or event.
+    pub overlaps_breached_source_cells: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case", tag = "kind", content = "target")]
+pub enum BasinSpillDestination {
+    Ocean(WaterBodyId),
+    Basin(usize),
+    Unresolved(BasinSpillUnresolvedReason),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum BasinSpillUnresolvedReason {
+    NoDrainage,
+    SelfBasin,
+    Cycle,
+    MissingOceanOwner,
 }
 
 #[derive(Clone, Debug, Serialize)]
 pub struct OceanGeographySummary {
     pub component_count: usize,
-    /// Descending component areas; no per-cell membership is retained.
+    /// Descending component areas; compact component objects are reported separately.
     pub component_areas_km2: Vec<f32>,
     pub total_area_km2: f32,
 }
@@ -41,6 +115,7 @@ pub struct OceanGeographySummary {
 pub struct LandGeographySummary {
     pub component_count: usize,
     /// Descending component areas; geographic land means any non-submerged cell.
+    /// Compact landmass objects are reported separately.
     pub component_areas_km2: Vec<f32>,
     pub total_area_km2: f32,
     /// Shared Voronoi boundary between geographic land and connected ocean.
@@ -138,11 +213,26 @@ impl WaterGeographyReport {
         let areas = tessellation.cell_areas_ref();
         let ocean_mask: Vec<bool> = (0..n).map(|cell| hydrology.is_ocean(cell)).collect();
         let land_mask: Vec<bool> = (0..n).map(|cell| !hydrology.is_submerged(cell)).collect();
-        let ocean_areas = component_areas(tessellation, &ocean_mask, areas);
-        let land_areas = component_areas(tessellation, &land_mask, areas);
+        let ocean_catalog = component_catalog(tessellation, &ocean_mask, areas);
+        let land_catalog = component_catalog(tessellation, &land_mask, areas);
+        let ocean_areas: Vec<f32> = ocean_catalog
+            .iter()
+            .map(|component| component.area_km2)
+            .collect();
+        let land_areas: Vec<f32> = land_catalog
+            .iter()
+            .map(|component| component.area_km2)
+            .collect();
 
-        let (ocean_coastline_km, inland_shoreline_km) =
-            shoreline_lengths(tessellation, hydrology, &land_mask);
+        let ocean_components = ocean_component_objects(&ocean_catalog, water)?;
+        let (landmasses, ocean_coasts) =
+            landmass_objects(tessellation, hydrology, water, &land_catalog)?;
+        let ocean_coastline_km = ocean_coasts.iter().map(|coast| coast.length_km).sum();
+        let inland_shoreline_km = landmasses
+            .iter()
+            .map(|landmass| landmass.inland_shoreline_km)
+            .sum();
+        let basin_spills = basin_spill_relations(hydrology, water);
 
         let mut inland_water = InlandWaterSummary {
             lake_count: 0,
@@ -359,6 +449,10 @@ impl WaterGeographyReport {
             rivers: river_summary,
             integration,
             consistency,
+            ocean_components,
+            landmasses,
+            ocean_coasts,
+            basin_spills,
         })
     }
 }
@@ -394,6 +488,20 @@ fn validate_inputs(
         return Err("water geography requires cell-aligned river semantics".into());
     }
     if rivers.mouths.iter().any(|&cell| cell >= n)
+        || hydrology
+            .drainage_dir
+            .iter()
+            .flatten()
+            .any(|&cell| cell >= n)
+        || hydrology
+            .basin_id
+            .iter()
+            .flatten()
+            .any(|&basin| basin >= hydrology.basins.len())
+        || hydrology
+            .basins
+            .iter()
+            .any(|basin| basin.spill_target_cell >= n || basin.cells.iter().any(|&cell| cell >= n))
         || water
             .cell_body
             .iter()
@@ -404,13 +512,29 @@ fn validate_inputs(
             .iter()
             .flat_map(|body| body.cells.iter())
             .any(|&cell| cell >= n)
+        || water.bodies.iter().any(|body| {
+            body.id
+                .basin_id
+                .is_some_and(|basin| basin >= hydrology.basins.len())
+        })
     {
         return Err("water geography semantic object contains an out-of-range cell".into());
     }
     Ok(())
 }
 
-fn component_areas(tessellation: &Tessellation, mask: &[bool], areas: &[f32]) -> Vec<f32> {
+#[derive(Debug)]
+struct ComponentCatalogEntry {
+    members: Vec<usize>,
+    anchor_cell: usize,
+    area_km2: f32,
+}
+
+fn component_catalog(
+    tessellation: &Tessellation,
+    mask: &[bool],
+    areas: &[f32],
+) -> Vec<ComponentCatalogEntry> {
     let mut visited = vec![false; mask.len()];
     let mut result = Vec::new();
     for start in 0..mask.len() {
@@ -420,8 +544,10 @@ fn component_areas(tessellation: &Tessellation, mask: &[bool], areas: &[f32]) ->
         visited[start] = true;
         let mut queue = VecDeque::from([start]);
         let mut area = 0.0;
+        let mut members = Vec::new();
         while let Some(cell) = queue.pop_front() {
             area += solid_angle_to_km2(areas[cell]);
+            members.push(cell);
             for &next in tessellation.neighbors(cell) {
                 if mask[next] && !visited[next] {
                     visited[next] = true;
@@ -429,32 +555,248 @@ fn component_areas(tessellation: &Tessellation, mask: &[bool], areas: &[f32]) ->
                 }
             }
         }
-        result.push(area);
+        members.sort_unstable();
+        result.push(ComponentCatalogEntry {
+            anchor_cell: members[0],
+            members,
+            area_km2: area,
+        });
     }
-    result.sort_by(|a, b| b.total_cmp(a));
+    result.sort_by(|a, b| {
+        b.area_km2
+            .total_cmp(&a.area_km2)
+            .then_with(|| a.anchor_cell.cmp(&b.anchor_cell))
+    });
     result
 }
 
-fn shoreline_lengths(
+fn semantic_ocean_id(water: &WaterBodySemantics, cell: usize) -> Option<WaterBodyId> {
+    let body = water.cell_body[cell].and_then(|index| water.bodies.get(index))?;
+    (body.kind == SemanticWaterKind::Ocean).then_some(body.id)
+}
+
+fn ocean_component_objects(
+    catalog: &[ComponentCatalogEntry],
+    water: &WaterBodySemantics,
+) -> Result<Vec<OceanComponentObject>, String> {
+    catalog
+        .iter()
+        .map(|component| {
+            let mut ids: Vec<WaterBodyId> = component
+                .members
+                .iter()
+                .filter_map(|&cell| semantic_ocean_id(water, cell))
+                .collect();
+            sort_water_body_ids(&mut ids);
+            ids.dedup();
+            if ids.len() != 1 {
+                return Err(format!(
+                    "hydrologic ocean component at cell {} has {} semantic ocean owners",
+                    component.anchor_cell,
+                    ids.len()
+                ));
+            }
+            Ok(OceanComponentObject {
+                water_body_id: ids[0],
+                anchor_cell: component.anchor_cell,
+                cell_count: component.members.len(),
+                area_km2: component.area_km2,
+            })
+        })
+        .collect()
+}
+
+fn sort_water_body_ids(ids: &mut [WaterBodyId]) {
+    ids.sort_by_key(|id| (id.basin_id, id.anchor_cell));
+}
+
+fn landmass_objects(
     tessellation: &Tessellation,
     hydrology: &Hydrology,
-    land_mask: &[bool],
-) -> (f32, f32) {
-    let mut ocean = 0.0;
-    let mut inland = 0.0;
-    for (cell, &is_land) in land_mask.iter().enumerate() {
-        if !is_land {
+    water: &WaterBodySemantics,
+    catalog: &[ComponentCatalogEntry],
+) -> Result<(Vec<LandmassObject>, Vec<OceanCoastRelation>), String> {
+    let mut landmasses = Vec::with_capacity(catalog.len());
+    let mut all_relations = Vec::new();
+    for component in catalog {
+        let mut inland_shoreline_km = 0.0;
+        let mut relations: Vec<OceanCoastRelation> = Vec::new();
+        for &cell in &component.members {
+            for &next in tessellation.neighbors(cell) {
+                let length_km = tessellation.shared_edge_length(cell, next) * PLANET_RADIUS_KM;
+                if hydrology.is_ocean(next) {
+                    let ocean_id = semantic_ocean_id(water, next).ok_or_else(|| {
+                        format!("ocean coast cell {next} lacks a semantic ocean owner")
+                    })?;
+                    if let Some(relation) = relations
+                        .iter_mut()
+                        .find(|relation| relation.ocean_water_body_id == ocean_id)
+                    {
+                        relation.edge_count += 1;
+                        relation.length_km += length_km;
+                        if (cell, next) < (relation.anchor_land_cell, relation.anchor_ocean_cell) {
+                            relation.anchor_land_cell = cell;
+                            relation.anchor_ocean_cell = next;
+                        }
+                    } else {
+                        relations.push(OceanCoastRelation {
+                            landmass_anchor_cell: component.anchor_cell,
+                            ocean_water_body_id: ocean_id,
+                            edge_count: 1,
+                            length_km,
+                            anchor_land_cell: cell,
+                            anchor_ocean_cell: next,
+                        });
+                    }
+                } else if hydrology.is_lake_water(next) {
+                    inland_shoreline_km += length_km;
+                }
+            }
+        }
+        relations.sort_by_key(|relation| {
+            (
+                relation.ocean_water_body_id.basin_id,
+                relation.ocean_water_body_id.anchor_cell,
+            )
+        });
+        let ocean_coastline_km = relations.iter().map(|relation| relation.length_km).sum();
+        let adjacent_ocean_water_body_ids = relations
+            .iter()
+            .map(|relation| relation.ocean_water_body_id)
+            .collect();
+        landmasses.push(LandmassObject {
+            anchor_cell: component.anchor_cell,
+            cell_count: component.members.len(),
+            area_km2: component.area_km2,
+            ocean_coastline_km,
+            inland_shoreline_km,
+            adjacent_ocean_water_body_ids,
+        });
+        all_relations.extend(relations);
+    }
+    Ok((landmasses, all_relations))
+}
+
+fn basin_spill_relations(
+    hydrology: &Hydrology,
+    water: &WaterBodySemantics,
+) -> Vec<BasinSpillRelation> {
+    let mut inland_ids = vec![Vec::new(); hydrology.basins.len()];
+    for body in &water.bodies {
+        if body.kind == SemanticWaterKind::Ocean {
             continue;
         }
-        for &next in tessellation.neighbors(cell) {
-            if hydrology.is_ocean(next) {
-                ocean += tessellation.shared_edge_length(cell, next) * PLANET_RADIUS_KM;
-            } else if hydrology.is_lake_water(next) {
-                inland += tessellation.shared_edge_length(cell, next) * PLANET_RADIUS_KM;
+        if let Some(basin_id) = body.id.basin_id {
+            if let Some(ids) = inland_ids.get_mut(basin_id) {
+                ids.push(body.id);
             }
         }
     }
-    (ocean, inland)
+    for ids in &mut inland_ids {
+        sort_water_body_ids(ids);
+        ids.dedup();
+    }
+
+    let ocean_owners: Vec<Option<WaterBodyId>> = (0..hydrology.elevation.len())
+        .map(|cell| semantic_ocean_id(water, cell))
+        .collect();
+    let mut visit_stamps = vec![0usize; hydrology.elevation.len()];
+
+    hydrology
+        .basins
+        .iter()
+        .enumerate()
+        .map(|(basin_id, basin)| {
+            let trace = trace_spill_route(
+                basin_id,
+                basin.spill_target_cell,
+                &hydrology.is_ocean,
+                &hydrology.basin_id,
+                &hydrology.drainage_dir,
+                &ocean_owners,
+                &mut visit_stamps,
+                basin_id + 1,
+            );
+            let route_integration_cut_cell_count = trace
+                .cells
+                .iter()
+                .filter(|&&cell| hydrology.was_lowered_by_integration(cell))
+                .count();
+            let route_maximum_integration_cut_depth_km = trace
+                .cells
+                .iter()
+                .map(|&cell| elevation_to_km(hydrology.integration_cut_depth(cell)))
+                .fold(0.0, f32::max);
+            BasinSpillRelation {
+                basin_id,
+                inland_water_body_ids: inland_ids[basin_id].clone(),
+                wet: basin.has_water(),
+                overflowing: basin.is_overflowing(),
+                spill_target_cell: basin.spill_target_cell,
+                spill_elevation_km: elevation_to_km(basin.spill_elevation),
+                water_elevation_km: elevation_to_km(basin.water_level),
+                destination: trace.destination,
+                route_cell_count: trace.cells.len(),
+                route_integration_cut_cell_count,
+                route_maximum_integration_cut_depth_km,
+                overlaps_breached_source_cells: basin
+                    .cells
+                    .iter()
+                    .any(|&cell| hydrology.integration_breached_source[cell]),
+            }
+        })
+        .collect()
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct SpillTrace {
+    destination: BasinSpillDestination,
+    cells: Vec<usize>,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn trace_spill_route(
+    source_basin: usize,
+    target_cell: usize,
+    is_ocean: &[bool],
+    basin_id: &[Option<usize>],
+    drainage_dir: &[Option<usize>],
+    ocean_owners: &[Option<WaterBodyId>],
+    visit_stamps: &mut [usize],
+    stamp: usize,
+) -> SpillTrace {
+    let mut cells = Vec::new();
+    let mut cell = target_cell;
+    let destination = loop {
+        if visit_stamps[cell] == stamp {
+            break BasinSpillDestination::Unresolved(BasinSpillUnresolvedReason::Cycle);
+        }
+        visit_stamps[cell] = stamp;
+        cells.push(cell);
+
+        if is_ocean[cell] {
+            break match ocean_owners[cell] {
+                Some(id) => BasinSpillDestination::Ocean(id),
+                None => {
+                    BasinSpillDestination::Unresolved(BasinSpillUnresolvedReason::MissingOceanOwner)
+                }
+            };
+        }
+        if let Some(destination_basin) = basin_id[cell] {
+            break if destination_basin == source_basin {
+                BasinSpillDestination::Unresolved(BasinSpillUnresolvedReason::SelfBasin)
+            } else {
+                BasinSpillDestination::Basin(destination_basin)
+            };
+        }
+        cell = match drainage_dir[cell] {
+            Some(next) => next,
+            None => {
+                break BasinSpillDestination::Unresolved(BasinSpillUnresolvedReason::NoDrainage);
+            }
+        };
+    };
+    SpillTrace { destination, cells }
 }
 
 fn river_role(
@@ -660,6 +1002,7 @@ mod tests {
         let report =
             WaterGeographyReport::build(&tessellation, &hydrology, &water, &rivers).unwrap();
 
+        assert_eq!(report.schema_version, 2);
         assert!(report.ocean.component_count > 0);
         assert!(report.land.component_count > 0);
         assert!(report.land.ocean_coastline_km > 0.0);
@@ -690,6 +1033,197 @@ mod tests {
         assert_eq!(
             report.consistency.semantic_ocean_component_count,
             report.consistency.hydrologic_ocean_component_count
+        );
+
+        assert_eq!(report.ocean_components.len(), report.ocean.component_count);
+        assert_eq!(report.landmasses.len(), report.land.component_count);
+        assert_eq!(
+            report
+                .ocean_components
+                .iter()
+                .map(|component| component.cell_count)
+                .sum::<usize>(),
+            (0..n).filter(|&cell| hydrology.is_ocean(cell)).count()
+        );
+        assert_eq!(
+            report
+                .landmasses
+                .iter()
+                .map(|landmass| landmass.cell_count)
+                .sum::<usize>(),
+            (0..n).filter(|&cell| !hydrology.is_submerged(cell)).count()
+        );
+        assert_close(
+            report
+                .ocean_components
+                .iter()
+                .map(|component| component.area_km2)
+                .sum(),
+            report.ocean.total_area_km2,
+        );
+        assert_close(
+            report
+                .landmasses
+                .iter()
+                .map(|landmass| landmass.area_km2)
+                .sum(),
+            report.land.total_area_km2,
+        );
+
+        let coast_length: f32 = report
+            .ocean_coasts
+            .iter()
+            .map(|relation| relation.length_km)
+            .sum();
+        assert_eq!(coast_length, report.land.ocean_coastline_km);
+        for relation in &report.ocean_coasts {
+            assert!(relation.edge_count > 0);
+            assert!(relation.length_km > 0.0);
+            assert!(report
+                .landmasses
+                .iter()
+                .any(|landmass| landmass.anchor_cell == relation.landmass_anchor_cell));
+            assert!(water.bodies.iter().any(|body| {
+                body.kind == SemanticWaterKind::Ocean && body.id == relation.ocean_water_body_id
+            }));
+        }
+
+        assert_eq!(report.basin_spills.len(), hydrology.basins.len());
+        for (basin_id, relation) in report.basin_spills.iter().enumerate() {
+            let basin = &hydrology.basins[basin_id];
+            assert_eq!(relation.basin_id, basin_id);
+            assert_eq!(relation.spill_target_cell, basin.spill_target_cell);
+            assert_eq!(relation.wet, basin.has_water());
+            assert_eq!(relation.overflowing, basin.is_overflowing());
+            assert!(relation.route_cell_count > 0);
+            assert!(relation.route_integration_cut_cell_count <= relation.route_cell_count);
+            assert!(relation.route_maximum_integration_cut_depth_km >= 0.0);
+            assert!(
+                relation.route_maximum_integration_cut_depth_km
+                    <= report.integration.maximum_cut_depth_km
+            );
+            assert!(relation.inland_water_body_ids.iter().all(|id| {
+                id.basin_id == Some(basin_id) && water.bodies.iter().any(|body| body.id == *id)
+            }));
+        }
+        let unresolved: Vec<_> = report
+            .basin_spills
+            .iter()
+            .filter_map(|spill| match spill.destination {
+                BasinSpillDestination::Unresolved(reason) => Some((spill.basin_id, reason)),
+                _ => None,
+            })
+            .collect();
+        eprintln!("generated water-geography unresolved spills: {unresolved:?}");
+
+        let second =
+            WaterGeographyReport::build(&tessellation, &hydrology, &water, &rivers).unwrap();
+        assert_eq!(
+            serde_json::to_value(&report).unwrap(),
+            serde_json::to_value(&second).unwrap()
+        );
+    }
+
+    fn assert_close(actual: f32, expected: f32) {
+        let scale = actual.abs().max(expected.abs()).max(1.0);
+        assert!((actual - expected).abs() <= 1.0e-6 * scale);
+    }
+
+    #[test]
+    fn spill_trace_distinguishes_every_terminal_state() {
+        let ocean_id = WaterBodyId {
+            basin_id: None,
+            anchor_cell: 3,
+        };
+        let is_ocean = vec![false, false, false, true, false, true];
+        let basin_id = vec![None, None, Some(7), None, None, None];
+        let ocean_owners = vec![None, None, None, Some(ocean_id), None, None];
+        let mut stamps = vec![0; 6];
+
+        let ocean = trace_spill_route(
+            5,
+            0,
+            &is_ocean,
+            &basin_id,
+            &[Some(1), Some(3), None, None, None, None],
+            &ocean_owners,
+            &mut stamps,
+            1,
+        );
+        assert_eq!(ocean.destination, BasinSpillDestination::Ocean(ocean_id));
+        assert_eq!(ocean.cells, vec![0, 1, 3]);
+
+        let basin = trace_spill_route(
+            5,
+            2,
+            &is_ocean,
+            &basin_id,
+            &[None; 6],
+            &ocean_owners,
+            &mut stamps,
+            2,
+        );
+        assert_eq!(basin.destination, BasinSpillDestination::Basin(7));
+
+        let self_basin = trace_spill_route(
+            7,
+            2,
+            &is_ocean,
+            &basin_id,
+            &[None; 6],
+            &ocean_owners,
+            &mut stamps,
+            3,
+        );
+        assert_eq!(
+            self_basin.destination,
+            BasinSpillDestination::Unresolved(BasinSpillUnresolvedReason::SelfBasin)
+        );
+
+        let no_drainage = trace_spill_route(
+            5,
+            4,
+            &is_ocean,
+            &basin_id,
+            &[None; 6],
+            &ocean_owners,
+            &mut stamps,
+            4,
+        );
+        assert_eq!(
+            no_drainage.destination,
+            BasinSpillDestination::Unresolved(BasinSpillUnresolvedReason::NoDrainage)
+        );
+
+        let cycle = trace_spill_route(
+            5,
+            0,
+            &is_ocean,
+            &basin_id,
+            &[Some(1), Some(0), None, None, None, None],
+            &ocean_owners,
+            &mut stamps,
+            5,
+        );
+        assert_eq!(
+            cycle.destination,
+            BasinSpillDestination::Unresolved(BasinSpillUnresolvedReason::Cycle)
+        );
+        assert_eq!(cycle.cells, vec![0, 1]);
+
+        let missing_owner = trace_spill_route(
+            5,
+            5,
+            &is_ocean,
+            &basin_id,
+            &[None; 6],
+            &ocean_owners,
+            &mut stamps,
+            6,
+        );
+        assert_eq!(
+            missing_owner.destination,
+            BasinSpillDestination::Unresolved(BasinSpillUnresolvedReason::MissingOceanOwner)
         );
     }
 }

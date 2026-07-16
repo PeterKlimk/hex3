@@ -196,8 +196,12 @@ vertical-slice test.
 - **Completed first report:** derive aggregate oceans/land components,
   shoreline, lakes/basins, distinct river roles, repair contribution and
   consistency checks in the existing dossier path;
-- extend that report only where the baseline comparison needs explicit
-  outlets/spills, coast geometry or object correspondence;
+- **Completed compact relationship graph:** retain ranked landmass objects,
+  landmass-to-ocean coast ownership and one independently traced spill relation
+  per basin, including exact route overlap with sparse integration cuts;
+- derive raw coastline loops/generalization only for a concrete presentation
+  consumer; do not infer continent/island labels or straits from connectivity
+  alone;
 - distinguish discharge/catchment importance, network hierarchy, longest trunk
   and cartographic importance; and
 - inspect the same objects in Physical, Diagnostic and Cartographic views.

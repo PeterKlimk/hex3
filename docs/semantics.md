@@ -85,18 +85,30 @@ packet. It does not add physical state or persistent identity. From one retained
 hydrology surface plus `WaterBodySemantics` and `RiverNetwork`, it records:
 
 - connected ocean and geographic-land component counts and descending areas;
-- ocean coastline and classified-lake shoreline length;
+- compact per-stage ocean and landmass objects with deterministic anchors;
+- exact aggregate coast ownership between each landmass and semantic ocean,
+  plus ocean-coastline and classified-lake shoreline length;
 - basin, lake, pond, terminal and overflow counts;
+- one spill relation per basin, separating present overflow state from the
+  potential topographic route and resolving ocean, downstream-basin and
+  unresolved destinations explicitly;
 - river mouth/reach counts and independent highest-discharge, longest-trunk and
   highest-Strahler roles;
-- drainage-integration cut/source footprint and intersection with selected
-  channel masks; and
+- drainage-integration cut/source footprint, selected-channel intersection and
+  cut overlap along each retained spill route; and
 - semantic ownership, component and mouth consistency failures.
 
-An overflowing basin with `overflow_target == None` is reported only as having
-no basin target. Current hydrology uses that representation for normal ocean
-exit as well as rare unresolved/cyclic walks, so the report does not manufacture
-a distinction that retained physical provenance cannot support.
+The spill relation independently traces from the retained outside target cell;
+it does not reinterpret `overflow_target == None` as ocean. The target is not
+the spill saddle, which hydrology does not retain. Likewise, overlap between a
+post-integration basin and the breached-source mask is evidence, not recovered
+per-breach event identity.
+
+Landmasses are ordered by physical area. The report deliberately does not label
+them continents or islands: that distinction needs geological and scale policy,
+not connectivity alone. Raw coastline loops and cartographic simplification are
+also separate future products; the compact report retains ownership and weight
+without serializing every fine-mesh boundary edge.
 
 ## Ownership
 
@@ -125,10 +137,12 @@ modeled input changed.
 - Ponds/wetlands need a more deliberate ecological and presentation policy.
 - River generalization still selects cells; geometry simplification and
   zoom-dependent reach aggregation remain future cartographic work.
-- Land/ocean components currently retain aggregate ranked areas rather than
-  reusable coast geometry, strait topology or cross-resolution ancestry.
-- Drainage integration retains exact sparse cuts but not per-breach event
-  identity, reason or endpoint kind.
+- Land/ocean components now retain compact ranked identity and coast ownership,
+  but not raw loops, strait topology, scale generalization or cross-resolution
+  ancestry.
+- Spill routes expose destination and cut overlap, but hydrology still does not
+  retain the exact saddle edge, merged-cycle external saddle or per-breach event
+  identity/reason.
 
 ## Ecology and biome proxies
 

@@ -16,14 +16,15 @@ Current dossiers:
 
 CPU spatial packets are generated with the `dossier` binary. Their JSON
 artifacts contain exact run manifests, selected-object coordinates, the
-aggregate water-geography report and the schema-v3 diagnostic conditional-
-climatology comparison. The comparison holds supplied terrain and temperature
+schema-v2 water-geography relationship graph and the schema-v3 diagnostic
+conditional-climatology comparison within dossier schema v4. The comparison
+holds supplied terrain and temperature
 fixed, preserves total land runoff and reports the water geography induced by
 the simpler latitude/elevation/ocean-distance projection. Artifacts are ignored
 by Git; maintained interpretation belongs in the dossier documents.
 
 Ordinary packets omit full fields. For a bounded spatial review, opt in to the
-nested climatology schema-v2 arrays and render the paired map directly:
+nested climatology schema-v3 arrays and render the paired map directly:
 
 ```bash
 cargo run --release --bin dossier -- \

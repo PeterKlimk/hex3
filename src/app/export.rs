@@ -12,6 +12,8 @@ use serde::Serialize;
 
 use hex3::world::{CrustType, World};
 
+const WORLD_EXPORT_SCHEMA_VERSION: u32 = 1;
+
 /// Export world data to a JSON file (optionally gzipped).
 ///
 /// Export always reflects the LATEST computed stage, not whatever stage is
@@ -45,6 +47,7 @@ pub fn export_world(world: &mut World, seed: u64, path: &Path) {
 
 #[derive(Serialize)]
 struct WorldExport {
+    schema_version: u32,
     manifest: hex3::world::RunManifest,
     metadata: Metadata,
     cells: CellData,
@@ -175,6 +178,7 @@ struct NoiseData {
 #[derive(Serialize)]
 struct HydrologyData {
     flow_accumulation: Vec<f32>,
+    is_ocean: Vec<bool>,
     is_lake: Vec<bool>,
     lake_surface: Vec<Option<f32>>,
 }
@@ -386,30 +390,25 @@ impl WorldExport {
 
         let hydrology_data = hydrology.map(|h| {
             let mut flow_accumulation = Vec::with_capacity(num_cells);
+            let mut is_ocean = Vec::with_capacity(num_cells);
             let mut is_lake = Vec::with_capacity(num_cells);
             let mut lake_surface = Vec::with_capacity(num_cells);
 
             for i in 0..num_cells {
                 flow_accumulation.push(h.flow_accumulation[i]);
-
-                let basin_idx = h.basin_id[i];
-                if let Some(idx) = basin_idx {
-                    let basin = &h.basins[idx];
-                    if basin.has_water() {
-                        is_lake.push(true);
-                        lake_surface.push(Some(basin.water_level));
-                    } else {
-                        is_lake.push(false);
-                        lake_surface.push(None);
-                    }
+                is_ocean.push(h.is_ocean(i));
+                let lake = h.is_lake_water(i);
+                is_lake.push(lake);
+                lake_surface.push(if lake {
+                    h.basin_id[i].map(|basin| h.basins[basin].water_level)
                 } else {
-                    is_lake.push(false);
-                    lake_surface.push(None);
-                }
+                    None
+                });
             }
 
             HydrologyData {
                 flow_accumulation,
+                is_ocean,
                 is_lake,
                 lake_surface,
             }
@@ -508,6 +507,7 @@ impl WorldExport {
             });
 
         Self {
+            schema_version: WORLD_EXPORT_SCHEMA_VERSION,
             manifest: world.manifest(),
             metadata: Metadata {
                 seed,
