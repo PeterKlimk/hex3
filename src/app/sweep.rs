@@ -2433,7 +2433,7 @@ fn site_positions(tess: &Tessellation, selection: &AggregateSiteSelection) -> Ve
 fn baseline_site_probe_config() -> SiteSelectionConfig {
     SiteSelectionConfig {
         site_count: 20,
-        candidate_pool_size: 160,
+        candidate_pool_size: 512,
         maximum_total_catchment_cell_visits: 2_000_000,
         minimum_site_spacing_km: 900.0,
         candidate_spacing_km: 200.0,
@@ -2447,9 +2447,9 @@ fn baseline_site_probe_config() -> SiteSelectionConfig {
     }
 }
 
-fn diagnostic_oracle_site_probe_config() -> SiteSelectionConfig {
+fn diagnostic_coarse_support_site_probe_config() -> SiteSelectionConfig {
     SiteSelectionConfig {
-        candidate_pool_size: 512,
+        candidate_pool_size: 160,
         ..baseline_site_probe_config()
     }
 }
@@ -2766,14 +2766,14 @@ fn run_consequential_geography_packet(opts: &SweepOptions) {
     let baseline_positions = site_positions(tess, &baseline.record.selection);
     variants.push(baseline);
     variants.push(select_probe_variant(
-        "diagnostic-oracle-512",
-        "non-product diagnostic oracle with the maximum bounded candidate support",
-        "candidate support cap raised from 160 to 512; every other prior and factor is identical to baseline",
+        "diagnostic-coarse-support-160",
+        "non-product diagnostic with deliberately under-resolved candidate support",
+        "candidate support cap reduced from 512 to 160; every other prior and factor is identical to baseline",
         Vec3::new(0.95, 0.95, 0.95),
         &components,
         tess,
         hydrology,
-        diagnostic_oracle_site_probe_config(),
+        diagnostic_coarse_support_site_probe_config(),
         Some(&baseline_positions),
     ));
     variants.push(select_probe_variant(
@@ -2977,7 +2977,7 @@ fn run_consequential_geography_packet(opts: &SweepOptions) {
         },
         "truth_contract": [
             "all variants use one unchanged Stage-4 physical world and matched cameras",
-            "the 512-candidate oracle is a bounded diagnostic comparator, not a proposed product configuration",
+            "the 160-candidate coarse-support arm is a deliberately under-resolved diagnostic comparator, not a proposed product configuration",
             "sites are deterministic aggregate opportunity anchors, not settlements, population, culture, resources, ownership, or persistent identities",
             "freshwater means selected aggregate rivers or proper-lake shores; coast means semantic ocean coast",
             "living opportunity is accepted Living Surface vegetation cover, not productivity, yield, or carrying capacity",
@@ -2986,7 +2986,7 @@ fn run_consequential_geography_packet(opts: &SweepOptions) {
         ],
         "known_limitations": [
             "the baseline, tight, and loose configurations are an authored diagnostic prior panel, not fitted or calibrated",
-            "the 512-candidate diagnostic oracle is still a bounded maximin support, not exhaustive evaluation of every eligible cell",
+            "the 512-candidate baseline is still a bounded maximin support, not exhaustive evaluation of every eligible cell",
             "neutral-score ties remain cell-ID-dependent",
             "nearest-site comparison is directional from each variant anchor to the baseline set and does not solve optimal bipartite matching",
             "marker rings and crosses have a fixed angular size and are cartographic annotations, not site extent",
@@ -3298,7 +3298,7 @@ mod tests {
 
     use super::{
         apply_knob, baseline_site_probe_config, build_stack_tiles, compare_site_positions,
-        diagnostic_oracle_site_probe_config, loose_site_probe_config, robust_scale,
+        diagnostic_coarse_support_site_probe_config, loose_site_probe_config, robust_scale,
         selected_orogen_model, tight_site_probe_config, SweepTarget,
     };
     use crate::app::coloring::{
@@ -3345,7 +3345,9 @@ mod tests {
     #[test]
     fn site_probe_prior_panel_is_valid_and_ordered() {
         let baseline = baseline_site_probe_config().validate().unwrap();
-        let oracle = diagnostic_oracle_site_probe_config().validate().unwrap();
+        let coarse = diagnostic_coarse_support_site_probe_config()
+            .validate()
+            .unwrap();
         let tight = tight_site_probe_config().validate().unwrap();
         let loose = loose_site_probe_config().validate().unwrap();
         assert!(tight.minimum_site_spacing_km > baseline.minimum_site_spacing_km);
@@ -3360,10 +3362,11 @@ mod tests {
         );
         assert_eq!(baseline.site_count, tight.site_count);
         assert_eq!(baseline.site_count, loose.site_count);
-        assert_eq!(oracle.candidate_pool_size, 512);
-        assert_eq!(oracle.site_count, baseline.site_count);
+        assert_eq!(baseline.candidate_pool_size, 512);
+        assert_eq!(coarse.candidate_pool_size, 160);
+        assert_eq!(coarse.site_count, baseline.site_count);
         assert_eq!(
-            oracle.maximum_total_catchment_cell_visits,
+            coarse.maximum_total_catchment_cell_visits,
             baseline.maximum_total_catchment_cell_visits
         );
     }
