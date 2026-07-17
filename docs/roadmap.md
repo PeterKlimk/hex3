@@ -123,6 +123,15 @@ preference-neutral, physically diverse candidate support plus the same tiered
 counterfactual, not routes or parameter tuning. See the
 [site-probe audit](audits/consequential-geography-site-probe-2026-07-17.md).
 
+That correction now passes the collapse discriminator: joint river/coast
+anchors fall to 11/60, the support contains all requested relationship classes,
+and 512-candidate selection costs less than 0.3 s at about 255k cells. It remains
+a provisional route-discriminator input, not a product prior. Freshwater and
+catchment-scale living opportunity matter strongly; coast matters modestly;
+site-local grade is nearly inert. The next implementation is one bounded sparse
+route network whose terrain/gap response must earn the missing grade consequence.
+Do not add population or calibrate site weights first.
+
 Kill condition: if authored weights dominate geography or the result is a
 decorative overlay, stop. Retain only useful traversability/access semantics.
 

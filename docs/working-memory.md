@@ -75,6 +75,19 @@ tier, and compare with a 512-candidate diagnostic oracle. Do not respond by
 tuning the coast bonus, spacing or river threshold. If collapse survives diverse
 support, the next owner is exact-source semantic saturation.
 
+The factor-neutral follow-up passes that specific blocker. A 160-candidate
+cover is under-resolved relative to 512, losing 13--15% of total authored score
+and retaining only 5--20% of its anchors; 512 costs 230--288 ms at 255k cells
+and is now the diagnostic baseline. Exact joint river/coast anchors fall from
+60/60 to 11/60, with freshwater-only, coast-only and merely viable near-water
+sites represented. Uniform freshwater and living opportunity now produce the
+strong causal changes; coast is modest; grade/traversal retains 90--100% of
+anchors. Use this as provisional route-discriminator input, not a frozen site
+prior. Remember the remaining debts: 55--90% of anchors are still exact selected
+river sources, no proper lake is the nearest source in this panel, and combined
+tight/loose gates rewrite many choices. The route slice must test terrain/gap
+consequences rather than conceal weak site-grade evidence.
+
 The current ecology transform remains diagnostic evidence only. Its relative
 moisture normalization cancels planetary wetness changes; its freshwater input
 is distance from map-selected rivers/lakes rather than drainage-relative

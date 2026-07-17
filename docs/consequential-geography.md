@@ -2,7 +2,8 @@
 
 Status: **selected roadmap priority; traversal/access and configurable
 aggregate-site operators implemented and operator-tested; first representative
-site prior rejected; no frozen product site prior, routes, promotion, default,
+site prior rejected and factor-neutral correction provisionally accepted for a
+route discriminator; no frozen product site prior, routes, promotion, default,
 population state or Stage 5**, 2026-07-17.
 
 ## Product question
@@ -394,6 +395,23 @@ passes. If joint-source collapse persists under diverse support, replace the
 exact source-cell singular optimum with a comfortable-access or catchment-level
 relationship rather than adjusting weights.
 
+That correction is now implemented and rerun. Hard viability feeds a
+factor-neutral maximin physical cover, with all support anchors and relationship
+tier counts retained. A 160-candidate cover proved under-resolved relative to
+the bounded 512-candidate comparator, so 512 is the diagnostic baseline: it
+costs 230--288 ms at roughly 255,000 cells and better matches the 450
+generalized-km catchment scale.
+
+The corrected baseline reduces exact joint river/coast anchors from 60/60 to
+11/60 and selects freshwater-only, coast-only and merely freshwater-viable
+alternatives. Freshwater and catchment-scale living opportunity are strongly
+consequential; coast is a modest resolver; site-local grade/traversal changes
+only 0--10% of exact anchors. The corrected operator is therefore a provisional
+input to one bounded route discriminator, not an accepted product prior. Most
+anchors still lie exactly on selected rivers, lakes do not win nearest-source
+relationships in this panel, and the combined tight/loose arms remain highly
+sensitive. See the audit for the exact counts and costs.
+
 ## Implementation boundary
 
 The smallest honest implementation sequence is:
@@ -401,11 +419,12 @@ The smallest honest implementation sequence is:
 1. Build and test physical edge cost plus named opportunity/access components.
    **Implemented at operator level.**
 2. Add deterministic spaced site selection with explanation records.
-   **Implemented as a configurable operator; the first product-prior candidate
-   is rejected because preference-weighted preselection starves catchment
-   evaluation.**
+   **Implemented as a configurable operator. The first preference-weighted
+   proposal is rejected; its factor-neutral correction passes the collapse
+   blocker and is provisionally usable for route evaluation, but is not a
+   frozen product prior.**
 3. Add one bounded sparse route network and route-local relationships.
-   **Blocked on corrected site candidate support.**
+   **Next bounded discriminator; not yet implemented.**
 4. Run the counterfactual packet and make one pass/kill/reduce decision.
    **First site-only packet complete; it rejects the initial proposal and does
    not authorize routes.**

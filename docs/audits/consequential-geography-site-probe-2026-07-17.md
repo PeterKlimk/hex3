@@ -126,3 +126,69 @@ starvation is disproved and the next owner is semantic saturation: comfortable
 near-water access or catchment relationships must replace exact source-cell
 singular optima. Reducing `coast_bonus`, changing spacing or merely enlarging
 the same preference-ranked pool does not test that causal distinction.
+
+## Follow-up: factor-neutral support
+
+Commit `5f93526` removes the preference-ranked local-maxima proposal. Hard
+viability now defines an eligible population, and deterministic maximin squared
+chord distance builds a physically dispersed support without freshwater, coast,
+terrain-margin or catchment preference. Exact cell-ID ties remain disclosed.
+The selection records every support anchor and relationship composition at the
+eligible, support, catchment-passed and selected tiers.
+
+The first corrected run used 160 candidates and eliminated the joint-source
+collapse, but a 512-candidate diagnostic found 17--20% more total authored site
+score and retained only 5--20% of the exact 160-pool anchors. A 160-point cover
+is also spatially coarser than the 450 generalized-km catchment over planetary
+land area. Since the 512 selection cost remained below 0.31 s, commit `1e32852`
+makes 512 the probe baseline and retains 160 as the deliberately under-resolved
+comparison. This is a compute/representation decision, not a changed factor
+weight or product default.
+
+The clean 512-support packets use the same worlds and commands above with
+output directories ending `probe-v2-512-support`. Their baseline relationship
+composition is:
+
+| Seed | Joint river/coast | Freshwater only | Coast only | Neither exact source, freshwater viable |
+|---:|---:|---:|---:|---:|
+| 1001 | 7 | 11 | 0 | 2 |
+| 12345 | 3 | 8 | 1 | 8 |
+| 8675309 | 1 | 14 | 0 | 5 |
+
+The original 60/60 joint-source failure falls to 11/60. Catchment evaluation
+now receives a genuinely mixed support and selects some merely near-water
+anchors. The 160 comparison remains inadequate: it retains 5--20% of exact
+512-baseline anchors, has median nearest-baseline displacement of 361--667 km
+and produces 13--15% less total authored score.
+
+At 255,238--255,866 active cells, access components take 224--260 ms and the
+512-candidate baseline selection 230--288 ms. All variants still return 20
+sites within the visit budget.
+
+## Corrected counterfactual interpretation
+
+With adequate neutral support, removing local grade/traversal retains 90--100%
+of exact anchors and removing the coast bonus retains 80--85%. Their dramatic
+first-packet effects were primarily candidate-support artifacts. Uniform
+freshwater retains 0--5%, while uniform living opportunity retains 5--10%; the
+existing hydrology and catchment-scale Living Surface therefore have material
+downstream consequences.
+
+The result is not a frozen product prior:
+
+- 55--90% of baseline anchors remain exact selected-river sources, and every
+  nearest freshwater relationship in this panel is a selected river rather
+  than a proper lake;
+- site-local physical grade is effectively nonbinding on these lowland choices;
+  terrain may matter more honestly in route geometry than in the anchor gate;
+- the tight and loose arms change many hard gates and scales at once and retain
+  only 0--25% of exact baseline anchors, so they are not evidence of modest
+  one-parameter robustness; and
+- 512 remains a bounded cover rather than exhaustive continuous optimization.
+
+The correction passes the specific candidate-starvation blocker and is cheap
+enough to serve as the provisional input to one bounded route discriminator.
+It does not earn promotion, default status, population semantics or a claim
+that the authored site prior is calibrated. Route work must retain these site
+limitations and must demonstrate terrain-sensitive gaps/corridors rather than
+using more content to conceal weak grade evidence.
