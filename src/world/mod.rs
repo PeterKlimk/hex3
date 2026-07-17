@@ -73,8 +73,10 @@ pub use consequential_geography::{
     SiteSelectionStopReason, SiteTierRelationshipCensus, TraversalConfig,
 };
 pub use consequential_routes::{
-    build_aggregate_route_network, AggregateRouteCandidate, AggregateRouteNetwork,
-    RouteNetworkConfig, RouteSelectionRole, TerrestrialRouteComponent,
+    assess_route_lower_corridor, build_aggregate_route_network, AggregateRouteCandidate,
+    AggregateRouteNetwork, RouteLowerCorridorAssessment, RouteLowerCorridorEvidence,
+    RouteLowerCorridorOmission, RouteLowerCorridorOmissionReason, RouteNetworkConfig,
+    RouteSegmentTerrainEvidence, RouteSelectionRole, TerrestrialRouteComponent,
 };
 pub use constants::*;
 pub use crust::{Crust, CrustType};

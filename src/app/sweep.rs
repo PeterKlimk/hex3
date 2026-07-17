@@ -28,10 +28,11 @@ use hex3::render::{
 use hex3::{
     geometry::{Material, SurfaceVertex, UnifiedMesh, VoronoiMesh},
     world::{
-        build_aggregate_route_network, AggregateRouteNetwork, AggregateSiteSelection,
-        BasinSpillDestination, ConsequentialGeographyComponents, FineCacheMode,
-        FreshwaterSourceKind, LivingSurfaceSemantics, OrogenModel, RiverSelection,
-        RiverThresholdPolicy, RouteNetworkConfig, SemanticWaterKind, ShorelineLoop,
+        assess_route_lower_corridor, build_aggregate_route_network, AggregateRouteNetwork,
+        AggregateSiteSelection, BasinSpillDestination, ConsequentialGeographyComponents,
+        FineCacheMode, FreshwaterSourceKind, LivingSurfaceSemantics, OrogenModel, RiverSelection,
+        RiverThresholdPolicy, RouteLowerCorridorAssessment, RouteLowerCorridorEvidence,
+        RouteLowerCorridorOmission, RouteNetworkConfig, SemanticWaterKind, ShorelineLoop,
         SiteSelectionConfig, Tessellation, TraversalConfig, VoronoiBackend, WaterBodyId,
         WaterBodySemantics, WaterGeographyGeometry, World, PLANET_RADIUS_KM, RELIEF_SCALE,
     },
@@ -2536,6 +2537,99 @@ struct RouteProbeVariant {
     line_color: Vec3,
 }
 
+#[derive(Debug, Serialize)]
+struct RouteLowerCorridorRenderRecord {
+    filename: String,
+    camera: ViewRecord,
+    physical_branch_color_linear_rgb: [f32; 3],
+    distance_null_branch_color_linear_rgb: [f32; 3],
+    divergence_endpoint_color_linear_rgb: [f32; 3],
+    physical_crest_color_linear_rgb: [f32; 3],
+    distance_null_crest_color_linear_rgb: [f32; 3],
+}
+
+#[derive(Debug, Serialize)]
+struct RouteLowerCorridorProbeRecord {
+    status: &'static str,
+    physical_selected_candidate_count: usize,
+    explained_candidate_count: usize,
+    selection_rule: &'static str,
+    strongest: Option<RouteLowerCorridorEvidence>,
+    omissions: Vec<RouteLowerCorridorOmission>,
+    render: Option<RouteLowerCorridorRenderRecord>,
+    claim: &'static str,
+    limitation: &'static str,
+}
+
+fn lower_corridor_probe_record(
+    tess: &Tessellation,
+    hydrology: &hex3::world::Hydrology,
+    physical: &AggregateRouteNetwork,
+    distance_null: &AggregateRouteNetwork,
+) -> Result<RouteLowerCorridorProbeRecord, &'static str> {
+    let mut strongest: Option<RouteLowerCorridorEvidence> = None;
+    let mut omissions = Vec::new();
+    let mut physical_selected_candidate_count = 0usize;
+    let mut explained_candidate_count = 0usize;
+    for candidate_route_id in 0..physical.candidate_routes.len() {
+        if physical.candidate_routes[candidate_route_id]
+            .selection_role
+            .is_none()
+        {
+            continue;
+        }
+        physical_selected_candidate_count += 1;
+        match assess_route_lower_corridor(
+            tess,
+            hydrology,
+            physical,
+            distance_null,
+            candidate_route_id,
+        )? {
+            RouteLowerCorridorAssessment::Explained { evidence } => {
+                explained_candidate_count += 1;
+                let replace = strongest.as_ref().is_none_or(|best| {
+                    evidence
+                        .generalized_cost_saved_km
+                        .total_cmp(&best.generalized_cost_saved_km)
+                        .then_with(|| {
+                            evidence
+                                .maximum_elevation_saved_km
+                                .total_cmp(&best.maximum_elevation_saved_km)
+                        })
+                        .then_with(|| best.endpoint_site_ids.cmp(&evidence.endpoint_site_ids))
+                        .then_with(|| {
+                            best.divergence_endpoint_cells
+                                .cmp(&evidence.divergence_endpoint_cells)
+                        })
+                        .is_gt()
+                });
+                if replace {
+                    strongest = Some(*evidence);
+                }
+            }
+            RouteLowerCorridorAssessment::Omitted { omission } => omissions.push(omission),
+        }
+    }
+    Ok(RouteLowerCorridorProbeRecord {
+        status: if physical_selected_candidate_count == 0 {
+            "not-assessed"
+        } else if strongest.is_some() {
+            "explained"
+        } else {
+            "omitted"
+        },
+        physical_selected_candidate_count,
+        explained_candidate_count,
+        selection_rule: "among physically selected endpoint pairs, compare the already-retained same-endpoint distance-null path and choose the qualifying elementary divergence bubble with greatest physical generalized-cost saving, then greatest maximum-elevation saving, then lower endpoint and boundary cell identities",
+        strongest,
+        omissions,
+        render: None,
+        claim: "the physical route uses a longer but cheaper and lower terrain corridor than the matched distance-minimizing branch between the same split and rejoin cells",
+        limitation: "this counterfactual establishes neither a geomorphic gap, pass, ridge or barrier nor an enumerated second-best physical route, road, construction choice or chokepoint",
+    })
+}
+
 fn canonical_path_edges(path: &[usize]) -> BTreeSet<(usize, usize)> {
     path.windows(2)
         .map(|pair| (pair[0].min(pair[1]), pair[0].max(pair[1])))
@@ -2984,6 +3078,150 @@ fn route_overlay_vertices(
     vertices
 }
 
+fn append_route_path_vertices(
+    vertices: &mut Vec<SurfaceVertex>,
+    tess: &Tessellation,
+    hydrology: &hex3::world::Hydrology,
+    path: &[usize],
+    color: Vec3,
+) {
+    for edge in path.windows(2) {
+        for &cell in edge {
+            vertices.push(SurfaceVertex::new(
+                tess.cell_center(cell),
+                hydrology.elevation[cell],
+                color,
+                1.0,
+            ));
+        }
+    }
+}
+
+fn route_marker_frame(tess: &Tessellation, cell: usize) -> (Vec3, Vec3, Vec3) {
+    let normal = tess.cell_center(cell).normalize();
+    let reference = if normal.y.abs() < 0.9 {
+        Vec3::Y
+    } else {
+        Vec3::X
+    };
+    let east = normal.cross(reference).normalize();
+    let north = east.cross(normal).normalize();
+    (normal, east, north)
+}
+
+fn append_route_ring_marker(
+    vertices: &mut Vec<SurfaceVertex>,
+    tess: &Tessellation,
+    hydrology: &hex3::world::Hydrology,
+    cell: usize,
+    color: Vec3,
+) {
+    const SEGMENTS: usize = 16;
+    const RADIUS: f32 = 0.008;
+    let (normal, east, north) = route_marker_frame(tess, cell);
+    let point = |angle: f32| {
+        let tangent = east * angle.cos() + north * angle.sin();
+        (normal * RADIUS.cos() + tangent * RADIUS.sin()).normalize()
+    };
+    for segment in 0..SEGMENTS {
+        let a = segment as f32 * std::f32::consts::TAU / SEGMENTS as f32;
+        let b = (segment + 1) as f32 * std::f32::consts::TAU / SEGMENTS as f32;
+        vertices.push(SurfaceVertex::new(
+            point(a),
+            hydrology.elevation[cell],
+            color,
+            1.0,
+        ));
+        vertices.push(SurfaceVertex::new(
+            point(b),
+            hydrology.elevation[cell],
+            color,
+            1.0,
+        ));
+    }
+}
+
+fn append_route_cross_marker(
+    vertices: &mut Vec<SurfaceVertex>,
+    tess: &Tessellation,
+    hydrology: &hex3::world::Hydrology,
+    cell: usize,
+    color: Vec3,
+) {
+    const RADIUS: f32 = 0.012;
+    let (normal, east, north) = route_marker_frame(tess, cell);
+    let point = |angle: f32| {
+        let tangent = east * angle.cos() + north * angle.sin();
+        (normal * RADIUS.cos() + tangent * RADIUS.sin()).normalize()
+    };
+    for angle in [0.0, std::f32::consts::FRAC_PI_2] {
+        vertices.push(SurfaceVertex::new(
+            point(angle),
+            hydrology.elevation[cell],
+            color,
+            1.0,
+        ));
+        vertices.push(SurfaceVertex::new(
+            point(angle + std::f32::consts::PI),
+            hydrology.elevation[cell],
+            color,
+            1.0,
+        ));
+    }
+}
+
+fn lower_corridor_overlay_vertices(
+    tess: &Tessellation,
+    hydrology: &hex3::world::Hydrology,
+    physical_network: &AggregateRouteNetwork,
+    distance_null_network: &AggregateRouteNetwork,
+    evidence: &RouteLowerCorridorEvidence,
+) -> Vec<SurfaceVertex> {
+    let physical = &physical_network.candidate_routes[evidence.candidate_route_id];
+    let distance_null = &distance_null_network.candidate_routes[evidence.candidate_route_id];
+    let physical_path = &physical.ordered_cells
+        [evidence.physical_segment_cell_indices[0]..=evidence.physical_segment_cell_indices[1]];
+    let distance_null_path = &distance_null.ordered_cells[evidence
+        .distance_null_segment_cell_indices[0]
+        ..=evidence.distance_null_segment_cell_indices[1]];
+    let physical_color = Vec3::new(1.0, 0.42, 0.03);
+    let distance_null_color = Vec3::new(0.95, 0.05, 0.85);
+    let mut vertices =
+        Vec::with_capacity((physical_path.len() + distance_null_path.len()).saturating_mul(2) + 80);
+    append_route_path_vertices(
+        &mut vertices,
+        tess,
+        hydrology,
+        physical_path,
+        physical_color,
+    );
+    append_route_path_vertices(
+        &mut vertices,
+        tess,
+        hydrology,
+        distance_null_path,
+        distance_null_color,
+    );
+    for &cell in &evidence.divergence_endpoint_cells {
+        append_route_ring_marker(&mut vertices, tess, hydrology, cell, Vec3::ONE);
+    }
+    append_route_cross_marker(
+        &mut vertices,
+        tess,
+        hydrology,
+        evidence.physical_segment.maximum_elevation_cell,
+        physical_color,
+    );
+    append_route_cross_marker(
+        &mut vertices,
+        tess,
+        hydrology,
+        evidence.distance_null_segment.maximum_elevation_cell,
+        distance_null_color,
+    );
+    vertices
+}
+
 #[allow(clippy::too_many_arguments)]
 fn render_relief_with_sites(
     gpu: &GpuContext,
@@ -3224,11 +3462,17 @@ fn run_consequential_geography_packet(opts: &SweepOptions) {
         route_comparison.identical_site_anchor_input,
         "route counterfactual must preserve exact site anchors"
     );
+    let mut lower_corridor_probe = lower_corridor_probe_record(
+        tess,
+        hydrology,
+        &physical_route_network,
+        &zero_grade_route_network,
+    )
+    .expect("assess route-local lower-terrain corridor");
     let mut route_variants = vec![
         RouteProbeVariant {
             id: "route-physical-terrain",
-            role:
-                "bounded terrestrial network using the disclosed asymmetric physical grade burden",
+            role: "bounded terrestrial network using the direction-neutral half-round-trip average of disclosed directional grade costs",
             line_color_linear_rgb: [1.0, 0.42, 0.03],
             build_ms: physical_route_build_ms,
             image_filenames: Vec::new(),
@@ -3364,6 +3608,64 @@ fn run_consequential_geography_packet(opts: &SweepOptions) {
             variant.image_filenames.push(filename);
         }
     }
+    if let Some(evidence) = lower_corridor_probe.strongest.clone() {
+        let physical_cell = evidence.maximum_symmetric_cell_center_separation_cells[0];
+        let distance_null_cell = evidence.maximum_symmetric_cell_center_separation_cells[1];
+        let physical_position = tess.cell_center(physical_cell);
+        let distance_null_position = tess.cell_center(distance_null_cell);
+        let midpoint = physical_position + distance_null_position;
+        let target = if midpoint.length_squared() > 1.0e-8 {
+            midpoint.normalize()
+        } else {
+            physical_position
+        };
+        let mut view = derived_capture_view(
+            "route-local-lower-terrain-corridor",
+            target,
+            opts.width as f32 / opts.height as f32,
+            opts.zoom_alt,
+        );
+        view.sidecar.kind = "derived-lower-terrain-corridor";
+        let overlay = lower_corridor_overlay_vertices(
+            tess,
+            hydrology,
+            &route_variants[0].network,
+            &route_variants[1].network,
+            &evidence,
+        );
+        let overlay_buffer = create_vertex_buffer(
+            &gpu.device,
+            &overlay,
+            "consequential_geography_lower_corridor_overlay",
+        );
+        render_relief_with_sites(
+            &gpu,
+            &mut renderer,
+            &color_view,
+            &world_buffers,
+            &overlay_buffer,
+            overlay.len() as u32,
+            &view,
+            opts.river_mode,
+        );
+        let rgba = read_back_rgba(&gpu, &color_tex, opts.width, opts.height);
+        let filename = "route-local-lower-terrain-corridor.png".to_string();
+        write_png(
+            &opts.out_dir.join(&filename),
+            &rgba,
+            opts.width,
+            opts.height,
+        );
+        lower_corridor_probe.render = Some(RouteLowerCorridorRenderRecord {
+            filename,
+            camera: view.sidecar,
+            physical_branch_color_linear_rgb: [1.0, 0.42, 0.03],
+            distance_null_branch_color_linear_rgb: [0.95, 0.05, 0.85],
+            divergence_endpoint_color_linear_rgb: [1.0, 1.0, 1.0],
+            physical_crest_color_linear_rgb: [1.0, 0.42, 0.03],
+            distance_null_crest_color_linear_rgb: [0.95, 0.05, 0.85],
+        });
+    }
     write_png(
         &opts.out_dir.join("montage.png"),
         &montage,
@@ -3372,8 +3674,8 @@ fn run_consequential_geography_packet(opts: &SweepOptions) {
     );
 
     let sidecar = serde_json::json!({
-        "schema_version": 2,
-        "purpose": "discriminating evaluation packet for bounded aggregate Consequential Geography site selection and a same-site terrestrial route counterfactual",
+        "schema_version": 3,
+        "purpose": "discriminating evaluation packet for bounded aggregate Consequential Geography site selection, a same-site terrestrial route counterfactual, and one conservative lower-terrain-corridor explanation",
         "status": "implemented on-demand site and route probe; neither model is promoted, a product default, persistent World state, or Stage 5",
         "world_manifest": world.manifest(),
         "timing_ms": {
@@ -3389,6 +3691,8 @@ fn run_consequential_geography_packet(opts: &SweepOptions) {
         "truth_contract": [
             "all variants use one unchanged Stage-4 physical world and matched cameras",
             "both route rows use the exact same baseline site anchors and candidate endpoint pairs; only traversal grade burden changes",
+            "route selection uses the direction-neutral half-round-trip average of directional uphill and downhill edge costs; the directional asymmetry remains evidence but does not choose a direction-specific path",
+            "a lower-terrain-corridor explanation compares elementary physical and distance-null branches with the exact same split and rejoin cells and is omitted unless the physical branch is longer, cheaper under physical traversal, and lower at its maximum elevation",
             "route geometry is a bounded land-only aggregate network, not roads, maritime travel, travel time, settlement history, or an optimized product graph",
             "the 160-candidate coarse-support arm is a deliberately under-resolved diagnostic comparator, not a proposed product configuration",
             "sites are deterministic aggregate opportunity anchors, not settlements, population, culture, resources, ownership, or persistent identities",
@@ -3405,6 +3709,8 @@ fn run_consequential_geography_packet(opts: &SweepOptions) {
             "marker rings and crosses have a fixed angular size and are cartographic annotations, not site extent",
             "the regional camera targets the largest selected-route path divergence when one exists, not a human-curated geography",
             "route strokes are one-pixel evidence overlays and do not communicate hierarchy, reuse, crossings, passes, chokepoints, or construction",
+            "the lower-corridor comparator is the zero-grade distance-minimizing branch, not an enumerated second-best physical route, and it does not establish a geomorphic gap, pass, ridge or barrier",
+            "drainage-repaired support length counts a full route edge when either endpoint was repaired; it is a conservative support proxy rather than geometric overlap length",
             "candidate route pairs come from a physical spanning tree plus bounded nearest neighbors; they are not exhaustive",
             "no route-derived labels, factor rasters, population, economy, or culture are generated"
         ],
@@ -3414,7 +3720,7 @@ fn run_consequential_geography_packet(opts: &SweepOptions) {
             "median": "ordinary sample median of directional nearest distances",
             "route_endpoint_jaccard": "set Jaccard over selected site-ID endpoint pairs",
             "route_cell_edge_jaccard": "set Jaccard over undirected Voronoi cell edges traversed by selected routes",
-            "candidate_path_hausdorff": "symmetric Hausdorff distance in great-circle kilometres between physical and zero-grade paths for the same candidate endpoints"
+            "candidate_path_hausdorff": "symmetric cell-centre-sampled Hausdorff distance in great-circle kilometres between physical and zero-grade route samples for the same candidate endpoints; it is not continuous polyline distance"
         },
         "cameras": views.iter().map(|view| view.sidecar.clone()).collect::<Vec<_>>(),
         "variants": variants.into_iter().map(|variant| variant.record).collect::<Vec<_>>(),
@@ -3422,6 +3728,7 @@ fn run_consequential_geography_packet(opts: &SweepOptions) {
             "config": route_config,
             "fixed_site_anchor_cells": route_site_selection.sites.iter().map(|site| site.anchor_cell).collect::<Vec<_>>(),
             "comparison": route_comparison,
+            "lower_corridor_explanation": lower_corridor_probe,
             "rows": route_variants
         },
         "montage": {
