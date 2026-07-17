@@ -1,7 +1,7 @@
 # Structural Mountain V0 contract
 
-Status: **selected next architecture slice; design only, no replacement
-implemented or promoted**, 2026-07-18.
+Status: **mechanical source-domain compiler implemented; fixed-belt attribution
+and terrain replacement not implemented or promoted**, 2026-07-18.
 
 This document defines the one product-native mountain comparison authorized by
 the [roadmap](roadmap.md). It replaces the old H/C/G campaign as the active
@@ -106,6 +106,34 @@ along-strike coordinate independently. Existing `arc_u` and endpoint-ordered
 automatically at episode, regime or receiving-side changes. V0 may reuse the
 shared-edge geometry, but it must make those causal boundaries part of the new
 record rather than promoting a P1/Massif helper by accident.
+
+## Mechanical implementation checkpoint
+
+`world::structural_mountain` now implements the deliberately inert first code
+boundary. It collects exact shared Voronoi arcs from the same boundary snapshot
+used by history, converts chord length to physical great-circle length, resolves
+edge-local subduction sides, and counts every plate-boundary arm so a hidden
+transform/divergent third arm terminates a structural chain.
+
+The compiler groups independently of `OrogenFronts` and continues only through
+degree-two vertices with identical episode, regime, plate/crust pairing and side
+semantics. Each open causal chain becomes one finite parent. A full-cosine
+along-strike taper redistributes its declared shortening-area opportunity and is
+renormalized per segment; the ledger closes without creating opportunity.
+Closed loops, zero-opportunity sources, disconnected parents and missing or
+inconsistent source evidence remain explicit outcomes rather than geometry
+fallbacks. Source, accepted and omitted opportunity are recorded separately so
+an omitted positive source cannot disappear behind closure of the accepted
+subset.
+
+This is not yet an uplift field. The ledger quantity is
+`edge length × positive local convergence × episode duration` in km² of
+shortening-area opportunity—not tectonic work, uplift volume, elevation or a
+terrain-response calibration. No terrain, cache, default, erosion or renderer
+path consumes it. Manufactured tests cover finite support, causal transitions,
+input/endpoint reversal, collision/subduction semantics, hidden third arms,
+disconnected parents and typed omissions; a generated product-input smoke test
+covers the real collector.
 
 ## Organization contract
 

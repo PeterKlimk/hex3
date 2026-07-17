@@ -167,9 +167,12 @@ asymmetry from actual product front/crust/history evidence, then lets routed
 incision own valleys, watershed topology own divides and supported crests own
 ridge semantics.
 
-Implement only the front/episode record, sparse segment compiler and uplift
-ledger first. The terrain comparison then replaces both legacy convergent
-height and repeated uplift inside the fixed domain and compares only with
+The inert front/episode record, sparse finite-parent compiler and closed
+shortening-opportunity ledger are now implemented. Next, attribute the frozen
+seed-`12345` range to one coherent source-front set and let that real source set
+decide whether causal segmentation is sufficient. The terrain comparison then
+replaces both legacy convergent height and repeated uplift inside the fixed
+domain and compares only with
 unchanged legacy. Do not revive the manufactured organization ladder, tune
 amplitudes, or stack structural relief over the current scalar height owner.
 

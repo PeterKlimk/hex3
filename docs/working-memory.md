@@ -14,16 +14,21 @@ it become a chronological activity log.
 
 ## Active focus
 
-**Implement the fixed Structural Mountain V0 compiler slice.** Water Geography,
+**Attribute the fixed Structural Mountain V0 target to its real source fronts.** Water Geography,
 Living Surface and Consequential Geography have completed their bounded
 decisions. The selected mountain contract uses seed `12345`'s reviewed broadest
 range and exactly one candidate: finite linked segments from real product
 front/crust/history evidence, compiled into cumulative uplift opportunity and
 consumed by drainage-conditioned terrain response. It must replace both legacy
 convergent height and repeated uplift rather than stack structure over them.
-The first code boundary is only the product-facing front/episode record, sparse
-segment compiler and closed uplift-opportunity accounting; terrain response
-follows after that mechanical gate. Old H/C/G amendments and the historical
+The inert product-facing front/episode record, sparse finite-parent compiler and
+closed shortening-area-opportunity accounting now pass manufactured and small
+generated-world tests without changing terrain, defaults, caches or rendering.
+Next collect every compatible source front for the frozen range/component and
+catchment buffer, require one coherent linked plate/episode belt graph, and
+report finite-parent-only, causally segmented, disconnected or omitted honestly.
+Do not tune terrain response before that attribution says what organization the
+product evidence actually supports. Old H/C/G amendments and the historical
 notes below are evidence, not an active queue. Sediment, richer ecology and
 civilization do not advance by inheritance or momentum.
 
