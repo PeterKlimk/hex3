@@ -14,25 +14,27 @@ it become a chronological activity log.
 
 ## Active focus
 
-**Bind observations to the source-first mountain target; do not build terrain
-yet.** Water Geography, Living Surface and Consequential Geography have
-completed their bounded decisions. The mountain source is now selected before
-fine terrain exists: exact-link connectivity inside one plate pair/episode,
-terminated where receiving/material state ceases to support continental
-relief, ranked by shortening-area opportunity rather than height or apparent
-segmentation. Seed `12345` selects episode 0 / plates `[0, 2]`: 72 edges and
-3,254 km, comprising one 3,200 km collision parent plus two one-edge
-continental-receiving subduction transitions. It is coherent but 98% dominated
-by the long collision parent; source `CausallySegmented` does not yet prove the
-internal hierarchy the terrain organizer must earn.
+**Test internal organization in the source-first mountain target; do not build
+terrain yet.** Seed `12345`'s terrain-blind source remains episode 0 / plates
+`[0, 2]`: 72 edges and 3,254 km, comprising one 3,200 km collision parent plus
+two one-edge continental-receiving subduction transitions. Exact legacy
+response binding passes. Sixty-seven edges are represented by the old writer;
+five weak structural edges are not. There are no external co-seeders or
+ambiguous-majority fine cells, and the decomposition reconstructs transferred
+`arc + collision` within `1.8e-7`.
 
-Next derive which legacy response and downstream geography belong to those
-already-fixed sources. Exact geometric ownership may define attribution;
-plate-wide diffuse amplitude dependency remains separate and cannot enlarge
-belt identity. Elevation can describe the bound domain but cannot choose it.
-Stop if the source has no coherent visible consequence or if observation
-identity depends on arbitrary distance/height browsing. Only after binding
-should the long parent be inspected for defensible bend or kinematic extrema.
+The source owns a broad 7.458M km² geometric response domain because legacy
+tails have no cutoff. After source identity is frozen, the existing 1.5 km
+observation threshold finds 1.445M km² of visible relief; one 1.436M km²
+component contains 99.4% of that area and peaks at 9.044 km. Only one visible
+cell is an integration cut and one is a breached source. This is coherent
+source-to-visible-terrain correspondence, not diffuse rescue.
+
+Next inspect the 70-edge collision parent's generated bends, convergence and
+bounded history displacement. Freeze only relationships that justify multiple
+along-strike highs/lows before terrain exists. If the evidence is effectively
+uniform, stop with `insufficient-causal-segmentation`; do not use arbitrary
+splits, noise or terrain feedback to create the organization the source lacks.
 
 The earlier fixed replay rejects the reviewed height component as one belt.
 On the current 255,866-cell fine baseline its core corresponds well to the old

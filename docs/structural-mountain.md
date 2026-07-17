@@ -1,7 +1,7 @@
 # Structural Mountain V0 contract
 
-Status: **source-first target selected; source-owned observation domain and
-terrain replacement not implemented or promoted**, 2026-07-18.
+Status: **source-first target and legacy observation binding accepted; internal
+organization and terrain replacement not implemented or promoted**, 2026-07-18.
 
 This document defines the one product-native mountain comparison authorized by
 the [roadmap](roadmap.md). It replaces the old H/C/G campaign as the active
@@ -388,6 +388,49 @@ from exact legacy response ownership. Elevation may describe that already-fixed
 domain; it may not select or expand the source. No terrain replacement is
 authorized until that binding establishes what legacy relief and downstream
 geography actually correspond to this cause.
+
+## Source-owned legacy observation verdict
+
+The binding reproduces the legacy writer rather than approximating it. Every
+coarse `arc` or `collision` response sample is assigned to its deterministic
+plate-restricted geometric owner and complete co-seed roster. The fine response
+is decomposed with the product's exact nearest-coarse-plus-neighbours inverse-
+distance interpolation into pure selected-source, mixed-seed and other-source
+geometry. A fine cell is strictly owned only where pure selected response
+exceeds mixed plus other response. Mixed ownership remains a typed ambiguity
+and cannot enlarge the target.
+
+On the fixed 255,866-cell fine world, 67 of the selected source's 72 edges are
+eligible legacy response seeds; five locally weak structural edges have no
+legacy response under the historical convergence threshold. There are no
+external co-seeders and no ambiguous-majority fine cells. The decomposition
+reconstructs the transferred product `arc + collision` field with maximum
+absolute error `1.79e-7`; its area-weighted residual is `0.0029` against roughly
+9.86 million response-area units.
+
+Strict geometric ownership contains 16,599 fine cells and 7.458 million km².
+That is intentionally not a terrain crop: the legacy Gaussian response has no
+semantic cutoff, so geometrically owned tails extend far into the plate. Once
+the source is fixed, the existing 1.5 km observation threshold may describe
+its visible consequence without changing source identity. It yields 8,659
+strict-owned cells and 1.445 million km² across ten components. One component
+contains 8,583 cells and 1.436 million km²—99.1% of visible cells and 99.4% of
+visible area. The nine residual fragments total only 76 cells.
+
+The dominant legacy observation peaks at 9.044 km near 67.65° S, 47.41° E.
+Only one visible cell is an integration cut and one is an integration-breached
+source, so its visible extent is not owned by hydrologic repair. The binding
+therefore passes: the terrain-blind source has one coherent, dominant visible
+legacy consequence and is not rescued by diffuse or mixed attribution.
+
+The complete strict domain and dominant visible component are frozen in
+[`generated/structural-mountain-seed-12345-observation-binding-v0.json`](generated/structural-mountain-seed-12345-observation-binding-v0.json).
+The next gate is internal source organization. Before terrain work, inspect the
+70-edge collision parent's generated curvature, local convergence and bounded
+history displacement for real extrema or transitions that could justify more
+than one along-strike high/low relationship. If that evidence is absent, report
+`insufficient-causal-segmentation`; do not manufacture subsegments or tune a
+pretty field.
 
 ## Evidence packet
 

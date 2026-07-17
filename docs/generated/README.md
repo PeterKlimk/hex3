@@ -16,3 +16,6 @@ Current bounded evidence:
 - [`structural-mountain-seed-12345-source-target-v0.json`](structural-mountain-seed-12345-source-target-v0.json)
   freezes the terrain-blind source ranking and complete selected front identity
   for the revised Structural Mountain target.
+- [`structural-mountain-seed-12345-observation-binding-v0.json`](structural-mountain-seed-12345-observation-binding-v0.json)
+  freezes the exact legacy-response ownership decomposition and the dominant
+  visible observation attached to the selected source.

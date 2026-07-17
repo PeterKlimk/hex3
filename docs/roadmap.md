@@ -175,12 +175,17 @@ collision front and two disconnected subduction fronts.
 The revised contract now selects entirely in the generated source domain. Its
 primary continental-capable component is a coherent 3,254 km plate-pair system
 with one long collision parent and two exact subduction transitions; the old
-reviewed parent is independently rank three. The next bounded action is to bind
-legacy response and downstream observations to the selected source without
-using elevation to choose or enlarge it. Stop before terrain response if that
-binding is empty, spatially incoherent or dominated by plate-wide diffuse
-mixing. Do not revive the manufactured organization ladder, tune amplitudes, or
-stack structural relief over the current scalar height owner.
+reviewed parent is independently rank three. Exact legacy response ownership
+then binds it to one dominant 1.436 million km² visible component with no mixed-
+seed ambiguity and negligible hydrologic-repair ownership.
+
+The next bounded action is to inspect the long collision parent's existing
+curvature and kinematic/history variation for defensible internal organization.
+If it supplies no meaningful segmentation prior, stop with
+`insufficient-causal-segmentation`; do not invent subsegments to satisfy the
+terrain brief. If it does, freeze that organization before compiling any
+terrain response. Do not revive the manufactured organization ladder, tune
+amplitudes, or stack structural relief over the current scalar height owner.
 
 ## Later decision set
 
