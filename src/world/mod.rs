@@ -32,6 +32,7 @@ mod boundary;
 mod circulation;
 mod climatology;
 mod consequential_geography;
+mod consequential_routes;
 mod constants;
 mod crust;
 mod deformation;
@@ -70,6 +71,10 @@ pub use consequential_geography::{
     directed_edge_cost, AggregateSite, AggregateSiteSelection, ConsequentialGeographyComponents,
     DirectedEdgeCost, FreshwaterSourceKind, SiteRelationshipClassCounts, SiteSelectionConfig,
     SiteSelectionStopReason, SiteTierRelationshipCensus, TraversalConfig,
+};
+pub use consequential_routes::{
+    build_aggregate_route_network, AggregateRouteCandidate, AggregateRouteNetwork,
+    RouteNetworkConfig, RouteSelectionRole, TerrestrialRouteComponent,
 };
 pub use constants::*;
 pub use crust::{Crust, CrustType};

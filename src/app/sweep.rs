@@ -15,6 +15,7 @@
 use std::io::BufWriter;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::{collections::BTreeSet, time::Instant};
 
 use glam::{Mat4, Vec3};
 use serde::Serialize;
@@ -27,11 +28,12 @@ use hex3::render::{
 use hex3::{
     geometry::{Material, SurfaceVertex, UnifiedMesh, VoronoiMesh},
     world::{
-        AggregateSiteSelection, BasinSpillDestination, ConsequentialGeographyComponents,
-        FineCacheMode, FreshwaterSourceKind, LivingSurfaceSemantics, OrogenModel, RiverSelection,
-        RiverThresholdPolicy, SemanticWaterKind, ShorelineLoop, SiteSelectionConfig, Tessellation,
-        TraversalConfig, VoronoiBackend, WaterBodyId, WaterBodySemantics, WaterGeographyGeometry,
-        World, PLANET_RADIUS_KM, RELIEF_SCALE,
+        build_aggregate_route_network, AggregateRouteNetwork, AggregateSiteSelection,
+        BasinSpillDestination, ConsequentialGeographyComponents, FineCacheMode,
+        FreshwaterSourceKind, LivingSurfaceSemantics, OrogenModel, RiverSelection,
+        RiverThresholdPolicy, RouteNetworkConfig, SemanticWaterKind, ShorelineLoop,
+        SiteSelectionConfig, Tessellation, TraversalConfig, VoronoiBackend, WaterBodyId,
+        WaterBodySemantics, WaterGeographyGeometry, World, PLANET_RADIUS_KM, RELIEF_SCALE,
     },
 };
 
@@ -2484,6 +2486,269 @@ fn loose_site_probe_config() -> SiteSelectionConfig {
     }
 }
 
+fn route_probe_config() -> RouteNetworkConfig {
+    RouteNetworkConfig {
+        nearest_neighbors_per_site: 4,
+        maximum_candidate_pair_count: 96,
+        maximum_total_search_cell_visits: 10_000_000,
+        maximum_extra_links: 3,
+        minimum_extra_link_detour_ratio: 1.35,
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct RouteComparisonRecord {
+    identical_site_anchor_input: bool,
+    shared_selected_endpoint_pair_count: usize,
+    baseline_only_selected_endpoint_pair_count: usize,
+    zero_grade_only_selected_endpoint_pair_count: usize,
+    selected_endpoint_pair_jaccard: f32,
+    shared_selected_cell_edge_count: usize,
+    selected_cell_edge_union_count: usize,
+    selected_cell_edge_jaccard: f32,
+    exact_candidate_path_count: usize,
+    selected_candidate_path_count: usize,
+    exact_selected_candidate_path_count: usize,
+    mean_candidate_path_hausdorff_km: f32,
+    median_candidate_path_hausdorff_km: f32,
+    maximum_candidate_path_hausdorff_km: f32,
+    maximum_selected_path_hausdorff_km: f32,
+    most_divergent_candidate_route_id: Option<usize>,
+    most_divergent_candidate_endpoint_site_ids: Option<[usize; 2]>,
+    most_divergent_selected_candidate_route_id: Option<usize>,
+    most_divergent_selected_endpoint_site_ids: Option<[usize; 2]>,
+    most_divergent_selected_target_cell: Option<usize>,
+    baseline_selected_physical_length_sum_km: f32,
+    zero_grade_selected_physical_length_sum_km: f32,
+    baseline_selected_ascent_sum_km: f32,
+    zero_grade_selected_ascent_sum_km: f32,
+}
+
+#[derive(Debug, Serialize)]
+struct RouteProbeVariant {
+    id: &'static str,
+    role: &'static str,
+    line_color_linear_rgb: [f32; 3],
+    build_ms: f64,
+    image_filenames: Vec<String>,
+    network: AggregateRouteNetwork,
+    #[serde(skip)]
+    line_color: Vec3,
+}
+
+fn canonical_path_edges(path: &[usize]) -> BTreeSet<(usize, usize)> {
+    path.windows(2)
+        .map(|pair| (pair[0].min(pair[1]), pair[0].max(pair[1])))
+        .collect()
+}
+
+fn selected_endpoint_pairs(network: &AggregateRouteNetwork) -> BTreeSet<(usize, usize)> {
+    network
+        .selected_route_ids
+        .iter()
+        .map(|&id| {
+            let route = &network.candidate_routes[id];
+            (route.from_site_id, route.to_site_id)
+        })
+        .collect()
+}
+
+fn selected_cell_edges(network: &AggregateRouteNetwork) -> BTreeSet<(usize, usize)> {
+    network
+        .selected_route_ids
+        .iter()
+        .flat_map(|&id| canonical_path_edges(&network.candidate_routes[id].ordered_cells))
+        .collect()
+}
+
+fn path_hausdorff_target(
+    tess: &Tessellation,
+    baseline: &[usize],
+    variant: &[usize],
+) -> (f32, usize) {
+    fn directed(tess: &Tessellation, from: &[usize], to: &[usize]) -> (f32, usize) {
+        let mut best = (0.0f32, from[0]);
+        for &cell in from {
+            let position = tess.cell_center(cell);
+            let nearest = to
+                .iter()
+                .map(|&other| (position - tess.cell_center(other)).length_squared())
+                .min_by(f32::total_cmp)
+                .unwrap_or(0.0);
+            if nearest > best.0 || (nearest.to_bits() == best.0.to_bits() && cell < best.1) {
+                best = (nearest, cell);
+            }
+        }
+        best
+    }
+    let forward = directed(tess, baseline, variant);
+    let reverse = directed(tess, variant, baseline);
+    let (chord_squared, cell) = if reverse.0 > forward.0 {
+        reverse
+    } else {
+        forward
+    };
+    let chord = chord_squared.sqrt().clamp(0.0, 2.0);
+    (2.0 * PLANET_RADIUS_KM * (0.5 * chord).asin(), cell)
+}
+
+fn compare_route_networks(
+    tess: &Tessellation,
+    baseline: &AggregateRouteNetwork,
+    zero_grade: &AggregateRouteNetwork,
+) -> RouteComparisonRecord {
+    assert_eq!(
+        baseline.candidate_routes.len(),
+        zero_grade.candidate_routes.len(),
+        "matched route counterfactuals require identical candidate pairs"
+    );
+    let baseline_pairs = selected_endpoint_pairs(baseline);
+    let zero_pairs = selected_endpoint_pairs(zero_grade);
+    let shared_pair_count = baseline_pairs.intersection(&zero_pairs).count();
+    let pair_union_count = baseline_pairs.union(&zero_pairs).count();
+    let baseline_edges = selected_cell_edges(baseline);
+    let zero_edges = selected_cell_edges(zero_grade);
+    let shared_edge_count = baseline_edges.intersection(&zero_edges).count();
+    let edge_union_count = baseline_edges.union(&zero_edges).count();
+
+    let mut distances = Vec::with_capacity(baseline.candidate_routes.len());
+    let mut exact_candidate_path_count = 0usize;
+    let mut selected_candidate_path_count = 0usize;
+    let mut exact_selected_candidate_path_count = 0usize;
+    let mut most_divergent_candidate: Option<(usize, f32, usize)> = None;
+    let mut most_divergent_selected: Option<(usize, f32, usize)> = None;
+    for (index, (physical, flat)) in baseline
+        .candidate_routes
+        .iter()
+        .zip(&zero_grade.candidate_routes)
+        .enumerate()
+    {
+        assert_eq!(
+            (physical.from_site_id, physical.to_site_id),
+            (flat.from_site_id, flat.to_site_id),
+            "matched route counterfactuals require identical endpoint order"
+        );
+        let exact = physical.ordered_cells == flat.ordered_cells
+            || physical
+                .ordered_cells
+                .iter()
+                .eq(flat.ordered_cells.iter().rev());
+        exact_candidate_path_count += usize::from(exact);
+        let selected = physical.selection_role.is_some() || flat.selection_role.is_some();
+        selected_candidate_path_count += usize::from(selected);
+        exact_selected_candidate_path_count += usize::from(selected && exact);
+        let (distance, target_cell) =
+            path_hausdorff_target(tess, &physical.ordered_cells, &flat.ordered_cells);
+        distances.push(distance);
+        let replace_candidate =
+            most_divergent_candidate.is_none_or(|(best_index, best_distance, _)| {
+                distance > best_distance
+                    || (distance.to_bits() == best_distance.to_bits()
+                        && (physical.from_site_id, physical.to_site_id)
+                            < (
+                                baseline.candidate_routes[best_index].from_site_id,
+                                baseline.candidate_routes[best_index].to_site_id,
+                            ))
+            });
+        if replace_candidate {
+            most_divergent_candidate = Some((index, distance, target_cell));
+        }
+        if selected && distance > 0.0 {
+            let replace = most_divergent_selected.is_none_or(|(best_index, best_distance, _)| {
+                distance > best_distance
+                    || (distance.to_bits() == best_distance.to_bits()
+                        && (physical.from_site_id, physical.to_site_id)
+                            < (
+                                baseline.candidate_routes[best_index].from_site_id,
+                                baseline.candidate_routes[best_index].to_site_id,
+                            ))
+            });
+            if replace {
+                most_divergent_selected = Some((index, distance, target_cell));
+            }
+        }
+    }
+    distances.sort_by(f32::total_cmp);
+    let mean = if distances.is_empty() {
+        0.0
+    } else {
+        distances.iter().sum::<f32>() / distances.len() as f32
+    };
+    let median = if distances.is_empty() {
+        0.0
+    } else if distances.len().is_multiple_of(2) {
+        (distances[distances.len() / 2 - 1] + distances[distances.len() / 2]) * 0.5
+    } else {
+        distances[distances.len() / 2]
+    };
+    let (most_candidate_id, maximum_candidate) = most_divergent_candidate
+        .map(|(id, distance, _)| (Some(id), distance))
+        .unwrap_or((None, 0.0));
+    let sum_selected = |network: &AggregateRouteNetwork,
+                        field: fn(usize, &AggregateRouteNetwork) -> f32| {
+        network
+            .selected_route_ids
+            .iter()
+            .map(|&id| field(id, network))
+            .sum()
+    };
+    let (most_selected_id, maximum_selected, most_selected_cell) = most_divergent_selected
+        .map(|(id, distance, cell)| (Some(id), distance, Some(cell)))
+        .unwrap_or((None, 0.0, None));
+    RouteComparisonRecord {
+        identical_site_anchor_input: baseline.site_anchor_cells == zero_grade.site_anchor_cells,
+        shared_selected_endpoint_pair_count: shared_pair_count,
+        baseline_only_selected_endpoint_pair_count: baseline_pairs.len() - shared_pair_count,
+        zero_grade_only_selected_endpoint_pair_count: zero_pairs.len() - shared_pair_count,
+        selected_endpoint_pair_jaccard: if pair_union_count == 0 {
+            1.0
+        } else {
+            shared_pair_count as f32 / pair_union_count as f32
+        },
+        shared_selected_cell_edge_count: shared_edge_count,
+        selected_cell_edge_union_count: edge_union_count,
+        selected_cell_edge_jaccard: if edge_union_count == 0 {
+            1.0
+        } else {
+            shared_edge_count as f32 / edge_union_count as f32
+        },
+        exact_candidate_path_count,
+        selected_candidate_path_count,
+        exact_selected_candidate_path_count,
+        mean_candidate_path_hausdorff_km: mean,
+        median_candidate_path_hausdorff_km: median,
+        maximum_candidate_path_hausdorff_km: maximum_candidate,
+        maximum_selected_path_hausdorff_km: maximum_selected,
+        most_divergent_candidate_route_id: most_candidate_id,
+        most_divergent_candidate_endpoint_site_ids: most_candidate_id.map(|id| {
+            [
+                baseline.candidate_routes[id].from_site_id,
+                baseline.candidate_routes[id].to_site_id,
+            ]
+        }),
+        most_divergent_selected_candidate_route_id: most_selected_id,
+        most_divergent_selected_endpoint_site_ids: most_selected_id.map(|id| {
+            [
+                baseline.candidate_routes[id].from_site_id,
+                baseline.candidate_routes[id].to_site_id,
+            ]
+        }),
+        most_divergent_selected_target_cell: most_selected_cell,
+        baseline_selected_physical_length_sum_km: sum_selected(baseline, |id, network| {
+            network.candidate_routes[id].physical_length_km
+        }),
+        zero_grade_selected_physical_length_sum_km: sum_selected(zero_grade, |id, network| {
+            network.candidate_routes[id].physical_length_km
+        }),
+        baseline_selected_ascent_sum_km: sum_selected(baseline, |id, network| {
+            network.candidate_routes[id].ascent_km_from_from_site
+        }),
+        zero_grade_selected_ascent_sum_km: sum_selected(zero_grade, |id, network| {
+            network.candidate_routes[id].ascent_km_from_from_site
+        }),
+    }
+}
+
 #[derive(Debug, Serialize)]
 struct ConsequentialVariantRecord {
     id: &'static str,
@@ -2579,6 +2844,7 @@ fn consequential_probe_views(
     opts: &SweepOptions,
     tess: &Tessellation,
     baseline: &AggregateSiteSelection,
+    route_divergence_target_cell: Option<usize>,
 ) -> Vec<CaptureView> {
     let aspect = opts.width as f32 / opts.height as f32;
     let mut views = vec![
@@ -2599,19 +2865,22 @@ fn consequential_probe_views(
             aspect,
         ),
     ];
-    let target_cell = baseline
-        .sites
-        .first()
-        .map(|site| site.anchor_cell)
+    let target_cell = route_divergence_target_cell
+        .or_else(|| baseline.sites.first().map(|site| site.anchor_cell))
         .or_else(|| (0..tess.num_cells()).next())
         .expect("consequential-geography packet requires a non-empty tessellation");
+    let (regional_id, regional_kind) = if route_divergence_target_cell.is_some() {
+        ("regional-route-divergence", "derived-route-divergence")
+    } else {
+        ("regional-baseline-site-1", "derived-baseline-site")
+    };
     let mut regional = derived_capture_view(
-        "regional-baseline-site-1",
+        regional_id,
         tess.cell_center(target_cell),
         aspect,
         opts.zoom_alt,
     );
-    regional.sidecar.kind = "derived-baseline-site";
+    regional.sidecar.kind = regional_kind;
     views.push(regional);
     views
 }
@@ -2671,6 +2940,47 @@ fn site_marker_vertices(
             ));
         }
     }
+    vertices
+}
+
+fn route_overlay_vertices(
+    tess: &Tessellation,
+    hydrology: &hex3::world::Hydrology,
+    selection: &AggregateSiteSelection,
+    network: &AggregateRouteNetwork,
+    route_color: Vec3,
+    marker_color: Vec3,
+) -> Vec<SurfaceVertex> {
+    let route_vertex_count = network
+        .selected_route_ids
+        .iter()
+        .map(|&id| {
+            network.candidate_routes[id]
+                .ordered_cells
+                .len()
+                .saturating_sub(1)
+                * 2
+        })
+        .sum::<usize>();
+    let mut vertices = Vec::with_capacity(route_vertex_count + selection.sites.len() * 36);
+    for &route_id in &network.selected_route_ids {
+        for edge in network.candidate_routes[route_id].ordered_cells.windows(2) {
+            for &cell in edge {
+                vertices.push(SurfaceVertex::new(
+                    tess.cell_center(cell),
+                    hydrology.elevation[cell],
+                    route_color,
+                    1.0,
+                ));
+            }
+        }
+    }
+    vertices.extend(site_marker_vertices(
+        tess,
+        hydrology,
+        selection,
+        marker_color,
+    ));
     vertices
 }
 
@@ -2886,7 +3196,62 @@ fn run_consequential_geography_packet(opts: &SweepOptions) {
         Some(&baseline_positions),
     ));
 
-    let views = consequential_probe_views(opts, tess, &variants[0].record.selection);
+    let route_site_selection = variants[0].record.selection.clone();
+    let route_config = route_probe_config();
+    let physical_route_started = Instant::now();
+    let physical_route_network = build_aggregate_route_network(
+        tess,
+        hydrology,
+        &route_site_selection,
+        traversal,
+        route_config,
+    )
+    .expect("build physical-terrain aggregate route probe");
+    let physical_route_build_ms = physical_route_started.elapsed().as_secs_f64() * 1_000.0;
+    let zero_grade_route_started = Instant::now();
+    let zero_grade_route_network = build_aggregate_route_network(
+        tess,
+        hydrology,
+        &route_site_selection,
+        flat_traversal,
+        route_config,
+    )
+    .expect("build zero-grade aggregate route counterfactual");
+    let zero_grade_route_build_ms = zero_grade_route_started.elapsed().as_secs_f64() * 1_000.0;
+    let route_comparison =
+        compare_route_networks(tess, &physical_route_network, &zero_grade_route_network);
+    assert!(
+        route_comparison.identical_site_anchor_input,
+        "route counterfactual must preserve exact site anchors"
+    );
+    let mut route_variants = vec![
+        RouteProbeVariant {
+            id: "route-physical-terrain",
+            role:
+                "bounded terrestrial network using the disclosed asymmetric physical grade burden",
+            line_color_linear_rgb: [1.0, 0.42, 0.03],
+            build_ms: physical_route_build_ms,
+            image_filenames: Vec::new(),
+            network: physical_route_network,
+            line_color: Vec3::new(1.0, 0.42, 0.03),
+        },
+        RouteProbeVariant {
+            id: "route-zero-grade",
+            role: "matched-site counterfactual with uphill and downhill burden set to zero",
+            line_color_linear_rgb: [0.95, 0.05, 0.85],
+            build_ms: zero_grade_route_build_ms,
+            image_filenames: Vec::new(),
+            network: zero_grade_route_network,
+            line_color: Vec3::new(0.95, 0.05, 0.85),
+        },
+    ];
+
+    let views = consequential_probe_views(
+        opts,
+        tess,
+        &route_site_selection,
+        route_comparison.most_divergent_selected_target_cell,
+    );
     std::fs::create_dir_all(&opts.out_dir)
         .unwrap_or_else(|error| panic!("create {}: {error}", opts.out_dir.display()));
     let gpu = pollster::block_on(GpuContext::new_headless(opts.width, opts.height));
@@ -2908,7 +3273,7 @@ fn run_consequential_geography_packet(opts: &SweepOptions) {
     let color_view = color_tex.create_view(&Default::default());
     let world_buffers = generate_world_buffers(&gpu.device, &gpu.queue, &world);
     let montage_width = opts.width * views.len() as u32;
-    let montage_height = opts.height * variants.len() as u32;
+    let montage_height = opts.height * (variants.len() + route_variants.len()) as u32;
     let mut montage = vec![0; (montage_width * montage_height * 4) as usize];
     for (row, variant) in variants.iter_mut().enumerate() {
         let markers = site_marker_vertices(
@@ -2953,6 +3318,52 @@ fn run_consequential_geography_packet(opts: &SweepOptions) {
             variant.record.image_filenames.push(filename);
         }
     }
+    for (route_index, variant) in route_variants.iter_mut().enumerate() {
+        let row = variants.len() + route_index;
+        let overlay = route_overlay_vertices(
+            tess,
+            hydrology,
+            &route_site_selection,
+            &variant.network,
+            variant.line_color,
+            Vec3::new(1.0, 0.90, 0.05),
+        );
+        let overlay_buffer = create_vertex_buffer(
+            &gpu.device,
+            &overlay,
+            "consequential_geography_route_overlay",
+        );
+        for (column, view) in views.iter().enumerate() {
+            render_relief_with_sites(
+                &gpu,
+                &mut renderer,
+                &color_view,
+                &world_buffers,
+                &overlay_buffer,
+                overlay.len() as u32,
+                view,
+                opts.river_mode,
+            );
+            let rgba = read_back_rgba(&gpu, &color_tex, opts.width, opts.height);
+            let filename = format!("{:02}_{}_{}.png", row + 1, variant.id, view.label);
+            write_png(
+                &opts.out_dir.join(&filename),
+                &rgba,
+                opts.width,
+                opts.height,
+            );
+            blit_tile(
+                &mut montage,
+                montage_width,
+                &rgba,
+                opts.width,
+                opts.height,
+                column as u32,
+                row as u32,
+            );
+            variant.image_filenames.push(filename);
+        }
+    }
     write_png(
         &opts.out_dir.join("montage.png"),
         &montage,
@@ -2961,9 +3372,9 @@ fn run_consequential_geography_packet(opts: &SweepOptions) {
     );
 
     let sidecar = serde_json::json!({
-        "schema_version": 1,
-        "purpose": "discriminating evaluation packet for a bounded aggregate Consequential Geography site-selection probe",
-        "status": "implemented on-demand probe; not promoted, not a product default, not persistent World state, and not Stage 5",
+        "schema_version": 2,
+        "purpose": "discriminating evaluation packet for bounded aggregate Consequential Geography site selection and a same-site terrestrial route counterfactual",
+        "status": "implemented on-demand site and route probe; neither model is promoted, a product default, persistent World state, or Stage 5",
         "world_manifest": world.manifest(),
         "timing_ms": {
             "single_stage_4_world_generation": world_generation_ms,
@@ -2977,6 +3388,8 @@ fn run_consequential_geography_packet(opts: &SweepOptions) {
         },
         "truth_contract": [
             "all variants use one unchanged Stage-4 physical world and matched cameras",
+            "both route rows use the exact same baseline site anchors and candidate endpoint pairs; only traversal grade burden changes",
+            "route geometry is a bounded land-only aggregate network, not roads, maritime travel, travel time, settlement history, or an optimized product graph",
             "the 160-candidate coarse-support arm is a deliberately under-resolved diagnostic comparator, not a proposed product configuration",
             "sites are deterministic aggregate opportunity anchors, not settlements, population, culture, resources, ownership, or persistent identities",
             "freshwater means selected aggregate rivers or proper-lake shores; coast means semantic ocean coast",
@@ -2990,19 +3403,30 @@ fn run_consequential_geography_packet(opts: &SweepOptions) {
             "neutral-score ties remain cell-ID-dependent",
             "nearest-site comparison is directional from each variant anchor to the baseline set and does not solve optimal bipartite matching",
             "marker rings and crosses have a fixed angular size and are cartographic annotations, not site extent",
-            "the regional camera targets the first greedily admitted baseline site rather than a human-curated geography",
-            "no routes, labels, factor rasters, population, economy, or culture are generated"
+            "the regional camera targets the largest selected-route path divergence when one exists, not a human-curated geography",
+            "route strokes are one-pixel evidence overlays and do not communicate hierarchy, reuse, crossings, passes, chokepoints, or construction",
+            "candidate route pairs come from a physical spanning tree plus bounded nearest neighbors; they are not exhaustive",
+            "no route-derived labels, factor rasters, population, economy, or culture are generated"
         ],
         "comparison_definition": {
             "exact_retained_anchor": "same Voronoi anchor cell appears in baseline and variant",
             "nearest_distance": "great-circle physical kilometres from each variant anchor to its nearest baseline anchor",
-            "median": "ordinary sample median of directional nearest distances"
+            "median": "ordinary sample median of directional nearest distances",
+            "route_endpoint_jaccard": "set Jaccard over selected site-ID endpoint pairs",
+            "route_cell_edge_jaccard": "set Jaccard over undirected Voronoi cell edges traversed by selected routes",
+            "candidate_path_hausdorff": "symmetric Hausdorff distance in great-circle kilometres between physical and zero-grade paths for the same candidate endpoints"
         },
         "cameras": views.iter().map(|view| view.sidecar.clone()).collect::<Vec<_>>(),
         "variants": variants.into_iter().map(|variant| variant.record).collect::<Vec<_>>(),
+        "route_probe": {
+            "config": route_config,
+            "fixed_site_anchor_cells": route_site_selection.sites.iter().map(|site| site.anchor_cell).collect::<Vec<_>>(),
+            "comparison": route_comparison,
+            "rows": route_variants
+        },
         "montage": {
             "filename": "montage.png",
-            "rows": "variants in sidecar order",
+            "rows": "site variants in sidecar order, followed by route_probe rows in sidecar order",
             "columns": "cameras in sidecar order"
         }
     });
@@ -3297,9 +3721,10 @@ mod tests {
     use glam::Vec3;
 
     use super::{
-        apply_knob, baseline_site_probe_config, build_stack_tiles, compare_site_positions,
-        diagnostic_coarse_support_site_probe_config, loose_site_probe_config, robust_scale,
-        selected_orogen_model, tight_site_probe_config, SweepTarget,
+        apply_knob, baseline_site_probe_config, build_stack_tiles, canonical_path_edges,
+        compare_site_positions, diagnostic_coarse_support_site_probe_config,
+        loose_site_probe_config, robust_scale, route_probe_config, selected_orogen_model,
+        tight_site_probe_config, SweepTarget,
     };
     use crate::app::coloring::{
         living_surface_blended_color, LIVING_HERBACEOUS_COLOR, LIVING_WETLAND_COLOR,
@@ -3369,6 +3794,17 @@ mod tests {
             coarse.maximum_total_catchment_cell_visits,
             baseline.maximum_total_catchment_cell_visits
         );
+        route_probe_config().validate().unwrap();
+    }
+
+    #[test]
+    fn route_path_edges_are_direction_independent_and_deduplicated() {
+        let forward = canonical_path_edges(&[5, 2, 8, 2]);
+        let reverse = canonical_path_edges(&[2, 8, 2, 5]);
+        assert_eq!(forward, reverse);
+        assert_eq!(forward.len(), 2);
+        assert!(forward.contains(&(2, 5)));
+        assert!(forward.contains(&(2, 8)));
     }
 
     #[test]
