@@ -31,6 +31,7 @@ mod atmosphere;
 mod boundary;
 mod circulation;
 mod climatology;
+mod consequential_geography;
 mod constants;
 mod crust;
 mod deformation;
@@ -64,6 +65,9 @@ pub use atmosphere::Atmosphere;
 pub use boundary::{collect_plate_boundaries, BoundaryKind, PlateBoundaryEdge, SubductionPolarity};
 pub use climatology::{
     ClimatologyNullReport, ClimatologySpatialEvidence, CLIMATOLOGY_NULL_REPORT_SCHEMA_VERSION,
+};
+pub use consequential_geography::{
+    directed_edge_cost, ConsequentialGeographyComponents, DirectedEdgeCost, TraversalConfig,
 };
 pub use constants::*;
 pub use crust::{Crust, CrustType};

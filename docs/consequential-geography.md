@@ -1,8 +1,8 @@
 # Consequential Geography V0 decision
 
-Status: **selected roadmap priority; proposed bounded semantic/product slice;
-not implemented, evaluated, promoted, default, population state or Stage 5**,
-2026-07-17.
+Status: **selected roadmap priority; traversal/access foundation implemented and
+operator-tested; sites, routes, product evaluation, promotion, default,
+population state and Stage 5 remain absent**, 2026-07-17.
 
 ## Product question
 
@@ -314,6 +314,26 @@ Stop or reduce the slice if:
 On partial failure, retain only useful traversal/access semantics. Do not add
 population, economics or more authored layers to rescue a weak geographic
 signal.
+
+## Current implementation checkpoint
+
+`world::ConsequentialGeographyComponents` now builds the first bounded substrate
+on demand. It retains raw freshwater access, coast access, accepted Living
+Surface values, drainage-repair provenance, exact source masks, river-policy
+provenance and traversal configuration. It adds no state to `World`.
+
+For adjacent cells, directed generalized cost is physical great-circle distance
+plus separately disclosed uphill and downhill penalties times ascent and
+descent. The land-only access fields use half the two directed costs on each
+edge: a direction-neutral there-and-back burden per leg, without a fixed edge
+toll or display-scale input. Freshwater sources are selected river land cells
+and land beside semantic lakes; ocean coast is separate and ponds are excluded.
+
+Focused fixtures establish flat-distance behavior, reverse-direction component
+symmetry, water as a traversal barrier, distinct ocean/lake/pond source
+semantics and reduced access cost through a lower gap. These are operator tests,
+not evidence that the authored penalty values, future site configuration or
+visible product are fit for purpose.
 
 ## Implementation boundary
 
