@@ -27,10 +27,12 @@ The first coherence and disposition pass is complete enough to choose work. It
 found a real mountain-organization defect but did not justify the tested deeper
 terrain owners. The broader decision in the
 [cross-system disposition](system-disposition.md) keeps the cheap causal spine,
-parks that mountain branch, and selected **Water Geography V0** as the next
-enabling slice. That slice has since passed its bounded exit gate; the next
-expansion still requires a separate portfolio/design decision. This is not a
-commitment to deepen every retained system.
+parks those mountain implementations, and retained **Water Geography V0** plus
+**Living Surface V0** as bounded layers. The current
+[roadmap](roadmap.md) now selects Consequential Geography V0 as the next product
+slice while product/laboratory separation and mountain ownership remain active
+architecture questions. This is not a commitment to deepen every retained
+system.
 
 ## Alternatives considered
 
@@ -85,7 +87,7 @@ and ownership, not identical equations in every domain.
 | Hydrology | Water follows coherent topology; basins, outlets, lakes and rivers have shared identity | Physical topology with disclosed equilibrium/storage hacks | Event hydrology, calibrated discharge chronology or full groundwater |
 | Geographic semantics | Reusable objects are derived from state, retain provenance and explain their causes | Required product layer; incomplete | Ontological truth independent of scale or purpose |
 | Rendering | One world can be shown physically, diagnostically, cartographically and dramatically | Explicit visual/cartographic model; profile work incomplete | Rendered slope, width or visibility as physical evidence |
-| Ecology, resources and civilization | Later systems consume geography and expose its consequences | Future semantic/systemic layers | Automatic priority merely because they complete a planet checklist |
+| Living surface, resources and human geography | Fractional living opportunity is a bounded on-demand layer; later consequence systems must consume and expose geography | Living Surface accepted; aggregate consequence layer selected next | Calibrated ecology, individual-tree dynamics or automatic progression to civilization |
 
 These are current claims, not protection for current implementations. A system
 may be simplified, replaced or removed if a cheaper mechanism preserves its
@@ -144,16 +146,18 @@ The completed first pass asked four questions in order:
    cost.
 
 That pass produced explicit system dispositions rather than one universal
-fidelity direction. The selected sequence is now:
+fidelity direction. Water Geography and Living Surface have completed their
+bounded decisions. The selected sequence is now:
 
-1. repair and validate the shared climate–water–basin–river–coast truth contract
-   using existing cheap systems;
-2. build the selected bounded equilibrium-physiognomy proof as the first actual
-   world expansion, now that those inputs are coherent;
-3. keep persistent source-to-sink sediment behind an explicit time, material,
-   river-ownership and memory design gate; and
-4. return to tectonic forcing only with real front topology, history and
-   inherited material state—not another manufactured mountain rung.
+1. separate the ordinary product path from quarantined research machinery and
+   remove obvious unused rendering allocations;
+2. build a bounded Consequential Geography slice so traversability, access,
+   settlements and routes test whether retained planetary systems matter
+   together;
+3. bound one product-native structural mountain replacement without reviving
+   the H/C/G/I ladder; and
+4. keep sediment, seasonal hydroecology, richer vegetation, ocean structure and
+   cryosphere behind their explicit consumer and ownership gates.
 
 Missing systems remain central, but continue to compete against fixing,
 simplifying or deleting current systems.

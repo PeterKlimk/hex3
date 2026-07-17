@@ -317,12 +317,14 @@ the integrated planet.
    stable regional and hydrologic consequences plus manufactured causal signs.
 4. Semantic derivation and reproducible presentation profiles are comparatively
    cheap, high-leverage architecture, not substitutes for physical state.
-5. Water/climate inputs now have declared meaning. The bounded design review
-   selects equilibrium fractional physiognomy as the first-expansion proof;
-   persistent sediment remains the strongest large physical candidate behind a
-   deliberate surface-material/time/river/lowland-scale gate.
+5. Water/climate inputs now have declared meaning, and bounded equilibrium
+   physiognomy is accepted as an on-demand layer. Consequential Geography V0 is
+   the next expansion because it tests several retained systems together and
+   directly advances the board/globe identity; persistent sediment remains a
+   strong physical candidate behind a deliberate material/time/river/lowland
+   gate.
 6. Geological time matters only if processes share it. A physical clock attached
    to otherwise uncoupled or non-convergent operators is not progress by itself.
-7. The implemented Stage 4 frontier leaves major creative space: living worlds
-   and eventually human worlds can build on current geography without requiring
-   every intermediate domain to become a full scientific simulation.
+7. The implemented Stage 4 frontier leaves major creative space: aggregate
+   inhabited geography can build on current state without requiring every
+   intermediate domain—or human history—to become a full simulation.

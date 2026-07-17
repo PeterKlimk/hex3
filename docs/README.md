@@ -1,241 +1,57 @@
 # Hex3 documentation
 
-This directory is being rebuilt around a small canonical set. Until the sprint
-is complete, documents not listed as canonical below may be historical,
-experimental, superseded, or awaiting classification.
+Canonical documents describe current product intent and accepted architecture.
+Code and tests remain authoritative for implemented behavior. Dated research,
+audits and archived material are evidence, not current policy.
 
-## Canonical
+## Start here
 
-- [Project thesis](thesis.md) — goals, physical grounding, spectacle and
-  project-level decision principles.
-- [Model strategy](model-strategy.md) — chosen hybrid causal world-generator
-  identity, domain truth contracts and gates against local optimization.
-- [Landscape organization strategy](landscape-strategy.md) — current decision
-  for terrain, drainage and landform ownership after the completed bounded
-  organization comparison.
-- [Living Surface V0 decision](living-surface.md) — accepted bounded on-demand
-  fractional physiognomy and presentation layer, with richer ecology still gated.
-- [Cross-system disposition](system-disposition.md) — current retain, simplify,
-  replace, quarantine and research decisions, selected water-geography slice
-  and post-slice Pareto frontier.
-- [Documentation policy](documentation-policy.md) — authority, status,
-  terminology, evidence and lifecycle rules.
-- [Current architecture](architecture.md) — accepted system ownership and data
-  flow.
-- [Stage and state pipeline](pipeline.md) — runtime stages, coarse/fine state,
-  viewed/computed state and invalidation.
-- [Elevation and unit contract](units.md) — vertical scale, datum, crust-column
-  coordinates, distance, slopes, time and true-scale relief.
-- [System assessments](system-assessments.md) — fidelity, payoff, cost,
-  validation, limits and provisional Pareto posture.
-- [Experiment registry](experiment-registry.md) — product defaults, selectable
-  alternatives, promotion state and falsified/parked work.
-- [Semantic and presentation architecture](semantic-presentation.md) — derived
-  meaning, scale hierarchy, generalization, presentation profiles and rendering
-  ownership.
-- [Semantic objects](semantics.md) — implemented water-body identity, river
-  hierarchy, and seasonless ecological/biome potentials.
-- [Validation policy](validation.md) — evidence dimensions, controlled A/Bs,
-  reproducibility, performance and promotion gates.
-- [World evaluation charter](evaluation-charter.md) — retained zoomed-out
-  evaluation questions, corpus/research contract and stop conditions after the
-  completed first pass.
-- [World evaluation synthesis](evaluation-synthesis.md) — first ten-seed
-  numerical, correspondence and outlier assessment.
-- [Planet dossiers](dossiers/README.md) — end-to-end generated-world autopsies
-  connecting geographic objects, causes, presentation and system dispositions.
-- [Subtractive architecture audit](subtractive-audit.md) — historical evidence
-  from the earlier provisional cleanup/disposition pass; not the current queue.
-- [Metric registry](metric-registry.md) — measurement schema, decision roles and
-  initial numerical-inventory scope.
-- [Numerical instrumentation inventory](inventory/numerical-instrumentation.md)
-  — implemented diagnostics, definition collisions, weighting and historical gates.
-- [Evaluation tooling inventory](inventory/evaluation-tooling.md) — provenance,
-  exports, comparison/render tooling and corpus-harness gaps.
-- [Evaluation corpora](corpora/README.md) — declarative corpus format, smoke
-  specification and atomic artifact contract.
-- [Gap and Pareto analysis](gaps.md) — missing systems, couplings, rework
-  candidates and targeted research questions.
-- [Roadmap](roadmap.md) — ordered horizons, decision gates and near-term
-  sequence.
-- [Presentation contract](presentation.md) — physical state versus cartographic
-  relief and river presentation currently implemented by the renderer.
+- [Project thesis](thesis.md) — physical grounding, spectacle and decision
+  principles.
+- [Model strategy](model-strategy.md) — hybrid reduced causal world-generator
+  identity and domain truth contracts.
+- [Current roadmap](roadmap.md) — live portfolio decision and near-term sequence.
+- [Current architecture](architecture.md) — accepted ownership and data flow.
+- [Stage and state pipeline](pipeline.md) — implemented runtime stages and
+  retained state.
+- [Cross-system disposition](system-disposition.md) — retain, simplify, replace,
+  quarantine and research decisions.
 
-## Active working memory
+## Domain decisions and contracts
 
-- [Working memory](working-memory.md) — active, non-authoritative medium-term
-  findings and focus guardrails; prevents one investigation from hiding other
-  unresolved system questions.
+- [Landscape organization strategy](landscape-strategy.md)
+- [Living Surface V0](living-surface.md)
+- [Elevation and unit contract](units.md)
+- [Semantic and presentation architecture](semantic-presentation.md)
+- [Semantic objects](semantics.md)
+- [Presentation contract](presentation.md)
+- [Validation policy](validation.md)
+- [Documentation policy](documentation-policy.md)
 
-Current bounded research decision:
+## Current assessment and evidence synthesis
 
-- [Modern Voronoi backend controlled upgrade](research/voronoi-mesh-upgrade-ab-2026-07-14.md)
-  — evaluated positive after the exact-zero output correction; promoted at a
-  pinned upstream revision with independent Hex3 physical gates.
-- [Voronoi substrate A/B and zero-angle edge handoff](audits/voronoi-mesh-zero-edge-handoff-2026-07-14.md)
-  — resolved exact natural witness, backend provenance and retained pre-fix
-  design handoff.
-- [Landform object packet v0](research/landform-object-packet-v0-2026-07-14.md)
-  — preregistered arm-neutral evidence umbrella for the H/C/G organization
-  comparison; each rung still requires its own executable checkpoint.
-- [Landform G0/S0 executable contract](research/landform-object-packet-g0s0-2026-07-14.md)
-  — preregistered physical-graph adapters, split forest, highland populations,
-  morphology evidence and manufactured gates; planar G0/S0 and the analytic
-  8/4/2 matrix pass, and both product-spherical and projected-cap G0 adapters
-  plus the manufactured spherical S0/morphology checkpoint now pass; the
-  bounded product G0/S0 observation is recorded separately below.
-- [Landform D0 executable contract](research/landform-object-packet-d0-2026-07-15.md)
-  — preregistered common portal-fill receiver forest, conditioning, retained
-  basin/reach topology and exclusive raw catchment boundaries; the common
-  planar implementation and manufactured 8/4/2 matrix pass.
-- [Landform D0 common drainage audit](audits/landform-d0-common-drainage-2026-07-15.md)
-  — passing common planar drainage checkpoint, review corrections, cost and
-  explicit representation limits; no product adapter or terrain arm evaluated.
-- [Landform O0a relationship-probe contract](research/landform-object-packet-o0-2026-07-15.md)
-  — implemented and evaluated bounded common face-role, bilateral physical-
-  descent, saddle-boundary and reach cross-section checkpoint; correspondence
-  remains outside this rung in a separately preregistered O0b.
-- [Landform O0a relationship audit](audits/landform-o0a-relationships-2026-07-15.md)
-  — dated implementation and evaluation record for the bounded common O0a
-  relationship checkpoint; no O0b, R0, product adapter or terrain arm.
-- [Landform O0b correspondence and assembly contract](research/landform-object-packet-o0b-2026-07-15.md)
-  — accepted bounded common planar evaluation-instrument checkpoint for exact
-  packet assembly and mechanical highland/drainage-node correspondence.
-  Amendment A passes the isolated-four-cone 4→8/2, equal-elder, frozen-remap
-  and whole-artifact reversal gates. The flat-routing apron is compatibility
-  machinery, not realistic drainage morphology; the failed linked witness is
-  retained as historical S0/D0 representation evidence. This does not accept
-  product/spherical O0b, persistent identity/events, a product O0a adapter,
-  packet/product R0 or any H/C/G terrain arm.
-- [Landform O0b correspondence candidate audit](audits/landform-o0b-correspondence-2026-07-15.md)
-  — implementation and amendment verdict, passing bounded planar evidence,
-  measured packet cost, O0a boundary-roundoff correction and the failed
-  linked-four-cone 2 km witness retained as representation evidence; no
-  identity events, product adapter, packet/product R0 or H/C/G output.
-- [Landform product boundary and packet retention decision](research/landform-product-boundary-decision-2026-07-15.md)
-  — retires the provisional combined packet/product R0 boundary: common planar
-  core evidence, relationship sensitivities and product-native observation are
-  separate hashed artifacts. Product drainage and cross-domain correspondence
-  remain deferred.
-- [Common planar evidence-core V0 contract](research/landform-common-core-v0-2026-07-15.md)
-  — accepted bounded planar split with exact V0 compatibility and core-backed
-  O0b equivalence; see the [dated audit](audits/landform-common-core-2026-07-15.md).
-  Linked forcing supplies shared inputs, not a pre-arm final terrain or
-  landform verdict.
-- [Linked orogen shared-input manifest V0](research/orogen-linked-shared-input-v0-2026-07-15.md)
-  — accepted arm-neutral 8/4/2 km geometry, forcing, work, initial-state,
-  runoff, homogeneous-material and candidate-mask artifact; see the
-  [dated audit](audits/orogen-linked-shared-input-2026-07-15.md). It deliberately
-  contains no final terrain, arm conversion, selected scoring population or
-  landform verdict.
-- [Linked organization-owner comparison design V0](research/orogen-organization-owner-v0-2026-07-16.md)
-  — freezes the H/C/G architecture families, whole-domain evidence population,
-  central report, work-matching philosophy, response limits and decision
-  boundary. It is intentionally not executable on its own.
-- [Organization-owner artifact and provenance amendment V0](research/orogen-organization-artifact-v0-2026-07-16.md)
-  — freezes semantic result, native-provenance, trace, checkpoint and failure
-  bytes, exact bindings, conservation ledgers and validation/publication
-  boundaries.
-- [Organization-owner numerical and admission amendment V0](research/orogen-organization-numerical-v0-2026-07-16.md)
-  — freezes H/C execution, the linear surface-process boundary, G construction
-  and calibration, closure tolerances, failure authority, direct sensitivity
-  and campaign advancement.
-- [Organization-owner evidence and projection amendment V0](research/orogen-organization-evidence-v0-2026-07-16.md)
-  — freezes the exact common/central evidence, authored-G comparison, direct
-  numerical discrepancy, O0b correspondence, materiality, failure, JSON and
-  publication contracts.
-- [Organization-owner planar capture and human-review amendment V0](research/orogen-organization-planar-review-v0-2026-07-16.md)
-  — freezes deterministic CPU planar capture, fixed physical/diagnostic/
-  cartographic layers, procedural alias masking, primary-before-resolution
-  observation, reveal, failure, JSON and atomic publication. This completes the
-  four preregistered executable amendments. No promotion-grade arm result is
-  yet implemented or promoted; the separately authorized 4 km engineering
-  probe cannot change that status.
-- [Landform G0/S0 structural-slice audit](audits/landform-g0s0-structural-slice-2026-07-14.md)
-  — passing planar geometry/topology checkpoint, caught contract amendments and
-  the scope inherited by the morphology slice.
-- [Landform G0/S0 planar morphology-slice audit](audits/landform-g0s0-planar-morphology-2026-07-14.md)
-  — passing physical morphology fixtures, operator/numerical boundary fixes and
-  the scale-ready implementation used by the analytic matrix.
-- [Landform G0/S0 planar analytic audit](audits/landform-g0s0-planar-analytic-2026-07-14.md)
-  — passing 8/4/2 topology, cap, buffer and physical morphology gates, including
-  evaluated corrections to the merge-support sampling contract.
-- [Landform G0 geometry-adapter audit](audits/landform-g0-geometry-adapters-2026-07-14.md)
-  — passing product-spherical and projected irregular-cap physical geometry,
-  adjacency-authority and adversarial checks.
-- [Landform G0/S0 spherical morphology audit](audits/landform-g0s0-spherical-morphology-2026-07-14.md)
-  — passing 100 km synthetic-sphere morphology, covariance, exact-relief and
-  nonlocal-evidence checks; no product elevation or H/C/G surface was inspected.
-- [Product G0/S0 ancestry observation](research/landform-product-g0s0-observation-2026-07-14.md)
-  — completed unchanged after the upstream geometry correction: both graphs
-  and all five registered product surfaces reach G0/S0.
-- [Product G0/S0 ancestry observation audit](audits/landform-product-g0s0-observation-2026-07-14.md)
-  — reproducible historical typed failure and geometry-witness requirement.
-- [Product G0/S0 ancestry completion](audits/landform-product-g0s0-completion-2026-07-15.md)
-  — passing 250k product graph, five-surface morphology packet, cost record and
-  stage-localized descriptive terrain evidence.
-- [Drainage-network ownership](research/drainage-network-ownership-2026-07-13.md)
-  — continuum supply, physical promotion and persistent reach-lineage roles,
-  plus the preregistered memory discriminator.
-- [Seeded channel extraction R0](research/channel-extraction-r0-2026-07-13.md)
-  — state-free SFD/MFD centreline comparison from analytic flow with prescribed
-  heads and portals.
-- [Seeded channel extraction R0 audit](audits/channel-extraction-r0-2026-07-13.md)
-  — invalidated planar discriminator: impossible centre-path length gate,
-  aliased P0/M0 and malformed Y; irregular Voronoi follow-up required.
-- [Channel centreline geometry and confluence basis](research/channel-centerline-geometry-basis-2026-07-13.md)
-  — separates conservative face flux, within-cell geometry and merge-only river
-  topology; rules out a smooth merging-streamline Y oracle.
-- [Irregular-Voronoi seeded extraction R1a](research/channel-extraction-r1a-2026-07-13.md)
-  — preregistered product-backend cap, local P0/M0 comparison and face-crossing
-  geometry gate for one resolved valley; completed negative experiment selects
-  neither local receiver.
-- [R1a G0 Voronoi-cap audit](audits/channel-extraction-r1a-g0-2026-07-13.md)
-  — passing 8/4/2 km irregular geometry, projection, determinism and guard
-  evidence; records only the geometry checkpoint.
-- [R1a exact-input and rank-precheck audit](audits/channel-extraction-r1a-input-rank-precheck-2026-07-13.md)
-  — passing exact polygon means, immutable conservative routes and A/V head-
-  conflict witness; records the pre-extraction checkpoint.
-- [R1a path audit](audits/channel-extraction-r1a-path-2026-07-14.md)
-  — P0 and M0 both fail the affine-plus-valley gates; identifies polygon-mean/
-  generator-geometry inconsistency before any richer path reconstruction.
-- [R1a affine generator-point causal control](research/channel-extraction-r1a-generator-control-2026-07-14.md)
-  — evaluated report-only intervention; generator sampling materially changes
-  P0 but repairs no termination and both local receivers still reject.
-- [R1a affine generator-point control audit](audits/channel-extraction-r1a-generator-control-2026-07-14.md)
-  — records the negative causal result and redirects the next discriminator
-  from another face score to entry-point-aware continuous crossing.
-- [R1a affine continuous-crossing discriminator](research/channel-extraction-r1a-affine-crossing-2026-07-14.md)
-  — evaluated incomplete: analytic crossing passes 12/12, while one frozen
-  all-cell reconstruction prerequisite prevents a complete X1 verdict.
-- [R1a affine continuous-crossing audit](audits/channel-extraction-r1a-affine-crossing-2026-07-14.md)
-  — validates the cap and continuous traversal for affine A, records 11 judged
-  X1 successes, and keeps the maximum-face/F0 causal localization unclaimed.
-- [R1a stable affine-reconstruction control](research/channel-extraction-r1a-stable-reconstruction-2026-07-14.md)
-  — evaluated negative solve control: QR does not rescue registered rows, while
-  both direct affine-row oracle arms pass at machine precision.
-- [R1a stable affine-reconstruction audit](audits/channel-extraction-r1a-stable-reconstruction-2026-07-14.md)
-  — localizes the remaining censor to registered mean/difference numerics, not
-  solve stability, traversal, stencil conditioning or internal face ranking.
+- [System assessments](system-assessments.md)
+- [Gap and Pareto analysis](gaps.md)
+- [World evaluation charter](evaluation-charter.md)
+- [World evaluation synthesis](evaluation-synthesis.md)
+- [Planet dossiers](dossiers/README.md)
+- [Experiment registry](experiment-registry.md)
+- [Metric registry](metric-registry.md)
+- [Evaluation corpora](corpora/README.md)
+- [Working memory](working-memory.md) — non-authoritative active findings and
+  focus guardrails.
 
-## Working inventory
+## Inventories and history
 
-- [Documentation inventory](inventory/documentation.md)
 - [World systems inventory](inventory/world-systems.md)
 - [Rendering inventory](inventory/rendering.md)
-- [Cross-cutting system matrix](inventory/system-matrix.md)
+- [Numerical instrumentation inventory](inventory/numerical-instrumentation.md)
+- [Evaluation tooling inventory](inventory/evaluation-tooling.md)
+- [Documentation inventory](inventory/documentation.md)
+- [Research index](research/README.md)
+- [Audit index](audits/README.md)
+- [Archive index](archive/README.md)
 
-Inventories are evidence for this rewrite, not permanent substitutes for
-maintained architecture.
-
-## Historical and supporting material
-
-- [Audits](audits/) — dated numeric and structural evidence.
-- [Archive](archive/) — superseded specs, roadmaps and reviews.
-- [Research](research/) — exploratory or externally informed notes.
-- [Generated reports](generated/) — historical generated outputs with varying
-  provenance quality.
-
-The root [`README.md`](../README.md) is the human project entry point.
-`AGENTS.md` contains only repository-specific execution constraints and links
-here; it is not an architecture source.
+The [subtractive architecture audit](subtractive-audit.md) remains historical
+evidence, not the active cleanup queue. `AGENTS.md` contains only execution
+constraints and links here; it is not an architecture source.

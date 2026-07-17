@@ -14,16 +14,16 @@ it become a chronological activity log.
 
 ## Active focus
 
-**Return to the cross-system portfolio after the bounded Living Surface V0
-decision.** Water Geography V0 is complete. A bounded comparison selected
-[equilibrium fractional physiognomy](living-surface.md) over promoting the
-current ecology classifier, beginning source-to-sink sediment immediately, or
-making no expansion. Its on-demand kernel and matched presentation exist, and
-human inspection judged the blend an improvement over ordinary terrain. Retain
-it as a selectable semantic/presentation layer, not a new ecology stage. Do not
-extend into biome labels, regions or trees by momentum; the next choice should
-again compare current wrong/overbuilt systems, missing high-leverage systems
-and fundamental reworks against the project thesis.
+**Execute the post-Living portfolio decision.** Water Geography and Living
+Surface have completed their bounded decisions. The current roadmap selects two
+different kinds of next work: contract the oversized product/experiment surface
+immediately, then build Consequential Geography V0 as the next product slice.
+That slice uses traversability, water/coast access, living opportunity, broad
+affordances, aggregate settlements and routes to test whether the existing
+planetary systems matter together. Structural mountain organization remains the
+highest-priority model rework, but it gets one product-native belt contract—not
+another H/C/G/I campaign. Sediment and richer ecology do not advance by
+inheritance or momentum.
 
 The kernel does not normalize away the supplied precipitation pattern, uses
 geometric contributing area and HAND-like drainage position, distinguishes lake
@@ -1078,8 +1078,8 @@ explicit persistent skeleton, or a physical channel-initiation threshold.
 
 ## Focus guardrails
 
-- Do not let the active water-geography slice erase the mountain, presentation,
-  living-surface, sediment or later human-geography findings above.
+- Do not let Consequential Geography become independent game noise over the
+  planet; ablate grade, freshwater, coast and living opportunity separately.
 - For every important failure mode, ask **“how does reality avoid this, and how
   do higher-fidelity simulations preserve that mechanism?”** Build the causal
   graph before choosing its compression. Hex3 need not afford the full process,
@@ -1090,6 +1090,6 @@ explicit persistent skeleton, or a physical channel-initiation threshold.
 - Do not infer physical success from attractive cartography or Earth-like
   marginal statistics.
 - Prefer a decisive object/cause comparison over another global metric.
-- Keep the selected slice bounded: it establishes water/climate truth and shared
-  geographic objects; it does not absorb seasons, groundwater, sediment,
-  vegetation or another mountain model.
+- Keep the selected slice bounded: it establishes access, traversability,
+  affordances, aggregate sites and routes. It does not absorb agents, economy,
+  culture, seasons, sediment, richer ecology or a mountain replacement.

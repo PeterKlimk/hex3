@@ -7,7 +7,11 @@ registry or roadmap.
 
 Current targeted questions are listed in [`../gaps.md`](../gaps.md).
 
-Current synthesized notes:
+Indexed research history:
+
+The landform and orogen sequence below is a completed evidence campaign, not
+the current product roadmap. See the [current roadmap](../roadmap.md) for the
+one bounded terrain question that remains live.
 
 - [Landform object packet v0](landform-object-packet-v0-2026-07-14.md)
   — arm-neutral geometry, surface hierarchy, drainage and relationship

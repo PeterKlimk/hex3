@@ -38,17 +38,20 @@ visible consequences.
 The completed disposition pass selected **Water Geography V0** as the immediate
 enabling slice; that slice now passes. **Living Surface V0** also passes its
 bounded proof and is retained as an on-demand semantic/presentation layer.
-Persistent sediment is the leading large physical candidate and remains behind
-its own design gate.
+The current portfolio selects product/laboratory separation as immediate
+enabling work and Consequential Geography V0 as the next bounded expansion.
+Persistent sediment remains the leading large physical candidate behind its own
+design gate.
 
 | Candidate | Visible payoff | Emergence / reach | Cost / readiness | Provisional Pareto view |
 |---|---|---|---|---|
+| Product/research boundary and presentation allocation | Indirect visual payoff; large iteration and comprehensibility gain | Very high across every future change | Medium; research code is about 54k LOC and stage-local river textures alone are ~128 MiB each | **Immediate enabling work** |
 | Landform semantics: ranges, plateaus, ridges, valleys, divides and passes | High through inspection and feature-aware rendering | Very high across causal validation, cartography, ecology and later culture | Medium; the completed packet is reusable evidence but product definitions remain incomplete | **Retain evidence; continue only for a consumer** |
-| Regional mountain organization owner | Very high; targets tableland grammar and weak drainage hierarchy | Very high across terrain, water, climate barriers, semantics and later worlds | High; bounded H/C/G/F/I discriminators found no winning owner | **Park; replace forcing basis before resuming** |
+| Regional mountain organization owner | Very high; targets tableland grammar and weak drainage hierarchy | Very high across terrain, water, climate barriers, semantics and later worlds | High; bounded H/C/G/F/I discriminators found no winning owner | **Highest-priority rework; bound one product-native structural slice** |
 | Water-geography truth contract and object integration | High for lakes, rivers, coasts, inspection and cartography | Very high across climate validation, hydrology, ecology and later settlement | Low–medium; retained inputs, compact graph and exact diagnostic geometry now exist | **Completed enabling slice** |
 | Controlled correspondence batteries for current systems | Indirect visually; prevents expensive false confidence | Very high across tectonics, climate, hydrology, erosion and remapping | Low–medium; idealized cases and ablations | **Use inside bounded decisions** |
 | Presentation transform ledger plus matched physical/cartographic views | High clarity and prevents false geometric inference | High diagnostic and rendering leverage | Low; physical/cartographic split already exists | **Immediate** |
-| Explicit semantic objects and regions | High through inspection, cartography and later gameplay | Very high; reused by rendering, validation, ecology and civilization | Low–medium; much logic already exists implicitly | **Do early** |
+| Explicit semantic objects and regions | High through inspection, cartography and later gameplay | Very high; reused by rendering, validation, ecology and civilization | Low–medium; much logic already exists implicitly | **Derive when a route/site/presentation consumer needs them** |
 | Presentation profiles, legends and capture metadata | High clarity; moderate spectacle | High diagnostic and decision value | Low; ready now | **Do early** |
 | Consistent scale-dependent rivers/overlays | High at globe/map scales | Medium; improves all thematic views | Medium; semantic generalization needed first | **Early** |
 | Elevation/unit/scale contract | Indirect visually, critical diagnostically | Very high across terrain, erosion and rendering | Low–medium; requires careful normalization audit | **Do early** |
@@ -64,13 +67,13 @@ its own design gate.
 | Glaciers/cryosphere | High in suitable worlds | Medium–high with water, climate, erosion and sea level | Medium–high; current glacial pass is incomplete | **Later coherent subsystem** |
 | Groundwater/wetlands | Moderate visual/ecological payoff | High locally for rivers, lakes and biomes | Medium; hydrology semantics ready in part | **Targeted later addition** |
 | Dynamic seasons/weather | High animation/variety | Medium geographic reach unless coupled over time | Very high for full solve; cheaper presentation/authentic hacks possible | **Hold; research only if product view needs it** |
-| Resources and suitability fields | Moderate directly; high board/game meaning | Very high bridge to settlement/civilization | Low–medium once geology/ecology semantics exist | **Prepare interfaces, add later** |
-| Settlement, routes and cultural diffusion | Very high narrative and board appeal | Very high emergent meaning from geography | Medium if aggregate; enormous if agent-heavy | **Later bounded world-history layer** |
+| Broad affordances and suitability | Moderate directly; high board/game meaning | Very high bridge from planet state to settlement | Low–medium with current water, terrain and Living Surface inputs | **Selected inside Consequential Geography V0** |
+| Aggregate settlements and routes | Very high narrative and board appeal | Very high emergent meaning and a functional test of existing geography | Medium if aggregate; enormous if agent-heavy | **Selected bounded expansion; no agents/economy/culture** |
 | Full civilization/economic simulation | Potentially very high but changes project center of gravity | Very high | Extremely high and weakly bounded | **Distant option, not present roadmap** |
 | Physically based material renderer | Moderate visual improvement | Low model reach | High compared with illustrative lighting at globe scale | **Hold** |
 | Dynamic 3-D atmosphere/ocean | Scientifically rich, uncertain product payoff | High in principle | Extremely high compute/validation cost | **Reject as default direction absent a new need** |
 
-## Highest-leverage missing layer: semantics
+## Consumer-driven semantic layer
 
 Hex3 already generates enough state to derive reusable objects: water bodies,
 river networks, mountain systems, tectonic belts and climate regions. Today
@@ -86,16 +89,17 @@ An explicit semantic layer is a force multiplier because it can provide:
 - named/typed features for a board or game view;
 - a clean boundary between generated fields and visual heuristics.
 
-The first semantic work should reuse existing derivations rather than begin with
-a generic entity framework. Rivers/water bodies and ranges are the best initial
-objects because their topology and diagnostics already exist.
+Semantic work should reuse existing derivations rather than begin with a generic
+entity framework. Rivers and water bodies are already useful objects. New
+regions, passes, crossings and barriers should be pulled into existence by a
+route, settlement, label or inspection consumer.
 
 These objects supplied evidence for the completed landscape-owner discriminator.
 Semantics alone can improve explanation and presentation, but it cannot repair
 an unorganized physical surface. Water objects now provide the most useful
 semantic integration boundary because they also test climate and hydrology.
 
-## Selected high-leverage visible domain: living surface
+## Completed bounded visible domain: living surface
 
 Biomes and vegetation can produce a large visual and semantic jump using current
 temperature, precipitation, elevation, continentality, water and terrain state.
@@ -108,10 +112,10 @@ problem into layers:
 4. scale-dependent presentation—from globe color/texture to regional canopy and
    optional local tree instances.
 
-The first version should not simulate individual trees or full succession. It
-should make physiognomic cover arise from coherent inputs, expose why a region
-received its state, and preserve room for later soils, fire, disturbance or
-human land use. Named biomes are summaries, not the primary state. See the
+The accepted version does not simulate individual trees or succession. Its
+on-demand physiognomic fractions arise from coherent inputs and can support
+later affordances without becoming a retained ecology stage. Named biomes,
+regions and richer vegetation remain separate decisions. See the
 [V0 decision](living-surface.md).
 
 The first corpus shows provisional biome transition coverage ranging from about
@@ -122,6 +126,20 @@ semantics are evaluated.
 Risks include producing a climate lookup-table painted over terrain, circular
 wetland halos around map-selected rivers, allowing noisy cell classifications,
 or treating rendered trees as ecological state.
+
+## Selected missing consequence layer
+
+Consequential Geography V0 uses current terrain, water/coast identity and Living
+Surface opportunity to derive traversability, a few disclosed affordances,
+aggregate settlement sites and least-cost routes. It is selected because it
+directly advances the globe/board identity while testing several retained
+systems together.
+
+It must remain an authentic aggregate hack. Independent ablations of grade,
+freshwater, coast and living opportunity should move sites and routes in
+intelligible ways. If authored weights dominate, routes exploit mesh artifacts,
+or every site merely follows the largest river, stop rather than add economy or
+cultural simulation.
 
 ## Highest-leverage large coupling: sediment
 
@@ -200,22 +218,19 @@ produces stable, interpretable behavior and meaningful consequences.
 
 ## Research questions
 
-Before major implementation, targeted external research should compare:
+Targeted external research should now compare:
 
-1. simplified biome and dynamic-vegetation models used in Earth-system science,
-   strategy games and procedural graphics;
-2. multiscale vegetation rendering and generalization from globe coverage to
-   regional/individual trees;
-3. reduced sediment-routing and landscape-evolution models that preserve mass
-   and generate floodplains/deltas without full stratigraphy;
-4. authentic ocean heat/current shortcuts suitable for spherical procedural
-   worlds;
-5. aggregate settlement, route and cultural-diffusion models grounded in
-   terrain, water, ecology and resources;
-6. feature extraction/generalization techniques for river networks, ranges,
-   regions and labels;
-7. dependency-graph and provenance approaches for expensive procedural
-   pipelines with retained stage variants.
+1. aggregate settlement-site and route-network models used in procedural games,
+   spatial history, transport geography and strategy maps;
+2. least-cost and network-formation methods over irregular terrain, including
+   ports, crossings, passes and chokepoints;
+3. structural range generators and reduced tectonic/landscape models that avoid
+   universal smooth tablelands without requiring full geodynamics;
+4. reduced sediment-routing models that preserve mass and generate one useful
+   floodplain, terminal-fill or delta target without full stratigraphy;
+5. cheap seasonal hydroecology and authentic ocean heat/current shortcuts; and
+6. multiscale vegetation and feature-generalization methods only when a selected
+   consumer needs them.
 
 Research should return mechanism, payoff, compute, failure modes and a proposed
 Hex3-scale approximation—not a survey of maximum-fidelity simulations.

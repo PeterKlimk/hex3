@@ -165,8 +165,9 @@ across world, app and diagnostic code:
 - material derivation identifies land/water/snow-like rendering classes;
 - feature fields and boundary aggregation identify tectonic regimes;
 - coloring derives thematic interpretations of elevation, climate and flow;
-- ecological potentials derive inspectable living-world constraints without
-  yet owning vegetation placement or presentation;
+- the superseded ecological classifier derives diagnostic potentials only;
+  Living Surface derives on-demand fractions and may own its declared linear
+  relief palette without owning vegetation placement or persistent ecology;
 - diagnostics derive connected objects, ranges and structural measurements;
 - visualization derives arrows, pole markers and boundary colors.
 
@@ -275,8 +276,9 @@ Plausible later domains include:
 
 The [cross-system disposition](system-disposition.md) retains Water Geography
 V0 as an enabling slice and the completed bounded Living Surface V0 as an
-on-demand semantic/presentation layer; sediment, richer ecology and later human
-geography remain behind explicit gates.
+on-demand semantic/presentation layer. Consequential Geography V0 is the
+selected next derived consumer; sediment, richer ecology and deeper human
+history remain behind explicit gates.
 This ordering does not assign a fidelity class or linear stage number. Some
 domains may be semantic derivations, some simulations, some authentic hacks and
 some presentation-only systems, with graph-shaped dependencies.

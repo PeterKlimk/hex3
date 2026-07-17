@@ -230,9 +230,9 @@ future consumers.
    matched views and make cross-system dispositions before choosing another
    stage.
 
-Water Geography V0 now provides coherent climate/water inputs. The first actual
-expansion remains conditional on a separate bounded design decision. Small
-instrumentation or semantic extraction changes are allowed when they expose
-existing state without tuning the generated world. Local ablations require a
-specific object-level decision and stop condition; producing another
-optimizable metric is not sufficient reason.
+Water Geography and Living Surface now provide coherent bounded inputs. The
+post-Living portfolio decision selects Consequential Geography V0 so sites and
+routes can test whether those inputs and terrain matter together. Small
+instrumentation or semantic extraction changes remain appropriate when pulled
+by that consumer. Local ablations require a specific relationship decision and
+stop condition; producing another optimizable metric is not sufficient reason.

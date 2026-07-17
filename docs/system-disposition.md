@@ -43,8 +43,11 @@ That slice now establishes coherent inputs and readable raw objects. The
 completed [**Living Surface V0**](living-surface.md) decision retains
 equilibrium fractional physiognomy and its linear blend as a bounded on-demand
 layer. Optional regions and richer vegetation rendering were not promoted.
-Persistent sediment remains the strongest large physical candidate, but
-follows a river/material/time and lowland-scale design gate.
+The post-Living portfolio decision selects
+[**Consequential Geography V0**](roadmap.md#2-consequential-geography-v0) as the
+next bounded expansion and product/laboratory separation as immediate enabling
+work. Persistent sediment remains a strong physical candidate behind a
+river/material/time and lowland-scale design gate.
 
 ## Dispositions
 
@@ -81,7 +84,7 @@ long-term ownership.
 | Diagnostics, corpus and experiment tooling | **Simplify** | Reproducible evidence and operator tests prevent false promotion | Move shared promoted measurements into library adapters; keep historical or invalid probes out of normal product configuration and contributor workflow. |
 | Persistent sediment | **Research** | One conserved mobile/deposited material could connect erosion, basins, floodplains, deltas, coasts, soil and loading | Require bedrock/alluvial-cover ownership, a visible source-to-sink target, explicit time/units, one routing owner, localized lowland/coastal resolution and a memory budget. No stratigraphic simulator. |
 | Living surface | **Retain (bounded layer)** | Climate, terrain and water yield useful visible identity, reusable fractional cover and inputs to resources/settlement | The on-demand equilibrium kernel, HAND-like saturation and closed fractions exist; human matched review found its linear blend improves the ordinary terrain baseline. It is selectable for final Stage-4 relief but not retained in `World` or exported. No biome calibration, regions, succession, fire or individual-tree ecology in V0. |
-| Human geography | **Research** | Traversability, resources, routes and settlement can make geography consequential and produce board-like stories | Follow living geography with aggregate suitability/routes/settlement before agents, economies or full civilization simulation. |
+| Consequential/human geography | **Selected bounded expansion** | Traversability, access, broad affordances, routes and aggregate settlements make retained geography consequential and produce board-like stories | Build an on-demand causal slice before agents, economies or culture. Pull only the semantic regions, passes and crossings it consumes; stop if authored weights dominate or the result is decorative. |
 
 ## Resolved shared seam: water geography
 
@@ -200,19 +203,21 @@ review found the topology understandable and the system operational. It did
 not validate naturalistic coast grammar, lake morphology, transient discharge
 or cartographic generalization, none of which is claimed by V0.
 
-## Pareto frontier after this decision
+## Current portfolio result
 
-1. **Water Geography V0** — completed enabling slice; low–medium cost and broad
-   leverage.
-2. **Living Surface V0** — accepted bounded fractional-cover and presentation
-   layer; richer ecology and vegetation rendering remain separate gated work.
-3. **Source-to-sink Sediment V0** — strongest large physical coupling, but
-   requires a design gate for river ownership, time, mass and memory.
-4. **Geography-to-human semantics** — aggregate productivity, traversability,
-   routes and settlement after living geography.
-5. **Reduced tectonic forcing replacement** — important but deferred until it
-   can consume real product fronts/history/material state rather than another
-   manufactured test field.
+1. **Contract the product surface now:** split the normal API/CLI/build from the
+   large research laboratory and make large presentation resources lazy/shared.
+2. **Build Consequential Geography V0 next:** use existing terrain, water,
+   climate and living opportunity to create explainable sites, routes,
+   crossings, ports and chokepoints.
+3. **Keep structural mountain organization as the highest-priority model
+   rework:** allow either a reduced causal owner or a disclosed authentic range
+   generator, but require one product-native belt comparison rather than a new
+   experiment ladder.
+4. **Keep sediment as research-ready, not build-ready:** it needs material,
+   time, routing, memory and lowland representation ownership.
+5. **Let consumers pull semantics and representation changes:** do not build a
+   generic object/dependency framework or richer ecology in advance.
 
 Dynamic atmosphere/ocean, full vegetation dynamics, individual-tree ecology,
 full stratigraphy, generic glacial tuning, physically based material rendering,
@@ -221,8 +226,9 @@ the current frontier.
 
 ## Stop rule
 
-The disposition pass is complete enough to choose work. Do not turn it into a
-permanent scoring exercise. A new product mechanism must replace an owner,
-create a visible or reusable consequence and preserve the truth contract more
-cheaply than the next-best alternative. Otherwise retain the simpler system or
-stop.
+The disposition pass is complete enough to choose work. The live ordering is in
+the [roadmap](roadmap.md), not in historical experiment availability. Do not
+turn reassessment into a permanent scoring exercise. A new mechanism must
+replace an owner or create a visible/reusable consequence and preserve the truth
+contract more cheaply than the next-best alternative. Otherwise retain the
+simpler system or stop.
