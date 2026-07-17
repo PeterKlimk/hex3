@@ -88,6 +88,14 @@ pub enum StructuralMountainError {
     EmptyTaperSupport(BoundaryEdgeId),
 }
 
+impl std::fmt::Display for StructuralMountainError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{self:?}")
+    }
+}
+
+impl std::error::Error for StructuralMountainError {}
+
 /// Why valid source evidence could not become a finite parent segment.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StructuralMountainOmissionReason {
