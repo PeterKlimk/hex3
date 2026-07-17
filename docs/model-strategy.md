@@ -30,10 +30,12 @@ terrain owners. The broader decision in the
 parks those mountain implementations, and retained **Water Geography V0** plus
 **Living Surface V0** as bounded layers. **Consequential Geography V0** has now
 closed its bounded discriminator with useful access/route operators but no
-promoted human layer. The current [roadmap](roadmap.md) selects
-[Structural Mountain V0](structural-mountain.md): one product-native finite-
-segment uplift organizer and same-belt legacy comparison. This is not a
-commitment to deepen every retained system.
+promoted human layer. [Structural Mountain V0](structural-mountain.md) then
+accepted a product-native source compiler but found that current crust/history
+state cannot support honest internal organization. The current
+[roadmap](roadmap.md) therefore selects the upstream
+[Lithosphere Inheritance V0](lithosphere-inheritance.md) state seam. This is
+not a commitment to deepen every retained system.
 
 ## Alternatives considered
 
@@ -151,8 +153,9 @@ fidelity direction. Water Geography, Living Surface and Consequential Geography
 have completed their bounded decisions. The selected sequence is now:
 
 1. keep the ordinary product path separate from quarantined research machinery;
-2. implement and judge the fixed product-native Structural Mountain V0 belt
-   without reviving the H/C/G/I ladder; and
+2. implement and judge source-only inherited basement provinces and structural
+   memory before resuming Structural Mountain terrain, without reviving the
+   H/C/G/I ladder; and
 3. keep sediment, seasonal hydroecology, richer vegetation, ocean structure and
    cryosphere behind their explicit consumer and ownership gates.
 

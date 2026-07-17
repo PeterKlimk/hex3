@@ -1,8 +1,9 @@
 # Structural Mountain V0 contract
 
 Status: **source-first target and observation binding accepted; current source
-organization rejected as insufficient; terrain replacement not implemented or
-promoted**, 2026-07-18.
+organization rejected as insufficient; terrain replacement paused behind the
+selected [Lithosphere Inheritance V0](lithosphere-inheritance.md) decision**,
+2026-07-18.
 
 This document defines the one product-native mountain comparison authorized by
 the [roadmap](roadmap.md). It replaces the old H/C/G campaign as the active
@@ -98,8 +99,10 @@ Default history is a synthetic reduced backrotation, not geological
 reconstruction. V0 may use its episode grouping and relative displacement
 ordering; it may not narrate exact past geography. Craton and crust transitions
 may explain segment placement or termination when they actually intersect the
-belt. V0 does not add an independent weakness, competence or lithology-noise
-field.
+belt. This slice deliberately did not add an independent weakness, competence
+or lithology-noise field. Its resulting organization failure is what selected
+the separate upstream inheritance decision; it is not permission to insert a
+noise field inside this compiler.
 
 The product-facing front record owns chain grouping and one directed
 along-strike coordinate independently. Existing `arc_u` and endpoint-ordered
@@ -441,7 +444,7 @@ and a 382 km three-width broad-support scale. It records every raw edge, but
 only evidence persistent at both scales may inform organization. This prevents
 Voronoi-scale boundary chatter from becoming mountain structure.
 
-The generated episode and material state provide no internal transitions. All
+The generated episode and boundary state provide no internal transitions. All
 70 edges share one continental-collision regime, one plate pair, 63.5 Myr
 duration and 3,148.2 km episode-normal displacement. Five edges fall below the
 legacy local-convergence threshold, but each is an isolated one-edge run of
@@ -474,18 +477,26 @@ available source evidence supports a curved finite massif with continuous
 forcing variation. It does not support the multiple internal highs/lows,
 transfer zones or subordinate parents required by this V0 outcome.
 
+The follow-up crust seam closes the last existing-input loophole. Both sides of
+all 70 edges are craton `3`; there is no craton transition. Nearest ocean-margin
+distance supplies one broad interior maximum and returns to zero at the two
+ends. Because current cratons are generated independently of plates and their
+margin distance records only continent-ocean transitions, neither quantity is
+an inherited suture or terrane history. The complete enriched profile is frozen
+in
+[`generated/structural-mountain-seed-12345-organization-audit-v1.json`](generated/structural-mountain-seed-12345-organization-audit-v1.json).
+
 Structural Mountain V0 therefore stops with
 **`insufficient-causal-segmentation`** before terrain response. This is not a
-request for a lower bend threshold. The likely missing causal owner is
-long-wavelength inherited lithospheric structure or competence: something
-generated before collision, carried with material, and reusable by rifting,
-strain localization, erosion resistance or later geology. An independent ridge
+request for a lower bend threshold. The missing-owner decision is now made:
+test sparse inherited tectonic memory—coherent basement provinces plus a
+directional suture/rift graph—before terrain. A scalar competence texture is
+insufficient because it cannot own linkage, offsets or transfer topology. See
+[Lithosphere Inheritance V0](lithosphere-inheritance.md). An independent ridge
 noise field or post-target random fault pattern would merely hide the missing
-relationship. Whether to add that upstream latent system or revise the product
-outcome toward a simpler continuous curved massif is the next architecture
-decision.
+relationship.
 
-The complete profile and a compact plan/profile diagram are frozen in
+The original kinematic profile and a compact plan/profile diagram remain in
 [`generated/structural-mountain-seed-12345-organization-audit-v0.json`](generated/structural-mountain-seed-12345-organization-audit-v0.json)
 and
 [`generated/structural-mountain-seed-12345-organization-audit-v0.svg`](generated/structural-mountain-seed-12345-organization-audit-v0.svg).
@@ -565,12 +576,13 @@ prettier image.
 
 ## Deliberate omissions
 
-V0 does not add explicit faults, continuum crustal mechanics, a new tectonic
+This terrain slice does not add explicit faults, continuum crustal mechanics, a new tectonic
 history solver, sediment, landslide events, flexure, glaciers, dynamic climate,
 biome feedback, roads or culture. Existing cheap runoff and hydrology are
-inputs/consumers and must remain available to later stages. A coherent material
-or erodibility field is the most plausible second rung, but only if the fixed
-belt shows that real crust transitions cannot supply enough organization.
+inputs/consumers and must remain available to later stages. A material or
+erodibility field remains separate from the selected inherited-structure graph;
+tectonic competence and erodibility may correlate but must not be treated as
+one convenient scalar.
 
 `segment-transfer-low` is forcing provenance; `divide-saddle` is derived
 final-surface topology. One does not imply the other without measured
@@ -581,8 +593,9 @@ semantics.
 
 ## Consequence of the decision
 
-The next implementation task is small: expose a product-facing front/episode
-record, compile the selected belt's finite segment graph and uplift opportunity,
-and prove its ledger on manufactured chains before touching terrain response.
-It is not to revive O1/O2/O3, H/C/G, carrier tuning or the full planar evidence
-campaign.
+The product-facing front/episode record, finite-parent graph, source target and
+legacy binding are complete enough to retain. The next implementation task now
+belongs upstream: add and inspect the bounded inherited-state seam defined by
+[Lithosphere Inheritance V0](lithosphere-inheritance.md). Do not touch terrain
+response until that source-only state earns a relationship, and do not revive
+O1/O2/O3, H/C/G, carrier tuning or the full planar evidence campaign.

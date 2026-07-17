@@ -14,8 +14,8 @@ it become a chronological activity log.
 
 ## Active focus
 
-**Choose whether to add inherited lithospheric organization; do not build
-mountain terrain yet.** Seed `12345`'s terrain-blind source remains episode 0 /
+**Build the source-only Lithosphere Inheritance V0 seam; do not build mountain
+terrain yet.** Seed `12345`'s terrain-blind source remains episode 0 /
 plates `[0, 2]`: 72 edges and 3,254 km, comprising one 3,200 km collision parent
 plus two one-edge continental-receiving subduction transitions. Exact legacy
 response binding passes. Sixty-seven edges are represented by the old writer;
@@ -39,13 +39,22 @@ shortening. The already-compiled local-convergence × finite-end taper has one
 persistent opportunity maximum and no internal minimum. Result:
 `insufficient-causal-segmentation`; no terrain response.
 
-Next decide between two honest product paths. The stronger path is a minimal
-long-wavelength inherited structure/competence field generated before
-collision, carried with material and reused by more than mountain styling
-(rift inheritance, strain localization, erodibility or later geology). The
-cheaper path accepts a continuous curved massif and relaxes the internal-
-hierarchy outcome, which leaves the established tableland defect substantially
-unresolved. Do not insert random subsegments or independent ridge noise.
+The existing crust seam does not rescue it. All 70 collision edges are craton
+`3` on both plates, with no label transition. Ocean-margin distance forms one
+broad end-to-interior-to-end envelope. Current cratons are generated
+independently of plates; margin distance sees only continent-ocean transitions,
+not terranes or sutures. Legacy strain is zero, experimental strain is a
+response, and lifecycle damage/fabric is created by collision rather than
+inherited before it.
+
+The architecture decision selects tectonic memory, not a competence texture:
+coherent basement provinces plus a sparse directional graph of inherited
+sutures/rifts, with explicit tips, links, offsets and transfer nodes. First add
+and audit that state before terrain and expose it to both collision organization
+and rift localization. If the cheap source state fails to create coherent
+multi-consumer relationships, accept continuous finite massifs and relax the
+universal internal-hierarchy target. Do not insert random subsegments or
+independent ridge noise.
 
 The earlier fixed replay rejects the reviewed height component as one belt.
 On the current 255,866-cell fine baseline its core corresponds well to the old

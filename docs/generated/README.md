@@ -24,3 +24,9 @@ Current bounded evidence:
   persistence and finite-parent opportunity verdict.
 - [`structural-mountain-seed-12345-organization-audit-v0.svg`](structural-mountain-seed-12345-organization-audit-v0.svg)
   visualizes the source trace, persistent bends and broad forcing profiles.
+- [`structural-mountain-seed-12345-organization-audit-v1.json`](structural-mountain-seed-12345-organization-audit-v1.json)
+  extends that profile with plate-ordered craton identity and ocean-margin
+  distance, closing the existing-crust-state question behind the Lithosphere
+  Inheritance V0 decision.
+- [`structural-mountain-seed-12345-organization-audit-v1.svg`](structural-mountain-seed-12345-organization-audit-v1.svg)
+  retains the matched source/profile visualization for the enriched report.

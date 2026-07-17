@@ -25,12 +25,12 @@ struct Cli {
     cells: usize,
     #[arg(
         long,
-        default_value = "docs/generated/structural-mountain-seed-12345-organization-audit-v0.json"
+        default_value = "docs/generated/structural-mountain-seed-12345-organization-audit-v1.json"
     )]
     output: PathBuf,
     #[arg(
         long,
-        default_value = "docs/generated/structural-mountain-seed-12345-organization-audit-v0.svg"
+        default_value = "docs/generated/structural-mountain-seed-12345-organization-audit-v1.svg"
     )]
     svg_output: PathBuf,
 }
@@ -54,7 +54,38 @@ struct Report {
     persistent_convergence_extrema: Vec<ExtremumReport>,
     persistent_obliquity_extrema: Vec<ExtremumReport>,
     broad_bend_candidates: Vec<BendReport>,
+    inherited_material: InheritedMaterialReport,
     samples: Vec<SampleReport>,
+}
+
+#[derive(Serialize)]
+struct InheritedMaterialReport {
+    /// Craton identity on the two plates, ordered by `parent.plate_pair`.
+    craton_pair_count: usize,
+    same_craton_length_fraction: f32,
+    craton_pair_runs: Vec<CratonPairRunReport>,
+    craton_transitions: Vec<CratonTransitionReport>,
+    nearer_ocean_margin_raw_summary_km: ScalarSummary,
+    nearer_ocean_margin_three_width_summary_km: ScalarSummary,
+    persistent_nearer_ocean_margin_extrema: Vec<ExtremumReport>,
+}
+
+#[derive(Serialize)]
+struct CratonPairRunReport {
+    plate_craton_pair: [u32; 2],
+    start_edge: [usize; 2],
+    end_edge: [usize; 2],
+    start_km: f32,
+    end_km: f32,
+    edge_count: usize,
+}
+
+#[derive(Serialize)]
+struct CratonTransitionReport {
+    from_plate_craton_pair: [u32; 2],
+    to_plate_craton_pair: [u32; 2],
+    between_edges: [[usize; 2]; 2],
+    along_strike_km: f32,
 }
 
 #[derive(Serialize)]
@@ -151,6 +182,10 @@ struct SampleReport {
     obliquity_three_widths_deg: f32,
     bend_one_width_deg: Option<f32>,
     bend_three_widths_deg: Option<f32>,
+    plate_craton_pair: [u32; 2],
+    plate_margin_distance_km: [f32; 2],
+    nearer_ocean_margin_km: f32,
+    nearer_ocean_margin_three_width_km: f32,
 }
 
 struct Profile {
@@ -188,6 +223,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let parent = dominant_collision_parent(&graph, &source.segment_ids)
         .ok_or("selected source has no collision parent")?;
     let profile = build_profile(parent, &fronts.edges)?;
+    let crust = world.crust.as_ref().expect("crust generated");
 
     let one_width = COLLISION_WIDTH * PLANET_RADIUS_KM;
     let three_widths = 3.0 * one_width;
@@ -203,6 +239,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let obliquity_broad = obliquity_profile(&convergence_broad, &shear_broad);
     let bend_one = bend_profile(&profile, one_width);
     let bend_broad = bend_profile(&profile, three_widths);
+    let plate_craton_pairs: Vec<_> = profile
+        .edges
+        .iter()
+        .map(|edge| plate_craton_pair(edge, crust, parent.plate_pair))
+        .collect();
+    let plate_margin_distances_km: Vec<_> = profile
+        .edges
+        .iter()
+        .map(|edge| plate_margin_pair_km(edge, crust, parent.plate_pair))
+        .collect();
+    let nearer_ocean_margin_km: Vec<_> = plate_margin_distances_km
+        .iter()
+        .map(|distance| distance[0].min(distance[1]))
+        .collect();
+    let nearer_ocean_margin_broad = smooth(&profile, &nearer_ocean_margin_km, three_widths);
     let compiled_density: Vec<_> = parent
         .compiled_opportunity_km2
         .iter()
@@ -239,7 +290,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mean_edge_length = profile.lengths.iter().sum::<f32>() / profile.lengths.len() as f32;
 
     let report = Report {
-        schema: "hex3-structural-mountain-organization-audit-v0",
+        schema: "hex3-structural-mountain-organization-audit-v1",
         seed: cli.seed,
         requested_coarse_cells: cli.cells,
         elapsed_seconds: started.elapsed().as_secs_f32(),
@@ -286,6 +337,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         persistent_convergence_extrema,
         persistent_obliquity_extrema,
         broad_bend_candidates,
+        inherited_material: InheritedMaterialReport {
+            craton_pair_count: plate_craton_pairs
+                .iter()
+                .copied()
+                .collect::<std::collections::BTreeSet<_>>()
+                .len(),
+            same_craton_length_fraction: profile
+                .lengths
+                .iter()
+                .zip(&plate_craton_pairs)
+                .filter(|(_, pair)| pair[0] == pair[1])
+                .map(|(&length, _)| length)
+                .sum::<f32>()
+                / profile.lengths.iter().sum::<f32>(),
+            craton_pair_runs: value_runs(&profile, &plate_craton_pairs),
+            craton_transitions: value_transitions(&profile, &plate_craton_pairs),
+            nearer_ocean_margin_raw_summary_km: scalar_summary(
+                &nearer_ocean_margin_km,
+                &profile.lengths,
+            ),
+            nearer_ocean_margin_three_width_summary_km: scalar_summary(
+                &nearer_ocean_margin_broad,
+                &profile.lengths,
+            ),
+            persistent_nearer_ocean_margin_extrema: persistent_extrema(
+                &profile,
+                &smooth(&profile, &nearer_ocean_margin_km, one_width),
+                &nearer_ocean_margin_broad,
+                three_widths,
+            ),
+        },
         samples: profile
             .edges
             .iter()
@@ -306,6 +388,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 obliquity_three_widths_deg: obliquity_broad[index],
                 bend_one_width_deg: bend_one[index],
                 bend_three_widths_deg: bend_broad[index],
+                plate_craton_pair: plate_craton_pairs[index],
+                plate_margin_distance_km: plate_margin_distances_km[index],
+                nearer_ocean_margin_km: nearer_ocean_margin_km[index],
+                nearer_ocean_margin_three_width_km: nearer_ocean_margin_broad[index],
             })
             .collect(),
     };
@@ -339,6 +425,74 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         report.three_width_summary.convergence_km_per_myr.max,
     );
     Ok(())
+}
+
+fn plate_craton_pair(
+    edge: &ConvergentFrontEdge,
+    crust: &hex3::world::Crust,
+    plate_pair: [usize; 2],
+) -> [u32; 2] {
+    let mut result = [u32::MAX; 2];
+    for side in 0..2 {
+        let position = plate_pair
+            .iter()
+            .position(|&plate| plate == edge.plates[side])
+            .expect("parent edge plate belongs to parent plate pair");
+        result[position] = crust.cell_craton[edge.cells[side]];
+    }
+    result
+}
+
+fn plate_margin_pair_km(
+    edge: &ConvergentFrontEdge,
+    crust: &hex3::world::Crust,
+    plate_pair: [usize; 2],
+) -> [f32; 2] {
+    let mut result = [f32::NAN; 2];
+    for side in 0..2 {
+        let position = plate_pair
+            .iter()
+            .position(|&plate| plate == edge.plates[side])
+            .expect("parent edge plate belongs to parent plate pair");
+        result[position] = crust.margin_distance(edge.cells[side]) * PLANET_RADIUS_KM;
+    }
+    result
+}
+
+fn value_runs(profile: &Profile, values: &[[u32; 2]]) -> Vec<CratonPairRunReport> {
+    let mut runs = Vec::new();
+    let mut start = 0;
+    while start < values.len() {
+        let mut end = start;
+        while end + 1 < values.len() && values[end + 1] == values[start] {
+            end += 1;
+        }
+        runs.push(CratonPairRunReport {
+            plate_craton_pair: values[start],
+            start_edge: edge_pair(profile.edges[start].id),
+            end_edge: edge_pair(profile.edges[end].id),
+            start_km: profile.starts[start],
+            end_km: profile.ends[end],
+            edge_count: end - start + 1,
+        });
+        start = end + 1;
+    }
+    runs
+}
+
+fn value_transitions(profile: &Profile, values: &[[u32; 2]]) -> Vec<CratonTransitionReport> {
+    (1..values.len())
+        .filter(|&index| values[index] != values[index - 1])
+        .map(|index| CratonTransitionReport {
+            from_plate_craton_pair: values[index - 1],
+            to_plate_craton_pair: values[index],
+            between_edges: [
+                edge_pair(profile.edges[index - 1].id),
+                edge_pair(profile.edges[index].id),
+            ],
+            along_strike_km: profile.starts[index],
+        })
+        .collect()
 }
 
 fn dominant_collision_parent<'a>(

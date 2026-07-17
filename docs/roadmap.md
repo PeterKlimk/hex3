@@ -154,18 +154,17 @@ See the [lower-corridor audit](audits/consequential-geography-lower-corridor-202
 Kill condition: if authored weights dominate geography or the result is a
 decorative overlay, stop. Retain only useful traversability/access semantics.
 
-### 3. [Structural Mountain V0](structural-mountain.md) — selected next slice
+### 3. [Lithosphere Inheritance V0](lithosphere-inheritance.md) — selected next slice
 
 The tableland/“long Uluru” range grammar remains the largest established visible
-model defect. Failed H/C/G/I variants park those implementations, not the
-problem.
+model defect. The product-native structural compiler has now shown that the
+current source does not contain enough causal state to repair it honestly.
 
-The design contract now fixes seed `12345`'s reviewed broadest range and selects
-one finite-segment uplift organizer with drainage-conditioned terrain response.
-It derives finite supports, linkage/transfer lows, width and defensible flank
-asymmetry from actual product front/crust/history evidence, then lets routed
-incision own valleys, watershed topology own divides and supported crests own
-ridge semantics.
+The selected task is therefore upstream state, not mountain response. Add
+coherent basement provinces plus a sparse directional graph of inherited
+sutures/rifts. This state is generated before terrain, has explicit topology
+and orientation, and must serve both collision organization and rift
+localization. A competence-noise raster cannot substitute for it.
 
 The inert front/episode record, sparse finite-parent compiler and closed
 shortening-opportunity ledger are implemented. Fixed attribution rejected seed
@@ -179,21 +178,24 @@ reviewed parent is independently rank three. Exact legacy response ownership
 then binds it to one dominant 1.436 million km² visible component with no mixed-
 seed ambiguity and negligible hydrologic-repair ownership.
 
-That organization gate now fails cleanly. The 3,200 km collision parent has
+The [Structural Mountain V0](structural-mountain.md) organization gate fails
+cleanly. The 3,200 km collision parent has
 substantial broad curvature and modest continuous kinematic variation, but one
-uniform episode/material state. Its finite-end-tapered opportunity contains one
+uniform episode state. Its finite-end-tapered opportunity contains one
 persistent maximum and no internal minimum. Bends can concentrate rather than
 terminate shortening, so converting five curvature maxima into independent
 tapers would manufacture the needed lows. Structural Mountain V0 stops with
 `insufficient-causal-segmentation`; no terrain response is authorized.
 
-The next decision is architectural, not another discriminator: either add a
-small upstream inherited-structure/competence owner that can causally organize
-tectonics and later surface response, or revise the target outcome toward a
-continuous curved massif and accept that it does not solve the established
-internal-hierarchy defect. Do not add independent ridge noise, lower a bend
-threshold, revive the manufactured organization ladder, tune amplitudes, or
-stack structural relief over the current scalar height owner.
+The crust follow-up finds craton `3` on both sides of every parent edge and only
+one broad ocean-margin-distance envelope. Existing craton labels, experimental
+strain and lifecycle damage do not provide pre-collision structural memory.
+Build and audit the new source state before revisiting terrain. If it cannot
+produce coherent multi-consumer relationships cheaply, relax the universal
+internal-hierarchy target and retain continuous finite massifs. Do not add
+independent ridge noise, lower a bend threshold, revive the manufactured
+organization ladder, tune amplitudes, or stack relief over the current scalar
+height owner.
 
 ## Later decision set
 

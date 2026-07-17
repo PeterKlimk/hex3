@@ -45,11 +45,13 @@ equilibrium fractional physiognomy and its linear blend as a bounded on-demand
 layer. Optional regions and richer vegetation rendering were not promoted.
 The bounded [**Consequential Geography V0**](consequential-geography.md)
 decision now retains cheap access/route operators without promoting a human
-layer. The portfolio next selects
-[**Structural Mountain V0**](structural-mountain.md): one fixed product belt and
-one finite-segment uplift/drainage replacement. Persistent sediment remains a
-strong physical candidate behind a river/material/time and lowland-scale design
-gate.
+layer. [**Structural Mountain V0**](structural-mountain.md) retains an accepted
+source compiler but rejects the current source as causally under-organized. The
+portfolio next selects
+[**Lithosphere Inheritance V0**](lithosphere-inheritance.md): source-only
+basement provinces and inherited structure before mountain terrain. Persistent
+sediment remains a strong physical candidate behind a river/material/time and
+lowland-scale design gate.
 
 ## Dispositions
 
@@ -62,10 +64,10 @@ long-term ownership.
 | Primary spherical Voronoi geometry | **Retain** | Coherent spherical topology, area, distance and adjacency used everywhere | Keep the pinned validated backend and its independent Hex3 gates; backend work must answer a concrete robustness or performance need. |
 | Alternative geometry backends | **Quarantine** | Dedicated comparison and integration value | Keep outside ordinary product choice unless an active question justifies the maintenance surface. |
 | Coarse/fine allocation | **Simplify** | The best current compute bargain: broad causes on coarse state and visible drainage/erosion on fine state | Retain two scales, but compare the adaptive density prior with a simpler equal-budget allocation and declare transfer semantics per field. |
-| Plate/crust initialization | **Retain** | Cheap continent, crust and margin variety with inspectable causes | Treat it as an initializer, not geological genesis. Future history may modify it without replacing it with mantle simulation. |
+| Plate/crust initialization | **Extend; retain current envelope as control** | Cheap continent, crust and margin variety with inspectable causes | Current cratons are independent of plates and retain no terranes, sutures or rift memory. [Lithosphere Inheritance V0](lithosphere-inheritance.md) adds that source state without pretending to simulate geological genesis. |
 | Euler motion and boundary kinematics | **Retain** | Physically meaningful rigid motion, convergence, divergence, shear and polarity | Synthetic poles are not force-balanced history. Research force-derived motion only if several visible or downstream consequences need it. |
 | Product boundary feature bridge | **Retain** | Present fronts, sign, rate, crust setting and polarity are high-leverage forcing inputs | Stop treating its scalar response as finished mountain terrain. Preserve these inputs while the scalar height owner is replaced. |
-| Scalar tectonic final-height ownership | **Replace** | Keep the legacy output as the usable product baseline and control | The generic capped/ribbon grammar is not a product foundation. [Structural Mountain V0](structural-mountain.md) now fixes one real product belt and a finite-segment uplift/drainage replacement; H/C/G/I do not advance. |
+| Scalar tectonic final-height ownership | **Replace** | Keep the legacy output as the usable product baseline and control | The generic capped/ribbon grammar is not a product foundation. [Structural Mountain V0](structural-mountain.md) retains its exact source compiler but pauses terrain until the selected inherited-state seam supplies honest organization; H/C/G/I do not advance. |
 | History, lifecycle, carrier and named orogen ladder | **Quarantine** | Conservative transport, overlap, material-ledger, underthrust and relaxation operators remain a useful research library | Lifecycle does not consume generated reorganization history, several compositions are falsified, and the public ladder overstates product choice. Remove misleading aliases and retired named selectors after operator extraction. |
 | Coarse elevation, bathymetry and datum | **Simplify** | Efficient global envelope with explicit physical elevation and crust-column conversions | Keep ownership and units explicit. Target-land-fraction sea level is a worldbuilding constraint, not conserved ocean volume; deeper loading/sea-level physics waits for sediment or ice consumers. |
 | Temperature and prescribed circulation | **Retain** | Cheap latitude, elevation and circulation structure for water, ecology and presentation | Do not add a dynamic atmosphere. Test regional consequences before adding longitude-asymmetric heat or seasonality. |
@@ -209,13 +211,11 @@ or cartographic generalization, none of which is claimed by V0.
 
 1. **Contract the product surface now:** split the normal API/CLI/build from the
    large research laboratory and make large presentation resources lazy/shared.
-2. **Build Consequential Geography V0 next:** use existing terrain, water,
-   climate and living opportunity to create explainable sites, routes,
-   crossings, harbor opportunities and chokepoints.
-3. **Keep structural mountain organization as the highest-priority model
-   rework:** allow either a reduced causal owner or a disclosed authentic range
-   generator, but require one product-native belt comparison rather than a new
-   experiment ladder.
+2. **Retain the completed bounded consequence operators:** do not expand them
+   into population, economy or culture without a new portfolio decision.
+3. **Build Lithosphere Inheritance V0 as the highest-priority model rework:**
+   require coherent source state and a second rift consumer before resuming the
+   product-native mountain belt, rather than starting a new experiment ladder.
 4. **Keep sediment as research-ready, not build-ready:** it needs material,
    time, routing, memory and lowland representation ownership.
 5. **Let consumers pull semantics and representation changes:** do not build a

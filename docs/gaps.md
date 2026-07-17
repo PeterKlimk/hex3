@@ -36,16 +36,17 @@ visible consequences.
 ## Comparative matrix
 
 **Water Geography V0**, **Living Surface V0** and the bounded Consequential
-Geography discriminator are complete. The current portfolio selects the
-[Structural Mountain V0](structural-mountain.md) same-belt replacement as the
-next model slice. Persistent sediment remains the leading large physical
-candidate behind its own design gate.
+Geography discriminator are complete. The current portfolio selects
+[Lithosphere Inheritance V0](lithosphere-inheritance.md) as the missing upstream
+owner exposed by [Structural Mountain V0](structural-mountain.md). Persistent
+sediment remains the leading large physical candidate behind its own design
+gate.
 
 | Candidate | Visible payoff | Emergence / reach | Cost / readiness | Provisional Pareto view |
 |---|---|---|---|---|
 | Product/research boundary and presentation allocation | Indirect visual payoff; large iteration and comprehensibility gain | Very high across every future change | Medium; research code is about 54k LOC and stage-local river textures alone are ~128 MiB each | **Immediate enabling work** |
 | Landform semantics: ranges, plateaus, ridges, valleys, divides and passes | High through inspection and feature-aware rendering | Very high across causal validation, cartography, ecology and later culture | Medium; the completed packet is reusable evidence but product definitions remain incomplete | **Retain evidence; continue only for a consumer** |
-| Regional mountain organization owner | Very high; targets tableland grammar and weak drainage hierarchy | Very high across terrain, water, climate barriers, semantics and later worlds | Medium–high; prior H/C/G/F/I instances failed, but reusable product fronts/history and erosion operators exist | **Selected: implement the fixed Structural Mountain V0 belt** |
+| Lithosphere inheritance / regional mountain organization owner | Very high; targets tableland grammar without painting terrain | Very high across collision, rifting, terrain, water barriers, geology and later worlds | Medium; current craton/plate overlay lacks terranes or inherited structure, but reusable exact fronts and graph operators exist | **Selected: implement the source-only inherited-state seam before mountain terrain** |
 | Water-geography truth contract and object integration | High for lakes, rivers, coasts, inspection and cartography | Very high across climate validation, hydrology, ecology and later settlement | Low–medium; retained inputs, compact graph and exact diagnostic geometry now exist | **Completed enabling slice** |
 | Controlled correspondence batteries for current systems | Indirect visually; prevents expensive false confidence | Very high across tectonics, climate, hydrology, erosion and remapping | Low–medium; idealized cases and ablations | **Use inside bounded decisions** |
 | Presentation transform ledger plus matched physical/cartographic views | High clarity and prevents false geometric inference | High diagnostic and rendering leverage | Low; physical/cartographic split already exists | **Immediate** |
