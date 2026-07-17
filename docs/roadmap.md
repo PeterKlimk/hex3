@@ -168,14 +168,19 @@ incision own valleys, watershed topology own divides and supported crests own
 ridge semantics.
 
 The inert front/episode record, sparse finite-parent compiler and closed
-shortening-opportunity ledger are implemented. Fixed attribution then rejected
-seed `12345`'s reviewed height component as one belt: its core merges one long
-collision front and two disconnected subduction fronts. Stop this V0 before
-terrain response. The next mountain contract must select one coherent generated
-source belt first and bind both legacy and candidate terrain to it; it must not
-browse height components for a friendlier picture. Do not revive the
-manufactured organization ladder, tune amplitudes, or stack structural relief
-over the current scalar height owner.
+shortening-opportunity ledger are implemented. Fixed attribution rejected seed
+`12345`'s reviewed height component as one belt: its core merges one long
+collision front and two disconnected subduction fronts.
+
+The revised contract now selects entirely in the generated source domain. Its
+primary continental-capable component is a coherent 3,254 km plate-pair system
+with one long collision parent and two exact subduction transitions; the old
+reviewed parent is independently rank three. The next bounded action is to bind
+legacy response and downstream observations to the selected source without
+using elevation to choose or enlarge it. Stop before terrain response if that
+binding is empty, spatially incoherent or dominated by plate-wide diffuse
+mixing. Do not revive the manufactured organization ladder, tune amplitudes, or
+stack structural relief over the current scalar height owner.
 
 ## Later decision set
 

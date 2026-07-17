@@ -13,3 +13,6 @@ Current bounded evidence:
 - [`structural-mountain-seed-12345-attribution-v0.json`](structural-mountain-seed-12345-attribution-v0.json)
   freezes the complete anchor-recovered core, receiving catchments and legacy
   front ancestry used by the Structural Mountain V0 inadmissibility verdict.
+- [`structural-mountain-seed-12345-source-target-v0.json`](structural-mountain-seed-12345-source-target-v0.json)
+  freezes the terrain-blind source ranking and complete selected front identity
+  for the revised Structural Mountain target.

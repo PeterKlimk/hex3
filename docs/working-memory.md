@@ -14,30 +14,27 @@ it become a chronological activity log.
 
 ## Active focus
 
-**Revise mountain target identity source-first; do not build terrain yet.** Water Geography,
-Living Surface and Consequential Geography have completed their bounded
-decisions. The selected mountain contract uses seed `12345`'s reviewed broadest
-range and exactly one candidate: finite linked segments from real product
-front/crust/history evidence, compiled into cumulative uplift opportunity and
-consumed by drainage-conditioned terrain response. It must replace both legacy
-convergent height and repeated uplift rather than stack structure over them.
-The inert product-facing front/episode record, sparse finite-parent compiler and
-closed shortening-area-opportunity accounting now pass manufactured and small
-generated-world tests without changing terrain, defaults, caches or rendering.
-Next collect every compatible source front for the frozen range/component and
-its outlet-defined contributing catchment buffer, require one coherent linked plate/episode
-belt graph, and report finite-parent-only, causally segmented, disconnected or
-omitted honestly. Recover the legacy core from the frozen unit anchor rather
-than rerunning the mutable `Broadest` rank. Attribute finite geometric seed
-ancestry and co-seeders; report plate-wide diffuse amplitude dependencies
-separately because the legacy nonlinear field has neither finite support nor
-additive per-edge height shares. The first fixed replay falsified a reverse
-closure into the high core (zero cells); use the catchments receiving core
-runoff, including their other tributaries, instead. Those catchments freeze the
-downstream comparison domain; they must not import unrelated source fronts that
-merely share a basin with the target core.
+**Bind observations to the source-first mountain target; do not build terrain
+yet.** Water Geography, Living Surface and Consequential Geography have
+completed their bounded decisions. The mountain source is now selected before
+fine terrain exists: exact-link connectivity inside one plate pair/episode,
+terminated where receiving/material state ceases to support continental
+relief, ranked by shortening-area opportunity rather than height or apparent
+segmentation. Seed `12345` selects episode 0 / plates `[0, 2]`: 72 edges and
+3,254 km, comprising one 3,200 km collision parent plus two one-edge
+continental-receiving subduction transitions. It is coherent but 98% dominated
+by the long collision parent; source `CausallySegmented` does not yet prove the
+internal hierarchy the terrain organizer must earn.
 
-The completed fixed replay rejects the reviewed height component as one belt.
+Next derive which legacy response and downstream geography belong to those
+already-fixed sources. Exact geometric ownership may define attribution;
+plate-wide diffuse amplitude dependency remains separate and cannot enlarge
+belt identity. Elevation can describe the bound domain but cannot choose it.
+Stop if the source has no coherent visible consequence or if observation
+identity depends on arbitrary distance/height browsing. Only after binding
+should the long parent be inspected for defensible bend or kinematic extrema.
+
+The earlier fixed replay rejects the reviewed height component as one belt.
 On the current 255,866-cell fine baseline its core corresponds well to the old
 dossier (1.533M km², 4.572 km peak), but 39 geometric / 52 co-seeded direct
 edges expand through exact-front closure to 83 sources and still compile into

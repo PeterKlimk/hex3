@@ -1,7 +1,7 @@
 # Structural Mountain V0 contract
 
-Status: **mechanical source-domain compiler implemented; fixed-belt attribution
-and terrain replacement not implemented or promoted**, 2026-07-18.
+Status: **source-first target selected; source-owned observation domain and
+terrain replacement not implemented or promoted**, 2026-07-18.
 
 This document defines the one product-native mountain comparison authorized by
 the [roadmap](roadmap.md). It replaces the old H/C/G campaign as the active
@@ -332,11 +332,62 @@ and attribution are retained in
 [`generated/structural-mountain-seed-12345-attribution-v0.json`](generated/structural-mountain-seed-12345-attribution-v0.json).
 
 This is a target-selection architecture finding, not evidence that finite-front
-organization failed. A future mountain slice should begin source-first from one
-coherent generated front/belt graph, then measure the legacy and candidate
-terrain attached to that same cause. That requires an explicit contract
-revision; it is not permission to browse the current height components for a
+organization failed. The revised slice below begins source-first from one
+coherent generated front/belt graph, then measures legacy and candidate terrain
+attached to that same cause. It does not browse current height components for a
 friendlier example.
+
+## Revised source-first target
+
+The target identity is now fixed before fine terrain, climate, hydrology,
+erosion or rendering exists. Compile every generated convergent front on seed
+`12345` at 100,000 coarse cells, then form exact-link connected components with
+one history episode and one plate pair. Connectivity is limited to finite
+parents capable of building continental relief: continental collision, or
+subduction with continental crust on the receiving plate. An oceanic-receiving
+continuation remains tectonic context but cannot make a terrestrial mountain
+belt global.
+
+Rank eligible components by total declared shortening-area opportunity, then
+length and lower stable source ID. This is a pre-terrain prior for source extent
+and forcing, not predicted height, tectonic work or a promise of good
+morphology. Segment count is deliberately absent from the ranking: a uniform
+strong source is allowed to expose `insufficient-causal-segmentation` rather
+than losing to a visually convenient graph.
+
+The first implementation exposed and corrected an overly broad intermediate
+rule. Plate-pair/episode connectedness alone selected 13,028 km of interface
+because one continental segment imported four oceanic-receiving continuations.
+Applying the material/receiving-side termination above—still without observing
+terrain—produces 45 source components, of which 21 can build continental
+relief. The selected component is episode `0`, plate pair `[0, 2]`, stable ID
+`[91484, 91861]`:
+
+- 72 exact source edges and 3,253.7 km total length;
+- 15.122 million km² of declared shortening-area opportunity;
+- one 3,199.8 km continental-collision parent with 70 edges; and
+- two continental-receiving subduction transitions of 38.4 and 15.5 km, one
+  edge each.
+
+The selected system is exactly linked and therefore source-admissible, but it
+is strongly dominated by one uniform causal parent. `CausallySegmented` here
+means the source graph contains real regime/material transitions; it does not
+yet establish the internal high/low hierarchy required of the eventual
+organizer. The long collision parent may still contain defensible bend or
+kinematic extrema, which the mechanical compiler has not yet interpreted.
+
+The previously reviewed 3,282 km collision parent is independently recovered
+as source rank three and has zero edge overlap with the new selected target.
+That is expected: the old observation is retained as evidence of the scalar
+field's merging behavior, not recycled as the replacement target.
+
+The complete source-only ranking and selected provenance are frozen in
+[`generated/structural-mountain-seed-12345-source-target-v0.json`](generated/structural-mountain-seed-12345-source-target-v0.json).
+The next boundary is to derive the selected source's legacy observation domain
+from exact legacy response ownership. Elevation may describe that already-fixed
+domain; it may not select or expand the source. No terrain replacement is
+authorized until that binding establishes what legacy relief and downstream
+geography actually correspond to this cause.
 
 ## Evidence packet
 
