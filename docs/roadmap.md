@@ -168,13 +168,14 @@ incision own valleys, watershed topology own divides and supported crests own
 ridge semantics.
 
 The inert front/episode record, sparse finite-parent compiler and closed
-shortening-opportunity ledger are now implemented. Next, attribute the frozen
-seed-`12345` range to one coherent source-front set and let that real source set
-decide whether causal segmentation is sufficient. The terrain comparison then
-replaces both legacy convergent height and repeated uplift inside the fixed
-domain and compares only with
-unchanged legacy. Do not revive the manufactured organization ladder, tune
-amplitudes, or stack structural relief over the current scalar height owner.
+shortening-opportunity ledger are implemented. Fixed attribution then rejected
+seed `12345`'s reviewed height component as one belt: its core merges one long
+collision front and two disconnected subduction fronts. Stop this V0 before
+terrain response. The next mountain contract must select one coherent generated
+source belt first and bind both legacy and candidate terrain to it; it must not
+browse height components for a friendlier picture. Do not revive the
+manufactured organization ladder, tune amplitudes, or stack structural relief
+over the current scalar height owner.
 
 ## Later decision set
 

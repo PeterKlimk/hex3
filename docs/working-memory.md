@@ -14,7 +14,7 @@ it become a chronological activity log.
 
 ## Active focus
 
-**Attribute the fixed Structural Mountain V0 target to its real source fronts.** Water Geography,
+**Revise mountain target identity source-first; do not build terrain yet.** Water Geography,
 Living Surface and Consequential Geography have completed their bounded
 decisions. The selected mountain contract uses seed `12345`'s reviewed broadest
 range and exactly one candidate: finite linked segments from real product
@@ -25,8 +25,28 @@ The inert product-facing front/episode record, sparse finite-parent compiler and
 closed shortening-area-opportunity accounting now pass manufactured and small
 generated-world tests without changing terrain, defaults, caches or rendering.
 Next collect every compatible source front for the frozen range/component and
-catchment buffer, require one coherent linked plate/episode belt graph, and
-report finite-parent-only, causally segmented, disconnected or omitted honestly.
+its outlet-defined contributing catchment buffer, require one coherent linked plate/episode
+belt graph, and report finite-parent-only, causally segmented, disconnected or
+omitted honestly. Recover the legacy core from the frozen unit anchor rather
+than rerunning the mutable `Broadest` rank. Attribute finite geometric seed
+ancestry and co-seeders; report plate-wide diffuse amplitude dependencies
+separately because the legacy nonlinear field has neither finite support nor
+additive per-edge height shares. The first fixed replay falsified a reverse
+closure into the high core (zero cells); use the catchments receiving core
+runoff, including their other tributaries, instead. Those catchments freeze the
+downstream comparison domain; they must not import unrelated source fronts that
+merely share a basin with the target core.
+
+The completed fixed replay rejects the reviewed height component as one belt.
+On the current 255,866-cell fine baseline its core corresponds well to the old
+dossier (1.533M km², 4.572 km peak), but 39 geometric / 52 co-seeded direct
+edges expand through exact-front closure to 83 sources and still compile into
+three disconnected parents: one 3,282 km collision front and separate 551/79 km
+subduction fronts, plus one zero-opportunity omission. This is legacy scalar
+field/component merging, not a coherent orogen. Per contract, stop before
+terrain response. A future revision must choose a coherent generated source
+belt first and bind observations to that cause; it may not silently choose a
+friendlier legacy height component.
 Do not tune terrain response before that attribution says what organization the
 product evidence actually supports. Old H/C/G amendments and the historical
 notes below are evidence, not an active queue. Sediment, richer ecology and

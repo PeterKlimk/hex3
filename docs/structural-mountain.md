@@ -255,22 +255,88 @@ budget. The fixed observation is the dossier's **broadest range** target:
 | Legacy pre/final peak | 3.26 / 4.57 km |
 | Legacy integration-cut cells | 50 |
 
-Before compiling segments, add legacy source attribution to the fixed target:
-collect every compatible convergent front whose legacy arc/collision response
-contributes to its component or catchment buffer. Subduction attribution keeps
-the receiving side; continental collision admits both structural sides and
-invents no receiving plate. The source set must form one coherent linked
-plate/episode belt graph. If it does not, the fixed target is inadmissible and
-V0 stops rather than silently choosing the nearest front or a friendlier range.
-Ties use the lower canonical boundary-cell pair. Freeze that source set, a
-target-centred core and its contributing-catchment buffer before candidate
-terrain is generated. Selection uses only legacy/product evidence and cannot
-move to flatter candidate terrain.
+Recover the fixed target by its frozen unit-vector anchor on the unchanged
+legacy Stage-4 surface, not by rerunning the `Broadest` rank. The core is the
+connected `>= 1.5 km` component containing the nearest fine generator. Its
+contributing-catchment buffer is the union of exact legacy drainage catchments
+that receive runoff from at least one core cell: non-core land sharing a
+terminal water/sink cell with core runoff. This includes other tributaries in
+those basins; a reverse closure into the high core is generally empty and is not
+the intended relationship. This is not a tunable kilometre dilation. Freeze
+sorted core/buffer identities, terminal ownership, actual integration cuts and
+breached-source provenance before candidate terrain exists. The old dossier
+retains only a 64-cell geometry sample, so the first current-baseline replay
+must write the complete identities and verify correspondence with the frozen
+anchor and summary values.
+
+Before compiling segments, attribute the target core's legacy **geometric
+source ancestry**. The receiving catchment is an evaluation domain for later
+drainage consequence, not a source selector: other orogens may share its
+downstream basins without owning this range. For every coarse cell read by fine
+interpolation over the frozen core, reproduce the legacy plate-restricted
+arc/collision distance source:
+subduction owns only the receiving-side arc seed; continental collision admits
+both seeded sides and invents no receiving plate. Ties use the lower canonical
+boundary-cell pair. Include every eligible front co-aggregated at an owning seed
+cell, because legacy forcing averages those edges before propagation. The union
+is closed only across deterministic shortest pair-convergent exact-front paths
+between direct sources inside the same episode/plate component. A locally weak
+bridge may represent a transfer low; it is bridge provenance, not a new legacy
+amplitude owner. The result must form one coherent
+linked plate/episode belt graph. If it does not, the
+fixed target is inadmissible and V0 stops rather than choosing one globally
+nearest front or a friendlier range.
+
+This is deliberately not additive height attribution. Legacy seed averaging,
+normalized plate-wide diffusion, nearest-distance geometry, square-root caps,
+oceanic arc noise, fine interpolation and later erosion destroy per-edge height
+shares; the diffusion kernel also has no finite support cutoff. Record the
+larger same-plate dependency roster as non-attributable legacy amplitude mixing,
+but do not let remote diffuse dependencies define the new belt. Leave-one-edge-
+out deltas are unnecessary unless geometric ancestry proves ambiguous; they are
+signed counterfactual sensitivity, not physical budget shares. Structural V0's
+separate shortening-opportunity ledger remains the candidate's budget owner.
 
 This target is already human-reviewed, strongly convergence-associated and
 visibly exhibits the long-tableland grammar. It is not claimed to represent all
 orogen families. A first pass authorizes a small global corpus later; a failure
 does not authorize choosing a friendlier belt.
+
+## Fixed attribution verdict
+
+The first current-baseline replay stops this V0 before terrain response. At
+100,000 coarse cells and 255,866 actual fine cells, anchor-first recovery finds
+the reviewed object at fine cell `65597`: 10,975 core cells, 1.533 million km²,
+a 4.572 km peak and 61 integration-cut cells. This corresponds closely to the
+old sampled dossier despite the intentionally regenerated v15 fine mesh. Its
+outlet-defined receiving catchments add 9,147 non-core land cells and 6.284
+million km²; they are frozen for consequence evaluation but do not select
+sources.
+
+Core-only legacy ancestry has 39 geometric owner edges and 52 direct edges after
+co-seed inclusion. Exact-front topology closure adds 31 intervening edges. The
+83-edge selected set equals the same-plate diffuse dependency roster, yet the
+mechanical compiler still produces three disconnected finite parents in one
+coarse history episode: a 3,282 km continental-collision front (69 edges) and
+two separate subduction fronts of 551 km (11 edges) and 79 km (2 edges), plus
+one zero-opportunity omission. One transfer/junction link does not connect all
+three. Both opportunity ledgers close near roundoff.
+
+Therefore the fixed elevation component is **inadmissible as one structural
+belt** under this contract. The legacy scalar field and the `>= 1.5 km`
+component threshold have merged relief from distinct exact-front systems; the
+component's strong aggregate convergence association did not establish a
+single causal range identity. No candidate terrain, tuning, cache change or
+renderer comparison is authorized from this target. The complete frozen domain
+and attribution are retained in
+[`generated/structural-mountain-seed-12345-attribution-v0.json`](generated/structural-mountain-seed-12345-attribution-v0.json).
+
+This is a target-selection architecture finding, not evidence that finite-front
+organization failed. A future mountain slice should begin source-first from one
+coherent generated front/belt graph, then measure the legacy and candidate
+terrain attached to that same cause. That requires an explicit contract
+revision; it is not permission to browse the current height components for a
+friendlier example.
 
 ## Evidence packet
 
