@@ -1,6 +1,6 @@
 # Hex3 roadmap
 
-Status: **current portfolio decision**, 2026-07-17.
+Status: **current portfolio decision**, 2026-07-18.
 
 This roadmap turns the [project thesis](thesis.md), [model strategy](model-strategy.md)
 and [cross-system disposition](system-disposition.md) into a short, revisable
@@ -52,8 +52,8 @@ automatically the best product move.
 | Product promise | Candidate intervention | Current decision |
 |---|---|---|
 | The product is lean enough to reason about and iterate | Separate product code/API/CLI from the experimental laboratory; remove unconditional rendering allocations | **Immediate enabling work** |
-| Geography has visible consequences | Traversability, water/coast access, named relative opportunities, aggregate sites and least-cost routes | **Selected next bounded expansion** |
-| Terrain is morphologically convincing | Replace scalar final-height ownership with one structural range/forcing owner or disclosed authentic range hack | **Highest-priority model rework; one product slice before implementation campaign** |
+| Geography has visible consequences | Traversability, water/coast access, named relative opportunities, aggregate sites and least-cost routes | **Bounded discriminator complete; retain useful operators without vertical expansion** |
+| Terrain is morphologically convincing | Replace scalar final-height ownership with one structural range/forcing owner or disclosed authentic range hack | **Selected next model rework** |
 | The planet is readable and explainable | Consumer-driven regions, passes, crossings, chokepoints, labels and scale generalization | **Build only as pulled by the selected consequence layer** |
 | Landscapes connect source to sink | Persistent mobile/deposited material, floodplains, terminal fill and deltas | **Research/design gate; not next by default** |
 | The world feels more visibly alive | Forest structure, vegetation assets, seasons or disturbance | **Gated; accepted Living Surface does not authorize vertical expansion** |
@@ -86,7 +86,7 @@ Exit condition: a contributor can identify the product path without navigating
 rejected terrain rungs, and ordinary rendering no longer allocates hundreds of
 MiB for unused stage-local resources.
 
-### 2. [Consequential Geography V0](consequential-geography.md)
+### 2. [Consequential Geography V0](consequential-geography.md) — bounded decision complete
 
 Use existing final terrain, physical grade, water geography and Living Surface
 fractions to test whether the generated planet constrains one plausible
@@ -98,8 +98,8 @@ Minimum honest slice:
 terrain grade + water/coast access + relative living opportunity
   -> traversability and named opportunity/constraint components
   -> 12–30 aggregate sites
-  -> least-cost routes, harbor opportunities, crossings, gaps and chokepoints
-  -> causal explanation and cartographic presentation
+  -> least-cost terrestrial routes
+  -> conservative lower-terrain-corridor evidence and cartographic diagnosis
 ```
 
 This is an authentic aggregate hack, not population, economy, politics or full
@@ -135,16 +135,26 @@ consequence. Across the three representative worlds, physical and zero-grade
 arms select the same endpoint graph but only 47--56% of selected paths are
 exact; selected edge overlap is 0.40--0.67, physical ascent is 31--48% lower,
 and each network costs about 0.2 seconds at 255k cells. Retain the operator, but
-do not promote the site prior or claim network-topology consequence. The next
-bounded action is one honest route-local lower-corridor/gap explanation using
-existing path evidence—not population, site-weight calibration or another
-route parameter campaign. See the
+do not promote the site prior or claim network-topology consequence. This led
+to one final route-local lower-corridor discriminator using existing path
+evidence—not population, site-weight calibration or another route parameter
+campaign. See the
 [route-probe audit](audits/consequential-geography-route-probe-2026-07-17.md).
+
+That final relationship decision is also complete. Five to seven selected
+routes per world contain an elementary branch that is longer in distance but
+cheaper and lower under the physical traversal. The mechanism is reproducible,
+but split/rejoin spans are continental (3,163--5,891 km) and only one of three
+automatic images communicates it clearly. Retain the conservative
+`lower-terrain-corridor` evidence and typed omissions; reject automatic gap,
+pass, ridge-crossing and chokepoint semantics. Stop this vertical slice rather
+than building a relationship ladder, calibrating sites or adding population.
+See the [lower-corridor audit](audits/consequential-geography-lower-corridor-2026-07-18.md).
 
 Kill condition: if authored weights dominate geography or the result is a
 decorative overlay, stop. Retain only useful traversability/access semantics.
 
-### 3. Bound one structural mountain replacement
+### 3. Bound one structural mountain replacement — next
 
 The tableland/“long Uluru” range grammar remains the largest established visible
 model defect. Failed H/C/G/I variants park those implementations, not the

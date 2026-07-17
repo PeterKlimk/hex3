@@ -1,6 +1,6 @@
 # Hex3 working memory
 
-Status: **active, non-authoritative scratchpad**. Last consolidated 2026-07-17.
+Status: **active, non-authoritative scratchpad**. Last consolidated 2026-07-18.
 
 This document preserves medium-term context across evaluation passes so the
 active investigation does not erase other important findings. It is a queue of
@@ -14,15 +14,13 @@ it become a chronological activity log.
 
 ## Active focus
 
-**Execute the post-Living portfolio decision.** Water Geography and Living
-Surface have completed their bounded decisions. The oversized
-product/experiment surface has been contracted, and Consequential Geography V0
-is the active bounded product slice. Its access, provisional aggregate sites and
-terrain-sensitive route corridors now test whether the existing planetary
-systems matter together; route-local explanations remain the next decision.
-Structural mountain organization remains the
-highest-priority model rework, but it gets one product-native belt contract—not
-another H/C/G/I campaign. Sediment and richer ecology do not advance by
+**Return to the structural terrain problem after closing the bounded consequence
+slice.** Water Geography, Living Surface and Consequential Geography have now
+completed their bounded decisions. Consequential Geography retains cheap
+access, site, route and conservative lower-corridor operators without promoting
+a product layer or authorizing population/culture. Structural mountain
+organization is the next and highest-priority model rework, but it gets one
+product-native belt contract—not another H/C/G/I campaign. Sediment and richer ecology do not advance by
 inheritance or momentum.
 
 The kernel does not normalize away the supplied precipitation pattern, uses
@@ -88,7 +86,7 @@ river sources, no proper lake is the nearest source in this panel, and combined
 tight/loose gates rewrite many choices. The route slice must test terrain/gap
 consequences rather than conceal weak site-grade evidence.
 
-That route discriminator now passes at the corridor level. On the fixed three
+That route discriminator passes at the corridor level. On the fixed three
 255k-cell worlds, the physical and zero-grade arms use identical sites and
 select identical endpoint graphs, but selected cell-edge overlap is only
 0.40--0.67 and just 47--56% of selected paths are exact. Physical routes use
@@ -97,10 +95,17 @@ path displacement is 326--376 km. The seed-12345 regional pair visibly contrasts
 a distance-null line across a bright range with a physical lower corridor.
 Each network costs about 0.2 s. Repair overlap is present but only 1.9--2.4% of
 total selected route length. Retain the operator; do not infer endpoint-topology
-consequence, promote the provisional site prior or add population. The next
-honest question is whether current path and nearby-alternative evidence can
-support one route-local lower-corridor/gap explanation without decorative
-labeling.
+consequence, promote the provisional site prior or add population.
+
+The route-local follow-up is now closed. Strict same-split/rejoin comparison
+finds 7/19, 6/19 and 5/16 physical-selected routes with a longer but cheaper and
+lower elementary branch. The strongest branches save 3.28--5.17% physical
+generalized cost and 1.32--2.98 km of maximum elevation, but their endpoints are
+3,163--5,891 km apart. Seed `12345` communicates the mountain avoidance clearly;
+the other two automatic images are subtle or visually ambiguous. Keep the
+mechanical `lower-terrain-corridor` evidence and typed omission. Do not call it
+a gap, pass, ridge crossing or chokepoint, and do not spend another pass trying
+to style a broad continental comparison into a local feature.
 
 The current ecology transform remains diagnostic evidence only. Its relative
 moisture normalization cancels planetary wetness changes; its freshwater input

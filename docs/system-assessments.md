@@ -256,11 +256,12 @@ the integrated planet.
 - **Cost:** extremely elastic; a deep agent simulation could eclipse the planet
   generator, while grounded settlement/route/cultural diffusion models may
   yield much of the visible narrative value.
-- **Pareto posture:** **Consequential Geography V0 active as a bounded
-  semantic/product slice.** Terrain-sensitive route corridors pass cheaply;
-  the site prior and route-local explanations remain provisional. It claims no
-  population, history or civilization simulation. Deeper human systems remain
-  a future portfolio choice. See the
+- **Pareto posture:** **Retain the completed Consequential Geography V0
+  operators; stop vertical expansion.** Terrain-sensitive routes and a
+  conservative lower-corridor explanation pass cheaply. The site prior remains
+  provisional, and broad route comparisons do not justify pass, gap or
+  chokepoint semantics. It claims no population, history or civilization
+  simulation. Deeper human systems require a future portfolio choice. See the
   [V0 decision](consequential-geography.md).
 
 ## Semantic and presentation systems

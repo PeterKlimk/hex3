@@ -1,10 +1,10 @@
 # Consequential Geography V0 decision
 
-Status: **selected roadmap priority; traversal/access, configurable aggregate
-sites and bounded terrestrial routes implemented and operator-tested;
-factor-neutral site correction remains provisional; route-corridor terrain
-consequence accepted, but no frozen product prior, route-local relationships,
-promotion, default, population state or Stage 5**, 2026-07-17.
+Status: **bounded discriminator complete; traversal/access, configurable
+aggregate sites, terrestrial routes and conservative lower-corridor evidence
+implemented and operator-tested; useful operators retained, but no frozen site
+prior, geomorphic pass/gap semantics, promotion, default, population state or
+Stage 5**, 2026-07-18.
 
 ## Product question
 
@@ -13,9 +13,9 @@ site-selection prior, does terrain, water and living opportunity materially
 constrain one plausible configuration of sites and routes?
 
 The intended payoff is a world that reads as both planet and board: a viewer can
-see why a site is near this lake, why a route uses that gap, and why a coastal or
-river relationship matters. The result is a functional test of retained world
-systems as well as a new visible consequence.
+see why a site is near water, why a route prefers one terrain corridor, and why
+a coastal or river relationship matters. The result is a functional test of
+retained world systems as well as a new visible consequence.
 
 V0 does not ask where real people would certainly settle or reconstruct a
 history. Many configurations can be plausible on the same geography.
@@ -446,9 +446,33 @@ metric-closure fixtures pass.
 
 This accepts a cheap terrain-sensitive route operator, not a full product
 layer. The panel earns a corridor-geometry consequence but not a network-
-topology claim; route reuse and route-local gap, crossing, junction and
-chokepoint explanations remain absent. The corrected site prior also remains
-provisional.
+topology claim; route reuse, crossings, junctions and chokepoint explanations
+remain absent. The corrected site prior also remains provisional.
+
+## Route-local relationship verdict
+
+The final bounded discriminator is recorded in the
+[lower-corridor audit](audits/consequential-geography-lower-corridor-2026-07-18.md).
+For each physical-selected route, it compares elementary physical and
+distance-null branches bounded by the same split/rejoin cells. Both branches
+are rescored under physical traversal. Evidence is emitted only when the
+physical branch is strictly longer, cheaper and lower at its maximum elevation;
+all other cases receive a typed omission.
+
+Across the fixed three-world panel, 7/19, 6/19 and 5/16 selected routes contain
+such a branch. The strongest examples save 3.28--5.17% generalized cost and
+1.32--2.98 km of maximum elevation while adding only 16--100 km of distance.
+The mechanism is therefore real and cheap. It is not local: the strongest
+split/rejoin spans are 3,163--5,891 km. Seed `12345` makes the terrain avoidance
+visually clear, while the other automatic regional images are subtle or
+ambiguous.
+
+Retain the conservative `lower-terrain-corridor` evidence and optional
+diagnostic image. Do not rename it a gap or pass, and do not infer a ridge
+crossing or chokepoint without independent barrier topology. This closes the
+Consequential Geography V0 vertical slice; further human geography now has to
+compete in the portfolio rather than following automatically from available
+machinery.
 
 ## Implementation boundary
 
@@ -461,13 +485,14 @@ The smallest honest implementation sequence is:
    proposal is rejected; its factor-neutral correction passes the collapse
    blocker and is provisionally usable for route evaluation, but is not a
    frozen product prior.**
-3. Add one bounded sparse route network and route-local relationships.
-   **The sparse terrestrial network is implemented and its terrain-sensitive
-   corridor geometry passes. Route-local relationship explanations remain the
-   next bounded decision.**
+3. Add one bounded sparse route network and route-local relationship.
+   **Implemented. Terrain-sensitive corridor geometry passes, and the one
+   conservative lower-terrain-corridor explanation emits typed omissions
+   rather than overclaiming geomorphic semantics.**
 4. Run the counterfactual packet and make one pass/kill/reduce decision.
-   **Site and same-site route packets are complete. Retain the route operator;
-   do not promote the whole slice or freeze the site prior.**
+   **Complete. Retain access, route and explanation operators; stop the slice
+   without promoting it, freezing the site prior or adding a relationship
+   ladder, population, economy or culture.**
 
 Code, focused tests and one result record are enough. V0 does not require a
 family of contract amendments, a new experiment registry ladder or a general
