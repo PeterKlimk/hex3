@@ -124,8 +124,9 @@ pub use shoreline::{
     UnresolvedShorelineEdge,
 };
 pub use structural_attribution::{
-    attribute_legacy_convergent_sources, filter_attributed_fronts, LegacyAttributedFront,
-    LegacyAttributionError, LegacyFeatureRole, LegacySourceAttribution,
+    attribute_legacy_convergent_sources, bind_legacy_observations_to_source,
+    filter_attributed_fronts, LegacyAttributedFront, LegacyAttributionError, LegacyFeatureRole,
+    LegacySourceAttribution, LegacySourceObservationBinding,
 };
 pub use structural_mountain::{
     collect_convergent_fronts, compile_structural_mountain, BoundaryEdgeId, ConvergentFrontEdge,

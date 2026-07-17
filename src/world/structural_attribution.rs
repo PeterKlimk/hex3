@@ -52,10 +52,34 @@ pub struct LegacySourceAttribution {
     pub diffuse_dependency_edges: Vec<BoundaryEdgeId>,
 }
 
+/// Fine-domain binding of an already-selected structural source to the legacy
+/// arc/collision response geometry. Response values retain legacy feature units
+/// and are not additive physical shares because legacy forcing is plate-diffuse.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LegacySourceObservationBinding {
+    pub source_edges: Vec<BoundaryEdgeId>,
+    pub legacy_eligible_source_edges: Vec<BoundaryEdgeId>,
+    pub unrepresented_source_edges: Vec<BoundaryEdgeId>,
+    /// Non-target edges co-aggregated at a seed used by the target. They are
+    /// disclosed amplitude dependencies, not imported belt identity.
+    pub mixed_seed_external_edges: Vec<BoundaryEdgeId>,
+    pub coarse_strict_response_cells: Vec<usize>,
+    pub coarse_mixed_response_cells: Vec<usize>,
+    /// Pure selected-source response exceeds mixed + other response.
+    pub fine_strict_owned_cells: Vec<usize>,
+    /// Selected-associated response exceeds other response, but pure selected
+    /// response does not own a strict majority.
+    pub fine_ambiguous_association_cells: Vec<usize>,
+    pub strict_response: Vec<f32>,
+    pub mixed_response: Vec<f32>,
+    pub other_response: Vec<f32>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LegacyAttributionError {
     LengthMismatch,
     EmptyDomain,
+    EmptySourceSet,
     FineCellOutOfRange(usize),
     CoarseCellOutOfRange(usize),
     DuplicateBoundary(BoundaryEdgeId),
@@ -66,6 +90,13 @@ pub enum LegacyAttributionError {
         cell: usize,
         role: LegacyFeatureRole,
     },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ResponseClass {
+    Strict,
+    Mixed,
+    Other,
 }
 
 impl std::fmt::Display for LegacyAttributionError {
@@ -163,81 +194,7 @@ pub fn attribute_legacy_convergent_sources(
         coarse_read.extend(coarse.neighbors(nearest).iter().copied());
     }
 
-    let front_by_id: HashMap<_, _> = fronts.edges.iter().map(|edge| (edge.id, edge)).collect();
-    let mut boundary_ids = HashSet::new();
-    let mut seeds = Vec::new();
-    for boundary in boundaries {
-        let id = BoundaryEdgeId::new(boundary.cell_a, boundary.cell_b);
-        if !boundary_ids.insert(id) {
-            return Err(LegacyAttributionError::DuplicateBoundary(id));
-        }
-        if boundary.kind != BoundaryKind::Convergent
-            || boundary.convergence.max(0.0) < TRANSFORM_NORMAL_THRESHOLD
-        {
-            continue;
-        }
-        let front = front_by_id
-            .get(&id)
-            .ok_or(LegacyAttributionError::MissingFront(id))?;
-        if !front.midpoint.is_finite() {
-            return Err(LegacyAttributionError::NonFiniteGeometry(id));
-        }
-        match boundary.subduction {
-            Some(SubductionPolarity::ASubducts) => {
-                if front.regime != StructuralRegime::Subduction
-                    || front.receiving_plate != Some(boundary.plate_b)
-                {
-                    return Err(LegacyAttributionError::InconsistentFront(id));
-                }
-                push_arc_seed(
-                    &mut seeds,
-                    id,
-                    boundary.cell_b,
-                    boundary.plate_b,
-                    boundary.type_b,
-                    front.midpoint,
-                );
-            }
-            Some(SubductionPolarity::BSubducts) => {
-                if front.regime != StructuralRegime::Subduction
-                    || front.receiving_plate != Some(boundary.plate_a)
-                {
-                    return Err(LegacyAttributionError::InconsistentFront(id));
-                }
-                push_arc_seed(
-                    &mut seeds,
-                    id,
-                    boundary.cell_a,
-                    boundary.plate_a,
-                    boundary.type_a,
-                    front.midpoint,
-                );
-            }
-            None if boundary.type_a == CrustType::Continental
-                && boundary.type_b == CrustType::Continental =>
-            {
-                if front.regime != StructuralRegime::Collision {
-                    return Err(LegacyAttributionError::InconsistentFront(id));
-                }
-                seeds.push(Seed {
-                    edge_id: id,
-                    cell: boundary.cell_a,
-                    plate: boundary.plate_a,
-                    role: LegacyFeatureRole::Collision,
-                    midpoint: front.midpoint,
-                });
-                seeds.push(Seed {
-                    edge_id: id,
-                    cell: boundary.cell_b,
-                    plate: boundary.plate_b,
-                    role: LegacyFeatureRole::Collision,
-                    midpoint: front.midpoint,
-                });
-            }
-            None => {}
-        }
-    }
-    seeds.sort_by_key(|seed| (seed.role, seed.cell, seed.edge_id));
+    let seeds = collect_legacy_seeds(boundaries, fronts)?;
 
     let mut co_seed_edges = BTreeMap::<(LegacyFeatureRole, usize), BTreeSet<BoundaryEdgeId>>::new();
     for seed in &seeds {
@@ -332,6 +289,188 @@ pub fn attribute_legacy_convergent_sources(
     })
 }
 
+/// Bind an already-fixed structural source to the legacy response geometry.
+///
+/// Each coarse arc/collision sample is assigned through the exact legacy
+/// plate-restricted distance owner and its complete co-seed roster. Fine values
+/// are then interpolated with the same nearest-coarse-plus-neighbours weights as
+/// the product transfer. Elevation and hydrology do not participate.
+#[allow(clippy::too_many_arguments)]
+pub fn bind_legacy_observations_to_source(
+    coarse: &Tessellation,
+    fine: &Tessellation,
+    fine_coarse_cell: &[usize],
+    plates: &Plates,
+    crust: &Crust,
+    features: &FeatureFields,
+    boundaries: &[PlateBoundaryEdge],
+    fronts: &ConvergentFrontSet,
+    source_edges: &[BoundaryEdgeId],
+) -> Result<LegacySourceObservationBinding, LegacyAttributionError> {
+    let n = coarse.num_cells();
+    if fine_coarse_cell.len() != fine.num_cells()
+        || plates.cell_plate.len() != n
+        || crust.types.len() != n
+        || features.arc.len() != n
+        || features.collision.len() != n
+    {
+        return Err(LegacyAttributionError::LengthMismatch);
+    }
+    let source: BTreeSet<_> = source_edges.iter().copied().collect();
+    if source.is_empty() {
+        return Err(LegacyAttributionError::EmptySourceSet);
+    }
+    let front_ids: BTreeSet<_> = fronts.edges.iter().map(|edge| edge.id).collect();
+    if let Some(missing) = source.difference(&front_ids).next().copied() {
+        return Err(LegacyAttributionError::MissingFront(missing));
+    }
+
+    let seeds = collect_legacy_seeds(boundaries, fronts)?;
+    let eligible: BTreeSet<_> = seeds.iter().map(|seed| seed.edge_id).collect();
+    let mut co_seed_edges = BTreeMap::<(LegacyFeatureRole, usize), BTreeSet<BoundaryEdgeId>>::new();
+    for seed in &seeds {
+        co_seed_edges
+            .entry((seed.role, seed.cell))
+            .or_default()
+            .insert(seed.edge_id);
+    }
+    let mut owner_fields = BTreeMap::new();
+    for role in [
+        LegacyFeatureRole::ContinentalArc,
+        LegacyFeatureRole::OceanicArc,
+        LegacyFeatureRole::Collision,
+    ] {
+        let role_seeds: Vec<_> = seeds
+            .iter()
+            .copied()
+            .filter(|seed| seed.role == role)
+            .collect();
+        owner_fields.insert(role, propagate_owners(coarse, plates, &role_seeds));
+    }
+
+    let mut strict_coarse = vec![0.0f32; n];
+    let mut mixed_coarse = vec![0.0f32; n];
+    let mut other_coarse = vec![0.0f32; n];
+    let mut mixed_external = BTreeSet::new();
+    for cell in 0..n {
+        let mut responses = Vec::with_capacity(2);
+        if features.arc[cell] > 0.0 {
+            responses.push((
+                match crust.crust_type(cell) {
+                    CrustType::Continental => LegacyFeatureRole::ContinentalArc,
+                    CrustType::Oceanic => LegacyFeatureRole::OceanicArc,
+                },
+                features.arc[cell],
+            ));
+        }
+        if crust.crust_type(cell) == CrustType::Continental && features.collision[cell] > 0.0 {
+            responses.push((LegacyFeatureRole::Collision, features.collision[cell]));
+        }
+        for (role, value) in responses {
+            let owner = owner_fields[&role][cell]
+                .ok_or(LegacyAttributionError::UnresolvedResponse { cell, role })?;
+            let roster = co_seed_edges
+                .get(&(role, owner.1))
+                .ok_or(LegacyAttributionError::UnresolvedResponse { cell, role })?;
+            match classify_response_roster(roster, &source) {
+                ResponseClass::Strict => strict_coarse[cell] += value,
+                ResponseClass::Mixed => {
+                    mixed_coarse[cell] += value;
+                    mixed_external.extend(roster.difference(&source).copied());
+                }
+                ResponseClass::Other => other_coarse[cell] += value,
+            }
+        }
+    }
+
+    let coarse_strict_response_cells = majority_cells(&strict_coarse, &mixed_coarse, &other_coarse);
+    let coarse_mixed_response_cells = ambiguous_cells(&strict_coarse, &mixed_coarse, &other_coarse);
+    let mut strict_response = Vec::with_capacity(fine.num_cells());
+    let mut mixed_response = Vec::with_capacity(fine.num_cells());
+    let mut other_response = Vec::with_capacity(fine.num_cells());
+    for cell in 0..fine.num_cells() {
+        let nearest = fine_coarse_cell[cell];
+        if nearest >= n {
+            return Err(LegacyAttributionError::CoarseCellOutOfRange(nearest));
+        }
+        let position = fine.cell_center(cell);
+        let mut weighted = [0.0f32; 3];
+        let mut total_weight = 0.0;
+        for coarse_cell in std::iter::once(nearest).chain(coarse.neighbors(nearest).iter().copied())
+        {
+            let weight = interpolation_weight(coarse.cell_center(coarse_cell), position);
+            weighted[0] += strict_coarse[coarse_cell] * weight;
+            weighted[1] += mixed_coarse[coarse_cell] * weight;
+            weighted[2] += other_coarse[coarse_cell] * weight;
+            total_weight += weight;
+        }
+        strict_response.push(weighted[0] / total_weight);
+        mixed_response.push(weighted[1] / total_weight);
+        other_response.push(weighted[2] / total_weight);
+    }
+    let fine_strict_owned_cells =
+        majority_cells(&strict_response, &mixed_response, &other_response);
+    let fine_ambiguous_association_cells =
+        ambiguous_cells(&strict_response, &mixed_response, &other_response);
+
+    Ok(LegacySourceObservationBinding {
+        source_edges: source.iter().copied().collect(),
+        legacy_eligible_source_edges: source.intersection(&eligible).copied().collect(),
+        unrepresented_source_edges: source.difference(&eligible).copied().collect(),
+        mixed_seed_external_edges: mixed_external.into_iter().collect(),
+        coarse_strict_response_cells,
+        coarse_mixed_response_cells,
+        fine_strict_owned_cells,
+        fine_ambiguous_association_cells,
+        strict_response,
+        mixed_response,
+        other_response,
+    })
+}
+
+fn classify_response_roster(
+    roster: &BTreeSet<BoundaryEdgeId>,
+    source: &BTreeSet<BoundaryEdgeId>,
+) -> ResponseClass {
+    if roster.is_disjoint(source) {
+        ResponseClass::Other
+    } else if roster.is_subset(source) {
+        ResponseClass::Strict
+    } else {
+        ResponseClass::Mixed
+    }
+}
+
+fn majority_cells(strict: &[f32], mixed: &[f32], other: &[f32]) -> Vec<usize> {
+    strict
+        .iter()
+        .zip(mixed)
+        .zip(other)
+        .enumerate()
+        .filter_map(|(cell, ((&strict, &mixed), &other))| {
+            (strict > 0.0 && strict > mixed + other).then_some(cell)
+        })
+        .collect()
+}
+
+fn ambiguous_cells(strict: &[f32], mixed: &[f32], other: &[f32]) -> Vec<usize> {
+    strict
+        .iter()
+        .zip(mixed)
+        .zip(other)
+        .enumerate()
+        .filter_map(|(cell, ((&strict, &mixed), &other))| {
+            let associated = strict + mixed;
+            (associated > other && strict <= mixed + other).then_some(cell)
+        })
+        .collect()
+}
+
+fn interpolation_weight(coarse_position: Vec3, fine_position: Vec3) -> f32 {
+    let distance = angular_distance(coarse_position, fine_position);
+    1.0 / (distance * distance + 1e-8)
+}
+
 pub fn filter_attributed_fronts(
     fronts: &ConvergentFrontSet,
     attribution: &LegacySourceAttribution,
@@ -352,6 +491,88 @@ pub fn filter_attributed_fronts(
         edges: filtered,
         all_boundary_vertex_degree: fronts.all_boundary_vertex_degree.clone(),
     })
+}
+
+fn collect_legacy_seeds(
+    boundaries: &[PlateBoundaryEdge],
+    fronts: &ConvergentFrontSet,
+) -> Result<Vec<Seed>, LegacyAttributionError> {
+    let front_by_id: HashMap<_, _> = fronts.edges.iter().map(|edge| (edge.id, edge)).collect();
+    let mut boundary_ids = HashSet::new();
+    let mut seeds = Vec::new();
+    for boundary in boundaries {
+        let id = BoundaryEdgeId::new(boundary.cell_a, boundary.cell_b);
+        if !boundary_ids.insert(id) {
+            return Err(LegacyAttributionError::DuplicateBoundary(id));
+        }
+        if boundary.kind != BoundaryKind::Convergent
+            || boundary.convergence.max(0.0) < TRANSFORM_NORMAL_THRESHOLD
+        {
+            continue;
+        }
+        let front = front_by_id
+            .get(&id)
+            .ok_or(LegacyAttributionError::MissingFront(id))?;
+        if !front.midpoint.is_finite() {
+            return Err(LegacyAttributionError::NonFiniteGeometry(id));
+        }
+        match boundary.subduction {
+            Some(SubductionPolarity::ASubducts) => {
+                if front.regime != StructuralRegime::Subduction
+                    || front.receiving_plate != Some(boundary.plate_b)
+                {
+                    return Err(LegacyAttributionError::InconsistentFront(id));
+                }
+                push_arc_seed(
+                    &mut seeds,
+                    id,
+                    boundary.cell_b,
+                    boundary.plate_b,
+                    boundary.type_b,
+                    front.midpoint,
+                );
+            }
+            Some(SubductionPolarity::BSubducts) => {
+                if front.regime != StructuralRegime::Subduction
+                    || front.receiving_plate != Some(boundary.plate_a)
+                {
+                    return Err(LegacyAttributionError::InconsistentFront(id));
+                }
+                push_arc_seed(
+                    &mut seeds,
+                    id,
+                    boundary.cell_a,
+                    boundary.plate_a,
+                    boundary.type_a,
+                    front.midpoint,
+                );
+            }
+            None if boundary.type_a == CrustType::Continental
+                && boundary.type_b == CrustType::Continental =>
+            {
+                if front.regime != StructuralRegime::Collision {
+                    return Err(LegacyAttributionError::InconsistentFront(id));
+                }
+                seeds.push(Seed {
+                    edge_id: id,
+                    cell: boundary.cell_a,
+                    plate: boundary.plate_a,
+                    role: LegacyFeatureRole::Collision,
+                    midpoint: front.midpoint,
+                });
+                seeds.push(Seed {
+                    edge_id: id,
+                    cell: boundary.cell_b,
+                    plate: boundary.plate_b,
+                    role: LegacyFeatureRole::Collision,
+                    midpoint: front.midpoint,
+                });
+            }
+            None => {}
+        }
+    }
+    seeds.sort_by_key(|seed| (seed.role, seed.cell, seed.edge_id));
+    Ok(seeds)
 }
 
 fn push_arc_seed(
@@ -513,6 +734,26 @@ mod tests {
     }
 
     #[test]
+    fn response_rosters_keep_pure_mixed_and_other_identity_distinct() {
+        let selected = BTreeSet::from([BoundaryEdgeId::new(1, 2)]);
+        assert_eq!(
+            classify_response_roster(&selected, &selected),
+            ResponseClass::Strict
+        );
+        assert_eq!(
+            classify_response_roster(
+                &BTreeSet::from([BoundaryEdgeId::new(1, 2), BoundaryEdgeId::new(2, 3)]),
+                &selected,
+            ),
+            ResponseClass::Mixed
+        );
+        assert_eq!(
+            classify_response_roster(&BTreeSet::from([BoundaryEdgeId::new(2, 3)]), &selected,),
+            ResponseClass::Other
+        );
+    }
+
+    #[test]
     fn filtered_fronts_preserve_complete_boundary_degrees() {
         let attribution = LegacySourceAttribution {
             fine_domain_cells: vec![],
@@ -597,5 +838,33 @@ mod tests {
             .all(|edge| original.diffuse_dependency_edges.contains(edge)));
         let selected = filter_attributed_fronts(&fronts, &original).unwrap();
         assert_eq!(selected.edges.len(), original.selected_source_edges.len());
+
+        let binding = bind_legacy_observations_to_source(
+            &world.tessellation,
+            &world.tessellation,
+            &coarse_cell,
+            world.plates.as_ref().unwrap(),
+            world.crust.as_ref().unwrap(),
+            features,
+            &boundaries,
+            &fronts,
+            &original.selected_source_edges,
+        )
+        .unwrap();
+        assert!(!binding.fine_strict_owned_cells.is_empty());
+        boundaries.reverse();
+        let reversed_binding = bind_legacy_observations_to_source(
+            &world.tessellation,
+            &world.tessellation,
+            &coarse_cell,
+            world.plates.as_ref().unwrap(),
+            world.crust.as_ref().unwrap(),
+            features,
+            &boundaries,
+            &fronts,
+            &original.selected_source_edges,
+        )
+        .unwrap();
+        assert_eq!(binding, reversed_binding);
     }
 }
