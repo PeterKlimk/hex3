@@ -128,9 +128,18 @@ anchors fall to 11/60, the support contains all requested relationship classes,
 and 512-candidate selection costs less than 0.3 s at about 255k cells. It remains
 a provisional route-discriminator input, not a product prior. Freshwater and
 catchment-scale living opportunity matter strongly; coast matters modestly;
-site-local grade is nearly inert. The next implementation is one bounded sparse
-route network whose terrain/gap response must earn the missing grade consequence.
-Do not add population or calibrate site weights first.
+site-local grade is nearly inert.
+
+The bounded same-site route discriminator now earns that missing terrain
+consequence. Across the three representative worlds, physical and zero-grade
+arms select the same endpoint graph but only 47--56% of selected paths are
+exact; selected edge overlap is 0.40--0.67, physical ascent is 31--48% lower,
+and each network costs about 0.2 seconds at 255k cells. Retain the operator, but
+do not promote the site prior or claim network-topology consequence. The next
+bounded action is one honest route-local lower-corridor/gap explanation using
+existing path evidence—not population, site-weight calibration or another
+route parameter campaign. See the
+[route-probe audit](audits/consequential-geography-route-probe-2026-07-17.md).
 
 Kill condition: if authored weights dominate geography or the result is a
 decorative overlay, stop. Retain only useful traversability/access semantics.

@@ -1,10 +1,10 @@
 # Consequential Geography V0 decision
 
-Status: **selected roadmap priority; traversal/access and configurable
-aggregate-site operators implemented and operator-tested; first representative
-site prior rejected and factor-neutral correction provisionally accepted for a
-route discriminator; no frozen product site prior, routes, promotion, default,
-population state or Stage 5**, 2026-07-17.
+Status: **selected roadmap priority; traversal/access, configurable aggregate
+sites and bounded terrestrial routes implemented and operator-tested;
+factor-neutral site correction remains provisional; route-corridor terrain
+consequence accepted, but no frozen product prior, route-local relationships,
+promotion, default, population state or Stage 5**, 2026-07-17.
 
 ## Product question
 
@@ -369,6 +369,16 @@ Exact neutral ties currently fall back to cell identity. That is deterministic
 but representation-dependent, so the permutation/neutral-baseline discriminator
 is not yet passed and must remain visible in product evaluation.
 
+`world::consequential_routes` now implements the first bounded terrestrial
+route seam. It separates occupied landmasses, proposes a physical-distance
+spanning tree plus bounded nearest neighbors, finds land-only least-generalized-
+cost paths with predecessor evidence, and selects a generalized-cost forest
+plus at most a few detour-reduction links. Every bounded candidate retains its
+ordered cells, physical and generalized costs, ascent/descent, maximum grade,
+selection role and drainage-repair overlap. Candidate pairs, settled cells and
+extra links have hard ceilings. The operator adds no state to `World` and does
+not claim roads, calibrated travel time or maritime transport.
+
 ## First representative site-prior verdict
 
 The first fixed three-world packet is recorded in the
@@ -412,6 +422,34 @@ anchors still lie exactly on selected rivers, lakes do not win nearest-source
 relationships in this panel, and the combined tight/loose arms remain highly
 sensitive. See the audit for the exact counts and costs.
 
+## First representative route verdict
+
+The matched route panel is recorded in the
+[dated route-probe audit](audits/consequential-geography-route-probe-2026-07-17.md).
+It preserves each world's exact 20 corrected-baseline site anchors and
+candidate endpoint pairs, then compares the disclosed physical grade burden
+with a zero-uphill/zero-downhill distance null.
+
+Across seeds `12345`, `8675309` and `1001`, terrain leaves the selected endpoint
+graph unchanged but materially reroutes its corridors. Selected cell-edge
+Jaccard is `0.667`, `0.624` and `0.404`; only 9/19, 10/19 and 9/16 selected paths
+are exact. The largest selected-path displacement is 326--376 km, while physical
+routes use 31--48% less ascent for less than 0.25% extra total length. The
+clearest regional image shows the zero-grade path cutting across a bright range
+while the physical path shifts to a lower corridor.
+
+Each route network costs about 0.19--0.24 seconds at roughly 255,000 cells and
+settles fewer than one million cells. Exact drainage-repair overlap is only
+1.9--2.4% of total selected route length, so repair participates but does not
+own the signal. Manufactured low-gap, disconnection, determinism, budget and
+metric-closure fixtures pass.
+
+This accepts a cheap terrain-sensitive route operator, not a full product
+layer. The panel earns a corridor-geometry consequence but not a network-
+topology claim; route reuse and route-local gap, crossing, junction and
+chokepoint explanations remain absent. The corrected site prior also remains
+provisional.
+
 ## Implementation boundary
 
 The smallest honest implementation sequence is:
@@ -424,10 +462,12 @@ The smallest honest implementation sequence is:
    blocker and is provisionally usable for route evaluation, but is not a
    frozen product prior.**
 3. Add one bounded sparse route network and route-local relationships.
-   **Next bounded discriminator; not yet implemented.**
+   **The sparse terrestrial network is implemented and its terrain-sensitive
+   corridor geometry passes. Route-local relationship explanations remain the
+   next bounded decision.**
 4. Run the counterfactual packet and make one pass/kill/reduce decision.
-   **First site-only packet complete; it rejects the initial proposal and does
-   not authorize routes.**
+   **Site and same-site route packets are complete. Retain the route operator;
+   do not promote the whole slice or freeze the site prior.**
 
 Code, focused tests and one result record are enough. V0 does not require a
 family of contract amendments, a new experiment registry ladder or a general

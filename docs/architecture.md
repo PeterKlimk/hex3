@@ -280,9 +280,11 @@ Plausible later domains include:
 
 The [cross-system disposition](system-disposition.md) retains Water Geography
 V0 as an enabling slice and the completed bounded Living Surface V0 as an
-on-demand semantic/presentation layer. Consequential Geography V0 is the
-selected next derived consumer; sediment, richer ecology and deeper human
-history remain behind explicit gates.
+on-demand semantic/presentation layer. Consequential Geography V0 is the active
+derived consumer: access, provisional aggregate sites and terrain-sensitive
+terrestrial route corridors now exist on demand, while route-local
+relationships and promotion remain open. Sediment, richer ecology and deeper
+human history remain behind explicit gates.
 This ordering does not assign a fidelity class or linear stage number. Some
 domains may be semantic derivations, some simulations, some authentic hacks and
 some presentation-only systems, with graph-shaped dependencies.

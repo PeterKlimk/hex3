@@ -29,10 +29,11 @@ terrain owners. The broader decision in the
 [cross-system disposition](system-disposition.md) keeps the cheap causal spine,
 parks those mountain implementations, and retained **Water Geography V0** plus
 **Living Surface V0** as bounded layers. The current
-[roadmap](roadmap.md) now selects Consequential Geography V0 as the next product
-slice while product/laboratory separation and mountain ownership remain active
-architecture questions. This is not a commitment to deepen every retained
-system.
+[roadmap](roadmap.md) now advances Consequential Geography V0 as the active
+bounded product slice: access and terrain-sensitive route corridors have
+passed, while the aggregate site prior and route-local relationship layer
+remain unpromoted. Mountain ownership remains an active architecture question.
+This is not a commitment to deepen every retained system.
 
 ## Alternatives considered
 
@@ -149,11 +150,10 @@ That pass produced explicit system dispositions rather than one universal
 fidelity direction. Water Geography and Living Surface have completed their
 bounded decisions. The selected sequence is now:
 
-1. separate the ordinary product path from quarantined research machinery and
-   remove obvious unused rendering allocations;
-2. build a bounded Consequential Geography slice so traversability, access,
-   settlements and routes test whether retained planetary systems matter
-   together;
+1. keep the ordinary product path separate from quarantined research machinery;
+2. finish the bounded Consequential Geography decision by testing whether one
+   honest route-local explanation adds meaning beyond the now-accepted access
+   and terrain-sensitive corridor machinery;
 3. bound one product-native structural mountain replacement without reviving
    the H/C/G/I ladder; and
 4. keep sediment, seasonal hydroecology, richer vegetation, ocean structure and

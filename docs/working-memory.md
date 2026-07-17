@@ -15,12 +15,12 @@ it become a chronological activity log.
 ## Active focus
 
 **Execute the post-Living portfolio decision.** Water Geography and Living
-Surface have completed their bounded decisions. The current roadmap selects two
-different kinds of next work: contract the oversized product/experiment surface
-immediately, then build Consequential Geography V0 as the next product slice.
-That slice uses traversability, water/coast access, named relative living
-opportunity, aggregate sites and routes to test whether the existing
-planetary systems matter together. Structural mountain organization remains the
+Surface have completed their bounded decisions. The oversized
+product/experiment surface has been contracted, and Consequential Geography V0
+is the active bounded product slice. Its access, provisional aggregate sites and
+terrain-sensitive route corridors now test whether the existing planetary
+systems matter together; route-local explanations remain the next decision.
+Structural mountain organization remains the
 highest-priority model rework, but it gets one product-native belt contract—not
 another H/C/G/I campaign. Sediment and richer ecology do not advance by
 inheritance or momentum.
@@ -87,6 +87,20 @@ prior. Remember the remaining debts: 55--90% of anchors are still exact selected
 river sources, no proper lake is the nearest source in this panel, and combined
 tight/loose gates rewrite many choices. The route slice must test terrain/gap
 consequences rather than conceal weak site-grade evidence.
+
+That route discriminator now passes at the corridor level. On the fixed three
+255k-cell worlds, the physical and zero-grade arms use identical sites and
+select identical endpoint graphs, but selected cell-edge overlap is only
+0.40--0.67 and just 47--56% of selected paths are exact. Physical routes use
+31--48% less ascent for less than 0.25% extra total length; the largest selected
+path displacement is 326--376 km. The seed-12345 regional pair visibly contrasts
+a distance-null line across a bright range with a physical lower corridor.
+Each network costs about 0.2 s. Repair overlap is present but only 1.9--2.4% of
+total selected route length. Retain the operator; do not infer endpoint-topology
+consequence, promote the provisional site prior or add population. The next
+honest question is whether current path and nearby-alternative evidence can
+support one route-local lower-corridor/gap explanation without decorative
+labeling.
 
 The current ecology transform remains diagnostic evidence only. Its relative
 moisture normalization cancels planetary wetness changes; its freshwater input

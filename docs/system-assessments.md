@@ -249,14 +249,16 @@ the integrated planet.
 - **Purpose/payoff:** would make generated geography consequential to agents,
   routes, resources, political regions and history, strongly serving the
   Civilization-board side of the project vision.
-- **Fidelity:** absent. Plausible approaches range from semantic settlement
-  suitability and procedural cultural regions to dynamic population/economic
-  simulation.
+- **Fidelity:** one authentic aggregate site-and-terrestrial-route slice now
+  exists on demand. Population, culture and history remain absent; plausible
+  deeper approaches range from procedural cultural regions to dynamic
+  population/economic simulation.
 - **Cost:** extremely elastic; a deep agent simulation could eclipse the planet
   generator, while grounded settlement/route/cultural diffusion models may
   yield much of the visible narrative value.
-- **Pareto posture:** **Consequential Geography V0 selected as a bounded
-  semantic/product slice.** It tests aggregate sites and routes without claiming
+- **Pareto posture:** **Consequential Geography V0 active as a bounded
+  semantic/product slice.** Terrain-sensitive route corridors pass cheaply;
+  the site prior and route-local explanations remain provisional. It claims no
   population, history or civilization simulation. Deeper human systems remain
   a future portfolio choice. See the
   [V0 decision](consequential-geography.md).

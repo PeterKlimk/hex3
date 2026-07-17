@@ -142,6 +142,12 @@ intelligible ways. If authored weights dominate, routes exploit mesh artifacts,
 or every site merely follows the largest river, stop rather than add economy or
 cultural simulation.
 
+The first same-site route panel now shows a cheap, material terrain consequence
+in corridor geometry but no endpoint-topology change. This closes the missing
+traversability-to-route seam without closing the broader consequence layer:
+the aggregate site prior remains provisional, and gaps, crossings and
+chokepoints do not yet have honest route-local explanations.
+
 ## Highest-leverage large coupling: sediment
 
 Persistent sediment could connect many systems that currently stop at ledgers:

@@ -178,8 +178,10 @@ No Stage 5 or later number is currently canonical. Water Geography V0 is a
 completed enabling slice over current climate/hydrology/semantic state. Living
 Surface V0 is an accepted on-demand derivative and selectable presentation, not
 a retained stage. [Consequential Geography V0](consequential-geography.md) is
-the selected next bounded derivative; whether any part later earns retained
-state will be decided from its consumers and invalidation needs. Cryosphere,
+an on-demand derivative with implemented access, aggregate-site and bounded
+terrestrial-route operators; its site prior and full product layer remain
+unpromoted. Whether any part later earns retained state will be decided from
+its consumers and invalidation needs. Cryosphere,
 persistent sediment/soils,
 seasonality and richer culture/civilization remain candidates. Their dependency
 shape is a graph rather than a simple numbered sequence:
