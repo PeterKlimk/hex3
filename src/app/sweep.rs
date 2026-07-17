@@ -27,9 +27,11 @@ use hex3::render::{
 use hex3::{
     geometry::{Material, SurfaceVertex, UnifiedMesh, VoronoiMesh},
     world::{
-        BasinSpillDestination, FineCacheMode, LivingSurfaceSemantics, OrogenModel,
-        SemanticWaterKind, ShorelineLoop, Tessellation, VoronoiBackend, WaterBodyId,
-        WaterBodySemantics, WaterGeographyGeometry, World, RELIEF_SCALE,
+        AggregateSiteSelection, BasinSpillDestination, ConsequentialGeographyComponents,
+        FineCacheMode, FreshwaterSourceKind, LivingSurfaceSemantics, OrogenModel, RiverSelection,
+        RiverThresholdPolicy, SemanticWaterKind, ShorelineLoop, SiteSelectionConfig, Tessellation,
+        TraversalConfig, VoronoiBackend, WaterBodyId, WaterBodySemantics, WaterGeographyGeometry,
+        World, PLANET_RADIUS_KM, RELIEF_SCALE,
     },
 };
 
@@ -2365,6 +2367,636 @@ fn run_range_ancestry(opts: &SweepOptions) {
     println!("Done: range ancestry packet -> {}", opts.out_dir.display());
 }
 
+#[derive(Clone, Debug, Serialize, PartialEq)]
+struct SiteComparisonRecord {
+    exact_retained_anchor_count: usize,
+    exact_retained_anchor_fraction: f32,
+    mean_nearest_baseline_site_distance_km: Option<f32>,
+    median_nearest_baseline_site_distance_km: Option<f32>,
+    maximum_nearest_baseline_site_distance_km: Option<f32>,
+}
+
+fn compare_site_positions(baseline: &[Vec3], variant: &[Vec3]) -> SiteComparisonRecord {
+    let exact_retained_anchor_count = variant
+        .iter()
+        .filter(|position| baseline.iter().any(|base| base == *position))
+        .count();
+    let mut nearest: Vec<f32> = variant
+        .iter()
+        .filter_map(|position| {
+            baseline
+                .iter()
+                .map(|base| {
+                    if position == base {
+                        0.0
+                    } else {
+                        position.dot(*base).clamp(-1.0, 1.0).acos() * PLANET_RADIUS_KM
+                    }
+                })
+                .min_by(|a, b| a.total_cmp(b))
+        })
+        .collect();
+    nearest.sort_by(f32::total_cmp);
+    let (mean, median, maximum) = if nearest.is_empty() {
+        (None, None, None)
+    } else {
+        let mean = nearest.iter().sum::<f32>() / nearest.len() as f32;
+        let middle = nearest.len() / 2;
+        let median = if nearest.len().is_multiple_of(2) {
+            (nearest[middle - 1] + nearest[middle]) * 0.5
+        } else {
+            nearest[middle]
+        };
+        (Some(mean), Some(median), nearest.last().copied())
+    };
+    SiteComparisonRecord {
+        exact_retained_anchor_count,
+        exact_retained_anchor_fraction: if variant.is_empty() {
+            0.0
+        } else {
+            exact_retained_anchor_count as f32 / variant.len() as f32
+        },
+        mean_nearest_baseline_site_distance_km: mean,
+        median_nearest_baseline_site_distance_km: median,
+        maximum_nearest_baseline_site_distance_km: maximum,
+    }
+}
+
+fn site_positions(tess: &Tessellation, selection: &AggregateSiteSelection) -> Vec<Vec3> {
+    selection
+        .sites
+        .iter()
+        .map(|site| tess.cell_center(site.anchor_cell))
+        .collect()
+}
+
+fn baseline_site_probe_config() -> SiteSelectionConfig {
+    SiteSelectionConfig {
+        site_count: 20,
+        candidate_pool_size: 160,
+        maximum_total_catchment_cell_visits: 2_000_000,
+        minimum_site_spacing_km: 900.0,
+        candidate_spacing_km: 200.0,
+        catchment_budget_generalized_km: 450.0,
+        freshwater_access_limit_generalized_km: 120.0,
+        minimum_local_living_opportunity: 0.08,
+        maximum_local_trimmed_mean_grade: 0.15,
+        minimum_effective_catchment_area_km2: 15_000.0,
+        coast_access_scale_generalized_km: 500.0,
+        coast_bonus: 0.20,
+    }
+}
+
+fn tight_site_probe_config() -> SiteSelectionConfig {
+    SiteSelectionConfig {
+        minimum_site_spacing_km: 1_100.0,
+        candidate_spacing_km: 250.0,
+        catchment_budget_generalized_km: 350.0,
+        freshwater_access_limit_generalized_km: 90.0,
+        minimum_local_living_opportunity: 0.12,
+        maximum_local_trimmed_mean_grade: 0.12,
+        minimum_effective_catchment_area_km2: 20_000.0,
+        coast_access_scale_generalized_km: 400.0,
+        coast_bonus: 0.15,
+        ..baseline_site_probe_config()
+    }
+}
+
+fn loose_site_probe_config() -> SiteSelectionConfig {
+    SiteSelectionConfig {
+        minimum_site_spacing_km: 700.0,
+        candidate_spacing_km: 150.0,
+        catchment_budget_generalized_km: 600.0,
+        freshwater_access_limit_generalized_km: 160.0,
+        minimum_local_living_opportunity: 0.04,
+        maximum_local_trimmed_mean_grade: 0.20,
+        minimum_effective_catchment_area_km2: 10_000.0,
+        coast_access_scale_generalized_km: 650.0,
+        coast_bonus: 0.25,
+        ..baseline_site_probe_config()
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct ConsequentialVariantRecord {
+    id: &'static str,
+    role: &'static str,
+    changed_prior_or_factor: &'static str,
+    marker_color_linear_rgb: [f32; 3],
+    selection_build_ms: f64,
+    comparison_to_baseline: SiteComparisonRecord,
+    image_filenames: Vec<String>,
+    selection: AggregateSiteSelection,
+}
+
+struct ConsequentialVariant {
+    record: ConsequentialVariantRecord,
+    marker_color: Vec3,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn select_probe_variant(
+    id: &'static str,
+    role: &'static str,
+    changed_prior_or_factor: &'static str,
+    marker_color: Vec3,
+    components: &ConsequentialGeographyComponents,
+    tess: &Tessellation,
+    hydrology: &hex3::world::Hydrology,
+    config: SiteSelectionConfig,
+    baseline_positions: Option<&[Vec3]>,
+) -> ConsequentialVariant {
+    let started = std::time::Instant::now();
+    let selection = components
+        .select_sites(tess, hydrology, config)
+        .unwrap_or_else(|error| panic!("consequential-geography {id} selection: {error}"));
+    let selection_build_ms = started.elapsed().as_secs_f64() * 1_000.0;
+    let positions = site_positions(tess, &selection);
+    let comparison_to_baseline =
+        compare_site_positions(baseline_positions.unwrap_or(&positions), &positions);
+    ConsequentialVariant {
+        record: ConsequentialVariantRecord {
+            id,
+            role,
+            changed_prior_or_factor,
+            marker_color_linear_rgb: marker_color.to_array(),
+            selection_build_ms,
+            comparison_to_baseline,
+            image_filenames: Vec::new(),
+            selection,
+        },
+        marker_color,
+    }
+}
+
+fn orbit_probe_view(
+    id: &str,
+    kind: &'static str,
+    yaw_deg: f32,
+    pitch_deg: f32,
+    distance: f32,
+    aspect: f32,
+) -> CaptureView {
+    let mut camera = OrbitCamera::new();
+    camera.yaw = yaw_deg.to_radians();
+    camera.pitch = pitch_deg.to_radians();
+    camera.distance = distance;
+    camera.aspect = aspect;
+    let eye = camera.eye_position();
+    CaptureView {
+        view_proj: camera.view_projection(),
+        eye,
+        label: id.to_string(),
+        sidecar: ViewRecord {
+            id: id.to_string(),
+            kind,
+            target: None,
+            camera: CameraRecord {
+                eye_xyz: vec3_array(eye),
+                aim_xyz: [0.0; 3],
+                up_xyz: [0.0, 1.0, 0.0],
+                vertical_fov_deg: 45.0,
+                aspect,
+                near: 0.01,
+                far: 10.0,
+                target_altitude: None,
+                orbit_yaw_deg: Some(yaw_deg),
+                orbit_pitch_deg: Some(pitch_deg),
+                orbit_distance: Some(distance),
+            },
+        },
+    }
+}
+
+fn consequential_probe_views(
+    opts: &SweepOptions,
+    tess: &Tessellation,
+    baseline: &AggregateSiteSelection,
+) -> Vec<CaptureView> {
+    let aspect = opts.width as f32 / opts.height as f32;
+    let mut views = vec![
+        orbit_probe_view(
+            "globe-a",
+            "matched-globe",
+            opts.yaw_deg,
+            opts.pitch_deg,
+            opts.distance,
+            aspect,
+        ),
+        orbit_probe_view(
+            "globe-b",
+            "matched-opposite-globe",
+            opts.yaw_deg + 180.0,
+            -opts.pitch_deg,
+            opts.distance,
+            aspect,
+        ),
+    ];
+    let target_cell = baseline
+        .sites
+        .first()
+        .map(|site| site.anchor_cell)
+        .or_else(|| (0..tess.num_cells()).next())
+        .expect("consequential-geography packet requires a non-empty tessellation");
+    let mut regional = derived_capture_view(
+        "regional-baseline-site-1",
+        tess.cell_center(target_cell),
+        aspect,
+        opts.zoom_alt,
+    );
+    regional.sidecar.kind = "derived-baseline-site";
+    views.push(regional);
+    views
+}
+
+fn site_marker_vertices(
+    tess: &Tessellation,
+    hydrology: &hex3::world::Hydrology,
+    selection: &AggregateSiteSelection,
+    color: Vec3,
+) -> Vec<SurfaceVertex> {
+    const SEGMENTS: usize = 16;
+    const RING_RADIUS: f32 = 0.025;
+    const CROSS_RADIUS: f32 = 0.036;
+    let mut vertices = Vec::with_capacity(selection.sites.len() * (SEGMENTS * 2 + 4));
+    for site in &selection.sites {
+        let normal = tess.cell_center(site.anchor_cell).normalize();
+        let reference = if normal.y.abs() < 0.9 {
+            Vec3::Y
+        } else {
+            Vec3::X
+        };
+        let east = normal.cross(reference).normalize();
+        let north = east.cross(normal).normalize();
+        let elevation = hydrology.elevation[site.anchor_cell];
+        let point = |angle: f32, radius: f32| {
+            let tangent = east * angle.cos() + north * angle.sin();
+            (normal * radius.cos() + tangent * radius.sin()).normalize()
+        };
+        for segment in 0..SEGMENTS {
+            let a = segment as f32 * std::f32::consts::TAU / SEGMENTS as f32;
+            let b = (segment + 1) as f32 * std::f32::consts::TAU / SEGMENTS as f32;
+            vertices.push(SurfaceVertex::new(
+                point(a, RING_RADIUS),
+                elevation,
+                color,
+                1.0,
+            ));
+            vertices.push(SurfaceVertex::new(
+                point(b, RING_RADIUS),
+                elevation,
+                color,
+                1.0,
+            ));
+        }
+        for angle in [0.0, std::f32::consts::FRAC_PI_2] {
+            vertices.push(SurfaceVertex::new(
+                point(angle, CROSS_RADIUS),
+                elevation,
+                color,
+                1.0,
+            ));
+            vertices.push(SurfaceVertex::new(
+                point(angle + std::f32::consts::PI, CROSS_RADIUS),
+                elevation,
+                color,
+                1.0,
+            ));
+        }
+    }
+    vertices
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_relief_with_sites(
+    gpu: &GpuContext,
+    renderer: &mut Renderer,
+    color_view: &wgpu::TextureView,
+    buffers: &super::world::WorldBuffers,
+    marker_buffer: &wgpu::Buffer,
+    marker_count: u32,
+    view: &CaptureView,
+    river_mode: RiverMode,
+) {
+    let uniforms = Uniforms::new(
+        view.view_proj,
+        view.eye,
+        Vec3::new(0.5, 1.0, 0.3).normalize(),
+    )
+    .with_relief_scale(RELIEF_SCALE)
+    .with_slope_shading(true)
+    .with_hemisphere_lighting(false)
+    .with_map_mode(false)
+    .with_rivers(river_mode != RiverMode::Off)
+    .with_river_major_only(river_mode == RiverMode::Major)
+    .with_river_width_scale(1.0);
+    renderer.render_to_view(
+        &gpu.device,
+        &gpu.queue,
+        color_view,
+        &uniforms,
+        RenderScene {
+            fill_pipeline: FillPipelineKind::UnifiedGlobe,
+            fill: IndexedDraw {
+                vertex_buffer: &buffers.unified_vertex_buffer,
+                index_buffer: &buffers.unified_index_buffer,
+                index_count: buffers.num_unified_indices,
+            },
+            river_texture_bind_group: Some(&buffers.river_bind_group),
+            edges: None,
+            arrows: None,
+            pole_markers: None,
+            rivers: Some(SurfaceLineDraw {
+                vertex_buffer: marker_buffer,
+                vertex_count: marker_count,
+            }),
+            gpu_particles: None,
+        },
+    );
+}
+
+fn run_consequential_geography_packet(opts: &SweepOptions) {
+    assert_eq!(
+        opts.target_stage, 4,
+        "consequential-geography packet requires --stage 4"
+    );
+    let generation_started = std::time::Instant::now();
+    let world = generate_tile_world(opts, &opts.base_erosion);
+    let world_generation_ms = generation_started.elapsed().as_secs_f64() * 1_000.0;
+    let tess = world.active_tessellation();
+    let hydrology = world.active_hydrology().expect("stage 4 hydrology");
+
+    let semantics_started = std::time::Instant::now();
+    let water = WaterBodySemantics::build(tess, hydrology);
+    let rivers = RiverSelection::build(hydrology, RiverThresholdPolicy::default());
+    let living = LivingSurfaceSemantics::build(
+        tess,
+        world.active_temperature().expect("stage 4 temperature"),
+        world.active_precipitation().expect("stage 4 precipitation"),
+        hydrology,
+    );
+    let semantics_build_ms = semantics_started.elapsed().as_secs_f64() * 1_000.0;
+    let traversal = TraversalConfig::new(12.0, 3.0).expect("valid probe traversal");
+    let component_started = std::time::Instant::now();
+    let components = ConsequentialGeographyComponents::build(
+        tess, hydrology, &water, &rivers, &living, traversal,
+    )
+    .expect("build consequential-geography components");
+    let component_build_ms = component_started.elapsed().as_secs_f64() * 1_000.0;
+
+    let mut variants = Vec::new();
+    let baseline = select_probe_variant(
+        "baseline",
+        "authored probe baseline; not a product default",
+        "none",
+        Vec3::new(1.0, 0.90, 0.05),
+        &components,
+        tess,
+        hydrology,
+        baseline_site_probe_config(),
+        None,
+    );
+    let baseline_positions = site_positions(tess, &baseline.record.selection);
+    variants.push(baseline);
+    variants.push(select_probe_variant(
+        "tight-prior",
+        "nearby stricter prior panel",
+        "tighter spacing, catchment, freshwater, living, grade, area, and coast scales",
+        Vec3::new(1.0, 0.15, 0.85),
+        &components,
+        tess,
+        hydrology,
+        tight_site_probe_config(),
+        Some(&baseline_positions),
+    ));
+    variants.push(select_probe_variant(
+        "loose-prior",
+        "nearby more permissive prior panel",
+        "looser spacing, catchment, freshwater, living, grade, area, and coast scales",
+        Vec3::new(0.05, 0.95, 1.0),
+        &components,
+        tess,
+        hydrology,
+        loose_site_probe_config(),
+        Some(&baseline_positions),
+    ));
+
+    let flat_traversal = TraversalConfig::new(0.0, 0.0).expect("valid flat traversal");
+    let grade_component_started = std::time::Instant::now();
+    let grade_components = ConsequentialGeographyComponents::build(
+        tess,
+        hydrology,
+        &water,
+        &rivers,
+        &living,
+        flat_traversal,
+    )
+    .expect("build grade-ablation components");
+    let grade_component_build_ms = grade_component_started.elapsed().as_secs_f64() * 1_000.0;
+    let mut grade_config = baseline_site_probe_config();
+    grade_config.maximum_local_trimmed_mean_grade = f32::MAX;
+    variants.push(select_probe_variant(
+        "ablate-grade",
+        "baseline with traversal and local-grade burden removed",
+        "uphill=0, downhill=0, and effectively unbounded local grade gate",
+        Vec3::new(1.0, 0.42, 0.05),
+        &grade_components,
+        tess,
+        hydrology,
+        grade_config,
+        Some(&baseline_positions),
+    ));
+
+    let mut freshwater_components = components.clone();
+    for cell in 0..tess.num_cells() {
+        if hydrology.is_submerged(cell) {
+            freshwater_components.freshwater_access_generalized_km[cell] = None;
+            freshwater_components.freshwater_source[cell] = false;
+            freshwater_components.freshwater_source_kind[cell] = None;
+        } else {
+            freshwater_components.freshwater_access_generalized_km[cell] = Some(0.0);
+            freshwater_components.freshwater_source[cell] = true;
+            // The operator requires a source kind. This is an explicitly
+            // synthetic mechanics token, not a claim that every cell is river.
+            freshwater_components.freshwater_source_kind[cell] =
+                Some(FreshwaterSourceKind::SelectedRiver);
+        }
+    }
+    variants.push(select_probe_variant(
+        "ablate-freshwater",
+        "synthetic uniform freshwater-access null",
+        "every land cell is mechanically a zero-burden SelectedRiver source; this token does not represent physical rivers",
+        Vec3::new(0.15, 1.0, 0.25),
+        &freshwater_components,
+        tess,
+        hydrology,
+        baseline_site_probe_config(),
+        Some(&baseline_positions),
+    ));
+
+    let mut coast_config = baseline_site_probe_config();
+    coast_config.coast_bonus = 0.0;
+    variants.push(select_probe_variant(
+        "ablate-coast",
+        "baseline with coast preference removed",
+        "coast bonus set to zero; coast access retained for provenance",
+        Vec3::new(1.0, 0.12, 0.12),
+        &components,
+        tess,
+        hydrology,
+        coast_config,
+        Some(&baseline_positions),
+    ));
+
+    let mut living_components = components.clone();
+    for cell in 0..tess.num_cells() {
+        living_components.relative_living_opportunity[cell] = if hydrology.is_submerged(cell) {
+            0.0
+        } else {
+            1.0
+        };
+    }
+    variants.push(select_probe_variant(
+        "ablate-living",
+        "synthetic uniform land living-opportunity null",
+        "all land opportunity set to 1.0; water set to 0.0",
+        Vec3::new(0.70, 0.25, 1.0),
+        &living_components,
+        tess,
+        hydrology,
+        baseline_site_probe_config(),
+        Some(&baseline_positions),
+    ));
+
+    let views = consequential_probe_views(opts, tess, &variants[0].record.selection);
+    std::fs::create_dir_all(&opts.out_dir)
+        .unwrap_or_else(|error| panic!("create {}: {error}", opts.out_dir.display()));
+    let gpu = pollster::block_on(GpuContext::new_headless(opts.width, opts.height));
+    let mut renderer = Renderer::new(&gpu, &Uniforms::new(Mat4::IDENTITY, Vec3::ZERO, Vec3::Y));
+    let color_tex = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("consequential_geography_color"),
+        size: wgpu::Extent3d {
+            width: opts.width,
+            height: opts.height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: gpu.format,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let color_view = color_tex.create_view(&Default::default());
+    let world_buffers = generate_world_buffers(&gpu.device, &gpu.queue, &world);
+    let montage_width = opts.width * views.len() as u32;
+    let montage_height = opts.height * variants.len() as u32;
+    let mut montage = vec![0; (montage_width * montage_height * 4) as usize];
+    for (row, variant) in variants.iter_mut().enumerate() {
+        let markers = site_marker_vertices(
+            tess,
+            hydrology,
+            &variant.record.selection,
+            variant.marker_color,
+        );
+        let marker_buffer = create_vertex_buffer(
+            &gpu.device,
+            &markers,
+            "consequential_geography_site_markers",
+        );
+        for (column, view) in views.iter().enumerate() {
+            render_relief_with_sites(
+                &gpu,
+                &mut renderer,
+                &color_view,
+                &world_buffers,
+                &marker_buffer,
+                markers.len() as u32,
+                view,
+                opts.river_mode,
+            );
+            let rgba = read_back_rgba(&gpu, &color_tex, opts.width, opts.height);
+            let filename = format!("{:02}_{}_{}.png", row + 1, variant.record.id, view.label);
+            write_png(
+                &opts.out_dir.join(&filename),
+                &rgba,
+                opts.width,
+                opts.height,
+            );
+            blit_tile(
+                &mut montage,
+                montage_width,
+                &rgba,
+                opts.width,
+                opts.height,
+                column as u32,
+                row as u32,
+            );
+            variant.record.image_filenames.push(filename);
+        }
+    }
+    write_png(
+        &opts.out_dir.join("montage.png"),
+        &montage,
+        montage_width,
+        montage_height,
+    );
+
+    let sidecar = serde_json::json!({
+        "schema_version": 1,
+        "purpose": "discriminating evaluation packet for a bounded aggregate Consequential Geography site-selection probe",
+        "status": "implemented on-demand probe; not promoted, not a product default, not persistent World state, and not Stage 5",
+        "world_manifest": world.manifest(),
+        "timing_ms": {
+            "single_stage_4_world_generation": world_generation_ms,
+            "water_river_living_semantics": semantics_build_ms,
+            "baseline_access_components": component_build_ms,
+            "grade_ablation_access_components": grade_component_build_ms
+        },
+        "shared_component_config": {
+            "river_policy": RiverThresholdPolicy::default(),
+            "traversal": traversal
+        },
+        "truth_contract": [
+            "all variants use one unchanged Stage-4 physical world and matched cameras",
+            "sites are deterministic aggregate opportunity anchors, not settlements, population, culture, resources, ownership, or persistent identities",
+            "freshwater means selected aggregate rivers or proper-lake shores; coast means semantic ocean coast",
+            "living opportunity is accepted Living Surface vegetation cover, not productivity, yield, or carrying capacity",
+            "relief and river styling are presentation only; selection uses physical Stage-4 elevations and disclosed generalized costs",
+            "the freshwater ablation's SelectedRiver source kind is only an operator-compatible synthetic token and does not claim ubiquitous rivers"
+        ],
+        "known_limitations": [
+            "the baseline, tight, and loose configurations are an authored diagnostic prior panel, not fitted or calibrated",
+            "neutral-score ties remain cell-ID-dependent",
+            "nearest-site comparison is directional from each variant anchor to the baseline set and does not solve optimal bipartite matching",
+            "marker rings and crosses have a fixed angular size and are cartographic annotations, not site extent",
+            "the regional camera targets the first greedily admitted baseline site rather than a human-curated geography",
+            "no routes, labels, factor rasters, population, economy, or culture are generated"
+        ],
+        "comparison_definition": {
+            "exact_retained_anchor": "same Voronoi anchor cell appears in baseline and variant",
+            "nearest_distance": "great-circle physical kilometres from each variant anchor to its nearest baseline anchor",
+            "median": "ordinary sample median of directional nearest distances"
+        },
+        "cameras": views.iter().map(|view| view.sidecar.clone()).collect::<Vec<_>>(),
+        "variants": variants.into_iter().map(|variant| variant.record).collect::<Vec<_>>(),
+        "montage": {
+            "filename": "montage.png",
+            "rows": "variants in sidecar order",
+            "columns": "cameras in sidecar order"
+        }
+    });
+    let sidecar_path = opts.out_dir.join("consequential-geography.json");
+    let file = std::fs::File::create(&sidecar_path)
+        .unwrap_or_else(|error| panic!("create {}: {error}", sidecar_path.display()));
+    serde_json::to_writer_pretty(BufWriter::new(file), &sidecar)
+        .expect("write consequential-geography.json");
+    println!(
+        "Done: consequential-geography probe packet -> {}",
+        opts.out_dir.display()
+    );
+}
+
 /// Run the sweep: generate + render every knob combination to PNG tiles and a
 /// stitched montage in `opts.out_dir`.
 pub fn run_sweep(opts: SweepOptions) {
@@ -2387,6 +3019,10 @@ pub fn run_sweep(opts: SweepOptions) {
     }
     if opts.stack.as_deref() == Some("living-surface-preview") {
         run_living_surface_preview(&opts);
+        return;
+    }
+    if opts.stack.as_deref() == Some("consequential-geography") {
+        run_consequential_geography_packet(&opts);
         return;
     }
     // Validate knob names up front so a typo fails before any (slow) generation
@@ -2640,7 +3276,11 @@ pub fn run_sweep(opts: SweepOptions) {
 mod tests {
     use glam::Vec3;
 
-    use super::{apply_knob, build_stack_tiles, robust_scale, selected_orogen_model, SweepTarget};
+    use super::{
+        apply_knob, baseline_site_probe_config, build_stack_tiles, compare_site_positions,
+        loose_site_probe_config, robust_scale, selected_orogen_model, tight_site_probe_config,
+        SweepTarget,
+    };
     use crate::app::coloring::{
         living_surface_blended_color, LIVING_HERBACEOUS_COLOR, LIVING_WETLAND_COLOR,
         LIVING_WOODY_COLOR,
@@ -2680,6 +3320,47 @@ mod tests {
         let (lo, hi) = robust_scale(&[4.0; 8]);
         assert_eq!(lo, 4.0);
         assert!(hi > lo);
+    }
+
+    #[test]
+    fn site_probe_prior_panel_is_valid_and_ordered() {
+        let baseline = baseline_site_probe_config().validate().unwrap();
+        let tight = tight_site_probe_config().validate().unwrap();
+        let loose = loose_site_probe_config().validate().unwrap();
+        assert!(tight.minimum_site_spacing_km > baseline.minimum_site_spacing_km);
+        assert!(loose.minimum_site_spacing_km < baseline.minimum_site_spacing_km);
+        assert!(
+            tight.freshwater_access_limit_generalized_km
+                < baseline.freshwater_access_limit_generalized_km
+        );
+        assert!(
+            loose.freshwater_access_limit_generalized_km
+                > baseline.freshwater_access_limit_generalized_km
+        );
+        assert_eq!(baseline.site_count, tight.site_count);
+        assert_eq!(baseline.site_count, loose.site_count);
+    }
+
+    #[test]
+    fn site_comparison_reports_retention_and_directional_nearest_distances() {
+        let baseline = [Vec3::X, Vec3::Y];
+        let variant = [Vec3::X, Vec3::Z];
+        let result = compare_site_positions(&baseline, &variant);
+        let quarter_circumference = std::f32::consts::FRAC_PI_2 * hex3::world::PLANET_RADIUS_KM;
+        assert_eq!(result.exact_retained_anchor_count, 1);
+        assert_eq!(result.exact_retained_anchor_fraction, 0.5);
+        assert_eq!(
+            result.mean_nearest_baseline_site_distance_km,
+            Some(quarter_circumference * 0.5)
+        );
+        assert_eq!(
+            result.median_nearest_baseline_site_distance_km,
+            Some(quarter_circumference * 0.5)
+        );
+        assert_eq!(
+            result.maximum_nearest_baseline_site_distance_km,
+            Some(quarter_circumference)
+        );
     }
 
     #[test]
