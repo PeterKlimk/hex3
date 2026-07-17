@@ -72,8 +72,11 @@ budget. Peak count or render appeal alone is not sufficient. Research basis:
 
 FHC4's sidecar records revision `8d8ae5e` with `source_dirty: true`; it is
 bounded decision evidence, not a promotion/reproducibility packet. Its retained
-runner and validation seams define the experiment, but no repeat or clean
-rerun was added after the negative result.
+runner and validation seams define the experiment, but no repeat or clean rerun
+was added after the negative result. No promotion campaign is active. The
+current product-native instruction is the
+[Structural Mountain V0 contract](structural-mountain.md), which consumes these
+negative results without adding another registry rung.
 
 The zoomed-out disposition supersedes O3B/O3C as separate presumed next
 implementations. The thin H/C/G discriminator is now implemented and evaluated,

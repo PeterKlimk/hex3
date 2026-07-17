@@ -14,14 +14,18 @@ it become a chronological activity log.
 
 ## Active focus
 
-**Return to the structural terrain problem after closing the bounded consequence
-slice.** Water Geography, Living Surface and Consequential Geography have now
-completed their bounded decisions. Consequential Geography retains cheap
-access, site, route and conservative lower-corridor operators without promoting
-a product layer or authorizing population/culture. Structural mountain
-organization is the next and highest-priority model rework, but it gets one
-product-native belt contract—not another H/C/G/I campaign. Sediment and richer ecology do not advance by
-inheritance or momentum.
+**Implement the fixed Structural Mountain V0 compiler slice.** Water Geography,
+Living Surface and Consequential Geography have completed their bounded
+decisions. The selected mountain contract uses seed `12345`'s reviewed broadest
+range and exactly one candidate: finite linked segments from real product
+front/crust/history evidence, compiled into cumulative uplift opportunity and
+consumed by drainage-conditioned terrain response. It must replace both legacy
+convergent height and repeated uplift rather than stack structure over them.
+The first code boundary is only the product-facing front/episode record, sparse
+segment compiler and closed uplift-opportunity accounting; terrain response
+follows after that mechanical gate. Old H/C/G amendments and the historical
+notes below are evidence, not an active queue. Sediment, richer ecology and
+civilization do not advance by inheritance or momentum.
 
 The kernel does not normalize away the supplied precipitation pattern, uses
 geometric contributing area and HAND-like drainage position, distinguishes lake

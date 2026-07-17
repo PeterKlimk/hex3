@@ -154,22 +154,24 @@ See the [lower-corridor audit](audits/consequential-geography-lower-corridor-202
 Kill condition: if authored weights dominate geography or the result is a
 decorative overlay, stop. Retain only useful traversability/access semantics.
 
-### 3. Bound one structural mountain replacement — next
+### 3. [Structural Mountain V0](structural-mountain.md) — selected next slice
 
 The tableland/“long Uluru” range grammar remains the largest established visible
 model defect. Failed H/C/G/I variants park those implementations, not the
 problem.
 
-Before code, define one generated convergent belt and one replacement contract:
-derive along-strike segmentation, a crest/divide hierarchy, branch ridges, pass
-gaps, width and asymmetric flanks from current front/crust/history priors. Feed
-that organization into one final-terrain owner. A simpler disclosed authentic
-range generator is allowed if it preserves the important location, orientation,
-scale, drainage and downstream consequences.
+The design contract now fixes seed `12345`'s reviewed broadest range and selects
+one finite-segment uplift organizer with drainage-conditioned terrain response.
+It derives finite supports, linkage/transfer lows, width and defensible flank
+asymmetry from actual product front/crust/history evidence, then lets routed
+incision own valleys, watershed topology own divides and supported crests own
+ridge semantics.
 
-Compare only with the legacy control on the same named belt. Do not revive the
-manufactured organization ladder, tune amplitudes, or stack structural relief
-over the current scalar height owner.
+Implement only the front/episode record, sparse segment compiler and uplift
+ledger first. The terrain comparison then replaces both legacy convergent
+height and repeated uplift inside the fixed domain and compares only with
+unchanged legacy. Do not revive the manufactured organization ladder, tune
+amplitudes, or stack structural relief over the current scalar height owner.
 
 ## Later decision set
 

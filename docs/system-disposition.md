@@ -1,6 +1,6 @@
 # Cross-system disposition
 
-Status: **current project decision**, 2026-07-17.
+Status: **current project decision**, 2026-07-18.
 
 This document closes the first cross-system disposition pass. It decides what
 the product should retain, simplify, replace, quarantine, remove or research
@@ -43,11 +43,13 @@ That slice now establishes coherent inputs and readable raw objects. The
 completed [**Living Surface V0**](living-surface.md) decision retains
 equilibrium fractional physiognomy and its linear blend as a bounded on-demand
 layer. Optional regions and richer vegetation rendering were not promoted.
-The post-Living portfolio decision selects
-[**Consequential Geography V0**](roadmap.md#2-consequential-geography-v0) as the
-next bounded expansion and product/laboratory separation as immediate enabling
-work. Persistent sediment remains a strong physical candidate behind a
-river/material/time and lowland-scale design gate.
+The bounded [**Consequential Geography V0**](consequential-geography.md)
+decision now retains cheap access/route operators without promoting a human
+layer. The portfolio next selects
+[**Structural Mountain V0**](structural-mountain.md): one fixed product belt and
+one finite-segment uplift/drainage replacement. Persistent sediment remains a
+strong physical candidate behind a river/material/time and lowland-scale design
+gate.
 
 ## Dispositions
 
@@ -62,8 +64,8 @@ long-term ownership.
 | Coarse/fine allocation | **Simplify** | The best current compute bargain: broad causes on coarse state and visible drainage/erosion on fine state | Retain two scales, but compare the adaptive density prior with a simpler equal-budget allocation and declare transfer semantics per field. |
 | Plate/crust initialization | **Retain** | Cheap continent, crust and margin variety with inspectable causes | Treat it as an initializer, not geological genesis. Future history may modify it without replacing it with mantle simulation. |
 | Euler motion and boundary kinematics | **Retain** | Physically meaningful rigid motion, convergence, divergence, shear and polarity | Synthetic poles are not force-balanced history. Research force-derived motion only if several visible or downstream consequences need it. |
-| Product boundary feature bridge | **Retain** | Present fronts, sign, rate, crust setting and polarity are high-leverage forcing inputs | Stop treating its scalar response as finished mountain terrain. Preserve the inputs while the eventual forcing organizer is replaced. |
-| Scalar tectonic final-height ownership | **Replace** | Keep the legacy output as the usable product baseline and control | The generic capped/ribbon grammar is not a product foundation. A future replacement starts from real front topology, tectonic history and inherited material state; H/C/G/I do not advance. |
+| Product boundary feature bridge | **Retain** | Present fronts, sign, rate, crust setting and polarity are high-leverage forcing inputs | Stop treating its scalar response as finished mountain terrain. Preserve these inputs while the scalar height owner is replaced. |
+| Scalar tectonic final-height ownership | **Replace** | Keep the legacy output as the usable product baseline and control | The generic capped/ribbon grammar is not a product foundation. [Structural Mountain V0](structural-mountain.md) now fixes one real product belt and a finite-segment uplift/drainage replacement; H/C/G/I do not advance. |
 | History, lifecycle, carrier and named orogen ladder | **Quarantine** | Conservative transport, overlap, material-ledger, underthrust and relaxation operators remain a useful research library | Lifecycle does not consume generated reorganization history, several compositions are falsified, and the public ladder overstates product choice. Remove misleading aliases and retired named selectors after operator extraction. |
 | Coarse elevation, bathymetry and datum | **Simplify** | Efficient global envelope with explicit physical elevation and crust-column conversions | Keep ownership and units explicit. Target-land-fraction sea level is a worldbuilding constraint, not conserved ocean volume; deeper loading/sea-level physics waits for sediment or ice consumers. |
 | Temperature and prescribed circulation | **Retain** | Cheap latitude, elevation and circulation structure for water, ecology and presentation | Do not add a dynamic atmosphere. Test regional consequences before adding longitude-asymmetric heat or seasonality. |

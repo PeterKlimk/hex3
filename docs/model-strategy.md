@@ -1,6 +1,6 @@
 # Hex3 model strategy
 
-Status: **current project decision**, 2026-07-17.
+Status: **current project decision**, 2026-07-18.
 
 Hex3 is an **authentic systemic world generator** built from reduced causal
 models. It uses different fidelity levels by domain, but one common rule:
@@ -28,12 +28,12 @@ found a real mountain-organization defect but did not justify the tested deeper
 terrain owners. The broader decision in the
 [cross-system disposition](system-disposition.md) keeps the cheap causal spine,
 parks those mountain implementations, and retained **Water Geography V0** plus
-**Living Surface V0** as bounded layers. The current
-[roadmap](roadmap.md) now advances Consequential Geography V0 as the active
-bounded product slice: access and terrain-sensitive route corridors have
-passed, while the aggregate site prior and route-local relationship layer
-remain unpromoted. Mountain ownership remains an active architecture question.
-This is not a commitment to deepen every retained system.
+**Living Surface V0** as bounded layers. **Consequential Geography V0** has now
+closed its bounded discriminator with useful access/route operators but no
+promoted human layer. The current [roadmap](roadmap.md) selects
+[Structural Mountain V0](structural-mountain.md): one product-native finite-
+segment uplift organizer and same-belt legacy comparison. This is not a
+commitment to deepen every retained system.
 
 ## Alternatives considered
 
@@ -88,7 +88,7 @@ and ownership, not identical equations in every domain.
 | Hydrology | Water follows coherent topology; basins, outlets, lakes and rivers have shared identity | Physical topology with disclosed equilibrium/storage hacks | Event hydrology, calibrated discharge chronology or full groundwater |
 | Geographic semantics | Reusable objects are derived from state, retain provenance and explain their causes | Required product layer; incomplete | Ontological truth independent of scale or purpose |
 | Rendering | One world can be shown physically, diagnostically, cartographically and dramatically | Explicit visual/cartographic model; profile work incomplete | Rendered slope, width or visibility as physical evidence |
-| Living surface, resources and human geography | Fractional living opportunity is a bounded on-demand layer; later consequence systems must consume and expose geography | Living Surface accepted; aggregate consequence layer selected next | Calibrated ecology, individual-tree dynamics or automatic progression to civilization |
+| Living surface, resources and human geography | Fractional living opportunity is a bounded on-demand layer; later consequence systems must consume and expose geography | Living Surface accepted; bounded access/site/route discriminator complete without promotion | Calibrated ecology, individual-tree dynamics or automatic progression to civilization |
 
 These are current claims, not protection for current implementations. A system
 may be simplified, replaced or removed if a cheaper mechanism preserves its
@@ -147,16 +147,13 @@ The completed first pass asked four questions in order:
    cost.
 
 That pass produced explicit system dispositions rather than one universal
-fidelity direction. Water Geography and Living Surface have completed their
-bounded decisions. The selected sequence is now:
+fidelity direction. Water Geography, Living Surface and Consequential Geography
+have completed their bounded decisions. The selected sequence is now:
 
 1. keep the ordinary product path separate from quarantined research machinery;
-2. finish the bounded Consequential Geography decision by testing whether one
-   honest route-local explanation adds meaning beyond the now-accepted access
-   and terrain-sensitive corridor machinery;
-3. bound one product-native structural mountain replacement without reviving
-   the H/C/G/I ladder; and
-4. keep sediment, seasonal hydroecology, richer vegetation, ocean structure and
+2. implement and judge the fixed product-native Structural Mountain V0 belt
+   without reviving the H/C/G/I ladder; and
+3. keep sediment, seasonal hydroecology, richer vegetation, ocean structure and
    cryosphere behind their explicit consumer and ownership gates.
 
 Missing systems remain central, but continue to compete against fixing,
