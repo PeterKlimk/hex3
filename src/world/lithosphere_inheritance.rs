@@ -13,7 +13,10 @@ use glam::Vec3;
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 
-use super::{CellEdgeId, Crust, CrustType, Tessellation, PLANET_RADIUS_KM};
+use super::constants::TRANSFORM_NORMAL_THRESHOLD;
+use super::{
+    BoundaryKind, CellEdgeId, Crust, CrustType, PlateBoundaryEdge, Tessellation, PLANET_RADIUS_KM,
+};
 
 pub const OCEANIC_BASEMENT_PROVINCE: u32 = u32::MAX;
 pub const LITHOSPHERE_INHERITANCE_SEED_SALT: u64 = 5;
@@ -52,6 +55,8 @@ pub enum InheritedStructureKindV0 {
     BasementContact,
     Suture,
     InheritedRift,
+    /// Explicit finite connector between offset inherited traces.
+    TransferLink,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -62,7 +67,7 @@ pub struct InheritedStructureEdgeV0 {
     pub vertices: [u32; 2],
     pub endpoints: [Vec3; 2],
     pub length_km: f32,
-    /// Ordered by numeric province identity, because a suture has no polarity.
+    /// Canonically sorted province identity; V0 support carries no side polarity.
     pub provinces: [u32; 2],
     pub kind: InheritedStructureKindV0,
 }
@@ -79,23 +84,81 @@ pub struct InheritedStructureSegmentV0 {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum InheritedStructureNodeKindV0 {
+pub enum InheritedStructureIncidenceKindV0 {
     Tip,
-    Junction,
+    MultiTrace,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct InheritedStructureNodeV0 {
+pub struct InheritedStructureIncidenceV0 {
+    pub id: u32,
     pub vertex: u32,
-    pub kind: InheritedStructureNodeKindV0,
+    pub kind: InheritedStructureIncidenceKindV0,
     pub incident_segments: Vec<u32>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum InheritedStructureSegmentEndV0 {
+    Start,
+    End,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct InheritedStructureSegmentEndRefV0 {
+    pub segment_id: u32,
+    pub end: InheritedStructureSegmentEndV0,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum InheritedStructureRelationshipKindV0 {
+    Continuation,
+    Junction,
+    OffsetTransfer,
+    CrossingUnlinked,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum InheritedStructureRelationshipTopologyV0 {
+    Continuation {
+        ends: [InheritedStructureSegmentEndRefV0; 2],
+    },
+    Junction {
+        ends: Vec<InheritedStructureSegmentEndRefV0>,
+    },
+    OffsetTransfer {
+        primary_ends: [InheritedStructureSegmentEndRefV0; 2],
+        connector_segment_id: u32,
+    },
+    CrossingUnlinked {
+        branches: [[InheritedStructureSegmentEndRefV0; 2]; 2],
+    },
+}
+
+impl InheritedStructureRelationshipTopologyV0 {
+    pub fn kind(&self) -> InheritedStructureRelationshipKindV0 {
+        match self {
+            Self::Continuation { .. } => InheritedStructureRelationshipKindV0::Continuation,
+            Self::Junction { .. } => InheritedStructureRelationshipKindV0::Junction,
+            Self::OffsetTransfer { .. } => InheritedStructureRelationshipKindV0::OffsetTransfer,
+            Self::CrossingUnlinked { .. } => InheritedStructureRelationshipKindV0::CrossingUnlinked,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InheritedStructureRelationshipV0 {
+    pub id: u32,
+    pub topology: InheritedStructureRelationshipTopologyV0,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct InheritedStructureGraphV0 {
     pub edges: Vec<InheritedStructureEdgeV0>,
     pub segments: Vec<InheritedStructureSegmentV0>,
-    pub nodes: Vec<InheritedStructureNodeV0>,
+    /// Geometric endpoint incidence only; this does not declare connectivity.
+    pub incidences: Vec<InheritedStructureIncidenceV0>,
+    /// Explicit geological connectivity. Candidate basement graphs leave this empty.
+    pub relationships: Vec<InheritedStructureRelationshipV0>,
     pub total_length_km: f64,
 }
 
@@ -121,9 +184,43 @@ pub struct BoundaryInheritanceRelationshipV0 {
     pub kind: BoundaryInheritanceContactKindV0,
     pub shared_vertices: Vec<u32>,
     pub structure_segment_ids: Vec<u32>,
-    pub at_structure_junction: bool,
+    pub geometric_incidence_ids: Vec<u32>,
+    pub structure_relationship_ids: Vec<u32>,
+    pub structure_relationship_kinds: Vec<InheritedStructureRelationshipKindV0>,
     /// Smallest unoriented tangent angle at an exact shared vertex, in [0, 90].
     pub minimum_tangent_angle_deg: Option<f32>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BoundaryInheritanceApplicationV0 {
+    Ineligible,
+    ContinentalCollision,
+    ContinentalRifting,
+    OceanicSpreading,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BoundaryInheritanceGeologyV0 {
+    None,
+    CandidateBasementContact,
+    NamedSuture,
+    NamedInheritedRift,
+    TransferLink,
+    Mixed,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BoundaryInheritanceAssessmentV0 {
+    pub application: BoundaryInheritanceApplicationV0,
+    pub geology: BoundaryInheritanceGeologyV0,
+    pub geometric_contact: BoundaryInheritanceContactKindV0,
+    pub structure_relationship_kinds: Vec<InheritedStructureRelationshipKindV0>,
+}
+
+struct ContactTopologyMetadataV0 {
+    geometric_incidence_ids: Vec<u32>,
+    relationship_ids: Vec<u32>,
+    relationship_kinds: Vec<InheritedStructureRelationshipKindV0>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -136,6 +233,9 @@ pub enum LithosphereInheritanceErrorV0 {
     UnassignedContinentalCell(usize),
     InvalidProvinceContact(CellEdgeId),
     InvalidManufacturedGraph,
+    InvalidStructureRelationship(u32),
+    MissingStructureSegment(u32),
+    InvalidRelationshipMetadata,
 }
 
 impl std::fmt::Display for LithosphereInheritanceErrorV0 {
@@ -267,17 +367,21 @@ pub fn query_boundary_inheritance_v0(
         .binary_search_by_key(&boundary, |edge| edge.id)
         .is_ok()
     {
+        let structure_segment_ids = vec![segment_id_for_edge(&inheritance.graph, boundary)
+            .ok_or(LithosphereInheritanceErrorV0::InvalidManufacturedGraph)?];
+        let topology = contact_topology_metadata(
+            &inheritance.graph,
+            &boundary_vertices,
+            &structure_segment_ids,
+        )?;
         return Ok(BoundaryInheritanceRelationshipV0 {
             boundary,
             kind: BoundaryInheritanceContactKindV0::Coincident,
             shared_vertices: boundary_vertices.to_vec(),
-            structure_segment_ids: vec![segment_id_for_edge(&inheritance.graph, boundary)
-                .ok_or(LithosphereInheritanceErrorV0::InvalidManufacturedGraph)?],
-            at_structure_junction: boundary_vertices.iter().any(|vertex| {
-                inheritance.graph.nodes.iter().any(|node| {
-                    node.vertex == *vertex && node.kind == InheritedStructureNodeKindV0::Junction
-                })
-            }),
+            structure_segment_ids,
+            geometric_incidence_ids: topology.geometric_incidence_ids,
+            structure_relationship_ids: topology.relationship_ids,
+            structure_relationship_kinds: topology.relationship_kinds,
             minimum_tangent_angle_deg: Some(0.0),
         });
     }
@@ -317,11 +421,10 @@ pub fn query_boundary_inheritance_v0(
         .iter()
         .filter_map(|&edge| segment_id_for_edge(&inheritance.graph, edge))
         .collect();
-    let at_structure_junction = shared_vertices.iter().any(|vertex| {
-        inheritance.graph.nodes.iter().any(|node| {
-            node.vertex == *vertex && node.kind == InheritedStructureNodeKindV0::Junction
-        })
-    });
+    let shared_vertices: Vec<_> = shared_vertices.into_iter().collect();
+    let structure_segment_ids: Vec<_> = structure_segment_ids.into_iter().collect();
+    let topology =
+        contact_topology_metadata(&inheritance.graph, &shared_vertices, &structure_segment_ids)?;
     Ok(BoundaryInheritanceRelationshipV0 {
         boundary,
         kind: if shared_vertices.is_empty() {
@@ -329,10 +432,89 @@ pub fn query_boundary_inheritance_v0(
         } else {
             BoundaryInheritanceContactKindV0::VertexContact
         },
-        shared_vertices: shared_vertices.into_iter().collect(),
-        structure_segment_ids: structure_segment_ids.into_iter().collect(),
-        at_structure_junction,
+        shared_vertices,
+        structure_segment_ids,
+        geometric_incidence_ids: topology.geometric_incidence_ids,
+        structure_relationship_ids: topology.relationship_ids,
+        structure_relationship_kinds: topology.relationship_kinds,
         minimum_tangent_angle_deg: minimum_angle.is_finite().then_some(minimum_angle),
+    })
+}
+
+/// Classify which existing product boundary consumer can read the relationship.
+///
+/// This is an inert semantic assessment. It does not change kinematics, assign
+/// localization strength, or write terrain.
+pub fn assess_plate_boundary_inheritance_v0(
+    boundary: &PlateBoundaryEdge,
+    relationship: &BoundaryInheritanceRelationshipV0,
+    graph: &InheritedStructureGraphV0,
+) -> Result<BoundaryInheritanceAssessmentV0, LithosphereInheritanceErrorV0> {
+    let boundary_id = CellEdgeId::new(boundary.cell_a, boundary.cell_b);
+    if boundary.cell_a == boundary.cell_b || relationship.boundary != boundary_id {
+        return Err(LithosphereInheritanceErrorV0::InvalidBoundary(
+            relationship.boundary,
+        ));
+    }
+    let topology = contact_topology_metadata(
+        graph,
+        &relationship.shared_vertices,
+        &relationship.structure_segment_ids,
+    )?;
+    if relationship.structure_relationship_ids != topology.relationship_ids
+        || relationship.structure_relationship_kinds != topology.relationship_kinds
+    {
+        return Err(LithosphereInheritanceErrorV0::InvalidRelationshipMetadata);
+    }
+    let locally_convergent = boundary.convergence > TRANSFORM_NORMAL_THRESHOLD;
+    let locally_opening = -boundary.convergence > TRANSFORM_NORMAL_THRESHOLD;
+    let continental_a = boundary.type_a == CrustType::Continental;
+    let continental_b = boundary.type_b == CrustType::Continental;
+    let application = match boundary.kind {
+        BoundaryKind::Convergent if locally_convergent && continental_a && continental_b => {
+            BoundaryInheritanceApplicationV0::ContinentalCollision
+        }
+        BoundaryKind::Divergent if locally_opening && !continental_a && !continental_b => {
+            BoundaryInheritanceApplicationV0::OceanicSpreading
+        }
+        BoundaryKind::Divergent if locally_opening && (continental_a || continental_b) => {
+            BoundaryInheritanceApplicationV0::ContinentalRifting
+        }
+        _ => BoundaryInheritanceApplicationV0::Ineligible,
+    };
+
+    let mut kinds = BTreeSet::new();
+    for &segment_id in &relationship.structure_segment_ids {
+        let segment = graph
+            .segments
+            .iter()
+            .find(|segment| segment.id == segment_id)
+            .ok_or(LithosphereInheritanceErrorV0::MissingStructureSegment(
+                segment_id,
+            ))?;
+        kinds.insert(segment.kind);
+    }
+    let geology = if kinds.is_empty() {
+        BoundaryInheritanceGeologyV0::None
+    } else if kinds.len() > 1 {
+        BoundaryInheritanceGeologyV0::Mixed
+    } else {
+        match *kinds.iter().next().expect("nonempty set") {
+            InheritedStructureKindV0::BasementContact => {
+                BoundaryInheritanceGeologyV0::CandidateBasementContact
+            }
+            InheritedStructureKindV0::Suture => BoundaryInheritanceGeologyV0::NamedSuture,
+            InheritedStructureKindV0::InheritedRift => {
+                BoundaryInheritanceGeologyV0::NamedInheritedRift
+            }
+            InheritedStructureKindV0::TransferLink => BoundaryInheritanceGeologyV0::TransferLink,
+        }
+    };
+    Ok(BoundaryInheritanceAssessmentV0 {
+        application,
+        geology,
+        geometric_contact: relationship.kind,
+        structure_relationship_kinds: topology.relationship_kinds,
     })
 }
 
@@ -342,6 +524,89 @@ fn segment_id_for_edge(graph: &InheritedStructureGraphV0, edge: CellEdgeId) -> O
         .iter()
         .find(|segment| segment.source_edges.contains(&edge))
         .map(|segment| segment.id)
+}
+
+fn contact_topology_metadata(
+    graph: &InheritedStructureGraphV0,
+    shared_vertices: &[u32],
+    contacted_segments: &[u32],
+) -> Result<ContactTopologyMetadataV0, LithosphereInheritanceErrorV0> {
+    let geometric_incidence_ids = graph
+        .incidences
+        .iter()
+        .filter(|incidence| shared_vertices.contains(&incidence.vertex))
+        .map(|incidence| incidence.id)
+        .collect();
+    let mut relationship_ids = Vec::new();
+    let mut relationship_kinds = BTreeSet::new();
+    for relationship in &graph.relationships {
+        let mut endpoint_contact = false;
+        for endpoint in relationship_end_refs(&relationship.topology) {
+            if contacted_segments.contains(&endpoint.segment_id)
+                && shared_vertices.contains(&segment_end_vertex(graph, endpoint, relationship.id)?)
+            {
+                endpoint_contact = true;
+                break;
+            }
+        }
+        let connector_contact = match relationship.topology {
+            InheritedStructureRelationshipTopologyV0::OffsetTransfer {
+                connector_segment_id,
+                ..
+            } => contacted_segments.contains(&connector_segment_id),
+            _ => false,
+        };
+        if endpoint_contact || connector_contact {
+            relationship_ids.push(relationship.id);
+            relationship_kinds.insert(relationship.topology.kind());
+        }
+    }
+    Ok(ContactTopologyMetadataV0 {
+        geometric_incidence_ids,
+        relationship_ids,
+        relationship_kinds: relationship_kinds.into_iter().collect(),
+    })
+}
+
+fn relationship_end_refs(
+    topology: &InheritedStructureRelationshipTopologyV0,
+) -> Vec<InheritedStructureSegmentEndRefV0> {
+    match topology {
+        InheritedStructureRelationshipTopologyV0::Continuation { ends } => ends.to_vec(),
+        InheritedStructureRelationshipTopologyV0::Junction { ends } => ends.clone(),
+        InheritedStructureRelationshipTopologyV0::OffsetTransfer { primary_ends, .. } => {
+            primary_ends.to_vec()
+        }
+        InheritedStructureRelationshipTopologyV0::CrossingUnlinked { branches } => {
+            branches.iter().flatten().copied().collect()
+        }
+    }
+}
+
+fn segment_end_vertex(
+    graph: &InheritedStructureGraphV0,
+    endpoint: InheritedStructureSegmentEndRefV0,
+    relationship_id: u32,
+) -> Result<u32, LithosphereInheritanceErrorV0> {
+    let segment = graph
+        .segments
+        .iter()
+        .find(|segment| segment.id == endpoint.segment_id)
+        .ok_or(LithosphereInheritanceErrorV0::MissingStructureSegment(
+            endpoint.segment_id,
+        ))?;
+    if segment.closed || segment.vertices_in_order.len() < 2 {
+        return Err(LithosphereInheritanceErrorV0::InvalidStructureRelationship(
+            relationship_id,
+        ));
+    }
+    Ok(match endpoint.end {
+        InheritedStructureSegmentEndV0::Start => segment.vertices_in_order[0],
+        InheritedStructureSegmentEndV0::End => *segment
+            .vertices_in_order
+            .last()
+            .expect("checked nonempty segment"),
+    })
 }
 
 fn validate_inputs(
@@ -601,17 +866,19 @@ fn compile_graph_from_edges(
                 .push(segment.id);
         }
     }
-    let nodes = endpoint_segments
+    let incidences = endpoint_segments
         .into_iter()
-        .map(|(vertex, mut incident_segments)| {
+        .enumerate()
+        .map(|(id, (vertex, mut incident_segments))| {
             incident_segments.sort_unstable();
             incident_segments.dedup();
-            InheritedStructureNodeV0 {
+            InheritedStructureIncidenceV0 {
+                id: id as u32,
                 vertex,
                 kind: if incident_segments.len() == 1 {
-                    InheritedStructureNodeKindV0::Tip
+                    InheritedStructureIncidenceKindV0::Tip
                 } else {
-                    InheritedStructureNodeKindV0::Junction
+                    InheritedStructureIncidenceKindV0::MultiTrace
                 },
                 incident_segments,
             }
@@ -621,7 +888,8 @@ fn compile_graph_from_edges(
     Ok(InheritedStructureGraphV0 {
         edges,
         segments,
-        nodes,
+        incidences,
+        relationships: Vec::new(),
         total_length_km,
     })
 }
@@ -667,6 +935,303 @@ fn chain_component(
         }
     }
     component
+}
+
+/// Validate explicit geological relationships independently of geometric incidence.
+pub fn validate_structure_relationships_v0(
+    graph: &InheritedStructureGraphV0,
+) -> Result<(), LithosphereInheritanceErrorV0> {
+    if graph
+        .segments
+        .windows(2)
+        .any(|pair| pair[0].id >= pair[1].id)
+        || graph
+            .relationships
+            .windows(2)
+            .any(|pair| pair[0].id >= pair[1].id)
+    {
+        return Err(LithosphereInheritanceErrorV0::InvalidManufacturedGraph);
+    }
+    let mut used_ends = BTreeSet::new();
+    for relationship in &graph.relationships {
+        let invalid =
+            || LithosphereInheritanceErrorV0::InvalidStructureRelationship(relationship.id);
+        match &relationship.topology {
+            InheritedStructureRelationshipTopologyV0::Continuation { ends } => {
+                if ends[0] >= ends[1]
+                    || segment_end_vertex(graph, ends[0], relationship.id)?
+                        != segment_end_vertex(graph, ends[1], relationship.id)?
+                    || !compatible_primary_ends(graph, ends[0], ends[1])?
+                {
+                    return Err(invalid());
+                }
+                insert_unique_end(&mut used_ends, ends[0], relationship.id)?;
+                insert_unique_end(&mut used_ends, ends[1], relationship.id)?;
+            }
+            InheritedStructureRelationshipTopologyV0::Junction { ends } => {
+                if ends.len() < 3
+                    || ends.windows(2).any(|pair| pair[0] >= pair[1])
+                    || !ends_are_primary(graph, ends)?
+                {
+                    return Err(invalid());
+                }
+                let vertices = ends
+                    .iter()
+                    .map(|&endpoint| segment_end_vertex(graph, endpoint, relationship.id))
+                    .collect::<Result<BTreeSet<_>, _>>()?;
+                if vertices.len() != 1 {
+                    return Err(invalid());
+                }
+                for &endpoint in ends {
+                    insert_unique_end(&mut used_ends, endpoint, relationship.id)?;
+                }
+            }
+            InheritedStructureRelationshipTopologyV0::OffsetTransfer {
+                primary_ends,
+                connector_segment_id,
+            } => {
+                if primary_ends[0] >= primary_ends[1]
+                    || !compatible_primary_ends(graph, primary_ends[0], primary_ends[1])?
+                {
+                    return Err(invalid());
+                }
+                let primary_vertices = [
+                    segment_end_vertex(graph, primary_ends[0], relationship.id)?,
+                    segment_end_vertex(graph, primary_ends[1], relationship.id)?,
+                ];
+                if primary_vertices[0] == primary_vertices[1] {
+                    return Err(invalid());
+                }
+                let connector = graph
+                    .segments
+                    .iter()
+                    .find(|segment| segment.id == *connector_segment_id)
+                    .ok_or(LithosphereInheritanceErrorV0::MissingStructureSegment(
+                        *connector_segment_id,
+                    ))?;
+                if connector.kind != InheritedStructureKindV0::TransferLink || connector.closed {
+                    return Err(invalid());
+                }
+                let connector_ends = [
+                    InheritedStructureSegmentEndRefV0 {
+                        segment_id: *connector_segment_id,
+                        end: InheritedStructureSegmentEndV0::Start,
+                    },
+                    InheritedStructureSegmentEndRefV0 {
+                        segment_id: *connector_segment_id,
+                        end: InheritedStructureSegmentEndV0::End,
+                    },
+                ];
+                let mut expected_vertices = primary_vertices;
+                expected_vertices.sort_unstable();
+                let mut connector_vertices = [
+                    segment_end_vertex(graph, connector_ends[0], relationship.id)?,
+                    segment_end_vertex(graph, connector_ends[1], relationship.id)?,
+                ];
+                connector_vertices.sort_unstable();
+                if expected_vertices != connector_vertices {
+                    return Err(invalid());
+                }
+                for endpoint in primary_ends.iter().copied().chain(connector_ends) {
+                    insert_unique_end(&mut used_ends, endpoint, relationship.id)?;
+                }
+            }
+            InheritedStructureRelationshipTopologyV0::CrossingUnlinked { branches } => {
+                if branches[0][0] >= branches[0][1]
+                    || branches[1][0] >= branches[1][1]
+                    || branches[0] >= branches[1]
+                    || !compatible_primary_ends(graph, branches[0][0], branches[0][1])?
+                    || !compatible_primary_ends(graph, branches[1][0], branches[1][1])?
+                {
+                    return Err(invalid());
+                }
+                let endpoints: Vec<_> = branches.iter().flatten().copied().collect();
+                if endpoints.iter().copied().collect::<BTreeSet<_>>().len() != 4
+                    || endpoints
+                        .iter()
+                        .map(|endpoint| endpoint.segment_id)
+                        .collect::<BTreeSet<_>>()
+                        .len()
+                        != 4
+                {
+                    return Err(invalid());
+                }
+                let vertices = endpoints
+                    .iter()
+                    .map(|&endpoint| segment_end_vertex(graph, endpoint, relationship.id))
+                    .collect::<Result<BTreeSet<_>, _>>()?;
+                if vertices.len() != 1 {
+                    return Err(invalid());
+                }
+                for endpoint in endpoints {
+                    insert_unique_end(&mut used_ends, endpoint, relationship.id)?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Return deterministic segment components induced only by explicit relationships.
+pub fn structure_relationship_components_v0(
+    graph: &InheritedStructureGraphV0,
+) -> Result<Vec<Vec<u32>>, LithosphereInheritanceErrorV0> {
+    validate_structure_relationships_v0(graph)?;
+    let by_id: BTreeMap<_, _> = graph
+        .segments
+        .iter()
+        .enumerate()
+        .map(|(index, segment)| (segment.id, index))
+        .collect();
+    let mut parent: Vec<_> = (0..graph.segments.len()).collect();
+    for relationship in &graph.relationships {
+        match &relationship.topology {
+            InheritedStructureRelationshipTopologyV0::Continuation { ends } => {
+                union_segment_ids(&by_id, &mut parent, ends[0].segment_id, ends[1].segment_id)?;
+            }
+            InheritedStructureRelationshipTopologyV0::Junction { ends } => {
+                for pair in ends.windows(2) {
+                    union_segment_ids(&by_id, &mut parent, pair[0].segment_id, pair[1].segment_id)?;
+                }
+            }
+            InheritedStructureRelationshipTopologyV0::OffsetTransfer {
+                primary_ends,
+                connector_segment_id,
+            } => {
+                union_segment_ids(
+                    &by_id,
+                    &mut parent,
+                    primary_ends[0].segment_id,
+                    *connector_segment_id,
+                )?;
+                union_segment_ids(
+                    &by_id,
+                    &mut parent,
+                    primary_ends[1].segment_id,
+                    *connector_segment_id,
+                )?;
+            }
+            InheritedStructureRelationshipTopologyV0::CrossingUnlinked { branches } => {
+                for branch in branches {
+                    union_segment_ids(
+                        &by_id,
+                        &mut parent,
+                        branch[0].segment_id,
+                        branch[1].segment_id,
+                    )?;
+                }
+            }
+        }
+    }
+    let mut components = BTreeMap::<usize, Vec<u32>>::new();
+    for segment in &graph.segments {
+        let index = by_id[&segment.id];
+        let root = find_root(&mut parent, index);
+        components.entry(root).or_default().push(segment.id);
+    }
+    let mut components: Vec<_> = components.into_values().collect();
+    for component in &mut components {
+        component.sort_unstable();
+    }
+    components.sort();
+    Ok(components)
+}
+
+fn compatible_primary_ends(
+    graph: &InheritedStructureGraphV0,
+    first: InheritedStructureSegmentEndRefV0,
+    second: InheritedStructureSegmentEndRefV0,
+) -> Result<bool, LithosphereInheritanceErrorV0> {
+    let first_kind = structure_segment_kind(graph, first.segment_id)?;
+    let second_kind = structure_segment_kind(graph, second.segment_id)?;
+    Ok(first.segment_id != second.segment_id
+        && first_kind == second_kind
+        && matches!(
+            first_kind,
+            InheritedStructureKindV0::Suture | InheritedStructureKindV0::InheritedRift
+        ))
+}
+
+fn ends_are_primary(
+    graph: &InheritedStructureGraphV0,
+    ends: &[InheritedStructureSegmentEndRefV0],
+) -> Result<bool, LithosphereInheritanceErrorV0> {
+    for endpoint in ends {
+        if !matches!(
+            structure_segment_kind(graph, endpoint.segment_id)?,
+            InheritedStructureKindV0::Suture | InheritedStructureKindV0::InheritedRift
+        ) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+fn structure_segment_kind(
+    graph: &InheritedStructureGraphV0,
+    segment_id: u32,
+) -> Result<InheritedStructureKindV0, LithosphereInheritanceErrorV0> {
+    graph
+        .segments
+        .iter()
+        .find(|segment| segment.id == segment_id)
+        .map(|segment| segment.kind)
+        .ok_or(LithosphereInheritanceErrorV0::MissingStructureSegment(
+            segment_id,
+        ))
+}
+
+fn insert_unique_end(
+    used: &mut BTreeSet<InheritedStructureSegmentEndRefV0>,
+    endpoint: InheritedStructureSegmentEndRefV0,
+    relationship_id: u32,
+) -> Result<(), LithosphereInheritanceErrorV0> {
+    if used.insert(endpoint) {
+        Ok(())
+    } else {
+        Err(LithosphereInheritanceErrorV0::InvalidStructureRelationship(
+            relationship_id,
+        ))
+    }
+}
+
+fn union_segment_ids(
+    by_id: &BTreeMap<u32, usize>,
+    parent: &mut [usize],
+    first: u32,
+    second: u32,
+) -> Result<(), LithosphereInheritanceErrorV0> {
+    let first =
+        *by_id
+            .get(&first)
+            .ok_or(LithosphereInheritanceErrorV0::MissingStructureSegment(
+                first,
+            ))?;
+    let second =
+        *by_id
+            .get(&second)
+            .ok_or(LithosphereInheritanceErrorV0::MissingStructureSegment(
+                second,
+            ))?;
+    let first_root = find_root(parent, first);
+    let second_root = find_root(parent, second);
+    if first_root != second_root {
+        let (lower, higher) = if first_root < second_root {
+            (first_root, second_root)
+        } else {
+            (second_root, first_root)
+        };
+        parent[higher] = lower;
+    }
+    Ok(())
+}
+
+fn find_root(parent: &mut [usize], mut index: usize) -> usize {
+    while parent[index] != index {
+        parent[index] = parent[parent[index]];
+        index = parent[index];
+    }
+    index
 }
 
 fn tangent_toward(origin: Vec3, target: Vec3) -> Vec3 {
@@ -765,6 +1330,8 @@ mod tests {
     fn exact_contacts_compile_and_query_without_terrain() {
         let (tessellation, crust, inheritance) = generated(123, 2_000);
         assert!(!inheritance.graph.edges.is_empty());
+        assert!(inheritance.graph.relationships.is_empty());
+        validate_structure_relationships_v0(&inheritance.graph).unwrap();
         let declared: f64 = inheritance
             .graph
             .segments
@@ -861,7 +1428,7 @@ mod tests {
     }
 
     #[test]
-    fn chain_compiler_preserves_continuations_and_junctions() {
+    fn candidate_chain_compiler_keeps_geometric_incidence_non_geological() {
         let edge = |a, b, vertices, provinces| InheritedStructureEdgeV0 {
             id: CellEdgeId::new(a, b),
             cells: [a.min(b), a.max(b)],
@@ -878,11 +1445,12 @@ mod tests {
         .unwrap();
         assert_eq!(continuation.segments.len(), 1);
         assert_eq!(continuation.segments[0].source_edges.len(), 2);
-        assert_eq!(continuation.nodes.len(), 2);
+        assert_eq!(continuation.incidences.len(), 2);
         assert!(continuation
-            .nodes
+            .incidences
             .iter()
-            .all(|node| node.kind == InheritedStructureNodeKindV0::Tip));
+            .all(|incidence| incidence.kind == InheritedStructureIncidenceKindV0::Tip));
+        assert!(continuation.relationships.is_empty());
 
         let junction = compile_graph_from_edges(vec![
             edge(0, 1, [10, 11], [0, 1]),
@@ -891,12 +1459,391 @@ mod tests {
         ])
         .unwrap();
         assert_eq!(junction.segments.len(), 3);
-        let node = junction
-            .nodes
+        let incidence = junction
+            .incidences
             .iter()
-            .find(|node| node.vertex == 11)
+            .find(|incidence| incidence.vertex == 11)
             .unwrap();
-        assert_eq!(node.kind, InheritedStructureNodeKindV0::Junction);
-        assert_eq!(node.incident_segments.len(), 3);
+        assert_eq!(
+            incidence.kind,
+            InheritedStructureIncidenceKindV0::MultiTrace
+        );
+        assert_eq!(incidence.incident_segments.len(), 3);
+        assert!(junction.relationships.is_empty());
+    }
+
+    fn manufactured_segment(
+        id: u32,
+        start: u32,
+        end: u32,
+        kind: InheritedStructureKindV0,
+    ) -> InheritedStructureSegmentV0 {
+        InheritedStructureSegmentV0 {
+            id,
+            kind,
+            provinces: [0, 1],
+            source_edges: vec![CellEdgeId::new(id as usize * 2, id as usize * 2 + 1)],
+            vertices_in_order: vec![start, end],
+            closed: false,
+            length_km: 10.0,
+        }
+    }
+
+    fn manufactured_graph(
+        segments: Vec<InheritedStructureSegmentV0>,
+        relationships: Vec<InheritedStructureRelationshipV0>,
+    ) -> InheritedStructureGraphV0 {
+        InheritedStructureGraphV0 {
+            edges: Vec::new(),
+            segments,
+            incidences: Vec::new(),
+            relationships,
+            total_length_km: 0.0,
+        }
+    }
+
+    fn endpoint(
+        segment_id: u32,
+        end: InheritedStructureSegmentEndV0,
+    ) -> InheritedStructureSegmentEndRefV0 {
+        InheritedStructureSegmentEndRefV0 { segment_id, end }
+    }
+
+    #[test]
+    fn explicit_crossing_and_junction_change_connectivity_with_identical_geometry() {
+        let segments = vec![
+            manufactured_segment(0, 10, 11, InheritedStructureKindV0::InheritedRift),
+            manufactured_segment(1, 11, 12, InheritedStructureKindV0::InheritedRift),
+            manufactured_segment(2, 13, 11, InheritedStructureKindV0::InheritedRift),
+            manufactured_segment(3, 11, 14, InheritedStructureKindV0::InheritedRift),
+        ];
+        let crossing = manufactured_graph(
+            segments.clone(),
+            vec![InheritedStructureRelationshipV0 {
+                id: 0,
+                topology: InheritedStructureRelationshipTopologyV0::CrossingUnlinked {
+                    branches: [
+                        [
+                            endpoint(0, InheritedStructureSegmentEndV0::End),
+                            endpoint(1, InheritedStructureSegmentEndV0::Start),
+                        ],
+                        [
+                            endpoint(2, InheritedStructureSegmentEndV0::End),
+                            endpoint(3, InheritedStructureSegmentEndV0::Start),
+                        ],
+                    ],
+                },
+            }],
+        );
+        assert_eq!(
+            structure_relationship_components_v0(&crossing).unwrap(),
+            vec![vec![0, 1], vec![2, 3]]
+        );
+        let topology = contact_topology_metadata(&crossing, &[11], &[0]).unwrap();
+        assert_eq!(topology.relationship_ids, vec![0]);
+        assert_eq!(
+            topology.relationship_kinds,
+            vec![InheritedStructureRelationshipKindV0::CrossingUnlinked]
+        );
+
+        let mut third_trace = crossing.clone();
+        third_trace.segments.push(manufactured_segment(
+            4,
+            11,
+            15,
+            InheritedStructureKindV0::InheritedRift,
+        ));
+        let unrelated_topology = contact_topology_metadata(&third_trace, &[11], &[4]).unwrap();
+        assert!(unrelated_topology.relationship_ids.is_empty());
+
+        let junction = manufactured_graph(
+            segments,
+            vec![InheritedStructureRelationshipV0 {
+                id: 0,
+                topology: InheritedStructureRelationshipTopologyV0::Junction {
+                    ends: vec![
+                        endpoint(0, InheritedStructureSegmentEndV0::End),
+                        endpoint(1, InheritedStructureSegmentEndV0::Start),
+                        endpoint(2, InheritedStructureSegmentEndV0::End),
+                        endpoint(3, InheritedStructureSegmentEndV0::Start),
+                    ],
+                },
+            }],
+        );
+        assert_eq!(
+            structure_relationship_components_v0(&junction).unwrap(),
+            vec![vec![0, 1, 2, 3]]
+        );
+
+        let reused_segment = manufactured_graph(
+            vec![
+                manufactured_segment(0, 11, 11, InheritedStructureKindV0::InheritedRift),
+                manufactured_segment(1, 11, 12, InheritedStructureKindV0::InheritedRift),
+                manufactured_segment(2, 11, 13, InheritedStructureKindV0::InheritedRift),
+            ],
+            vec![InheritedStructureRelationshipV0 {
+                id: 0,
+                topology: InheritedStructureRelationshipTopologyV0::CrossingUnlinked {
+                    branches: [
+                        [
+                            endpoint(0, InheritedStructureSegmentEndV0::Start),
+                            endpoint(1, InheritedStructureSegmentEndV0::Start),
+                        ],
+                        [
+                            endpoint(0, InheritedStructureSegmentEndV0::End),
+                            endpoint(2, InheritedStructureSegmentEndV0::Start),
+                        ],
+                    ],
+                },
+            }],
+        );
+        assert_eq!(
+            validate_structure_relationships_v0(&reused_segment),
+            Err(LithosphereInheritanceErrorV0::InvalidStructureRelationship(
+                0
+            ))
+        );
+    }
+
+    #[test]
+    fn continuation_and_offset_transfer_require_explicit_valid_links() {
+        let continuation = manufactured_graph(
+            vec![
+                manufactured_segment(0, 10, 11, InheritedStructureKindV0::Suture),
+                manufactured_segment(1, 11, 12, InheritedStructureKindV0::Suture),
+            ],
+            vec![InheritedStructureRelationshipV0 {
+                id: 0,
+                topology: InheritedStructureRelationshipTopologyV0::Continuation {
+                    ends: [
+                        endpoint(0, InheritedStructureSegmentEndV0::End),
+                        endpoint(1, InheritedStructureSegmentEndV0::Start),
+                    ],
+                },
+            }],
+        );
+        assert_eq!(
+            structure_relationship_components_v0(&continuation).unwrap(),
+            vec![vec![0, 1]]
+        );
+
+        let transfer = manufactured_graph(
+            vec![
+                manufactured_segment(0, 10, 11, InheritedStructureKindV0::InheritedRift),
+                manufactured_segment(1, 20, 21, InheritedStructureKindV0::InheritedRift),
+                manufactured_segment(2, 11, 20, InheritedStructureKindV0::TransferLink),
+            ],
+            vec![InheritedStructureRelationshipV0 {
+                id: 0,
+                topology: InheritedStructureRelationshipTopologyV0::OffsetTransfer {
+                    primary_ends: [
+                        endpoint(0, InheritedStructureSegmentEndV0::End),
+                        endpoint(1, InheritedStructureSegmentEndV0::Start),
+                    ],
+                    connector_segment_id: 2,
+                },
+            }],
+        );
+        assert_eq!(
+            structure_relationship_components_v0(&transfer).unwrap(),
+            vec![vec![0, 1, 2]]
+        );
+
+        let mut invalid_transfer = transfer;
+        invalid_transfer.segments[2].vertices_in_order = vec![11, 30];
+        assert_eq!(
+            validate_structure_relationships_v0(&invalid_transfer),
+            Err(LithosphereInheritanceErrorV0::InvalidStructureRelationship(
+                0
+            ))
+        );
+    }
+
+    fn manufactured_boundary(
+        kind: BoundaryKind,
+        convergence: f32,
+        types: [CrustType; 2],
+    ) -> PlateBoundaryEdge {
+        PlateBoundaryEdge {
+            cell_a: 0,
+            cell_b: 1,
+            plate_a: 0,
+            plate_b: 1,
+            type_a: types[0],
+            type_b: types[1],
+            boundary_point: Vec3::X,
+            edge_length: 0.01,
+            convergence,
+            shear: 0.0,
+            relative_speed: convergence.abs(),
+            kind,
+            subduction: None,
+        }
+    }
+
+    #[test]
+    fn collision_and_rift_consumers_share_geology_but_keep_distinct_applications() {
+        let graph = manufactured_graph(
+            vec![manufactured_segment(
+                0,
+                10,
+                11,
+                InheritedStructureKindV0::InheritedRift,
+            )],
+            Vec::new(),
+        );
+        let relationship = BoundaryInheritanceRelationshipV0 {
+            boundary: CellEdgeId::new(0, 1),
+            kind: BoundaryInheritanceContactKindV0::Coincident,
+            shared_vertices: vec![10, 11],
+            structure_segment_ids: vec![0],
+            geometric_incidence_ids: Vec::new(),
+            structure_relationship_ids: Vec::new(),
+            structure_relationship_kinds: Vec::new(),
+            minimum_tangent_angle_deg: Some(0.0),
+        };
+        let collision = assess_plate_boundary_inheritance_v0(
+            &manufactured_boundary(
+                BoundaryKind::Convergent,
+                0.2,
+                [CrustType::Continental, CrustType::Continental],
+            ),
+            &relationship,
+            &graph,
+        )
+        .unwrap();
+        let rift = assess_plate_boundary_inheritance_v0(
+            &manufactured_boundary(
+                BoundaryKind::Divergent,
+                -0.2,
+                [CrustType::Continental, CrustType::Continental],
+            ),
+            &relationship,
+            &graph,
+        )
+        .unwrap();
+        assert_eq!(
+            collision.application,
+            BoundaryInheritanceApplicationV0::ContinentalCollision
+        );
+        assert_eq!(
+            rift.application,
+            BoundaryInheritanceApplicationV0::ContinentalRifting
+        );
+        assert_eq!(
+            collision.geology,
+            BoundaryInheritanceGeologyV0::NamedInheritedRift
+        );
+        assert_eq!(rift.geology, collision.geology);
+        assert_eq!(rift.geometric_contact, collision.geometric_contact);
+
+        let collision_boundary = manufactured_boundary(
+            BoundaryKind::Convergent,
+            0.2,
+            [CrustType::Continental, CrustType::Continental],
+        );
+        let mut stale_boundary = relationship.clone();
+        stale_boundary.boundary = CellEdgeId::new(0, 2);
+        assert_eq!(
+            assess_plate_boundary_inheritance_v0(&collision_boundary, &stale_boundary, &graph,),
+            Err(LithosphereInheritanceErrorV0::InvalidBoundary(
+                CellEdgeId::new(0, 2)
+            ))
+        );
+        let mut forged_topology = relationship.clone();
+        forged_topology.structure_relationship_kinds =
+            vec![InheritedStructureRelationshipKindV0::Junction];
+        assert_eq!(
+            assess_plate_boundary_inheritance_v0(&collision_boundary, &forged_topology, &graph,),
+            Err(LithosphereInheritanceErrorV0::InvalidRelationshipMetadata)
+        );
+
+        let spreading = assess_plate_boundary_inheritance_v0(
+            &manufactured_boundary(
+                BoundaryKind::Divergent,
+                -0.2,
+                [CrustType::Oceanic, CrustType::Oceanic],
+            ),
+            &relationship,
+            &graph,
+        )
+        .unwrap();
+        assert_eq!(
+            spreading.application,
+            BoundaryInheritanceApplicationV0::OceanicSpreading
+        );
+        let locally_closing = assess_plate_boundary_inheritance_v0(
+            &manufactured_boundary(
+                BoundaryKind::Divergent,
+                0.2,
+                [CrustType::Continental, CrustType::Continental],
+            ),
+            &relationship,
+            &graph,
+        )
+        .unwrap();
+        assert_eq!(
+            locally_closing.application,
+            BoundaryInheritanceApplicationV0::Ineligible
+        );
+    }
+
+    #[test]
+    fn candidate_basement_contact_cannot_masquerade_as_geological_linkage() {
+        let graph = manufactured_graph(
+            vec![manufactured_segment(
+                0,
+                10,
+                11,
+                InheritedStructureKindV0::BasementContact,
+            )],
+            Vec::new(),
+        );
+        let relationship = BoundaryInheritanceRelationshipV0 {
+            boundary: CellEdgeId::new(0, 1),
+            kind: BoundaryInheritanceContactKindV0::Coincident,
+            shared_vertices: vec![10, 11],
+            structure_segment_ids: vec![0],
+            geometric_incidence_ids: Vec::new(),
+            structure_relationship_ids: Vec::new(),
+            structure_relationship_kinds: Vec::new(),
+            minimum_tangent_angle_deg: Some(0.0),
+        };
+        let assessment = assess_plate_boundary_inheritance_v0(
+            &manufactured_boundary(
+                BoundaryKind::Divergent,
+                -0.2,
+                [CrustType::Continental, CrustType::Continental],
+            ),
+            &relationship,
+            &graph,
+        )
+        .unwrap();
+        assert_eq!(
+            assessment.geology,
+            BoundaryInheritanceGeologyV0::CandidateBasementContact
+        );
+
+        let invalid = manufactured_graph(
+            vec![
+                manufactured_segment(0, 10, 11, InheritedStructureKindV0::BasementContact),
+                manufactured_segment(1, 11, 12, InheritedStructureKindV0::BasementContact),
+            ],
+            vec![InheritedStructureRelationshipV0 {
+                id: 0,
+                topology: InheritedStructureRelationshipTopologyV0::Continuation {
+                    ends: [
+                        endpoint(0, InheritedStructureSegmentEndV0::End),
+                        endpoint(1, InheritedStructureSegmentEndV0::Start),
+                    ],
+                },
+            }],
+        );
+        assert_eq!(
+            validate_structure_relationships_v0(&invalid),
+            Err(LithosphereInheritanceErrorV0::InvalidStructureRelationship(
+                0
+            ))
+        );
     }
 }

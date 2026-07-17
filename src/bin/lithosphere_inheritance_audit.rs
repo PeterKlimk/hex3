@@ -7,11 +7,14 @@ use std::time::Instant;
 
 use clap::Parser;
 use hex3::world::{
-    catalog_structural_source_belts, collect_convergent_fronts, collect_plate_boundaries,
-    compile_structural_mountain, generate_lithosphere_inheritance_v0,
-    query_boundary_inheritance_v0, select_primary_structural_source_belt, BasementProvinceV0,
-    BoundaryEdgeId, BoundaryInheritanceContactKindV0, BoundaryKind, ConvergentFrontEdge,
-    InheritedStructureEdgeV0, InheritedStructureNodeKindV0, InheritedStructureNodeV0,
+    assess_plate_boundary_inheritance_v0, catalog_structural_source_belts,
+    collect_convergent_fronts, collect_plate_boundaries, compile_structural_mountain,
+    generate_lithosphere_inheritance_v0, query_boundary_inheritance_v0,
+    select_primary_structural_source_belt, BasementProvinceV0, BoundaryEdgeId,
+    BoundaryInheritanceContactKindV0, BoundaryKind, ConvergentFrontEdge, InheritedStructureEdgeV0,
+    InheritedStructureIncidenceKindV0, InheritedStructureIncidenceV0,
+    InheritedStructureRelationshipKindV0, InheritedStructureRelationshipTopologyV0,
+    InheritedStructureRelationshipV0, InheritedStructureSegmentEndRefV0,
     InheritedStructureSegmentV0, LithosphereInheritanceConfigV0, LithosphereInheritanceV0,
     PlateBoundaryEdge, StructuralMountainGraph, StructuralRegime, StructuralSegment,
     VoronoiBackend, World, LITHOSPHERE_INHERITANCE_SEED_SALT, NUM_PLATES_DEFAULT, PLANET_RADIUS_KM,
@@ -27,7 +30,7 @@ struct Cli {
     cells: usize,
     #[arg(
         long,
-        default_value = "docs/generated/lithosphere-inheritance-seed-12345-v0.json"
+        default_value = "docs/generated/lithosphere-inheritance-seed-12345-v1.json"
     )]
     output: PathBuf,
 }
@@ -66,8 +69,9 @@ struct GraphSummary {
     segment_count: usize,
     open_segment_count: usize,
     closed_segment_count: usize,
-    tip_count: usize,
-    junction_count: usize,
+    tip_incidence_count: usize,
+    multi_trace_incidence_count: usize,
+    explicit_relationship_count: usize,
     total_length_km: f64,
     retained_payload_bytes: usize,
     segment_length_km: ScalarSummary,
@@ -77,10 +81,13 @@ struct GraphSummary {
 struct BoundaryKindSummary {
     kind: String,
     edge_count: usize,
+    application_counts: BTreeMap<String, usize>,
+    geology_counts: BTreeMap<String, usize>,
     unrelated_count: usize,
     coincident_count: usize,
     vertex_contact_count: usize,
-    junction_contact_count: usize,
+    multi_trace_incidence_contact_count: usize,
+    explicit_relationship_contact_count: usize,
     contacted_length_km: f64,
     tangent_angle_deg: Option<ScalarSummary>,
 }
@@ -94,7 +101,8 @@ struct SelectedParentSummary {
     unrelated_count: usize,
     coincident_count: usize,
     vertex_contact_count: usize,
-    junction_contact_count: usize,
+    multi_trace_incidence_contact_count: usize,
+    explicit_relationship_contact_count: usize,
     contact_events: Vec<ParentContactEvent>,
 }
 
@@ -105,7 +113,9 @@ struct ParentContactEvent {
     kind: String,
     shared_vertices: Vec<u32>,
     structure_segment_ids: Vec<u32>,
-    at_structure_junction: bool,
+    geometric_incidence_ids: Vec<u32>,
+    structure_relationship_ids: Vec<u32>,
+    structure_relationship_kinds: Vec<InheritedStructureRelationshipKindV0>,
     minimum_tangent_angle_deg: Option<f32>,
 }
 
@@ -158,7 +168,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let selected_collision_parent =
         selected_parent_summary(&world, &inheritance, &fronts.edges, source.id, parent)?;
     let report = Report {
-        schema: "hex3-lithosphere-inheritance-audit-v0",
+        schema: "hex3-lithosphere-inheritance-audit-v1",
         seed: cli.seed,
         requested_coarse_cells: cli.cells,
         elapsed_seconds: started.elapsed().as_secs_f32(),
@@ -227,18 +237,19 @@ fn graph_summary(inheritance: &LithosphereInheritanceV0) -> GraphSummary {
             .iter()
             .filter(|segment| segment.closed)
             .count(),
-        tip_count: inheritance
+        tip_incidence_count: inheritance
             .graph
-            .nodes
+            .incidences
             .iter()
-            .filter(|node| node.kind == InheritedStructureNodeKindV0::Tip)
+            .filter(|incidence| incidence.kind == InheritedStructureIncidenceKindV0::Tip)
             .count(),
-        junction_count: inheritance
+        multi_trace_incidence_count: inheritance
             .graph
-            .nodes
+            .incidences
             .iter()
-            .filter(|node| node.kind == InheritedStructureNodeKindV0::Junction)
+            .filter(|incidence| incidence.kind == InheritedStructureIncidenceKindV0::MultiTrace)
             .count(),
+        explicit_relationship_count: inheritance.graph.relationships.len(),
         total_length_km: inheritance.graph.total_length_km,
         retained_payload_bytes: retained_payload_bytes(inheritance),
         segment_length_km: summarize(
@@ -266,12 +277,25 @@ fn retained_payload_bytes(inheritance: &LithosphereInheritanceV0) -> usize {
                     + segment.vertices_in_order.len() * std::mem::size_of::<u32>()
             })
             .sum::<usize>()
-        + inheritance.graph.nodes.len() * std::mem::size_of::<InheritedStructureNodeV0>()
+        + inheritance.graph.incidences.len() * std::mem::size_of::<InheritedStructureIncidenceV0>()
         + inheritance
             .graph
-            .nodes
+            .incidences
             .iter()
-            .map(|node| node.incident_segments.len() * std::mem::size_of::<u32>())
+            .map(|incidence| incidence.incident_segments.len() * std::mem::size_of::<u32>())
+            .sum::<usize>()
+        + inheritance.graph.relationships.len()
+            * std::mem::size_of::<InheritedStructureRelationshipV0>()
+        + inheritance
+            .graph
+            .relationships
+            .iter()
+            .map(|relationship| match &relationship.topology {
+                InheritedStructureRelationshipTopologyV0::Junction { ends } => {
+                    ends.len() * std::mem::size_of::<InheritedStructureSegmentEndRefV0>()
+                }
+                _ => 0,
+            })
             .sum::<usize>()
 }
 
@@ -298,6 +322,23 @@ fn boundary_summaries(
                 )
             })
             .collect::<Result<Vec<_>, _>>()?;
+        let assessments = members
+            .iter()
+            .zip(&relationships)
+            .map(|(edge, relationship)| {
+                assess_plate_boundary_inheritance_v0(edge, relationship, &inheritance.graph)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut application_counts = BTreeMap::new();
+        let mut geology_counts = BTreeMap::new();
+        for assessment in &assessments {
+            *application_counts
+                .entry(format!("{:?}", assessment.application))
+                .or_insert(0) += 1;
+            *geology_counts
+                .entry(format!("{:?}", assessment.geology))
+                .or_insert(0) += 1;
+        }
         let contacted_length_km = members
             .iter()
             .zip(&relationships)
@@ -311,6 +352,8 @@ fn boundary_summaries(
         Ok(BoundaryKindSummary {
             kind: format!("{kind:?}"),
             edge_count: members.len(),
+            application_counts,
+            geology_counts,
             unrelated_count: relationships
                 .iter()
                 .filter(|relation| relation.kind == BoundaryInheritanceContactKindV0::Unrelated)
@@ -323,9 +366,20 @@ fn boundary_summaries(
                 .iter()
                 .filter(|relation| relation.kind == BoundaryInheritanceContactKindV0::VertexContact)
                 .count(),
-            junction_contact_count: relationships
+            multi_trace_incidence_contact_count: relationships
                 .iter()
-                .filter(|relation| relation.at_structure_junction)
+                .filter(|relation| {
+                    relation.geometric_incidence_ids.iter().any(|id| {
+                        inheritance.graph.incidences.iter().any(|incidence| {
+                            incidence.id == *id
+                                && incidence.kind == InheritedStructureIncidenceKindV0::MultiTrace
+                        })
+                    })
+                })
+                .count(),
+            explicit_relationship_contact_count: relationships
+                .iter()
+                .filter(|relation| !relation.structure_relationship_ids.is_empty())
                 .count(),
             contacted_length_km,
             tangent_angle_deg: (!angles.is_empty()).then(|| summarize(angles.into_iter())),
@@ -347,7 +401,8 @@ fn selected_parent_summary(
     let mut unrelated_count = 0;
     let mut coincident_count = 0;
     let mut vertex_contact_count = 0;
-    let mut junction_contact_count = 0;
+    let mut multi_trace_incidence_contact_count = 0;
+    let mut explicit_relationship_contact_count = 0;
     for id in &parent.source_edges {
         let edge = by_id[id];
         let midpoint_km = distance + 0.5 * edge.length_km;
@@ -358,7 +413,15 @@ fn selected_parent_summary(
             BoundaryInheritanceContactKindV0::Coincident => coincident_count += 1,
             BoundaryInheritanceContactKindV0::VertexContact => vertex_contact_count += 1,
         }
-        junction_contact_count += usize::from(relationship.at_structure_junction);
+        multi_trace_incidence_contact_count +=
+            usize::from(relationship.geometric_incidence_ids.iter().any(|id| {
+                inheritance.graph.incidences.iter().any(|incidence| {
+                    incidence.id == *id
+                        && incidence.kind == InheritedStructureIncidenceKindV0::MultiTrace
+                })
+            }));
+        explicit_relationship_contact_count +=
+            usize::from(!relationship.structure_relationship_ids.is_empty());
         if relationship.kind != BoundaryInheritanceContactKindV0::Unrelated {
             events.push(ParentContactEvent {
                 edge_id: edge_pair(*id),
@@ -366,7 +429,9 @@ fn selected_parent_summary(
                 kind: format!("{:?}", relationship.kind),
                 shared_vertices: relationship.shared_vertices,
                 structure_segment_ids: relationship.structure_segment_ids,
-                at_structure_junction: relationship.at_structure_junction,
+                geometric_incidence_ids: relationship.geometric_incidence_ids,
+                structure_relationship_ids: relationship.structure_relationship_ids,
+                structure_relationship_kinds: relationship.structure_relationship_kinds,
                 minimum_tangent_angle_deg: relationship.minimum_tangent_angle_deg,
             });
         }
@@ -379,7 +444,8 @@ fn selected_parent_summary(
         unrelated_count,
         coincident_count,
         vertex_contact_count,
-        junction_contact_count,
+        multi_trace_incidence_contact_count,
+        explicit_relationship_contact_count,
         contact_events: events,
     })
 }

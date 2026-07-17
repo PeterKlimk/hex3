@@ -154,7 +154,7 @@ See the [lower-corridor audit](audits/consequential-geography-lower-corridor-202
 Kill condition: if authored weights dominate geography or the result is a
 decorative overlay, stop. Retain only useful traversability/access semantics.
 
-### 3. [Lithosphere Inheritance V0](lithosphere-inheritance.md) — source seam implemented, relationship gate next
+### 3. [Lithosphere Inheritance V0](lithosphere-inheritance.md) — explicit semantics pass, generated history next
 
 The tableland/“long Uluru” range grammar remains the largest established visible
 model defect. The product-native structural compiler has now shown that the
@@ -201,12 +201,21 @@ The first on-demand seam is now implemented without changing product terrain:
 connected basement provinces, exact candidate province contacts and a generic
 boundary/structure query. At 100k cells it costs about 0.05 s and would retain
 about 0.83 MB of vector payload. The selected 3,200 km collision parent crosses
-two short contact-aligned runs, but neither is a junction and the shared Voronoi
-support can inflate exact overlap. These contacts have not been assigned
-geological history; this is useful source structure, not yet a license for
-segmented relief. The next gate is finite inherited
-rift/link/transfer topology plus manufactured collision-and-rift
-counterfactuals; only a causal relationship result may reopen terrain response.
+two short contact-aligned runs, but neither reaches a multi-trace incidence and
+the shared Voronoi support can inflate exact overlap. These contacts have not
+been assigned geological history; this is useful source structure, not yet a
+license for segmented relief.
+
+The explicit relationship gate now passes independently of generated history.
+Endpoint hyperedges distinguish continuation, junction, finite offset transfer
+and crossing-unlinked. Identical four-arm geometry produces two components when
+declared as an unlinked crossing and one when declared as a junction; an offset
+transfer is invalid without a finite connector. Collision and continental-rift
+assessments share the same geological contact while retaining separate
+applications. Generated basement state intentionally contains zero such
+relationships, so the next gate is a plate-blind, terrain-blind prior selecting
+a sparse finite suture/rift/transfer history. Only coherent fixed-corpus evidence
+from that prior may reopen terrain response.
 
 ## Later decision set
 

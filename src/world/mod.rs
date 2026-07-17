@@ -108,12 +108,17 @@ pub use hydrology::{
     Basin, CellWaterState, Hydrology, WaterBody, DEFAULT_CLIMATE_RATIO, MIN_LAKE_DEPTH,
 };
 pub use lithosphere_inheritance::{
-    generate_lithosphere_inheritance_v0, query_boundary_inheritance_v0, BasementProvinceV0,
-    BoundaryInheritanceContactKindV0, BoundaryInheritanceRelationshipV0, InheritedStructureEdgeV0,
-    InheritedStructureGraphV0, InheritedStructureKindV0, InheritedStructureNodeKindV0,
-    InheritedStructureNodeV0, InheritedStructureSegmentV0, LithosphereInheritanceConfigV0,
-    LithosphereInheritanceErrorV0, LithosphereInheritanceV0, LITHOSPHERE_INHERITANCE_SEED_SALT,
-    OCEANIC_BASEMENT_PROVINCE,
+    assess_plate_boundary_inheritance_v0, generate_lithosphere_inheritance_v0,
+    query_boundary_inheritance_v0, structure_relationship_components_v0,
+    validate_structure_relationships_v0, BasementProvinceV0, BoundaryInheritanceApplicationV0,
+    BoundaryInheritanceAssessmentV0, BoundaryInheritanceContactKindV0,
+    BoundaryInheritanceGeologyV0, BoundaryInheritanceRelationshipV0, InheritedStructureEdgeV0,
+    InheritedStructureGraphV0, InheritedStructureIncidenceKindV0, InheritedStructureIncidenceV0,
+    InheritedStructureKindV0, InheritedStructureRelationshipKindV0,
+    InheritedStructureRelationshipTopologyV0, InheritedStructureRelationshipV0,
+    InheritedStructureSegmentEndRefV0, InheritedStructureSegmentEndV0, InheritedStructureSegmentV0,
+    LithosphereInheritanceConfigV0, LithosphereInheritanceErrorV0, LithosphereInheritanceV0,
+    LITHOSPHERE_INHERITANCE_SEED_SALT, OCEANIC_BASEMENT_PROVINCE,
 };
 pub use living_surface::{
     LivingSurfaceCell, LivingSurfaceSemantics, PhysiognomyFractions,

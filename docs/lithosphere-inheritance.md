@@ -1,7 +1,7 @@
 # Lithosphere Inheritance V0 decision
 
-Status: **source-state prototype implemented on demand; incomplete and not
-promoted**, 2026-07-18.
+Status: **source state and explicit relationship semantics implemented on
+demand; generated history assignment incomplete and not promoted**, 2026-07-18.
 
 This decision follows the source-only failure in
 [Structural Mountain V0](structural-mountain.md). It chooses the smallest
@@ -189,18 +189,20 @@ the existing continental/craton envelope and compiles every exact internal
 province contact into a typed spherical graph. It also exposes one generic
 plate-boundary relationship query: a boundary may be unrelated, coincide with
 an inherited edge or touch one at an exact vertex, with shared graph segments,
-junction state and the minimum unoriented tangent angle reported. The canonical
-cell-edge identity now belongs to tessellation rather than the mountain module.
+geometric endpoint incidence and the minimum unoriented tangent angle reported.
+The canonical cell-edge identity now belongs to tessellation rather than the
+mountain module.
 
 This is deliberately an on-demand diagnostic seam. It is not retained in
 `World`, selected by the ordinary product, cached, or read by elevation,
 drainage, semantics or rendering. The current generator emits candidate
 basement contacts, not sutures: assigning geological history is precisely the
-unresolved next step. The type system reserves sutures and inherited rifts, but
-finite rift traces, offset/link/transfer relationships, maturity, competence
-and current-episode damage do not yet exist. Querying divergent boundaries
-demonstrates API reuse; it is not yet a second causal consumer because no rift
-response changes.
+unresolved next step. The type system and explicit relationship layer can carry
+sutures, inherited rifts and transfer links, but the generator emits none of
+them; finite generated history, maturity, competence and current-episode damage
+do not yet exist. Divergent boundaries now have a separate inert application
+assessment, but it is not yet a causal response because no rift localization or
+terrain changes.
 
 The fixed seed `12345` report at 100,000 coarse cells records:
 
@@ -215,11 +217,12 @@ The fixed seed `12345` report at 100,000 coarse cells records:
 The selected 3,199.8 km collision parent has 60 unrelated edges, six coincident
 edges and four vertex contacts. Its coincidences form two short runs on separate
 basement-contact segments, around 1,423--1,506 km and 1,709--1,807 km along the
-parent; neither run reaches a structure junction. This is new source
-information, but it does **not** yet identify either contact as a suture or
-justify a transfer low, segmented uplift or any topographic sign. Because both
-graphs use the same coarse Voronoi edges, exact coincidence also overstates
-geometric precision and must not be treated as independent validation.
+parent; neither run reaches a multi-trace endpoint incidence, and neither has an
+explicit geological relationship. This is new source information, but it does
+**not** yet identify either contact as a suture or justify a transfer low,
+segmented uplift or any topographic sign. Because both graphs use the same
+coarse Voronoi edges, exact coincidence also overstates geometric precision and
+must not be treated as independent validation.
 
 Spot checks at 25k, 50k, 100k and 200k cells retain roughly the intended
 province scale and yield 125, 101, 134 and 152 graph segments respectively.
@@ -228,12 +231,56 @@ initialization itself changes geometry with resolution, and the 50k graph is a
 moderate outlier.
 
 The checkpoint therefore passes independence, determinism, connected-province,
-exact-topology and cost tests, but does not pass the complete V0 gate. Compiling
+exact-geometry and cost tests, but does not pass the complete V0 gate. Compiling
 all terrane contacts is only a basement skeleton, not yet the selected sparse
-history model. The next principled question is whether a finite set of inherited
-rift/link/transfer relationships can be initialized with honest graph semantics
-and produce different collision and rift classifications in manufactured
-counterfactuals. Do not connect this state to terrain before that answer.
+history model.
+
+## Explicit relationship checkpoint
+
+Geometric coincidence is no longer allowed to imply geological connectivity.
+The graph now has a separate endpoint-relationship layer with four declarations:
+
+- continuation between two compatible trace ends;
+- a three-or-more-arm junction at one exact vertex;
+- offset transfer through a finite `TransferLink` segment whose endpoints close
+  exactly against the two primary traces; and
+- crossing-unlinked, which pairs four coincident ends into two branches while
+  explicitly forbidding cross-branch connectivity.
+
+Unreferenced endpoints remain tips. Candidate `BasementContact` segments cannot
+participate in these relationships; they must first receive an explicit suture
+or inherited-rift interpretation. Every endpoint can belong to at most one
+relationship, and canonical endpoint ordering makes serialization deterministic.
+The generated basement skeleton emits an empty relationship set.
+
+The decisive manufactured counterfactual now passes. Four arms with identical
+vertex geometry and an explicit crossing-unlinked declaration compile into two
+connected components. Replacing only that declaration with a four-arm junction
+compiles the same geometry into one component. A continuation joins two aligned
+traces. Two offset traces connect only when a finite transfer segment spans their
+endpoints; changing that connector endpoint makes validation fail. Thus topology
+comes from declared source history, not proximity, angle or mesh incidence.
+
+A shared inert assessment also distinguishes current consumers without painting
+a result. The same named inherited-rift contact remains the same geology when
+read by continental collision or continental rifting, while the application is
+typed separately. Ocean-ocean divergence remains spreading, and a pair-level
+divergent edge that is locally closing remains ineligible. The assessment assigns
+no localization strength, deformation sign or topographic consequence.
+
+The corrected fixed audit calls the automatically compiled endpoints geometric
+incidences: 64 tips and 68 multi-trace incidences. It records zero explicit
+geological relationships globally and on the selected collision parent. The 20
+divergent contacts remain candidate basement coincidences, not inherited-rift
+localization. The retained report is
+[`generated/lithosphere-inheritance-seed-12345-v1.json`](generated/lithosphere-inheritance-seed-12345-v1.json).
+
+This passes the explicit-topology and manufactured multi-consumer semantics gate.
+It does not pass generated-world causality. The next principled task is to decide
+and test a source-only prior that selects a finite, sparse history of sutures,
+inherited rifts and transfer links without observing plates, target mountains or
+terrain. Do not connect the relationship layer to terrain before that prior
+produces coherent fixed-corpus collision and rift evidence.
 
 ## Consequences for current work
 

@@ -33,4 +33,9 @@ Current bounded evidence:
 - [`lithosphere-inheritance-seed-12345-v0.json`](lithosphere-inheritance-seed-12345-v0.json)
   freezes the first terrain-blind basement-province/contact graph, its cost and
   its exact relationships with current plate boundaries and the selected
-  collision parent. It is prototype evidence, not promoted world state.
+  collision parent. Its `junction` terminology conflates geometric incidence
+  with geological linkage and is superseded by v1.
+- [`lithosphere-inheritance-seed-12345-v1.json`](lithosphere-inheritance-seed-12345-v1.json)
+  corrects that distinction, records tip/multi-trace incidence separately and
+  confirms that the generated candidate skeleton contains zero explicit
+  continuation, junction, crossing or transfer relationships.

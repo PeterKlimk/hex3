@@ -14,8 +14,8 @@ it become a chronological activity log.
 
 ## Active focus
 
-**Judge the source-only Lithosphere Inheritance V0 relationship model; do not
-build mountain terrain yet.** Seed `12345`'s terrain-blind source remains episode 0 /
+**Find an honest source-only prior for sparse lithosphere history; do not build
+mountain terrain yet.** Seed `12345`'s terrain-blind source remains episode 0 /
 plates `[0, 2]`: 72 edges and 3,254 km, comprising one 3,200 km collision parent
 plus two one-edge continental-receiving subduction transitions. Exact legacy
 response binding passes. Sixty-seven edges are represented by the old writer;
@@ -64,14 +64,26 @@ the retained vector payload estimate is 0.83 MB. It is not stored in `World` and
 changes no terrain, hydrology, semantics or rendering. The generic relationship
 query finds two short exact contact runs in the selected 3,200 km collision
 parent and 20 contacts among current divergent edges. Do not overread either
-result: shared Voronoi
-support inflates exact coincidence, divergent response does not yet consume the
-state, no junction or transfer relation occurs on the selected parent, and no
-candidate contact has yet earned a suture interpretation. Current generation
-emits only the full basement-contact skeleton; it lacks
-finite inherited rifts, sparse history selection, offsets, links, transfer
-semantics, maturity and competence. The next gate is manufactured collision and
-rift counterfactuals over those missing graph relationships, not relief tuning.
+result: shared Voronoi support inflates exact coincidence, divergent terrain
+response does not yet consume the state, no explicit relationship occurs on the
+selected parent, and no candidate contact has yet earned a suture interpretation.
+Current generation emits only the full basement-contact skeleton; it lacks
+finite inherited rifts, sparse history selection, maturity and competence.
+
+The explicit relationship semantics now pass their manufactured gate. Shared
+Voronoi incidence is geometry only. Declared endpoint relationships separately
+represent continuation, three-plus-arm junctions, crossing-unlinked and offset
+transfer through a finite connector. With identical four-arm geometry, crossing
+declaration yields two components and junction declaration yields one; a transfer
+with a mismatched connector endpoint is rejected. Candidate basement contacts
+cannot enter geological relationships. The same named inherited-rift contact is
+classified as one geology for both continental collision and continental rifting
+while those consumer applications remain distinct; oceanic spreading and locally
+non-opening edges stay separate. The corrected fixed audit has 64 tip and 68
+multi-trace geometric incidences but zero explicit relationships globally and on
+the selected parent. The next gate is therefore the source prior that selects a
+sparse finite history without reading plates, target mountains or terrain—not
+relief tuning or automatic promotion of contact geometry.
 
 The earlier fixed replay rejects the reviewed height component as one belt.
 On the current 255,866-cell fine baseline its core corresponds well to the old

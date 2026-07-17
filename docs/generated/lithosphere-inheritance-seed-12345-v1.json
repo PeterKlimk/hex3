@@ -1,0 +1,344 @@
+{
+  "schema": "hex3-lithosphere-inheritance-audit-v1",
+  "seed": 12345,
+  "requested_coarse_cells": 100000,
+  "elapsed_seconds": 2.1026778,
+  "inheritance_generation_seconds": 0.04625316,
+  "config": {
+    "target_province_area_km2": 2000000.0,
+    "maximum_provinces_per_craton": 24,
+    "minimum_average_cells_per_province": 16
+  },
+  "provinces": {
+    "count": 68,
+    "per_craton": [
+      {
+        "craton_id": 0,
+        "province_count": 24,
+        "area_km2": 63401725.14453753
+      },
+      {
+        "craton_id": 1,
+        "province_count": 8,
+        "area_km2": 16357909.010036929
+      },
+      {
+        "craton_id": 2,
+        "province_count": 9,
+        "area_km2": 17786770.86376049
+      },
+      {
+        "craton_id": 3,
+        "province_count": 4,
+        "area_km2": 8562603.10223874
+      },
+      {
+        "craton_id": 4,
+        "province_count": 23,
+        "area_km2": 46969371.478878915
+      }
+    ],
+    "area_km2": {
+      "min": 564657.3464714648,
+      "mean": 2251152.64116842,
+      "median": 2020773.1084990536,
+      "max": 4660120.1829068065
+    }
+  },
+  "graph": {
+    "edge_count": 4157,
+    "segment_count": 134,
+    "open_segment_count": 134,
+    "closed_segment_count": 0,
+    "tip_incidence_count": 64,
+    "multi_trace_incidence_count": 68,
+    "explicit_relationship_count": 0,
+    "total_length_km": 179106.51615612954,
+    "retained_payload_bytes": 834588,
+    "segment_length_km": {
+      "min": 16.09994888305664,
+      "mean": 1336.6157929719384,
+      "median": 1276.6209716796875,
+      "max": 2977.082763671875
+    }
+  },
+  "plate_boundaries": [
+    {
+      "kind": "Convergent",
+      "edge_count": 2192,
+      "application_counts": {
+        "ContinentalCollision": 529,
+        "Ineligible": 1663
+      },
+      "geology_counts": {
+        "CandidateBasementContact": 76,
+        "None": 2116
+      },
+      "unrelated_count": 2116,
+      "coincident_count": 39,
+      "vertex_contact_count": 37,
+      "multi_trace_incidence_contact_count": 0,
+      "explicit_relationship_contact_count": 0,
+      "contacted_length_km": 3539.389921426773,
+      "tangent_angle_deg": {
+        "min": 0.0,
+        "mean": 24.40549283278616,
+        "median": 0.0,
+        "max": 80.09221649169922
+      }
+    },
+    {
+      "kind": "Divergent",
+      "edge_count": 2157,
+      "application_counts": {
+        "ContinentalRifting": 256,
+        "Ineligible": 565,
+        "OceanicSpreading": 1336
+      },
+      "geology_counts": {
+        "CandidateBasementContact": 20,
+        "None": 2137
+      },
+      "unrelated_count": 2137,
+      "coincident_count": 8,
+      "vertex_contact_count": 12,
+      "multi_trace_incidence_contact_count": 0,
+      "explicit_relationship_contact_count": 0,
+      "contacted_length_km": 964.1246592402458,
+      "tangent_angle_deg": {
+        "min": 0.0,
+        "mean": 31.31798553466797,
+        "median": 34.35531997680664,
+        "max": 71.83030700683594
+      }
+    },
+    {
+      "kind": "Transform",
+      "edge_count": 361,
+      "application_counts": {
+        "Ineligible": 361
+      },
+      "geology_counts": {
+        "CandidateBasementContact": 26,
+        "None": 335
+      },
+      "unrelated_count": 335,
+      "coincident_count": 12,
+      "vertex_contact_count": 14,
+      "multi_trace_incidence_contact_count": 2,
+      "explicit_relationship_contact_count": 0,
+      "contacted_length_km": 1169.321269750595,
+      "tangent_angle_deg": {
+        "min": 0.0,
+        "mean": 24.98008009103628,
+        "median": 24.708072662353516,
+        "max": 63.93499755859375
+      }
+    }
+  ],
+  "selected_collision_parent": {
+    "source_id": [
+      91484,
+      91861
+    ],
+    "parent_id": [
+      91484,
+      91861
+    ],
+    "edge_count": 70,
+    "length_km": 3199.8254,
+    "unrelated_count": 60,
+    "coincident_count": 6,
+    "vertex_contact_count": 4,
+    "multi_trace_incidence_contact_count": 0,
+    "explicit_relationship_contact_count": 0,
+    "contact_events": [
+      {
+        "edge_id": [
+          94898,
+          94987
+        ],
+        "midpoint_km": 1372.8297,
+        "kind": "VertexContact",
+        "shared_vertices": [
+          30238
+        ],
+        "structure_segment_ids": [
+          129
+        ],
+        "geometric_incidence_ids": [],
+        "structure_relationship_ids": [],
+        "structure_relationship_kinds": [],
+        "minimum_tangent_angle_deg": 80.09222
+      },
+      {
+        "edge_id": [
+          94898,
+          95364
+        ],
+        "midpoint_km": 1423.4536,
+        "kind": "Coincident",
+        "shared_vertices": [
+          30238,
+          30232
+        ],
+        "structure_segment_ids": [
+          129
+        ],
+        "geometric_incidence_ids": [],
+        "structure_relationship_ids": [],
+        "structure_relationship_kinds": [],
+        "minimum_tangent_angle_deg": 0.0
+      },
+      {
+        "edge_id": [
+          95186,
+          95364
+        ],
+        "midpoint_km": 1464.8097,
+        "kind": "Coincident",
+        "shared_vertices": [
+          30232,
+          30229
+        ],
+        "structure_segment_ids": [
+          129
+        ],
+        "geometric_incidence_ids": [],
+        "structure_relationship_ids": [],
+        "structure_relationship_kinds": [],
+        "minimum_tangent_angle_deg": 0.0
+      },
+      {
+        "edge_id": [
+          95186,
+          95508
+        ],
+        "midpoint_km": 1506.0942,
+        "kind": "Coincident",
+        "shared_vertices": [
+          30229,
+          34283
+        ],
+        "structure_segment_ids": [
+          129
+        ],
+        "geometric_incidence_ids": [],
+        "structure_relationship_ids": [],
+        "structure_relationship_kinds": [],
+        "minimum_tangent_angle_deg": 0.0
+      },
+      {
+        "edge_id": [
+          95275,
+          95508
+        ],
+        "midpoint_km": 1539.4978,
+        "kind": "VertexContact",
+        "shared_vertices": [
+          34283
+        ],
+        "structure_segment_ids": [
+          129
+        ],
+        "geometric_incidence_ids": [],
+        "structure_relationship_ids": [],
+        "structure_relationship_kinds": [],
+        "minimum_tangent_angle_deg": 52.049667
+      },
+      {
+        "edge_id": [
+          95563,
+          95796
+        ],
+        "midpoint_km": 1687.2748,
+        "kind": "VertexContact",
+        "shared_vertices": [
+          138611
+        ],
+        "structure_segment_ids": [
+          133
+        ],
+        "geometric_incidence_ids": [],
+        "structure_relationship_ids": [],
+        "structure_relationship_kinds": [],
+        "minimum_tangent_angle_deg": 52.465454
+      },
+      {
+        "edge_id": [
+          95707,
+          95796
+        ],
+        "midpoint_km": 1708.886,
+        "kind": "Coincident",
+        "shared_vertices": [
+          138611,
+          163635
+        ],
+        "structure_segment_ids": [
+          133
+        ],
+        "geometric_incidence_ids": [],
+        "structure_relationship_ids": [],
+        "structure_relationship_kinds": [],
+        "minimum_tangent_angle_deg": 0.0
+      },
+      {
+        "edge_id": [
+          95796,
+          95940
+        ],
+        "midpoint_km": 1752.663,
+        "kind": "Coincident",
+        "shared_vertices": [
+          163632,
+          163635
+        ],
+        "structure_segment_ids": [
+          133
+        ],
+        "geometric_incidence_ids": [],
+        "structure_relationship_ids": [],
+        "structure_relationship_kinds": [],
+        "minimum_tangent_angle_deg": 0.0
+      },
+      {
+        "edge_id": [
+          95940,
+          96029
+        ],
+        "midpoint_km": 1807.1348,
+        "kind": "Coincident",
+        "shared_vertices": [
+          163632,
+          163631
+        ],
+        "structure_segment_ids": [
+          133
+        ],
+        "geometric_incidence_ids": [],
+        "structure_relationship_ids": [],
+        "structure_relationship_kinds": [],
+        "minimum_tangent_angle_deg": 0.0
+      },
+      {
+        "edge_id": [
+          95940,
+          96084
+        ],
+        "midpoint_km": 1856.4277,
+        "kind": "VertexContact",
+        "shared_vertices": [
+          163631
+        ],
+        "structure_segment_ids": [
+          133
+        ],
+        "geometric_incidence_ids": [],
+        "structure_relationship_ids": [],
+        "structure_relationship_kinds": [],
+        "minimum_tangent_angle_deg": 62.51739
+      }
+    ]
+  }
+}
