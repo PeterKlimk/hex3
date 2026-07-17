@@ -114,6 +114,15 @@ invariant, collapse to “everything follows the largest river,” or primarily
 track mesh density. The slice must create visible board/globe meaning and expose
 which retained physical systems have real downstream consequences.
 
+The first representative site-only packet rejects its candidate proposal. All
+60 baseline anchors across three worlds collapse onto the exact intersection of
+selected rivers, ocean coast, saturated local living opportunity and maximum
+coast bonus before catchments can choose among a diverse support. The cheap
+access/catchment substrate remains useful. The next bounded action is
+preference-neutral, physically diverse candidate support plus the same tiered
+counterfactual, not routes or parameter tuning. See the
+[site-probe audit](audits/consequential-geography-site-probe-2026-07-17.md).
+
 Kill condition: if authored weights dominate geography or the result is a
 decorative overlay, stop. Retain only useful traversability/access semantics.
 

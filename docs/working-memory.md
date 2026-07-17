@@ -61,6 +61,20 @@ of calibrated ecology or complete living-geography grammar. Future attempts at
 stronger identity should address upstream climate expressiveness or missing
 causal state, not palette or cover-threshold tuning.
 
+The first representative Consequential Geography site packet is a useful
+negative result. At about 255k active cells, access components take 219--286 ms
+and baseline site selection 33--46 ms; compute is not the issue. All 60 baseline
+anchors across seeds `12345`, `8675309` and `1001` are simultaneously exact
+selected-river and ocean-coast sources with saturated local living opportunity.
+The preliminary preference key admits only 160 of roughly 2,500--2,700 local
+maxima to catchment evaluation, so catchment scoring chooses within an already
+collapsed river-mouth class. Retain the substrate and packet; reject the first
+proposal. Before routes, make candidate support preference-neutral and
+physically diverse, record source-relationship composition at every candidate
+tier, and compare with a 512-candidate diagnostic oracle. Do not respond by
+tuning the coast bonus, spacing or river threshold. If collapse survives diverse
+support, the next owner is exact-source semantic saturation.
+
 The current ecology transform remains diagnostic evidence only. Its relative
 moisture normalization cancels planetary wetness changes; its freshwater input
 is distance from map-selected rivers/lakes rather than drainage-relative

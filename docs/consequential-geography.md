@@ -1,9 +1,9 @@
 # Consequential Geography V0 decision
 
 Status: **selected roadmap priority; traversal/access and configurable
-aggregate-site operators implemented and operator-tested; no frozen product
-site prior, routes, product evaluation, promotion, default, population state or
-Stage 5**, 2026-07-17.
+aggregate-site operators implemented and operator-tested; first representative
+site prior rejected; no frozen product site prior, routes, promotion, default,
+population state or Stage 5**, 2026-07-17.
 
 ## Product question
 
@@ -361,12 +361,38 @@ reason are reported without weakening the configured gates.
 Fixtures establish area-weighted aggregation, robust response to one steep
 valley wall, freshwater non-compensation by coast, explicit site shortfall,
 determinism, physical spacing and overlapping-catchment competition. A product
-prior, representative-world cost, causal ablations and human visual judgment
-remain required before the site configuration can be accepted.
+prior still requires acceptance. The first representative cost/counterfactual
+packet has now been evaluated and rejected, as described below.
 
 Exact neutral ties currently fall back to cell identity. That is deterministic
 but representation-dependent, so the permutation/neutral-baseline discriminator
 is not yet passed and must remain visible in product evaluation.
+
+## First representative site-prior verdict
+
+The first fixed three-world packet is recorded in the
+[dated site-probe audit](audits/consequential-geography-site-probe-2026-07-17.md).
+The access substrate and bounded site operator are inexpensive: at roughly
+255,000 active cells the baseline components take 219--286 ms and baseline site
+selection 33--46 ms, while all baseline and counterfactual arms produce 20
+sites.
+
+The authored candidate proposal nevertheless fails. All 60 baseline anchors
+across seeds `12345`, `8675309` and `1001` are simultaneously zero-burden
+selected-river sources, zero-burden ocean-coast sources, saturated local living
+opportunity and maximum coast bonus. The preference-weighted preliminary score
+ranks that intersection before catchment evaluation, and only 160 of roughly
+2,500--2,700 local maxima receive a catchment search. Catchment competition is
+active but starved of inland and merely near-water alternatives.
+
+This is not a reason to tune the coast bonus or site spacing. Computational
+candidate support must first become preference-neutral and physically diverse,
+so the disclosed final factors and accessible catchment can decide among real
+alternatives. Rerun the same panel with candidate-tier relationship counts and
+a larger diagnostic oracle. Routes remain blocked until that discriminator
+passes. If joint-source collapse persists under diverse support, replace the
+exact source-cell singular optimum with a comfortable-access or catchment-level
+relationship rather than adjusting weights.
 
 ## Implementation boundary
 
@@ -375,10 +401,14 @@ The smallest honest implementation sequence is:
 1. Build and test physical edge cost plus named opportunity/access components.
    **Implemented at operator level.**
 2. Add deterministic spaced site selection with explanation records.
-   **Implemented as a configurable operator; product prior and evaluation are
-   pending.**
+   **Implemented as a configurable operator; the first product-prior candidate
+   is rejected because preference-weighted preselection starves catchment
+   evaluation.**
 3. Add one bounded sparse route network and route-local relationships.
+   **Blocked on corrected site candidate support.**
 4. Run the counterfactual packet and make one pass/kill/reduce decision.
+   **First site-only packet complete; it rejects the initial proposal and does
+   not authorize routes.**
 
 Code, focused tests and one result record are enough. V0 does not require a
 family of contract amendments, a new experiment registry ladder or a general
