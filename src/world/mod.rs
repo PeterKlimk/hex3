@@ -67,7 +67,9 @@ pub use climatology::{
     ClimatologyNullReport, ClimatologySpatialEvidence, CLIMATOLOGY_NULL_REPORT_SCHEMA_VERSION,
 };
 pub use consequential_geography::{
-    directed_edge_cost, ConsequentialGeographyComponents, DirectedEdgeCost, TraversalConfig,
+    directed_edge_cost, AggregateSite, AggregateSiteSelection, ConsequentialGeographyComponents,
+    DirectedEdgeCost, FreshwaterSourceKind, SiteSelectionConfig, SiteSelectionStopReason,
+    TraversalConfig,
 };
 pub use constants::*;
 pub use crust::{Crust, CrustType};

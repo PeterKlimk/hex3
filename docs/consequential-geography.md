@@ -1,8 +1,9 @@
 # Consequential Geography V0 decision
 
-Status: **selected roadmap priority; traversal/access foundation implemented and
-operator-tested; sites, routes, product evaluation, promotion, default,
-population state and Stage 5 remain absent**, 2026-07-17.
+Status: **selected roadmap priority; traversal/access and configurable
+aggregate-site operators implemented and operator-tested; no frozen product
+site prior, routes, product evaluation, promotion, default, population state or
+Stage 5**, 2026-07-17.
 
 ## Product question
 
@@ -332,15 +333,50 @@ and land beside semantic lakes; ocean coast is separate and ponds are excluded.
 Focused fixtures establish flat-distance behavior, reverse-direction component
 symmetry, water as a traversal barrier, distinct ocean/lake/pond source
 semantics and reduced access cost through a lower gap. These are operator tests,
-not evidence that the authored penalty values, future site configuration or
-visible product are fit for purpose.
+not evidence that the authored penalty values or visible product are fit for
+purpose.
+
+The configurable aggregate-site operator now implements the next causal seam,
+but deliberately supplies no product default. Freshwater burden, local living
+opportunity, a robust mean grade that omits the single steepest incident land
+edge, and minimum effective catchment area are hard viability gates. The grade
+rule prevents one valley wall from vetoing an otherwise usable local surface
+without allocating a neighborhood statistic per fine cell. A maximin local
+proposal key and graph-local maxima bound candidate evaluation; they are
+computational preselection, not a second claim of suitability.
+
+Each retained candidate receives one land-only, generalized-cost-bounded
+catchment. Cell area rather than cell count is accumulated with a disclosed
+linear access kernel. Greedy admission requires physical great-circle spacing
+and evaluates only marginal access-kernel weight beyond that already claimed by
+earlier sites, so a weak catchment fringe cannot erase a later site's central
+opportunity. After the hard gates, freshwater and terrain supply bounded
+limiting factors and coast supplies a bounded bonus; all factors remain in each
+site record. Selected sites also retain their nearest selected-river/proper-lake
+source kind, catchment and spacing evidence, repair overlap, candidate rank and
+search-count provenance. Candidate count, generalized catchment radius and
+total catchment cell visits have hard V0 ceilings. Shortfalls and their stop
+reason are reported without weakening the configured gates.
+
+Fixtures establish area-weighted aggregation, robust response to one steep
+valley wall, freshwater non-compensation by coast, explicit site shortfall,
+determinism, physical spacing and overlapping-catchment competition. A product
+prior, representative-world cost, causal ablations and human visual judgment
+remain required before the site configuration can be accepted.
+
+Exact neutral ties currently fall back to cell identity. That is deterministic
+but representation-dependent, so the permutation/neutral-baseline discriminator
+is not yet passed and must remain visible in product evaluation.
 
 ## Implementation boundary
 
 The smallest honest implementation sequence is:
 
 1. Build and test physical edge cost plus named opportunity/access components.
+   **Implemented at operator level.**
 2. Add deterministic spaced site selection with explanation records.
+   **Implemented as a configurable operator; product prior and evaluation are
+   pending.**
 3. Add one bounded sparse route network and route-local relationships.
 4. Run the counterfactual packet and make one pass/kill/reduce decision.
 
