@@ -224,7 +224,9 @@ Two surface paths currently coexist:
 Additional line/marker buffers render cell edges, plate diagnostics and rivers
 outside the unified path. This split is functional but causes capability drift
 between modes and Globe/Map views. It should be treated as presentation debt,
-not as multiple world truths.
+not as multiple world truths. Pre-hydrology stages bind a one-texel transparent
+river fallback; the full-resolution river SDF is allocated only once a stage
+has hydrology.
 
 Relief scale and river width are renderer-only. They do not change elevation,
 hydrology, validation or later generation. The renderer may exaggerate them

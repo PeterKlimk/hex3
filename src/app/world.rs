@@ -23,9 +23,20 @@ pub const NUM_CELLS: usize = 100000;
 /// `Tessellation`; this value keeps app logging/call sites honest.
 pub const LLOYD_ITERATIONS: usize = 2;
 pub const NUM_PLATES: usize = hex3::world::NUM_PLATES_DEFAULT;
+const RIVER_TEXTURE_WIDTH: u32 = 8192;
+const RIVER_TEXTURE_HEIGHT: u32 = 4096;
+const NO_RIVER_TEXEL: [u8; 4] = [255, 0, 0, 0];
 
 fn buffer_bytes<T>(items: &[T]) -> usize {
     items.len() * std::mem::size_of::<T>()
+}
+
+fn river_texture_extent(has_hydrology: bool) -> (u32, u32) {
+    if has_hydrology {
+        (RIVER_TEXTURE_WIDTH, RIVER_TEXTURE_HEIGHT)
+    } else {
+        (1, 1)
+    }
 }
 
 /// Relief-mode wireframe: an indexed line list of the Voronoi edges, elevation
@@ -858,10 +869,22 @@ pub fn generate_world_buffers(
 
     drop(_t);
 
-    // Draped-river texture: bake the network into an equirect RGBA texture + bind group
-    // (group 1 of the unified pipeline). Always built (transparent when no rivers exist).
-    let (river_tex_w, river_tex_h) = (8192u32, 4096u32);
-    let river_rgba = bake_river_texture(world, river_tex_w, river_tex_h);
+    // The unified pipeline always needs group 1 bound. Before hydrology exists,
+    // bind a one-texel "far from river" fallback instead of retaining a 128 MiB
+    // transparent SDF in every early-stage buffer.
+    let has_hydrology = world.active_hydrology().is_some();
+    let (river_tex_w, river_tex_h) = river_texture_extent(has_hydrology);
+    let river_rgba = if has_hydrology {
+        bake_river_texture(world, river_tex_w, river_tex_h)
+    } else {
+        NO_RIVER_TEXEL.to_vec()
+    };
+    log::info!(
+        "river SDF texture: {}x{} ({:.1} MiB)",
+        river_tex_w,
+        river_tex_h,
+        river_rgba.len() as f64 / 1_048_576.0,
+    );
     let river_texture = device.create_texture_with_data(
         queue,
         &wgpu::TextureDescriptor {
@@ -1443,6 +1466,18 @@ pub fn bake_river_texture(world: &World, width: u32, height: u32) -> Vec<u8> {
         }
     }
     buf
+}
+
+#[cfg(test)]
+mod allocation_tests {
+    use super::{river_texture_extent, NO_RIVER_TEXEL};
+
+    #[test]
+    fn pre_hydrology_river_binding_uses_one_transparent_texel() {
+        assert_eq!(river_texture_extent(false), (1, 1));
+        assert_eq!(river_texture_extent(true), (8192, 4096));
+        assert_eq!(NO_RIVER_TEXEL, [255, 0, 0, 0]);
+    }
 }
 
 fn print_world_stats(world: &World) {
