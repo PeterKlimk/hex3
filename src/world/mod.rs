@@ -59,6 +59,7 @@ mod semantics;
 mod shoreline;
 mod structural_attribution;
 mod structural_mountain;
+mod structural_source_target;
 mod structural_target;
 mod tessellation;
 mod units;
@@ -132,6 +133,10 @@ pub use structural_mountain::{
     StructuralLinkKind, StructuralMountainError, StructuralMountainGraph,
     StructuralMountainOmission, StructuralMountainOmissionReason, StructuralNode,
     StructuralNodeKind, StructuralReadiness, StructuralRegime, StructuralSegment,
+};
+pub use structural_source_target::{
+    catalog_structural_source_belts, ranked_continental_source_belts,
+    select_primary_structural_source_belt, StructuralSourceBelt, StructuralSourceTargetError,
 };
 pub use structural_target::{
     select_fixed_structural_target, select_structural_target, StructuralTargetDomain,
