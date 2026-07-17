@@ -37,13 +37,21 @@ pub struct ReliefEdgeBuffers {
     pub num_indices: u32,
 }
 
+/// Colored fill mesh for non-Relief render modes. Relief is the product default,
+/// so this large fine-mesh allocation is created only when a colored mode is
+/// actually selected.
+pub struct ColoredMeshBuffers {
+    pub vertex_buffer: wgpu::Buffer,
+    pub index_buffer: wgpu::Buffer,
+    pub num_indices: u32,
+}
+
 /// All GPU buffers for world rendering.
-/// Simplified: one dynamic colored mesh + specialized buffers for Relief/rivers/overlays.
+/// The default Relief mesh is eager; the alternative colored mesh and relief
+/// wireframe are lazy.
 pub struct WorldBuffers {
-    // Dynamic colored mesh (regenerated on mode/layer switch) - used by most modes
-    pub colored_vertex_buffer: wgpu::Buffer,
-    pub colored_index_buffer: wgpu::Buffer,
-    pub num_colored_indices: u32,
+    // Dynamic colored mesh (regenerated on mode/layer switch).
+    pub colored: Option<ColoredMeshBuffers>,
 
     // Edge lines (two variants: default gray, plates with colored boundaries)
     pub edge_vertex_buffer: wgpu::Buffer,
@@ -673,7 +681,7 @@ pub fn generate_colored_mesh(
     noise_layer: NoiseLayer,
     feature_layer: FeatureLayer,
     climate_layer: ClimateLayer,
-) -> (wgpu::Buffer, wgpu::Buffer, u32) {
+) -> ColoredMeshBuffers {
     let use_fine = mode_uses_fine_mesh(world, mode);
     let voronoi = if use_fine {
         &world.active_tessellation().voronoi
@@ -746,11 +754,16 @@ pub fn generate_colored_mesh(
         );
     }
 
-    (vertex_buffer, index_buffer, num_indices)
+    ColoredMeshBuffers {
+        vertex_buffer,
+        index_buffer,
+        num_indices,
+    }
 }
 
 /// Generate GPU buffers from a World.
-/// Creates one dynamic colored mesh (initially Terrain mode) plus specialized buffers.
+/// Creates the default unified Relief mesh plus specialized buffers. The large
+/// colored fill mesh is deferred until a non-Relief mode is selected.
 pub fn generate_world_buffers(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -760,16 +773,6 @@ pub fn generate_world_buffers(
     let voronoi = &world.active_tessellation().voronoi;
 
     let _t = Timed::debug("Build world buffers");
-
-    // Initial colored mesh (Terrain mode - will be regenerated on mode switch)
-    let (colored_vertex_buffer, colored_index_buffer, num_colored_indices) = generate_colored_mesh(
-        device,
-        world,
-        RenderMode::Terrain,
-        NoiseLayer::Combined,
-        FeatureLayer::Trench,
-        ClimateLayer::Temperature,
-    );
 
     // Unified mesh with material-aware lighting for Relief mode.
     let unified_mesh = build_surface_palette_mesh(world, SurfacePalette::Terrain)
@@ -904,10 +907,8 @@ pub fn generate_world_buffers(
     });
 
     WorldBuffers {
-        // Dynamic colored mesh
-        colored_vertex_buffer,
-        colored_index_buffer,
-        num_colored_indices,
+        // Built lazily on first non-Relief view.
+        colored: None,
 
         // Edges
         edge_vertex_buffer: create_vertex_buffer(device, &edge_vertices_default, "edge_vertex"),

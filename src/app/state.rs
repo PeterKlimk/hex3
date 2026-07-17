@@ -250,17 +250,29 @@ impl AppState {
     /// Regenerate the colored mesh for the current mode/layer settings.
     /// Fast operation (~5-10ms) called on mode or layer switch.
     pub fn regenerate_colors(&mut self) {
-        let (vertex_buffer, index_buffer, num_indices) = generate_colored_mesh(
+        if self.uses_unified_surface() {
+            return;
+        }
+        self.world_buffers.colored = Some(generate_colored_mesh(
             &self.gpu.device,
             &self.world_data,
             self.render_mode,
             self.noise_layer,
             self.feature_layer,
             self.climate_layer,
-        );
-        self.world_buffers.colored_vertex_buffer = vertex_buffer;
-        self.world_buffers.colored_index_buffer = index_buffer;
-        self.world_buffers.num_colored_indices = num_indices;
+        ));
+    }
+
+    fn is_wind_layer(&self) -> bool {
+        self.render_mode == RenderMode::Climate
+            && matches!(
+                self.climate_layer,
+                ClimateLayer::Wind | ClimateLayer::UpperWind
+            )
+    }
+
+    fn uses_unified_surface(&self) -> bool {
+        self.render_mode == RenderMode::Relief || self.is_wind_layer()
     }
 
     /// Cycle the presentation-only relief palette. The Living Surface contract
@@ -459,11 +471,7 @@ impl AppState {
         };
 
         // Wind layers use relief terrain so particles match the 3D surface
-        let is_wind_layer = self.render_mode == RenderMode::Climate
-            && matches!(
-                self.climate_layer,
-                ClimateLayer::Wind | ClimateLayer::UpperWind
-            );
+        let is_wind_layer = self.is_wind_layer();
 
         // Enable relief displacement for relief mode and wind layers
         let relief_enabled = self.render_mode.is_relief() || is_wind_layer;
@@ -485,7 +493,7 @@ impl AppState {
 
         // Select pipeline and buffers based on render mode
         // Wind layers use unified (relief) mesh so particles align with terrain
-        let use_unified = self.render_mode == RenderMode::Relief || is_wind_layer;
+        let use_unified = self.uses_unified_surface();
 
         let fill_pipeline = match (self.view_mode, use_unified) {
             (ViewMode::Globe, true) => FillPipelineKind::UnifiedGlobe,
@@ -493,6 +501,14 @@ impl AppState {
             (ViewMode::Globe, false) => FillPipelineKind::Globe,
             (ViewMode::Map, false) => FillPipelineKind::Map,
         };
+
+        // Relief is the default and headless sweep path, so avoid retaining a
+        // second full fine mesh until a colored view is actually requested.
+        // Keyboard handlers normally populate it on mode entry; this guard also
+        // protects future programmatic mode changes.
+        if !use_unified && self.world_buffers.colored.is_none() {
+            self.regenerate_colors();
+        }
 
         // Lazily build the relief wireframe the first time it's actually shown
         // after a buffer rebuild. Kept out of generate_world_buffers so its large
@@ -512,10 +528,15 @@ impl AppState {
                 index_count: self.world_buffers.num_unified_indices,
             }
         } else {
+            let colored = self
+                .world_buffers
+                .colored
+                .as_ref()
+                .expect("colored mesh should be generated before colored rendering");
             IndexedDraw {
-                vertex_buffer: &self.world_buffers.colored_vertex_buffer,
-                index_buffer: &self.world_buffers.colored_index_buffer,
-                index_count: self.world_buffers.num_colored_indices,
+                vertex_buffer: &colored.vertex_buffer,
+                index_buffer: &colored.index_buffer,
+                index_count: colored.num_indices,
             }
         };
 

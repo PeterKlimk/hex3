@@ -76,8 +76,9 @@ historical evidence or reusable operators.
   non-default `research-landscape` build/module boundary;
 - keep the legacy terrain owner as the disclosed usable control, not as an
   endorsed final architecture;
-- make large river textures, relief edges and inactive stage buffers lazy or
-  shared where this preserves the useful pre/post comparison; and
+- retain the now-lazy alternative colored fill meshes and relief edges; next
+  make large river textures and inactive stage resources lazy or shared where
+  this preserves the useful pre/post comparison; and
 - measure actual product build/runtime/memory changes, without turning cleanup
   into a new model campaign.
 

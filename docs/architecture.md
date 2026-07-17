@@ -217,7 +217,9 @@ Two surface paths currently coexist:
 
 - a unified material/elevation mesh for Relief and wind views, supporting
   radial displacement, water materials and a draped river texture;
-- a CPU-colored Voronoi mesh for most thematic modes.
+- a CPU-colored Voronoi mesh for most thematic modes, allocated lazily when a
+  non-Relief view is first selected rather than duplicated in every default
+  Relief-stage buffer.
 
 Additional line/marker buffers render cell edges, plate diagnostics and rivers
 outside the unified path. This split is functional but causes capability drift
