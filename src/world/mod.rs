@@ -57,6 +57,7 @@ mod plates;
 mod provenance;
 mod semantics;
 mod shoreline;
+mod structural_mountain;
 mod tessellation;
 mod units;
 mod water;
@@ -118,6 +119,13 @@ pub use semantics::{
 pub use shoreline::{
     DirectedShorelineEdge, ShorelineGeometry, ShorelineLoop, ShorelineTopologyIssue,
     UnresolvedShorelineEdge,
+};
+pub use structural_mountain::{
+    collect_convergent_fronts, compile_structural_mountain, BoundaryEdgeId, ConvergentFrontEdge,
+    ConvergentFrontSet, OpportunityLedger, OpportunityLedgerEntry, StructuralLink,
+    StructuralLinkKind, StructuralMountainError, StructuralMountainGraph,
+    StructuralMountainOmission, StructuralMountainOmissionReason, StructuralNode,
+    StructuralNodeKind, StructuralReadiness, StructuralRegime, StructuralSegment,
 };
 pub use tessellation::{CellAdjacency, Tessellation};
 pub use units::{

@@ -54,7 +54,8 @@ pub struct PlateBoundaryEdge {
     pub type_b: CrustType,
     /// Boundary midpoint (unit vector on the sphere).
     pub boundary_point: Vec3,
-    /// Arc length of the shared Voronoi edge (radians).
+    /// Unit-sphere chord length of the shared Voronoi edge.
+    /// Consumers that need physical distance must convert chord to arc first.
     pub edge_length: f32,
     /// Signed convergence across the boundary normal (positive = closing).
     pub convergence: f32,
