@@ -179,13 +179,21 @@ reviewed parent is independently rank three. Exact legacy response ownership
 then binds it to one dominant 1.436 million km² visible component with no mixed-
 seed ambiguity and negligible hydrologic-repair ownership.
 
-The next bounded action is to inspect the long collision parent's existing
-curvature and kinematic/history variation for defensible internal organization.
-If it supplies no meaningful segmentation prior, stop with
-`insufficient-causal-segmentation`; do not invent subsegments to satisfy the
-terrain brief. If it does, freeze that organization before compiling any
-terrain response. Do not revive the manufactured organization ladder, tune
-amplitudes, or stack structural relief over the current scalar height owner.
+That organization gate now fails cleanly. The 3,200 km collision parent has
+substantial broad curvature and modest continuous kinematic variation, but one
+uniform episode/material state. Its finite-end-tapered opportunity contains one
+persistent maximum and no internal minimum. Bends can concentrate rather than
+terminate shortening, so converting five curvature maxima into independent
+tapers would manufacture the needed lows. Structural Mountain V0 stops with
+`insufficient-causal-segmentation`; no terrain response is authorized.
+
+The next decision is architectural, not another discriminator: either add a
+small upstream inherited-structure/competence owner that can causally organize
+tectonics and later surface response, or revise the target outcome toward a
+continuous curved massif and accept that it does not solve the established
+internal-hierarchy defect. Do not add independent ridge noise, lower a bend
+threshold, revive the manufactured organization ladder, tune amplitudes, or
+stack structural relief over the current scalar height owner.
 
 ## Later decision set
 

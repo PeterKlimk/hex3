@@ -19,3 +19,8 @@ Current bounded evidence:
 - [`structural-mountain-seed-12345-observation-binding-v0.json`](structural-mountain-seed-12345-observation-binding-v0.json)
   freezes the exact legacy-response ownership decomposition and the dominant
   visible observation attached to the selected source.
+- [`structural-mountain-seed-12345-organization-audit-v0.json`](structural-mountain-seed-12345-organization-audit-v0.json)
+  freezes the ordered source profile, inherited-scale curvature/kinematic
+  persistence and finite-parent opportunity verdict.
+- [`structural-mountain-seed-12345-organization-audit-v0.svg`](structural-mountain-seed-12345-organization-audit-v0.svg)
+  visualizes the source trace, persistent bends and broad forcing profiles.

@@ -1,0 +1,1821 @@
+{
+  "schema": "hex3-structural-mountain-organization-audit-v0",
+  "seed": 12345,
+  "requested_coarse_cells": 100000,
+  "elapsed_seconds": 5.33386,
+  "manifest": {
+    "build": {
+      "git_revision": "d4f2cf556fc762d1dc2468c02350ca5a595468b9",
+      "git_dirty": true
+    },
+    "units": {
+      "contract_version": 1,
+      "elevation_unit_km": 10.0,
+      "planet_radius_km": 6371.0,
+      "physical_relief_scale": 0.0015696123,
+      "sea_level_datum": "coarse-area-quantile-zero",
+      "native_slope": "elevation-per-arc-radian"
+    },
+    "seed": 12345,
+    "voronoi_backend": "convex-hull",
+    "lloyd_iterations": 1,
+    "coarse_cells": 100000,
+    "plate_count": 14,
+    "orogen_model": "legacy",
+    "tectonic_carrier": {
+      "cells": 8192,
+      "step_myr": 2.0,
+      "operator_audit": false,
+      "denudation_rate_km_per_myr": 0.0,
+      "motion_coherence_myr": 0.0
+    },
+    "erosion": {
+      "steps": 200,
+      "dt": 1.0,
+      "m": 0.5,
+      "n": 2.0,
+      "k": 0.04,
+      "diffusivity": 2e-8,
+      "hillslope_critical_slope": 0.0,
+      "diffusion_iters": 6,
+      "reroute_interval": 6,
+      "flat_resolution": true,
+      "mfd_exponent": 0.0,
+      "confinement_slope": 0.0,
+      "uplift_scale": 0.003,
+      "rebuild_gain": 1.2,
+      "uplift_smooth_km": 0.0,
+      "deposit_fill_fraction": 0.5,
+      "deposition_slope": 0.0,
+      "channel_support_km2": 4.0,
+      "litho_sigma": 0.0,
+      "litho_grain_strength": 0.0,
+      "orographic_precip_strength": 0.0,
+      "downwind_shadow_strength": 0.0,
+      "precip_outer_iters": 1,
+      "lake_evap_strength": 0.0,
+      "drainage_pulse": 0.0,
+      "pulse_burnin_steps": 80,
+      "pulse_smooth_km": 15.0,
+      "glacial_k": 0.0,
+      "glacial_steps": 6,
+      "glacial_snowline_equator": 0.3,
+      "glacial_snowline_pole": 0.02,
+      "glacial_ablation": 6.0,
+      "glacial_overdeepen_max": 0.012
+    },
+    "fine_density": {
+      "plains_km": 20.0,
+      "mountain_km": 1.5,
+      "ocean_km": 120.0,
+      "exponent": 4.0,
+      "slope_weight": 8.0,
+      "flow_weight": 18.0,
+      "activity_weight": 6.0
+    },
+    "fine_structure": {
+      "fault_scarp_height": 0.0,
+      "interior_relief": 0.0,
+      "front_strike_weight": 0.0,
+      "margin_contrast": 0.0,
+      "emergent_lambda": 0.0,
+      "emergent_structured": 0.0,
+      "meso_relief": 0.0,
+      "meso_base_relief": 0.0,
+      "meso_wavelength_km": 25.0,
+      "meso_irregularity": 0.7,
+      "meso_style": 1
+    },
+    "fine_cache_mode": "enabled",
+    "computed_stage": 1,
+    "viewed_stage": 1,
+    "active_cells": 100000
+  },
+  "selected_source_id": [
+    91484,
+    91861
+  ],
+  "selected_source_segment_count": 3,
+  "parent": {
+    "id": [
+      91484,
+      91861
+    ],
+    "episode_id": 0,
+    "plate_pair": [
+      0,
+      2
+    ],
+    "regime": "Collision",
+    "source_edge_count": 70,
+    "length_km": 3199.8254,
+    "declared_opportunity_km2": 14864994.224979304,
+    "episode_duration_myr_range": [
+      63.5,
+      63.5
+    ],
+    "episode_normal_displacement_km_range": [
+      3148.196,
+      3148.196
+    ],
+    "legacy_ineligible_edge_count": 5,
+    "legacy_ineligible_edge_runs": [
+      {
+        "start_edge": [
+          93568,
+          93856
+        ],
+        "end_edge": [
+          93568,
+          93856
+        ],
+        "start_km": 872.683,
+        "end_km": 890.0066,
+        "edge_count": 1
+      },
+      {
+        "start_edge": [
+          95940,
+          96084
+        ],
+        "end_edge": [
+          95940,
+          96084
+        ],
+        "start_km": 1822.4109,
+        "end_km": 1890.4446,
+        "edge_count": 1
+      },
+      {
+        "start_edge": [
+          96283,
+          96427
+        ],
+        "end_edge": [
+          96283,
+          96427
+        ],
+        "start_km": 2210.8167,
+        "end_km": 2238.2427,
+        "edge_count": 1
+      },
+      {
+        "start_edge": [
+          96194,
+          96338
+        ],
+        "end_edge": [
+          96194,
+          96338
+        ],
+        "start_km": 2308.396,
+        "end_km": 2348.9895,
+        "edge_count": 1
+      },
+      {
+        "start_edge": [
+          96105,
+          96249
+        ],
+        "end_edge": [
+          96105,
+          96249
+        ],
+        "start_km": 2384.167,
+        "end_km": 2455.252,
+        "edge_count": 1
+      }
+    ]
+  },
+  "scales": {
+    "collision_width_km": 127.42,
+    "broad_scale_km": 382.26,
+    "mean_edge_length_km": 45.71179,
+    "edges_per_collision_width": 2.7874649
+  },
+  "raw_summary": {
+    "convergence_km_per_myr": {
+      "length_weighted_mean": 71.74463,
+      "length_weighted_stddev": 40.093575,
+      "min": -43.35106,
+      "max": 114.19928,
+      "range_over_mean": 2.195988
+    },
+    "absolute_shear_km_per_myr": {
+      "length_weighted_mean": 55.44538,
+      "length_weighted_stddev": 35.426216,
+      "min": 1.1564984,
+      "max": 114.2711,
+      "range_over_mean": 2.0401087
+    },
+    "obliquity_deg": {
+      "length_weighted_mean": 38.00917,
+      "length_weighted_stddev": 29.251884,
+      "min": 0.69328284,
+      "max": 90.0,
+      "range_over_mean": 2.3496096
+    }
+  },
+  "one_width_summary": {
+    "convergence_km_per_myr": {
+      "length_weighted_mean": 71.98772,
+      "length_weighted_stddev": 12.990544,
+      "min": 42.42881,
+      "max": 95.217705,
+      "range_over_mean": 0.7333042
+    },
+    "absolute_shear_km_per_myr": {
+      "length_weighted_mean": 55.359512,
+      "length_weighted_stddev": 8.637347,
+      "min": 39.65147,
+      "max": 78.95919,
+      "range_over_mean": 0.71004456
+    },
+    "obliquity_deg": {
+      "length_weighted_mean": 37.961723,
+      "length_weighted_stddev": 8.64404,
+      "min": 23.79391,
+      "max": 61.748585,
+      "range_over_mean": 0.9998143
+    }
+  },
+  "three_width_summary": {
+    "convergence_km_per_myr": {
+      "length_weighted_mean": 71.76918,
+      "length_weighted_stddev": 5.1377554,
+      "min": 64.67079,
+      "max": 81.20894,
+      "range_over_mean": 0.23043522
+    },
+    "absolute_shear_km_per_myr": {
+      "length_weighted_mean": 55.547638,
+      "length_weighted_stddev": 3.3185074,
+      "min": 51.079952,
+      "max": 61.55874,
+      "range_over_mean": 0.18864504
+    },
+    "obliquity_deg": {
+      "length_weighted_mean": 37.792355,
+      "length_weighted_stddev": 2.6588078,
+      "min": 33.64064,
+      "max": 42.655724,
+      "range_over_mean": 0.23854251
+    }
+  },
+  "finite_parent_opportunity_density_summary": {
+    "length_weighted_mean": 4743.672,
+    "length_weighted_stddev": 2576.7437,
+    "min": 1057.0231,
+    "max": 8645.596,
+    "range_over_mean": 1.5997255
+  },
+  "persistent_finite_parent_opportunity_extrema": [
+    {
+      "kind": "Maximum",
+      "edge_id": [
+        95186,
+        95508
+      ],
+      "along_strike_km": 1506.0942,
+      "latitude_deg": -65.02451,
+      "longitude_deg": 68.87341,
+      "broad_value": 8645.596,
+      "one_width_value": 10890.017,
+      "local_prominence": 3177.912,
+      "prominence_over_broad_mean": 0.66992664
+    }
+  ],
+  "persistent_convergence_extrema": [
+    {
+      "kind": "Maximum",
+      "edge_id": [
+        94898,
+        94987
+      ],
+      "along_strike_km": 1372.8297,
+      "latitude_deg": -63.992916,
+      "longitude_deg": 69.80101,
+      "broad_value": 78.32287,
+      "one_width_value": 89.053696,
+      "local_prominence": 11.1604,
+      "prominence_over_broad_mean": 0.15550408
+    },
+    {
+      "kind": "Minimum",
+      "edge_id": [
+        96283,
+        96427
+      ],
+      "along_strike_km": 2224.5295,
+      "latitude_deg": -68.03659,
+      "longitude_deg": 59.911674,
+      "broad_value": 66.737144,
+      "one_width_value": 62.432026,
+      "local_prominence": 11.341217,
+      "prominence_over_broad_mean": 0.1580235
+    }
+  ],
+  "persistent_obliquity_extrema": [
+    {
+      "kind": "Maximum",
+      "edge_id": [
+        93136,
+        93225
+      ],
+      "along_strike_km": 525.81024,
+      "latitude_deg": -59.85698,
+      "longitude_deg": 78.07185,
+      "broad_value": 39.05982,
+      "one_width_value": 45.273155,
+      "local_prominence": 0.75652313,
+      "prominence_over_broad_mean": 0.020017888
+    },
+    {
+      "kind": "Minimum",
+      "edge_id": [
+        94898,
+        94987
+      ],
+      "along_strike_km": 1372.8297,
+      "latitude_deg": -63.992916,
+      "longitude_deg": 69.80101,
+      "broad_value": 33.64064,
+      "one_width_value": 26.991907,
+      "local_prominence": 5.2442284,
+      "prominence_over_broad_mean": 0.13876426
+    },
+    {
+      "kind": "Maximum",
+      "edge_id": [
+        96194,
+        96427
+      ],
+      "along_strike_km": 2273.3193,
+      "latitude_deg": -68.00668,
+      "longitude_deg": 58.874306,
+      "broad_value": 42.655724,
+      "one_width_value": 52.832146,
+      "local_prominence": 7.802723,
+      "prominence_over_broad_mean": 0.206463
+    }
+  ],
+  "broad_bend_candidates": [
+    {
+      "edge_id": [
+        93136,
+        93225
+      ],
+      "along_strike_km": 525.81024,
+      "latitude_deg": -59.85698,
+      "longitude_deg": 78.07185,
+      "deflection_over_one_width_deg": 103.937256,
+      "deflection_over_three_widths_deg": 73.61596
+    },
+    {
+      "edge_id": [
+        93479,
+        93856
+      ],
+      "along_strike_km": 910.8464,
+      "latitude_deg": -60.784927,
+      "longitude_deg": 72.727394,
+      "deflection_over_one_width_deg": 60.314724,
+      "deflection_over_three_widths_deg": 50.604713
+    },
+    {
+      "edge_id": [
+        95563,
+        95652
+      ],
+      "along_strike_km": 1632.291,
+      "latitude_deg": -65.73959,
+      "longitude_deg": 67.36283,
+      "deflection_over_one_width_deg": 12.565407,
+      "deflection_over_three_widths_deg": 34.897476
+    },
+    {
+      "edge_id": [
+        96283,
+        96372
+      ],
+      "along_strike_km": 2165.6187,
+      "latitude_deg": -67.91447,
+      "longitude_deg": 61.000584,
+      "deflection_over_one_width_deg": 56.213703,
+      "deflection_over_three_widths_deg": 39.68834
+    },
+    {
+      "edge_id": [
+        96071,
+        96160
+      ],
+      "along_strike_km": 2581.3481,
+      "latitude_deg": -67.42303,
+      "longitude_deg": 53.347534,
+      "deflection_over_one_width_deg": 17.510426,
+      "deflection_over_three_widths_deg": 64.700966
+    }
+  ],
+  "samples": [
+    {
+      "edge_id": [
+        91484,
+        91861
+      ],
+      "start_km": 0.0,
+      "midpoint_km": 32.611465,
+      "end_km": 65.22293,
+      "length_km": 65.22293,
+      "convergence_km_per_myr": 2.968321,
+      "shear_km_per_myr": -92.36795,
+      "obliquity_deg": 88.159386,
+      "legacy_eligible": true,
+      "convergence_one_width": 57.369305,
+      "convergence_three_widths": 64.67079,
+      "obliquity_one_width_deg": 41.0551,
+      "obliquity_three_widths_deg": 38.303295,
+      "bend_one_width_deg": null,
+      "bend_three_widths_deg": null
+    },
+    {
+      "edge_id": [
+        91772,
+        91861
+      ],
+      "start_km": 65.22293,
+      "midpoint_km": 98.127655,
+      "end_km": 131.03238,
+      "length_km": 65.80944,
+      "convergence_km_per_myr": 92.893776,
+      "shear_km_per_myr": 3.0226045,
+      "obliquity_deg": 1.8636489,
+      "legacy_eligible": true,
+      "convergence_one_width": 65.38998,
+      "convergence_three_widths": 64.917244,
+      "obliquity_one_width_deg": 35.31046,
+      "obliquity_three_widths_deg": 38.333336,
+      "bend_one_width_deg": null,
+      "bend_three_widths_deg": null
+    },
+    {
+      "edge_id": [
+        91772,
+        92293
+      ],
+      "start_km": 131.03238,
+      "midpoint_km": 144.61748,
+      "end_km": 158.20256,
+      "length_km": 27.170183,
+      "convergence_km_per_myr": 75.244835,
+      "shear_km_per_myr": -55.23566,
+      "obliquity_deg": 36.281616,
+      "legacy_eligible": true,
+      "convergence_one_width": 70.13497,
+      "convergence_three_widths": 65.04525,
+      "obliquity_one_width_deg": 32.555637,
+      "obliquity_three_widths_deg": 38.39139,
+      "bend_one_width_deg": 38.115265,
+      "bend_three_widths_deg": null
+    },
+    {
+      "edge_id": [
+        92149,
+        92293
+      ],
+      "start_km": 158.20256,
+      "midpoint_km": 187.60474,
+      "end_km": 217.00691,
+      "length_km": 58.804348,
+      "convergence_km_per_myr": 77.15338,
+      "shear_km_per_myr": 53.70845,
+      "obliquity_deg": 34.84277,
+      "legacy_eligible": true,
+      "convergence_one_width": 73.328735,
+      "convergence_three_widths": 65.134964,
+      "obliquity_one_width_deg": 31.132816,
+      "obliquity_three_widths_deg": 38.46711,
+      "bend_one_width_deg": 11.334805,
+      "bend_three_widths_deg": null
+    },
+    {
+      "edge_id": [
+        92149,
+        92238
+      ],
+      "start_km": 217.00691,
+      "midpoint_km": 246.24089,
+      "end_km": 275.47488,
+      "length_km": 58.467968,
+      "convergence_km_per_myr": 88.904015,
+      "shear_km_per_myr": -31.910402,
+      "obliquity_deg": 19.744633,
+      "legacy_eligible": true,
+      "convergence_one_width": 75.21272,
+      "convergence_three_widths": 65.22522,
+      "obliquity_one_width_deg": 30.998938,
+      "obliquity_three_widths_deg": 38.594955,
+      "bend_one_width_deg": 14.788216,
+      "bend_three_widths_deg": null
+    },
+    {
+      "edge_id": [
+        92238,
+        92526
+      ],
+      "start_km": 275.47488,
+      "midpoint_km": 291.06818,
+      "end_km": 306.66144,
+      "length_km": 31.186565,
+      "convergence_km_per_myr": 65.65444,
+      "shear_km_per_myr": 68.802055,
+      "obliquity_deg": 46.341045,
+      "legacy_eligible": true,
+      "convergence_one_width": 74.50355,
+      "convergence_three_widths": 65.28075,
+      "obliquity_one_width_deg": 32.270454,
+      "obliquity_three_widths_deg": 38.703033,
+      "bend_one_width_deg": 7.873848,
+      "bend_three_widths_deg": null
+    },
+    {
+      "edge_id": [
+        92526,
+        92759
+      ],
+      "start_km": 306.66144,
+      "midpoint_km": 315.97574,
+      "end_km": 325.29007,
+      "length_km": 18.62862,
+      "convergence_km_per_myr": 95.57318,
+      "shear_km_per_myr": -1.1564984,
+      "obliquity_deg": 0.69328284,
+      "legacy_eligible": true,
+      "convergence_one_width": 73.348656,
+      "convergence_three_widths": 65.31107,
+      "obliquity_one_width_deg": 33.444584,
+      "obliquity_three_widths_deg": 38.763695,
+      "bend_one_width_deg": 15.365638,
+      "bend_three_widths_deg": null
+    },
+    {
+      "edge_id": [
+        92670,
+        92759
+      ],
+      "start_km": 325.29007,
+      "midpoint_km": 359.12122,
+      "end_km": 392.95236,
+      "length_km": 67.662285,
+      "convergence_km_per_myr": 82.25964,
+      "shear_km_per_myr": 49.08922,
+      "obliquity_deg": 30.827038,
+      "legacy_eligible": true,
+      "convergence_one_width": 70.34001,
+      "convergence_three_widths": 65.370186,
+      "obliquity_one_width_deg": 36.101067,
+      "obliquity_three_widths_deg": 38.864433,
+      "bend_one_width_deg": 30.898247,
+      "bend_three_widths_deg": null
+    },
+    {
+      "edge_id": [
+        92670,
+        92992
+      ],
+      "start_km": 392.95236,
+      "midpoint_km": 407.38666,
+      "end_km": 421.82095,
+      "length_km": 28.868605,
+      "convergence_km_per_myr": 92.404434,
+      "shear_km_per_myr": -26.626379,
+      "obliquity_deg": 16.07436,
+      "legacy_eligible": true,
+      "convergence_one_width": 66.166595,
+      "convergence_three_widths": 65.458786,
+      "obliquity_one_width_deg": 39.551228,
+      "obliquity_three_widths_deg": 38.961864,
+      "bend_one_width_deg": 23.749487,
+      "bend_three_widths_deg": 17.31497
+    },
+    {
+      "edge_id": [
+        92992,
+        93136
+      ],
+      "start_km": 421.82095,
+      "midpoint_km": 462.9178,
+      "end_km": 504.0146,
+      "length_km": 82.19364,
+      "convergence_km_per_myr": 28.355137,
+      "shear_km_per_myr": 92.45215,
+      "obliquity_deg": 72.94919,
+      "legacy_eligible": true,
+      "convergence_one_width": 61.70572,
+      "convergence_three_widths": 65.611946,
+      "obliquity_one_width_deg": 43.124268,
+      "obliquity_three_widths_deg": 39.039066,
+      "bend_one_width_deg": 34.122612,
+      "bend_three_widths_deg": 46.619625
+    },
+    {
+      "edge_id": [
+        93136,
+        93225
+      ],
+      "start_km": 504.0146,
+      "midpoint_km": 525.81024,
+      "end_km": 547.6059,
+      "length_km": 43.591305,
+      "convergence_km_per_myr": 96.97592,
+      "shear_km_per_myr": 3.7626565,
+      "obliquity_deg": 2.2219563,
+      "legacy_eligible": true,
+      "convergence_one_width": 58.78547,
+      "convergence_three_widths": 65.88402,
+      "obliquity_one_width_deg": 45.273155,
+      "obliquity_three_widths_deg": 39.05982,
+      "bend_one_width_deg": 103.937256,
+      "bend_three_widths_deg": 73.61596
+    },
+    {
+      "edge_id": [
+        93136,
+        93369
+      ],
+      "start_km": 547.6059,
+      "midpoint_km": 586.2044,
+      "end_km": 624.8029,
+      "length_km": 77.197014,
+      "convergence_km_per_myr": 24.973127,
+      "shear_km_per_myr": -94.23564,
+      "obliquity_deg": 75.15739,
+      "legacy_eligible": true,
+      "convergence_one_width": 58.56933,
+      "convergence_three_widths": 66.27634,
+      "obliquity_one_width_deg": 45.00512,
+      "obliquity_three_widths_deg": 38.992306,
+      "bend_one_width_deg": 45.5753,
+      "bend_three_widths_deg": 58.097652
+    },
+    {
+      "edge_id": [
+        93280,
+        93369
+      ],
+      "start_km": 624.8029,
+      "midpoint_km": 628.561,
+      "end_km": 632.31903,
+      "length_km": 7.51609,
+      "convergence_km_per_myr": 93.46735,
+      "shear_km_per_myr": -28.485197,
+      "obliquity_deg": 16.949175,
+      "legacy_eligible": true,
+      "convergence_one_width": 59.306107,
+      "convergence_three_widths": 66.6427,
+      "obliquity_one_width_deg": 43.980556,
+      "obliquity_three_widths_deg": 38.88487,
+      "bend_one_width_deg": 14.118944,
+      "bend_three_widths_deg": 44.943226
+    },
+    {
+      "edge_id": [
+        93280,
+        93513
+      ],
+      "start_km": 632.31903,
+      "midpoint_km": 645.1051,
+      "end_km": 657.8912,
+      "length_km": 25.572151,
+      "convergence_km_per_myr": 55.255222,
+      "shear_km_per_myr": -80.862915,
+      "obliquity_deg": 55.654438,
+      "legacy_eligible": true,
+      "convergence_one_width": 59.61973,
+      "convergence_three_widths": 66.80804,
+      "obliquity_one_width_deg": 43.549244,
+      "obliquity_three_widths_deg": 38.828426,
+      "bend_one_width_deg": 26.612024,
+      "bend_three_widths_deg": 42.43747
+    },
+    {
+      "edge_id": [
+        93424,
+        93513
+      ],
+      "start_km": 657.8912,
+      "midpoint_km": 692.7744,
+      "end_km": 727.6577,
+      "length_km": 69.76654,
+      "convergence_km_per_myr": 97.18813,
+      "shear_km_per_myr": -14.81615,
+      "obliquity_deg": 8.667897,
+      "legacy_eligible": true,
+      "convergence_one_width": 60.187347,
+      "convergence_three_widths": 67.35724,
+      "obliquity_one_width_deg": 42.621346,
+      "obliquity_three_widths_deg": 38.618896,
+      "bend_one_width_deg": 21.712059,
+      "bend_three_widths_deg": 29.791246
+    },
+    {
+      "edge_id": [
+        93424,
+        93657
+      ],
+      "start_km": 727.6577,
+      "midpoint_km": 741.1841,
+      "end_km": 754.7105,
+      "length_km": 27.052786,
+      "convergence_km_per_myr": 25.869041,
+      "shear_km_per_myr": -95.297005,
+      "obliquity_deg": 74.812645,
+      "legacy_eligible": true,
+      "convergence_one_width": 60.06205,
+      "convergence_three_widths": 68.027054,
+      "obliquity_one_width_deg": 42.44309,
+      "obliquity_three_widths_deg": 38.33482,
+      "bend_one_width_deg": 22.542446,
+      "bend_three_widths_deg": 22.871834
+    },
+    {
+      "edge_id": [
+        93568,
+        93657
+      ],
+      "start_km": 754.7105,
+      "midpoint_km": 781.40607,
+      "end_km": 808.1017,
+      "length_km": 53.391144,
+      "convergence_km_per_myr": 98.09288,
+      "shear_km_per_myr": -14.467769,
+      "obliquity_deg": 8.390095,
+      "legacy_eligible": true,
+      "convergence_one_width": 59.796944,
+      "convergence_three_widths": 68.66726,
+      "obliquity_one_width_deg": 42.663376,
+      "obliquity_three_widths_deg": 38.046486,
+      "bend_one_width_deg": 44.92894,
+      "bend_three_widths_deg": 6.8125873
+    },
+    {
+      "edge_id": [
+        93568,
+        93801
+      ],
+      "start_km": 808.1017,
+      "midpoint_km": 840.39233,
+      "end_km": 872.683,
+      "length_km": 64.581314,
+      "convergence_km_per_myr": 8.389104,
+      "shear_km_per_myr": -99.12191,
+      "obliquity_deg": 85.162346,
+      "legacy_eligible": true,
+      "convergence_one_width": 60.59313,
+      "convergence_three_widths": 69.730774,
+      "obliquity_one_width_deg": 42.445835,
+      "obliquity_three_widths_deg": 37.54726,
+      "bend_one_width_deg": 3.1552944,
+      "bend_three_widths_deg": 15.025764
+    },
+    {
+      "edge_id": [
+        93568,
+        93856
+      ],
+      "start_km": 872.683,
+      "midpoint_km": 881.3448,
+      "end_km": 890.0066,
+      "length_km": 17.323591,
+      "convergence_km_per_myr": -43.35106,
+      "shear_km_per_myr": -89.65677,
+      "obliquity_deg": 90.0,
+      "legacy_eligible": false,
+      "convergence_one_width": 62.732803,
+      "convergence_three_widths": 70.54255,
+      "obliquity_one_width_deg": 41.29966,
+      "obliquity_three_widths_deg": 37.15675,
+      "bend_one_width_deg": 38.962215,
+      "bend_three_widths_deg": 39.248066
+    },
+    {
+      "edge_id": [
+        93479,
+        93856
+      ],
+      "start_km": 890.0066,
+      "midpoint_km": 910.8464,
+      "end_km": 931.6862,
+      "length_km": 41.67961,
+      "convergence_km_per_myr": 82.337105,
+      "shear_km_per_myr": -56.432777,
+      "obliquity_deg": 34.42623,
+      "legacy_eligible": true,
+      "convergence_one_width": 65.10635,
+      "convergence_three_widths": 71.15579,
+      "obliquity_one_width_deg": 39.969288,
+      "obliquity_three_widths_deg": 36.85885,
+      "bend_one_width_deg": 60.314724,
+      "bend_three_widths_deg": 50.604713
+    },
+    {
+      "edge_id": [
+        93712,
+        93856
+      ],
+      "start_km": 931.6862,
+      "midpoint_km": 961.69196,
+      "end_km": 991.69775,
+      "length_km": 60.011517,
+      "convergence_km_per_myr": 97.173355,
+      "shear_km_per_myr": 24.251123,
+      "obliquity_deg": 14.0128145,
+      "legacy_eligible": true,
+      "convergence_one_width": 70.176315,
+      "convergence_three_widths": 72.24881,
+      "obliquity_one_width_deg": 37.26046,
+      "obliquity_three_widths_deg": 36.32525,
+      "bend_one_width_deg": 44.52229,
+      "bend_three_widths_deg": 44.83562
+    },
+    {
+      "edge_id": [
+        93712,
+        94178
+      ],
+      "start_km": 991.69775,
+      "midpoint_km": 1005.7815,
+      "end_km": 1019.86523,
+      "length_km": 28.167492,
+      "convergence_km_per_myr": 67.89722,
+      "shear_km_per_myr": -74.21062,
+      "obliquity_deg": 47.543797,
+      "legacy_eligible": true,
+      "convergence_one_width": 74.58252,
+      "convergence_three_widths": 73.20975,
+      "obliquity_one_width_deg": 35.22518,
+      "obliquity_three_widths_deg": 35.856285,
+      "bend_one_width_deg": 7.7260103,
+      "bend_three_widths_deg": 41.04678
+    },
+    {
+      "edge_id": [
+        94089,
+        94178
+      ],
+      "start_km": 1019.86523,
+      "midpoint_km": 1046.2188,
+      "end_km": 1072.5723,
+      "length_km": 52.706985,
+      "convergence_km_per_myr": 97.68604,
+      "shear_km_per_myr": 25.843773,
+      "obliquity_deg": 14.818644,
+      "legacy_eligible": true,
+      "convergence_one_width": 77.90526,
+      "convergence_three_widths": 74.07885,
+      "obliquity_one_width_deg": 34.02532,
+      "obliquity_three_widths_deg": 35.4345,
+      "bend_one_width_deg": 12.207263,
+      "bend_three_widths_deg": 40.060085
+    },
+    {
+      "edge_id": [
+        94089,
+        94233
+      ],
+      "start_km": 1072.5723,
+      "midpoint_km": 1096.8877,
+      "end_km": 1121.2031,
+      "length_km": 48.63083,
+      "convergence_km_per_myr": 80.53157,
+      "shear_km_per_myr": -61.7157,
+      "obliquity_deg": 37.4649,
+      "legacy_eligible": true,
+      "convergence_one_width": 80.76517,
+      "convergence_three_widths": 75.1189,
+      "obliquity_one_width_deg": 33.404118,
+      "obliquity_three_widths_deg": 34.935795,
+      "bend_one_width_deg": 16.433119,
+      "bend_three_widths_deg": 41.494904
+    },
+    {
+      "edge_id": [
+        94233,
+        94466
+      ],
+      "start_km": 1121.2031,
+      "midpoint_km": 1151.9774,
+      "end_km": 1182.7516,
+      "length_km": 61.54849,
+      "convergence_km_per_myr": 69.74126,
+      "shear_km_per_myr": 74.55784,
+      "obliquity_deg": 46.911774,
+      "legacy_eligible": true,
+      "convergence_one_width": 82.6151,
+      "convergence_three_widths": 76.144226,
+      "obliquity_one_width_deg": 33.26974,
+      "obliquity_three_widths_deg": 34.45557,
+      "bend_one_width_deg": 9.655266,
+      "bend_three_widths_deg": 32.135815
+    },
+    {
+      "edge_id": [
+        94466,
+        94610
+      ],
+      "start_km": 1182.7516,
+      "midpoint_km": 1213.0875,
+      "end_km": 1243.4233,
+      "length_km": 60.671803,
+      "convergence_km_per_myr": 94.17958,
+      "shear_km_per_myr": -40.63532,
+      "obliquity_deg": 23.338572,
+      "legacy_eligible": true,
+      "convergence_one_width": 84.1313,
+      "convergence_three_widths": 77.096794,
+      "obliquity_one_width_deg": 32.821922,
+      "obliquity_three_widths_deg": 34.029552,
+      "bend_one_width_deg": 1.5851088,
+      "bend_three_widths_deg": 19.054487
+    },
+    {
+      "edge_id": [
+        94521,
+        94610
+      ],
+      "start_km": 1243.4233,
+      "midpoint_km": 1266.0449,
+      "end_km": 1288.6665,
+      "length_km": 45.243103,
+      "convergence_km_per_myr": 76.08715,
+      "shear_km_per_myr": 69.491776,
+      "obliquity_deg": 42.406017,
+      "legacy_eligible": true,
+      "convergence_one_width": 85.60716,
+      "convergence_three_widths": 77.72372,
+      "obliquity_one_width_deg": 31.626808,
+      "obliquity_three_widths_deg": 33.774063,
+      "bend_one_width_deg": 6.0112176,
+      "bend_three_widths_deg": 6.5547853
+    },
+    {
+      "edge_id": [
+        94521,
+        94987
+      ],
+      "start_km": 1288.6665,
+      "midpoint_km": 1306.9893,
+      "end_km": 1325.312,
+      "length_km": 36.645462,
+      "convergence_km_per_myr": 90.3639,
+      "shear_km_per_myr": -50.61582,
+      "obliquity_deg": 29.254637,
+      "legacy_eligible": true,
+      "convergence_one_width": 86.93345,
+      "convergence_three_widths": 78.063484,
+      "obliquity_one_width_deg": 30.11012,
+      "obliquity_three_widths_deg": 33.659508,
+      "bend_one_width_deg": 20.573477,
+      "bend_three_widths_deg": 3.724468
+    },
+    {
+      "edge_id": [
+        94898,
+        94987
+      ],
+      "start_km": 1325.312,
+      "midpoint_km": 1372.8297,
+      "end_km": 1420.3475,
+      "length_km": 95.03548,
+      "convergence_km_per_myr": 85.84783,
+      "shear_km_per_myr": 58.560417,
+      "obliquity_deg": 34.299545,
+      "legacy_eligible": true,
+      "convergence_one_width": 89.053696,
+      "convergence_three_widths": 78.32287,
+      "obliquity_one_width_deg": 26.991907,
+      "obliquity_three_widths_deg": 33.64064,
+      "bend_one_width_deg": 11.528203,
+      "bend_three_widths_deg": 5.863609
+    },
+    {
+      "edge_id": [
+        94898,
+        95364
+      ],
+      "start_km": 1420.3475,
+      "midpoint_km": 1423.4536,
+      "end_km": 1426.5597,
+      "length_km": 6.212171,
+      "convergence_km_per_myr": 71.879036,
+      "shear_km_per_myr": -75.9488,
+      "obliquity_deg": 46.57698,
+      "legacy_eligible": true,
+      "convergence_one_width": 90.11102,
+      "convergence_three_widths": 78.274826,
+      "obliquity_one_width_deg": 24.79783,
+      "obliquity_three_widths_deg": 33.77051,
+      "bend_one_width_deg": 22.217499,
+      "bend_three_widths_deg": 13.49974
+    },
+    {
+      "edge_id": [
+        95186,
+        95364
+      ],
+      "start_km": 1426.5597,
+      "midpoint_km": 1464.8097,
+      "end_km": 1503.0598,
+      "length_km": 76.500084,
+      "convergence_km_per_myr": 104.83894,
+      "shear_km_per_myr": -6.6667447,
+      "obliquity_deg": 3.638559,
+      "legacy_eligible": true,
+      "convergence_one_width": 90.189926,
+      "convergence_three_widths": 78.07836,
+      "obliquity_one_width_deg": 23.79391,
+      "obliquity_three_widths_deg": 33.96994,
+      "bend_one_width_deg": 30.163776,
+      "bend_three_widths_deg": 17.556868
+    },
+    {
+      "edge_id": [
+        95186,
+        95508
+      ],
+      "start_km": 1503.0598,
+      "midpoint_km": 1506.0942,
+      "end_km": 1509.1288,
+      "length_km": 6.068962,
+      "convergence_km_per_myr": 73.53105,
+      "shear_km_per_myr": -75.537056,
+      "obliquity_deg": 45.77098,
+      "legacy_eligible": true,
+      "convergence_one_width": 89.32484,
+      "convergence_three_widths": 77.747925,
+      "obliquity_one_width_deg": 23.936527,
+      "obliquity_three_widths_deg": 34.250244,
+      "bend_one_width_deg": 17.543844,
+      "bend_three_widths_deg": 29.746277
+    },
+    {
+      "edge_id": [
+        95275,
+        95508
+      ],
+      "start_km": 1509.1288,
+      "midpoint_km": 1539.4978,
+      "end_km": 1569.8667,
+      "length_km": 60.73796,
+      "convergence_km_per_myr": 105.21563,
+      "shear_km_per_myr": 11.506362,
+      "obliquity_deg": 6.2410545,
+      "legacy_eligible": true,
+      "convergence_one_width": 87.870224,
+      "convergence_three_widths": 77.388985,
+      "obliquity_one_width_deg": 25.03261,
+      "obliquity_three_widths_deg": 34.533493,
+      "bend_one_width_deg": 8.874624,
+      "bend_three_widths_deg": 28.965576
+    },
+    {
+      "edge_id": [
+        95275,
+        95652
+      ],
+      "start_km": 1569.8667,
+      "midpoint_km": 1587.0289,
+      "end_km": 1604.1913,
+      "length_km": 34.324535,
+      "convergence_km_per_myr": 41.81117,
+      "shear_km_per_myr": -97.5466,
+      "obliquity_deg": 66.79869,
+      "legacy_eligible": true,
+      "convergence_one_width": 84.68192,
+      "convergence_three_widths": 76.7511,
+      "obliquity_one_width_deg": 28.039421,
+      "obliquity_three_widths_deg": 35.016712,
+      "bend_one_width_deg": 16.110754,
+      "bend_three_widths_deg": 32.317703
+    },
+    {
+      "edge_id": [
+        95563,
+        95652
+      ],
+      "start_km": 1604.1913,
+      "midpoint_km": 1632.291,
+      "end_km": 1660.3909,
+      "length_km": 56.199524,
+      "convergence_km_per_myr": 104.598,
+      "shear_km_per_myr": 19.56658,
+      "obliquity_deg": 10.595553,
+      "legacy_eligible": true,
+      "convergence_one_width": 80.5993,
+      "convergence_three_widths": 76.02359,
+      "obliquity_one_width_deg": 32.09782,
+      "obliquity_three_widths_deg": 35.554577,
+      "bend_one_width_deg": 12.565407,
+      "bend_three_widths_deg": 34.897476
+    },
+    {
+      "edge_id": [
+        95563,
+        95885
+      ],
+      "start_km": 1660.3909,
+      "midpoint_km": 1665.318,
+      "end_km": 1670.245,
+      "length_km": 9.854163,
+      "convergence_km_per_myr": 91.63386,
+      "shear_km_per_myr": -54.519844,
+      "obliquity_deg": 30.751581,
+      "legacy_eligible": true,
+      "convergence_one_width": 77.13286,
+      "convergence_three_widths": 75.43174,
+      "obliquity_one_width_deg": 35.450184,
+      "obliquity_three_widths_deg": 35.987778,
+      "bend_one_width_deg": 24.65425,
+      "bend_three_widths_deg": 31.683369
+    },
+    {
+      "edge_id": [
+        95563,
+        95796
+      ],
+      "start_km": 1670.245,
+      "midpoint_km": 1687.2748,
+      "end_km": 1704.3046,
+      "length_km": 34.059566,
+      "convergence_km_per_myr": 46.262085,
+      "shear_km_per_myr": -96.29863,
+      "obliquity_deg": 64.34026,
+      "legacy_eligible": true,
+      "convergence_one_width": 74.680504,
+      "convergence_three_widths": 75.014885,
+      "obliquity_one_width_deg": 37.721245,
+      "obliquity_three_widths_deg": 36.291836,
+      "bend_one_width_deg": 41.76936,
+      "bend_three_widths_deg": 22.231565
+    },
+    {
+      "edge_id": [
+        95707,
+        95796
+      ],
+      "start_km": 1704.3046,
+      "midpoint_km": 1708.886,
+      "end_km": 1713.4674,
+      "length_km": 9.162809,
+      "convergence_km_per_myr": 104.88931,
+      "shear_km_per_myr": -21.698143,
+      "obliquity_deg": 11.687749,
+      "legacy_eligible": true,
+      "convergence_one_width": 72.21616,
+      "convergence_three_widths": 74.58956,
+      "obliquity_one_width_deg": 39.906944,
+      "obliquity_three_widths_deg": 36.60171,
+      "bend_one_width_deg": 46.811222,
+      "bend_three_widths_deg": 14.533151
+    },
+    {
+      "edge_id": [
+        95796,
+        95940
+      ],
+      "start_km": 1713.4674,
+      "midpoint_km": 1752.663,
+      "end_km": 1791.8586,
+      "length_km": 78.391205,
+      "convergence_km_per_myr": 75.326294,
+      "shear_km_per_myr": 76.57022,
+      "obliquity_deg": 45.4692,
+      "legacy_eligible": true,
+      "convergence_one_width": 67.37669,
+      "convergence_three_widths": 73.693405,
+      "obliquity_one_width_deg": 43.89873,
+      "obliquity_three_widths_deg": 37.254868,
+      "bend_one_width_deg": 34.79228,
+      "bend_three_widths_deg": 19.499233
+    },
+    {
+      "edge_id": [
+        95940,
+        96029
+      ],
+      "start_km": 1791.8586,
+      "midpoint_km": 1807.1348,
+      "end_km": 1822.4109,
+      "length_km": 30.552252,
+      "convergence_km_per_myr": 101.884544,
+      "shear_km_per_myr": -35.006046,
+      "obliquity_deg": 18.961975,
+      "legacy_eligible": true,
+      "convergence_one_width": 62.655224,
+      "convergence_three_widths": 72.54298,
+      "obliquity_one_width_deg": 47.306534,
+      "obliquity_three_widths_deg": 38.09653,
+      "bend_one_width_deg": 76.94812,
+      "bend_three_widths_deg": 24.390463
+    },
+    {
+      "edge_id": [
+        95940,
+        96084
+      ],
+      "start_km": 1822.4109,
+      "midpoint_km": 1856.4277,
+      "end_km": 1890.4446,
+      "length_km": 68.03365,
+      "convergence_km_per_myr": -6.339129,
+      "shear_km_per_myr": -107.72282,
+      "obliquity_deg": 90.0,
+      "legacy_eligible": false,
+      "convergence_one_width": 60.88612,
+      "convergence_three_widths": 71.50222,
+      "obliquity_one_width_deg": 48.08383,
+      "obliquity_three_widths_deg": 38.86338,
+      "bend_one_width_deg": 64.90506,
+      "bend_three_widths_deg": 16.9163
+    },
+    {
+      "edge_id": [
+        95851,
+        96084
+      ],
+      "start_km": 1890.4446,
+      "midpoint_km": 1912.9553,
+      "end_km": 1935.4662,
+      "length_km": 45.021584,
+      "convergence_km_per_myr": 100.49144,
+      "shear_km_per_myr": -39.726795,
+      "obliquity_deg": 21.570133,
+      "legacy_eligible": true,
+      "convergence_one_width": 62.687416,
+      "convergence_three_widths": 70.35181,
+      "obliquity_one_width_deg": 45.78607,
+      "obliquity_three_widths_deg": 39.71976,
+      "bend_one_width_deg": 21.59409,
+      "bend_three_widths_deg": 3.9784768
+    },
+    {
+      "edge_id": [
+        95851,
+        95995
+      ],
+      "start_km": 1935.4662,
+      "midpoint_km": 1962.4672,
+      "end_km": 1989.4681,
+      "length_km": 54.001945,
+      "convergence_km_per_myr": 18.973541,
+      "shear_km_per_myr": -106.67053,
+      "obliquity_deg": 79.91425,
+      "legacy_eligible": true,
+      "convergence_one_width": 67.067085,
+      "convergence_three_widths": 69.41707,
+      "obliquity_one_width_deg": 41.611267,
+      "obliquity_three_widths_deg": 40.42504,
+      "bend_one_width_deg": 65.56298,
+      "bend_three_widths_deg": 0.03956468
+    },
+    {
+      "edge_id": [
+        95906,
+        95995
+      ],
+      "start_km": 1989.4681,
+      "midpoint_km": 2019.349,
+      "end_km": 2049.23,
+      "length_km": 59.76177,
+      "convergence_km_per_myr": 108.73754,
+      "shear_km_per_myr": 3.4728594,
+      "obliquity_deg": 1.8292907,
+      "legacy_eligible": true,
+      "convergence_one_width": 72.9535,
+      "convergence_three_widths": 68.467674,
+      "obliquity_one_width_deg": 36.508263,
+      "obliquity_three_widths_deg": 41.15461,
+      "bend_one_width_deg": 53.451084,
+      "bend_three_widths_deg": 1.5549448
+    },
+    {
+      "edge_id": [
+        95995,
+        96139
+      ],
+      "start_km": 2049.23,
+      "midpoint_km": 2067.531,
+      "end_km": 2085.832,
+      "length_km": 36.601997,
+      "convergence_km_per_myr": 80.61988,
+      "shear_km_per_myr": 73.437454,
+      "obliquity_deg": 42.330704,
+      "legacy_eligible": true,
+      "convergence_one_width": 76.18379,
+      "convergence_three_widths": 67.79759,
+      "obliquity_one_width_deg": 33.94682,
+      "obliquity_three_widths_deg": 41.683212,
+      "bend_one_width_deg": 25.644644,
+      "bend_three_widths_deg": 24.677761
+    },
+    {
+      "edge_id": [
+        96139,
+        96228
+      ],
+      "start_km": 2085.832,
+      "midpoint_km": 2104.0356,
+      "end_km": 2122.2393,
+      "length_km": 36.40726,
+      "convergence_km_per_myr": 108.55406,
+      "shear_km_per_myr": -13.405304,
+      "obliquity_deg": 7.039796,
+      "legacy_eligible": true,
+      "convergence_one_width": 76.4253,
+      "convergence_three_widths": 67.38716,
+      "obliquity_one_width_deg": 33.86106,
+      "obliquity_three_widths_deg": 42.017868,
+      "bend_one_width_deg": 25.96985,
+      "bend_three_widths_deg": 36.080086
+    },
+    {
+      "edge_id": [
+        96228,
+        96283
+      ],
+      "start_km": 2122.2393,
+      "midpoint_km": 2128.6968,
+      "end_km": 2135.1545,
+      "length_km": 12.915169,
+      "convergence_km_per_myr": 90.1869,
+      "shear_km_per_myr": 62.470818,
+      "obliquity_deg": 34.70964,
+      "legacy_eligible": true,
+      "convergence_one_width": 75.30034,
+      "convergence_three_widths": 67.16247,
+      "obliquity_one_width_deg": 34.83271,
+      "obliquity_three_widths_deg": 42.208027,
+      "bend_one_width_deg": 44.889187,
+      "bend_three_widths_deg": 38.529484
+    },
+    {
+      "edge_id": [
+        96283,
+        96372
+      ],
+      "start_km": 2135.1545,
+      "midpoint_km": 2165.6187,
+      "end_km": 2196.0828,
+      "length_km": 60.92824,
+      "convergence_km_per_myr": 108.687004,
+      "shear_km_per_myr": -17.17027,
+      "obliquity_deg": 8.977341,
+      "legacy_eligible": true,
+      "convergence_one_width": 71.71787,
+      "convergence_three_widths": 66.91141,
+      "obliquity_one_width_deg": 37.80543,
+      "obliquity_three_widths_deg": 42.434143,
+      "bend_one_width_deg": 56.213703,
+      "bend_three_widths_deg": 39.68834
+    },
+    {
+      "edge_id": [
+        96283,
+        96516
+      ],
+      "start_km": 2196.0828,
+      "midpoint_km": 2203.4497,
+      "end_km": 2210.8167,
+      "length_km": 14.733924,
+      "convergence_km_per_myr": 81.759285,
+      "shear_km_per_myr": -73.968025,
+      "obliquity_deg": 42.1358,
+      "legacy_eligible": true,
+      "convergence_one_width": 66.11198,
+      "convergence_three_widths": 66.7665,
+      "obliquity_one_width_deg": 42.44183,
+      "obliquity_three_widths_deg": 42.58841,
+      "bend_one_width_deg": 62.49834,
+      "bend_three_widths_deg": 37.24319
+    },
+    {
+      "edge_id": [
+        96283,
+        96427
+      ],
+      "start_km": 2210.8167,
+      "midpoint_km": 2224.5295,
+      "end_km": 2238.2427,
+      "length_km": 27.426,
+      "convergence_km_per_myr": -22.314226,
+      "shear_km_per_myr": -108.02975,
+      "obliquity_deg": 90.0,
+      "legacy_eligible": false,
+      "convergence_one_width": 62.432026,
+      "convergence_three_widths": 66.737144,
+      "obliquity_one_width_deg": 45.49516,
+      "obliquity_three_widths_deg": 42.63889,
+      "bend_one_width_deg": 52.680042,
+      "bend_three_widths_deg": 32.900414
+    },
+    {
+      "edge_id": [
+        96194,
+        96427
+      ],
+      "start_km": 2238.2427,
+      "midpoint_km": 2273.3193,
+      "end_km": 2308.396,
+      "length_km": 70.15342,
+      "convergence_km_per_myr": 84.810776,
+      "shear_km_per_myr": -70.897995,
+      "obliquity_deg": 39.894108,
+      "legacy_eligible": true,
+      "convergence_one_width": 53.5629,
+      "convergence_three_widths": 66.814095,
+      "obliquity_one_width_deg": 52.832146,
+      "obliquity_three_widths_deg": 42.655724,
+      "bend_one_width_deg": 29.63803,
+      "bend_three_widths_deg": 36.181015
+    },
+    {
+      "edge_id": [
+        96194,
+        96338
+      ],
+      "start_km": 2308.396,
+      "midpoint_km": 2328.6929,
+      "end_km": 2348.9895,
+      "length_km": 40.593605,
+      "convergence_km_per_myr": -35.213593,
+      "shear_km_per_myr": -105.0656,
+      "obliquity_deg": 90.0,
+      "legacy_eligible": false,
+      "convergence_one_width": 45.372356,
+      "convergence_three_widths": 67.14781,
+      "obliquity_one_width_deg": 59.454277,
+      "obliquity_three_widths_deg": 42.505222,
+      "bend_one_width_deg": 21.941898,
+      "bend_three_widths_deg": 23.831343
+    },
+    {
+      "edge_id": [
+        96105,
+        96338
+      ],
+      "start_km": 2348.9895,
+      "midpoint_km": 2366.5784,
+      "end_km": 2384.167,
+      "length_km": 35.177597,
+      "convergence_km_per_myr": 87.04562,
+      "shear_km_per_myr": -68.674034,
+      "obliquity_deg": 38.271427,
+      "legacy_eligible": true,
+      "convergence_one_width": 42.42881,
+      "convergence_three_widths": 67.52328,
+      "obliquity_one_width_deg": 61.748585,
+      "obliquity_three_widths_deg": 42.301655,
+      "bend_one_width_deg": 14.182225,
+      "bend_three_widths_deg": 15.672684
+    },
+    {
+      "edge_id": [
+        96105,
+        96249
+      ],
+      "start_km": 2384.167,
+      "midpoint_km": 2419.7095,
+      "end_km": 2455.252,
+      "length_km": 71.08495,
+      "convergence_km_per_myr": -18.29367,
+      "shear_km_per_myr": -109.36607,
+      "obliquity_deg": 90.0,
+      "legacy_eligible": false,
+      "convergence_one_width": 43.179943,
+      "convergence_three_widths": 68.23764,
+      "obliquity_one_width_deg": 61.07401,
+      "obliquity_three_widths_deg": 41.889153,
+      "bend_one_width_deg": 8.320909,
+      "bend_three_widths_deg": 6.2361794
+    },
+    {
+      "edge_id": [
+        96016,
+        96249
+      ],
+      "start_km": 2455.252,
+      "midpoint_km": 2472.6375,
+      "end_km": 2490.023,
+      "length_km": 34.770878,
+      "convergence_km_per_myr": 90.06502,
+      "shear_km_per_myr": -64.81351,
+      "obliquity_deg": 35.739933,
+      "legacy_eligible": true,
+      "convergence_one_width": 49.453728,
+      "convergence_three_widths": 69.14281,
+      "obliquity_one_width_deg": 56.00191,
+      "obliquity_three_widths_deg": 41.349514,
+      "bend_one_width_deg": 42.11615,
+      "bend_three_widths_deg": 33.424603
+    },
+    {
+      "edge_id": [
+        96016,
+        96160
+      ],
+      "start_km": 2490.023,
+      "midpoint_km": 2513.906,
+      "end_km": 2537.789,
+      "length_km": 47.76612,
+      "convergence_km_per_myr": 13.326153,
+      "shear_km_per_myr": -110.31626,
+      "obliquity_deg": 83.11207,
+      "legacy_eligible": true,
+      "convergence_one_width": 57.07918,
+      "convergence_three_widths": 69.95994,
+      "obliquity_one_width_deg": 49.89511,
+      "obliquity_three_widths_deg": 40.856495,
+      "bend_one_width_deg": 61.311844,
+      "bend_three_widths_deg": 50.34317
+    },
+    {
+      "edge_id": [
+        96071,
+        96160
+      ],
+      "start_km": 2537.789,
+      "midpoint_km": 2581.3481,
+      "end_km": 2624.9072,
+      "length_km": 87.11828,
+      "convergence_km_per_myr": 111.00291,
+      "shear_km_per_myr": 10.75245,
+      "obliquity_deg": 5.5327735,
+      "legacy_eligible": true,
+      "convergence_one_width": 71.23308,
+      "convergence_three_widths": 71.44898,
+      "obliquity_one_width_deg": 39.235245,
+      "obliquity_three_widths_deg": 39.955215,
+      "bend_one_width_deg": 17.510426,
+      "bend_three_widths_deg": 64.700966
+    },
+    {
+      "edge_id": [
+        96071,
+        96304
+      ],
+      "start_km": 2624.9072,
+      "midpoint_km": 2640.2532,
+      "end_km": 2655.5989,
+      "length_km": 30.691715,
+      "convergence_km_per_myr": 29.528322,
+      "shear_km_per_myr": -108.01587,
+      "obliquity_deg": 74.710594,
+      "legacy_eligible": true,
+      "convergence_one_width": 82.14564,
+      "convergence_three_widths": 72.84052,
+      "obliquity_one_width_deg": 32.1923,
+      "obliquity_three_widths_deg": 39.116383,
+      "bend_one_width_deg": 3.909611,
+      "bend_three_widths_deg": 55.9479
+    },
+    {
+      "edge_id": [
+        96215,
+        96304
+      ],
+      "start_km": 2655.5989,
+      "midpoint_km": 2687.6333,
+      "end_km": 2719.6675,
+      "length_km": 64.0687,
+      "convergence_km_per_myr": 106.7671,
+      "shear_km_per_myr": -34.8414,
+      "obliquity_deg": 18.073103,
+      "legacy_eligible": true,
+      "convergence_one_width": 88.68797,
+      "convergence_three_widths": 73.97517,
+      "obliquity_one_width_deg": 28.721024,
+      "obliquity_three_widths_deg": 38.437737,
+      "bend_one_width_deg": 10.969089,
+      "bend_three_widths_deg": 56.911266
+    },
+    {
+      "edge_id": [
+        96304,
+        96359
+      ],
+      "start_km": 2719.6675,
+      "midpoint_km": 2737.4446,
+      "end_km": 2755.222,
+      "length_km": 35.55437,
+      "convergence_km_per_myr": 101.669334,
+      "shear_km_per_myr": 48.318573,
+      "obliquity_deg": 25.419506,
+      "legacy_eligible": true,
+      "convergence_one_width": 93.11279,
+      "convergence_three_widths": 75.145195,
+      "obliquity_one_width_deg": 26.88263,
+      "obliquity_three_widths_deg": 37.744522,
+      "bend_one_width_deg": 23.076601,
+      "bend_three_widths_deg": 34.490517
+    },
+    {
+      "edge_id": [
+        96359,
+        96592
+      ],
+      "start_km": 2755.222,
+      "midpoint_km": 2761.467,
+      "end_km": 2767.712,
+      "length_km": 12.490023,
+      "convergence_km_per_myr": 87.95142,
+      "shear_km_per_myr": -70.92167,
+      "obliquity_deg": 38.881775,
+      "legacy_eligible": true,
+      "convergence_one_width": 94.36066,
+      "convergence_three_widths": 75.691475,
+      "obliquity_one_width_deg": 26.526642,
+      "obliquity_three_widths_deg": 37.42351,
+      "bend_one_width_deg": 17.312056,
+      "bend_three_widths_deg": 28.034492
+    },
+    {
+      "edge_id": [
+        96503,
+        96592
+      ],
+      "start_km": 2767.712,
+      "midpoint_km": 2799.6763,
+      "end_km": 2831.6409,
+      "length_km": 63.9289,
+      "convergence_km_per_myr": 109.68749,
+      "shear_km_per_myr": -27.808678,
+      "obliquity_deg": 14.226249,
+      "legacy_eligible": true,
+      "convergence_one_width": 95.217705,
+      "convergence_three_widths": 76.52589,
+      "obliquity_one_width_deg": 26.532251,
+      "obliquity_three_widths_deg": 36.93681,
+      "bend_one_width_deg": 29.439499,
+      "bend_three_widths_deg": 23.943266
+    },
+    {
+      "edge_id": [
+        96414,
+        96592
+      ],
+      "start_km": 2831.6409,
+      "midpoint_km": 2850.0322,
+      "end_km": 2868.4236,
+      "length_km": 36.782715,
+      "convergence_km_per_myr": 94.975426,
+      "shear_km_per_myr": 62.067432,
+      "obliquity_deg": 33.165035,
+      "legacy_eligible": true,
+      "convergence_one_width": 94.379364,
+      "convergence_three_widths": 77.544754,
+      "obliquity_one_width_deg": 27.4317,
+      "obliquity_three_widths_deg": 36.349022,
+      "bend_one_width_deg": 27.707443,
+      "bend_three_widths_deg": null
+    },
+    {
+      "edge_id": [
+        96414,
+        96736
+      ],
+      "start_km": 2868.4236,
+      "midpoint_km": 2876.211,
+      "end_km": 2883.9983,
+      "length_km": 15.574824,
+      "convergence_km_per_myr": 113.479744,
+      "shear_km_per_myr": -7.212706,
+      "obliquity_deg": 3.636794,
+      "legacy_eligible": true,
+      "convergence_one_width": 93.14364,
+      "convergence_three_widths": 78.03219,
+      "obliquity_one_width_deg": 28.24379,
+      "obliquity_three_widths_deg": 36.070587,
+      "bend_one_width_deg": 18.532421,
+      "bend_three_widths_deg": null
+    },
+    {
+      "edge_id": [
+        96736,
+        96791
+      ],
+      "start_km": 2883.9983,
+      "midpoint_km": 2913.8066,
+      "end_km": 2943.6147,
+      "length_km": 59.616497,
+      "convergence_km_per_myr": 76.77398,
+      "shear_km_per_myr": 84.286354,
+      "obliquity_deg": 47.67053,
+      "legacy_eligible": true,
+      "convergence_one_width": 90.5589,
+      "convergence_three_widths": 78.67651,
+      "obliquity_one_width_deg": 29.768427,
+      "obliquity_three_widths_deg": 35.70559,
+      "bend_one_width_deg": 8.704682,
+      "bend_three_widths_deg": null
+    },
+    {
+      "edge_id": [
+        96791,
+        96880
+      ],
+      "start_km": 2943.6147,
+      "midpoint_km": 2959.1204,
+      "end_km": 2974.6257,
+      "length_km": 31.011019,
+      "convergence_km_per_myr": 113.60745,
+      "shear_km_per_myr": 11.983402,
+      "obliquity_deg": 6.021338,
+      "legacy_eligible": true,
+      "convergence_one_width": 86.524666,
+      "convergence_three_widths": 79.361015,
+      "obliquity_one_width_deg": 32.050457,
+      "obliquity_three_widths_deg": 35.32201,
+      "bend_one_width_deg": 60.398518,
+      "bend_three_widths_deg": null
+    },
+    {
+      "edge_id": [
+        96791,
+        97024
+      ],
+      "start_km": 2974.6257,
+      "midpoint_km": 2991.597,
+      "end_km": 3008.568,
+      "length_km": 33.94246,
+      "convergence_km_per_myr": 101.64963,
+      "shear_km_per_myr": -52.621204,
+      "obliquity_deg": 27.369354,
+      "legacy_eligible": true,
+      "convergence_one_width": 83.36069,
+      "convergence_three_widths": 79.78792,
+      "obliquity_one_width_deg": 33.84328,
+      "obliquity_three_widths_deg": 35.085247,
+      "bend_one_width_deg": 70.87798,
+      "bend_three_widths_deg": null
+    },
+    {
+      "edge_id": [
+        96702,
+        97024
+      ],
+      "start_km": 3008.568,
+      "midpoint_km": 3028.7014,
+      "end_km": 3048.8347,
+      "length_km": 40.266647,
+      "convergence_km_per_myr": 114.19928,
+      "shear_km_per_myr": 10.532999,
+      "obliquity_deg": 5.269681,
+      "legacy_eligible": true,
+      "convergence_one_width": 79.888275,
+      "convergence_three_widths": 80.21053,
+      "obliquity_one_width_deg": 35.834267,
+      "obliquity_three_widths_deg": 34.853,
+      "bend_one_width_deg": 67.317085,
+      "bend_three_widths_deg": null
+    },
+    {
+      "edge_id": [
+        96702,
+        96935
+      ],
+      "start_km": 3048.8347,
+      "midpoint_km": 3091.1394,
+      "end_km": 3133.444,
+      "length_km": 84.609436,
+      "convergence_km_per_myr": 12.787888,
+      "shear_km_per_myr": -114.2711,
+      "obliquity_deg": 83.61469,
+      "legacy_eligible": true,
+      "convergence_one_width": 75.47162,
+      "convergence_three_widths": 80.76935,
+      "obliquity_one_width_deg": 38.34522,
+      "obliquity_three_widths_deg": 34.54985,
+      "bend_one_width_deg": null,
+      "bend_three_widths_deg": null
+    },
+    {
+      "edge_id": [
+        96846,
+        96935
+      ],
+      "start_km": 3133.444,
+      "midpoint_km": 3166.6348,
+      "end_km": 3199.8252,
+      "length_km": 66.38121,
+      "convergence_km_per_myr": 112.92046,
+      "shear_km_per_myr": 23.229038,
+      "obliquity_deg": 11.624243,
+      "legacy_eligible": true,
+      "convergence_one_width": 73.880455,
+      "convergence_three_widths": 81.20894,
+      "obliquity_one_width_deg": 38.888275,
+      "obliquity_three_widths_deg": 34.31567,
+      "bend_one_width_deg": null,
+      "bend_three_widths_deg": null
+    }
+  ]
+}

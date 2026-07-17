@@ -1,7 +1,8 @@
 # Structural Mountain V0 contract
 
-Status: **source-first target and legacy observation binding accepted; internal
-organization and terrain replacement not implemented or promoted**, 2026-07-18.
+Status: **source-first target and observation binding accepted; current source
+organization rejected as insufficient; terrain replacement not implemented or
+promoted**, 2026-07-18.
 
 This document defines the one product-native mountain comparison authorized by
 the [roadmap](roadmap.md). It replaces the old H/C/G campaign as the active
@@ -431,6 +432,63 @@ history displacement for real extrema or transitions that could justify more
 than one along-strike high/low relationship. If that evidence is absent, report
 `insufficient-causal-segmentation`; do not manufacture subsegments or tune a
 pretty field.
+
+## Internal organization verdict
+
+The source-only audit evaluates the ordered 3,199.8 km collision parent at two
+scales inherited from the accepted legacy response: the 127 km collision width
+and a 382 km three-width broad-support scale. It records every raw edge, but
+only evidence persistent at both scales may inform organization. This prevents
+Voronoi-scale boundary chatter from becoming mountain structure.
+
+The generated episode and material state provide no internal transitions. All
+70 edges share one continental-collision regime, one plate pair, 63.5 Myr
+duration and 3,148.2 km episode-normal displacement. Five edges fall below the
+legacy local-convergence threshold, but each is an isolated one-edge run of
+17–71 km; none survives as a belt-scale inactive or transfer zone.
+
+Broad local convergence varies from 64.7 to 81.2 km/Myr. It has one persistent
+maximum and one minimum with about 15.5–15.8% prominence relative to the broad
+mean. Broad obliquity magnitude spans 33.6–42.7°, with one meaningful low and
+high plus one negligible 2% maximum. Signed shear changes cannot be interpreted
+along strike because the retained sign belongs to each canonical cell-pair
+frame; the audit correctly uses shear magnitude and reports that directional
+provenance as unavailable.
+
+The parent trace is not geometrically uniform. Five curvature maxima persist at
+both scales, with 34.9–73.6° deflection over the broad window. Curvature and
+changing obliquity can alter shortening or partition deformation, but a bend is
+not inherently a transfer low. Experimental/numerical work shows that curved
+margins may instead concentrate shortening near an oroclinal bend
+([Boutelier et al. 2010](https://doi.org/10.1029/2009JB006296)); inherited weak
+zones and polarity transitions, rather than curvature alone, generate the
+linkage lows in recent coupled orogen models
+([Zwaan et al. 2025](https://www.nature.com/articles/s41467-025-66695-8)).
+Turning every bend into a separately tapered parent would therefore fabricate
+the sign of its topographic consequence.
+
+Most decisively, the compiler's current finite-parent opportunity density—real
+local convergence multiplied by the one justified full-cosine end taper—has
+exactly one persistent broad maximum at 1,506 km and no internal minimum. The
+available source evidence supports a curved finite massif with continuous
+forcing variation. It does not support the multiple internal highs/lows,
+transfer zones or subordinate parents required by this V0 outcome.
+
+Structural Mountain V0 therefore stops with
+**`insufficient-causal-segmentation`** before terrain response. This is not a
+request for a lower bend threshold. The likely missing causal owner is
+long-wavelength inherited lithospheric structure or competence: something
+generated before collision, carried with material, and reusable by rifting,
+strain localization, erosion resistance or later geology. An independent ridge
+noise field or post-target random fault pattern would merely hide the missing
+relationship. Whether to add that upstream latent system or revise the product
+outcome toward a simpler continuous curved massif is the next architecture
+decision.
+
+The complete profile and a compact plan/profile diagram are frozen in
+[`generated/structural-mountain-seed-12345-organization-audit-v0.json`](generated/structural-mountain-seed-12345-organization-audit-v0.json)
+and
+[`generated/structural-mountain-seed-12345-organization-audit-v0.svg`](generated/structural-mountain-seed-12345-organization-audit-v0.svg).
 
 ## Evidence packet
 

@@ -14,10 +14,10 @@ it become a chronological activity log.
 
 ## Active focus
 
-**Test internal organization in the source-first mountain target; do not build
-terrain yet.** Seed `12345`'s terrain-blind source remains episode 0 / plates
-`[0, 2]`: 72 edges and 3,254 km, comprising one 3,200 km collision parent plus
-two one-edge continental-receiving subduction transitions. Exact legacy
+**Choose whether to add inherited lithospheric organization; do not build
+mountain terrain yet.** Seed `12345`'s terrain-blind source remains episode 0 /
+plates `[0, 2]`: 72 edges and 3,254 km, comprising one 3,200 km collision parent
+plus two one-edge continental-receiving subduction transitions. Exact legacy
 response binding passes. Sixty-seven edges are represented by the old writer;
 five weak structural edges are not. There are no external co-seeders or
 ambiguous-majority fine cells, and the decomposition reconstructs transferred
@@ -30,11 +30,22 @@ component contains 99.4% of that area and peaks at 9.044 km. Only one visible
 cell is an integration cut and one is a breached source. This is coherent
 source-to-visible-terrain correspondence, not diffuse rescue.
 
-Next inspect the 70-edge collision parent's generated bends, convergence and
-bounded history displacement. Freeze only relationships that justify multiple
-along-strike highs/lows before terrain exists. If the evidence is effectively
-uniform, stop with `insufficient-causal-segmentation`; do not use arbitrary
-splits, noise or terrain feedback to create the organization the source lacks.
+The internal organization audit fails the current V0 honestly. At the inherited
+127/382 km scales, broad convergence varies only 64.7–81.2 km/Myr and broad
+obliquity 33.6–42.7°. Episode duration, displacement, crust and regime are
+constant. Five isolated below-threshold edges do not form a transfer zone. Five
+large curvature maxima are real, but bends do not imply lows and may intensify
+shortening. The already-compiled local-convergence × finite-end taper has one
+persistent opportunity maximum and no internal minimum. Result:
+`insufficient-causal-segmentation`; no terrain response.
+
+Next decide between two honest product paths. The stronger path is a minimal
+long-wavelength inherited structure/competence field generated before
+collision, carried with material and reused by more than mountain styling
+(rift inheritance, strain localization, erodibility or later geology). The
+cheaper path accepts a continuous curved massif and relaxes the internal-
+hierarchy outcome, which leaves the established tableland defect substantially
+unresolved. Do not insert random subsegments or independent ridge noise.
 
 The earlier fixed replay rejects the reviewed height component as one belt.
 On the current 255,866-cell fine baseline its core corresponds well to the old
