@@ -7,6 +7,57 @@ build = "build.rs"
 [features]
 default = []
 single-threaded = []  # Disable rayon for cleaner profiling
+research-landscape = [] # Quarantined landform/orogen evaluation laboratory
+
+[[bin]]
+name = "c0_orogen_smoke"
+path = "src/bin/c0_orogen_smoke.rs"
+required-features = ["research-landscape"]
+
+[[bin]]
+name = "landform_baseline"
+path = "src/bin/landform_baseline.rs"
+required-features = ["research-landscape"]
+
+[[bin]]
+name = "orogen_f_hc_compare"
+path = "src/bin/orogen_f_hc_compare.rs"
+required-features = ["research-landscape"]
+
+[[bin]]
+name = "orogen_g_probe"
+path = "src/bin/orogen_g_probe.rs"
+required-features = ["research-landscape"]
+
+[[bin]]
+name = "orogen_hcg_compare"
+path = "src/bin/orogen_hcg_compare.rs"
+required-features = ["research-landscape"]
+
+[[bin]]
+name = "orogen_linked_input"
+path = "src/bin/orogen_linked_input.rs"
+required-features = ["research-landscape"]
+
+[[bin]]
+name = "orogen_organization_graph"
+path = "src/bin/orogen_organization_graph.rs"
+required-features = ["research-landscape"]
+
+[[bin]]
+name = "orogen_testbed"
+path = "src/bin/orogen_testbed.rs"
+required-features = ["research-landscape"]
+
+[[test]]
+name = "orogen_testbed"
+path = "tests/orogen_testbed.rs"
+required-features = ["research-landscape"]
+
+[[test]]
+name = "orogen_testbed_c0"
+path = "tests/orogen_testbed_c0.rs"
+required-features = ["research-landscape"]
 
 [profile.checked]
 inherits = "release"

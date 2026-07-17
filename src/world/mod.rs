@@ -45,7 +45,9 @@ mod fine;
 mod fine_cache;
 mod history;
 mod hydrology;
+#[cfg(feature = "research-landscape")]
 pub mod landforms;
+#[cfg(feature = "research-landscape")]
 pub mod landscape;
 mod living_surface;
 mod moisture;

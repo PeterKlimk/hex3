@@ -24,6 +24,14 @@ cargo clippy
 cargo fmt
 ```
 
+The quarantined landform/orogen laboratory is excluded from the default product
+build. Validate it explicitly when changing that subsystem:
+
+```bash
+cargo check --features research-landscape --all-targets
+cargo test --features research-landscape
+```
+
 From a Windows terminal:
 
 ```powershell

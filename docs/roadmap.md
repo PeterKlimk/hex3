@@ -72,8 +72,8 @@ historical evidence or reusable operators.
 
 - hide quarantined orogen models and default-off erosion/fine knobs from the
   normal product CLI;
-- establish an explicit build/module boundary for landform/landscape testbeds
-  and their binaries rather than compiling them as ordinary product surface;
+- keep the landform/landscape testbeds and their binaries behind the explicit
+  non-default `research-landscape` build/module boundary;
 - keep the legacy terrain owner as the disclosed usable control, not as an
   endorsed final architecture;
 - make large river textures, relief edges and inactive stage buffers lazy or

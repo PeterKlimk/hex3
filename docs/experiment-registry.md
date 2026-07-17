@@ -20,8 +20,11 @@ for the linked audits. Status terms follow the
 
 ## Orogen and tectonic-time models
 
-All rows below are implemented and CLI-selectable through `--orogen-model` unless
-stated otherwise. Only `legacy` is the default.
+All rows below are implemented. The alternatives remain available through the
+hidden `--orogen-model` compatibility switch and explicit diagnostic/research
+binaries, but are not ordinary product choices. Only `legacy` is promoted and
+default. The landform/orogen laboratory requires the non-default
+`research-landscape` Cargo feature.
 
 | Model | Mechanism/hypothesis | Current maturity | Registry decision |
 |---|---|---|---|

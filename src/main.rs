@@ -168,9 +168,14 @@ struct Cli {
     #[arg(long, value_enum, default_value_t = CliVoronoiBackend::ConvexHull)]
     voronoi_backend: CliVoronoiBackend,
 
-    /// Convergent-orogen model. Legacy remains the visual baseline; the
-    /// conserved isotropic model is retained for explicit A/B evaluation.
-    #[arg(long, value_enum, default_value_t = CliOrogenModel::Legacy)]
+    /// Compatibility switch for quarantined orogen experiments. The ordinary
+    /// product path uses Legacy; research binaries own model comparison.
+    #[arg(
+        long,
+        value_enum,
+        default_value_t = CliOrogenModel::Legacy,
+        hide = true
+    )]
     orogen_model: CliOrogenModel,
 
     /// Disable the fine-mesh base disk cache (always regenerate stage 3a)
@@ -452,6 +457,39 @@ fn parse_values(s: &str) -> Vec<f64> {
                 .unwrap_or_else(|_| panic!("invalid sweep value: '{t}'"))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod cli_contract_tests {
+    use super::{Cli, CliOrogenModel};
+    use clap::{CommandFactory, Parser};
+
+    #[test]
+    fn product_help_hides_quarantined_orogen_ladder() {
+        let help = Cli::command().render_long_help().to_string();
+
+        assert!(!help.contains("--orogen-model"));
+        assert!(!help.contains("history-carrier-lifecycle"));
+        assert!(!help.contains("thin-sheet"));
+    }
+
+    #[test]
+    fn hidden_orogen_switch_remains_parse_compatible() {
+        let cli = Cli::try_parse_from(["hex3", "--orogen-model", "history-carrier-lifecycle"])
+            .expect("hidden compatibility switch should still parse");
+
+        assert!(matches!(
+            cli.orogen_model,
+            CliOrogenModel::HistoryCarrierLifecycle
+        ));
+    }
+
+    #[test]
+    fn product_default_remains_legacy_orogen() {
+        let cli = Cli::try_parse_from(["hex3"]).expect("default CLI should parse");
+
+        assert!(matches!(cli.orogen_model, CliOrogenModel::Legacy));
+    }
 }
 
 fn main() {
