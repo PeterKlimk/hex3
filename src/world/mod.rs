@@ -51,6 +51,7 @@ mod hydrology;
 pub mod landforms;
 #[cfg(feature = "research-landscape")]
 pub mod landscape;
+mod lithosphere_inheritance;
 mod living_surface;
 mod moisture;
 mod plates;
@@ -106,6 +107,14 @@ pub use history::{
 pub use hydrology::{
     Basin, CellWaterState, Hydrology, WaterBody, DEFAULT_CLIMATE_RATIO, MIN_LAKE_DEPTH,
 };
+pub use lithosphere_inheritance::{
+    generate_lithosphere_inheritance_v0, query_boundary_inheritance_v0, BasementProvinceV0,
+    BoundaryInheritanceContactKindV0, BoundaryInheritanceRelationshipV0, InheritedStructureEdgeV0,
+    InheritedStructureGraphV0, InheritedStructureKindV0, InheritedStructureNodeKindV0,
+    InheritedStructureNodeV0, InheritedStructureSegmentV0, LithosphereInheritanceConfigV0,
+    LithosphereInheritanceErrorV0, LithosphereInheritanceV0, LITHOSPHERE_INHERITANCE_SEED_SALT,
+    OCEANIC_BASEMENT_PROVINCE,
+};
 pub use living_surface::{
     LivingSurfaceCell, LivingSurfaceSemantics, PhysiognomyFractions,
     LIVING_SURFACE_DRAINAGE_REFERENCE_KM2,
@@ -144,7 +153,7 @@ pub use structural_target::{
     StructuralTargetError, StructuralTargetProvenance, FIXED_STRUCTURAL_TARGET_ANCHOR,
     STRUCTURAL_TARGET_THRESHOLD_KM,
 };
-pub use tessellation::{CellAdjacency, Tessellation};
+pub use tessellation::{CellAdjacency, CellEdgeId, Tessellation};
 pub use units::{
     arc_radians_to_km, elevation_per_radian_to_grade, elevation_to_km, elevation_to_meters,
     grade_to_degrees, grade_to_elevation_per_radian, km_to_arc_radians, km_to_elevation,

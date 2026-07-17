@@ -1,7 +1,7 @@
 # Lithosphere Inheritance V0 decision
 
-Status: **selected upstream architecture; source-state prototype not yet
-implemented or promoted**, 2026-07-18.
+Status: **source-state prototype implemented on demand; incomplete and not
+promoted**, 2026-07-18.
 
 This decision follows the source-only failure in
 [Structural Mountain V0](structural-mountain.md). It chooses the smallest
@@ -181,6 +181,59 @@ Stop if graph generation merely guarantees attractive subdivisions, if a
 scalar score again becomes independent hot-spot selection, or if the graph has
 no useful consumer beyond mountain styling. Do not tune terrain to rescue the
 state seam.
+
+## Source-only implementation checkpoint
+
+The first implementation now generates deterministic basement provinces inside
+the existing continental/craton envelope and compiles every exact internal
+province contact into a typed spherical graph. It also exposes one generic
+plate-boundary relationship query: a boundary may be unrelated, coincide with
+an inherited edge or touch one at an exact vertex, with shared graph segments,
+junction state and the minimum unoriented tangent angle reported. The canonical
+cell-edge identity now belongs to tessellation rather than the mountain module.
+
+This is deliberately an on-demand diagnostic seam. It is not retained in
+`World`, selected by the ordinary product, cached, or read by elevation,
+drainage, semantics or rendering. The current generator emits candidate
+basement contacts, not sutures: assigning geological history is precisely the
+unresolved next step. The type system reserves sutures and inherited rifts, but
+finite rift traces, offset/link/transfer relationships, maturity, competence
+and current-episode damage do not yet exist. Querying divergent boundaries
+demonstrates API reuse; it is not yet a second causal consumer because no rift
+response changes.
+
+The fixed seed `12345` report at 100,000 coarse cells records:
+
+- 68 connected provinces with median area 2.021 million km²;
+- 4,157 exact contact edges compiled into 134 open segments, totaling
+  179,107 km;
+- about 0.05 s to generate the state in a release build and approximately
+  0.83 MB of retained vector payload if it were kept; and
+- 20 contacts along 2,157 divergent boundary edges, including eight exact
+  overlaps, showing that the same relationship query is not collision-specific.
+
+The selected 3,199.8 km collision parent has 60 unrelated edges, six coincident
+edges and four vertex contacts. Its coincidences form two short runs on separate
+basement-contact segments, around 1,423--1,506 km and 1,709--1,807 km along the
+parent; neither run reaches a structure junction. This is new source
+information, but it does **not** yet identify either contact as a suture or
+justify a transfer low, segmented uplift or any topographic sign. Because both
+graphs use the same coarse Voronoi edges, exact coincidence also overstates
+geometric precision and must not be treated as independent validation.
+
+Spot checks at 25k, 50k, 100k and 200k cells retain roughly the intended
+province scale and yield 125, 101, 134 and 152 graph segments respectively.
+That is adequate for a prototype seam, not a convergence claim: current world
+initialization itself changes geometry with resolution, and the 50k graph is a
+moderate outlier.
+
+The checkpoint therefore passes independence, determinism, connected-province,
+exact-topology and cost tests, but does not pass the complete V0 gate. Compiling
+all terrane contacts is only a basement skeleton, not yet the selected sparse
+history model. The next principled question is whether a finite set of inherited
+rift/link/transfer relationships can be initialized with honest graph semantics
+and produce different collision and rift classifications in manufactured
+counterfactuals. Do not connect this state to terrain before that answer.
 
 ## Consequences for current work
 

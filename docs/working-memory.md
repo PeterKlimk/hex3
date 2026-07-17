@@ -14,8 +14,8 @@ it become a chronological activity log.
 
 ## Active focus
 
-**Build the source-only Lithosphere Inheritance V0 seam; do not build mountain
-terrain yet.** Seed `12345`'s terrain-blind source remains episode 0 /
+**Judge the source-only Lithosphere Inheritance V0 relationship model; do not
+build mountain terrain yet.** Seed `12345`'s terrain-blind source remains episode 0 /
 plates `[0, 2]`: 72 edges and 3,254 km, comprising one 3,200 km collision parent
 plus two one-edge continental-receiving subduction transitions. Exact legacy
 response binding passes. Sixty-seven edges are represented by the old writer;
@@ -55,6 +55,23 @@ and rift localization. If the cheap source state fails to create coherent
 multi-consumer relationships, accept continuous finite massifs and relax the
 universal internal-hierarchy target. Do not insert random subsegments or
 independent ridge noise.
+
+The first on-demand source seam is implemented. It preserves the existing
+continent/craton envelope, deterministically grows 68 connected basement
+provinces on the fixed 100k seed and compiles 4,157 exact province-contact edges
+into 134 candidate basement-contact segments. Generation costs about 0.05 s and
+the retained vector payload estimate is 0.83 MB. It is not stored in `World` and
+changes no terrain, hydrology, semantics or rendering. The generic relationship
+query finds two short exact contact runs in the selected 3,200 km collision
+parent and 20 contacts among current divergent edges. Do not overread either
+result: shared Voronoi
+support inflates exact coincidence, divergent response does not yet consume the
+state, no junction or transfer relation occurs on the selected parent, and no
+candidate contact has yet earned a suture interpretation. Current generation
+emits only the full basement-contact skeleton; it lacks
+finite inherited rifts, sparse history selection, offsets, links, transfer
+semantics, maturity and competence. The next gate is manufactured collision and
+rift counterfactuals over those missing graph relationships, not relief tuning.
 
 The earlier fixed replay rejects the reviewed height component as one belt.
 On the current 255,866-cell fine baseline its core corresponds well to the old

@@ -30,3 +30,7 @@ Current bounded evidence:
   Inheritance V0 decision.
 - [`structural-mountain-seed-12345-organization-audit-v1.svg`](structural-mountain-seed-12345-organization-audit-v1.svg)
   retains the matched source/profile visualization for the enriched report.
+- [`lithosphere-inheritance-seed-12345-v0.json`](lithosphere-inheritance-seed-12345-v0.json)
+  freezes the first terrain-blind basement-province/contact graph, its cost and
+  its exact relationships with current plate boundaries and the selected
+  collision parent. It is prototype evidence, not promoted world state.

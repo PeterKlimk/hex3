@@ -11,25 +11,12 @@ use std::f64::consts::TAU;
 use glam::Vec3;
 
 use super::{
-    BoundaryKind, CrustType, HistoryModel, PlateBoundaryEdge, SubductionPolarity, TectonicHistory,
-    Tessellation, PLANET_RADIUS_KM,
+    BoundaryKind, CellEdgeId, CrustType, HistoryModel, PlateBoundaryEdge, SubductionPolarity,
+    TectonicHistory, Tessellation, PLANET_RADIUS_KM,
 };
 
 /// Stable identity of one product boundary edge.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct BoundaryEdgeId {
-    pub cell_a: usize,
-    pub cell_b: usize,
-}
-
-impl BoundaryEdgeId {
-    pub fn new(cell_a: usize, cell_b: usize) -> Self {
-        Self {
-            cell_a: cell_a.min(cell_b),
-            cell_b: cell_a.max(cell_b),
-        }
-    }
-}
+pub type BoundaryEdgeId = CellEdgeId;
 
 /// Collision and subduction have different side semantics.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]

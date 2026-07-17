@@ -154,7 +154,7 @@ See the [lower-corridor audit](audits/consequential-geography-lower-corridor-202
 Kill condition: if authored weights dominate geography or the result is a
 decorative overlay, stop. Retain only useful traversability/access semantics.
 
-### 3. [Lithosphere Inheritance V0](lithosphere-inheritance.md) — selected next slice
+### 3. [Lithosphere Inheritance V0](lithosphere-inheritance.md) — source seam implemented, relationship gate next
 
 The tableland/“long Uluru” range grammar remains the largest established visible
 model defect. The product-native structural compiler has now shown that the
@@ -196,6 +196,17 @@ internal-hierarchy target and retain continuous finite massifs. Do not add
 independent ridge noise, lower a bend threshold, revive the manufactured
 organization ladder, tune amplitudes, or stack relief over the current scalar
 height owner.
+
+The first on-demand seam is now implemented without changing product terrain:
+connected basement provinces, exact candidate province contacts and a generic
+boundary/structure query. At 100k cells it costs about 0.05 s and would retain
+about 0.83 MB of vector payload. The selected 3,200 km collision parent crosses
+two short contact-aligned runs, but neither is a junction and the shared Voronoi
+support can inflate exact overlap. These contacts have not been assigned
+geological history; this is useful source structure, not yet a license for
+segmented relief. The next gate is finite inherited
+rift/link/transfer topology plus manufactured collision-and-rift
+counterfactuals; only a causal relationship result may reopen terrain response.
 
 ## Later decision set
 

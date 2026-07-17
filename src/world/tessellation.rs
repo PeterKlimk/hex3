@@ -8,6 +8,24 @@ use rand::Rng;
 
 use crate::geometry::{fibonacci_sphere_points_with_rng, lloyd_relax_kmeans, SphericalVoronoi};
 
+/// Stable canonical identity of one undirected cell adjacency.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
+pub struct CellEdgeId {
+    pub cell_a: usize,
+    pub cell_b: usize,
+}
+
+impl CellEdgeId {
+    pub fn new(cell_a: usize, cell_b: usize) -> Self {
+        Self {
+            cell_a: cell_a.min(cell_b),
+            cell_b: cell_a.max(cell_b),
+        }
+    }
+}
+
 /// A spherical tessellation with Voronoi cells and cell adjacency.
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Tessellation {
