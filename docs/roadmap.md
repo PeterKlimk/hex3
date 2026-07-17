@@ -52,7 +52,7 @@ automatically the best product move.
 | Product promise | Candidate intervention | Current decision |
 |---|---|---|
 | The product is lean enough to reason about and iterate | Separate product code/API/CLI from the experimental laboratory; remove unconditional rendering allocations | **Immediate enabling work** |
-| Geography has visible consequences | Traversability, water/coast access, a few causal affordances, aggregate settlements and least-cost routes | **Selected next bounded expansion** |
+| Geography has visible consequences | Traversability, water/coast access, named relative opportunities, aggregate sites and least-cost routes | **Selected next bounded expansion** |
 | Terrain is morphologically convincing | Replace scalar final-height ownership with one structural range/forcing owner or disclosed authentic range hack | **Highest-priority model rework; one product slice before implementation campaign** |
 | The planet is readable and explainable | Consumer-driven regions, passes, crossings, chokepoints, labels and scale generalization | **Build only as pulled by the selected consequence layer** |
 | Landscapes connect source to sink | Persistent mobile/deposited material, floodplains, terminal fill and deltas | **Research/design gate; not next by default** |
@@ -86,25 +86,27 @@ Exit condition: a contributor can identify the product path without navigating
 rejected terrain rungs, and ordinary rendering no longer allocates hundreds of
 MiB for unused stage-local resources.
 
-### 2. Consequential Geography V0
+### 2. [Consequential Geography V0](consequential-geography.md)
 
 Use existing final terrain, physical grade, water geography and Living Surface
-fractions to test whether the generated planet constrains an inhabited map.
+fractions to test whether the generated planet constrains one plausible
+aggregate site-and-route map.
 
 Minimum honest slice:
 
 ```text
-terrain grade + water/coast access + living opportunity + broad hazards
-  -> traversability and a few disclosed resource affordances
-  -> 12–30 aggregate settlement sites
-  -> least-cost routes, ports, crossings, passes and chokepoints
+terrain grade + water/coast access + relative living opportunity
+  -> traversability and named opportunity/constraint components
+  -> 12–30 aggregate sites
+  -> least-cost routes, harbor opportunities, crossings, gaps and chokepoints
   -> causal explanation and cartographic presentation
 ```
 
-This is an authentic systemic hack, not population, economy, politics or full
+This is an authentic aggregate hack, not population, economy, politics or full
 civilization simulation. Regions and landform semantics are derived only where
-the route/settlement consumer needs containment, barriers or crossings. Resource
-fields remain broad affordances, not ore-body or soil simulations.
+the site/route consumer needs containment, barriers or crossings. V0 uses named
+relative opportunity components, not ore-body, soil, crop-yield or generic
+resource simulations.
 
 Discriminator: independently ablate grade, freshwater, coast and living
 opportunity. Sites and routes must change intelligibly; they must not be

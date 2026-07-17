@@ -67,8 +67,8 @@ design gate.
 | Glaciers/cryosphere | High in suitable worlds | Medium–high with water, climate, erosion and sea level | Medium–high; current glacial pass is incomplete | **Later coherent subsystem** |
 | Groundwater/wetlands | Moderate visual/ecological payoff | High locally for rivers, lakes and biomes | Medium; hydrology semantics ready in part | **Targeted later addition** |
 | Dynamic seasons/weather | High animation/variety | Medium geographic reach unless coupled over time | Very high for full solve; cheaper presentation/authentic hacks possible | **Hold; research only if product view needs it** |
-| Broad affordances and suitability | Moderate directly; high board/game meaning | Very high bridge from planet state to settlement | Low–medium with current water, terrain and Living Surface inputs | **Selected inside Consequential Geography V0** |
-| Aggregate settlements and routes | Very high narrative and board appeal | Very high emergent meaning and a functional test of existing geography | Medium if aggregate; enormous if agent-heavy | **Selected bounded expansion; no agents/economy/culture** |
+| Named relative opportunity components | Moderate directly; high board/game meaning | Very high bridge from planet state to aggregate sites | Low–medium with current water, terrain and Living Surface inputs | **Selected inside Consequential Geography V0; no soil/resource claims** |
+| Aggregate sites and routes | Very high narrative and board appeal | Very high emergent meaning and a functional test of existing geography | Medium if aggregate; enormous if agent-heavy | **Selected bounded expansion; no population/agents/economy/culture** |
 | Full civilization/economic simulation | Potentially very high but changes project center of gravity | Very high | Extremely high and weakly bounded | **Distant option, not present roadmap** |
 | Physically based material renderer | Moderate visual improvement | Low model reach | High compared with illustrative lighting at globe scale | **Hold** |
 | Dynamic 3-D atmosphere/ocean | Scientifically rich, uncertain product payoff | High in principle | Extremely high compute/validation cost | **Reject as default direction absent a new need** |
@@ -129,9 +129,10 @@ or treating rendered trees as ecological state.
 
 ## Selected missing consequence layer
 
-Consequential Geography V0 uses current terrain, water/coast identity and Living
-Surface opportunity to derive traversability, a few disclosed affordances,
-aggregate settlement sites and least-cost routes. It is selected because it
+The [Consequential Geography V0 decision](consequential-geography.md) uses
+current terrain, water/coast identity and Living Surface opportunity to derive
+traversability, named relative opportunity components, aggregate sites and
+least-cost routes. It is selected because it
 directly advances the globe/board identity while testing several retained
 systems together.
 
@@ -223,7 +224,7 @@ Targeted external research should now compare:
 1. aggregate settlement-site and route-network models used in procedural games,
    spatial history, transport geography and strategy maps;
 2. least-cost and network-formation methods over irregular terrain, including
-   ports, crossings, passes and chokepoints;
+   harbor opportunities, crossings, route-local gaps and chokepoints;
 3. structural range generators and reduced tectonic/landscape models that avoid
    universal smooth tablelands without requiring full geodynamics;
 4. reduced sediment-routing models that preserve mass and generate one useful

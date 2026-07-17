@@ -84,7 +84,7 @@ long-term ownership.
 | Diagnostics, corpus and experiment tooling | **Simplify** | Reproducible evidence and operator tests prevent false promotion | Move shared promoted measurements into library adapters; keep historical or invalid probes out of normal product configuration and contributor workflow. |
 | Persistent sediment | **Research** | One conserved mobile/deposited material could connect erosion, basins, floodplains, deltas, coasts, soil and loading | Require bedrock/alluvial-cover ownership, a visible source-to-sink target, explicit time/units, one routing owner, localized lowland/coastal resolution and a memory budget. No stratigraphic simulator. |
 | Living surface | **Retain (bounded layer)** | Climate, terrain and water yield useful visible identity, reusable fractional cover and inputs to resources/settlement | The on-demand equilibrium kernel, HAND-like saturation and closed fractions exist; human matched review found its linear blend improves the ordinary terrain baseline. It is selectable for final Stage-4 relief but not retained in `World` or exported. No biome calibration, regions, succession, fire or individual-tree ecology in V0. |
-| Consequential/human geography | **Selected bounded expansion** | Traversability, access, broad affordances, routes and aggregate settlements make retained geography consequential and produce board-like stories | Build an on-demand causal slice before agents, economies or culture. Pull only the semantic regions, passes and crossings it consumes; stop if authored weights dominate or the result is decorative. |
+| Consequential/human geography | **Selected bounded expansion** | Traversability, access, named relative opportunities, routes and aggregate sites make retained geography consequential and produce board-like stories | Build the [on-demand V0 causal slice](consequential-geography.md) before agents, economies or culture. Pull only route-local gaps, crossings and coastal relationships it can support; stop if authored priors dominate or the result is decorative. |
 
 ## Resolved shared seam: water geography
 
@@ -209,7 +209,7 @@ or cartographic generalization, none of which is claimed by V0.
    large research laboratory and make large presentation resources lazy/shared.
 2. **Build Consequential Geography V0 next:** use existing terrain, water,
    climate and living opportunity to create explainable sites, routes,
-   crossings, ports and chokepoints.
+   crossings, harbor opportunities and chokepoints.
 3. **Keep structural mountain organization as the highest-priority model
    rework:** allow either a reduced causal owner or a disclosed authentic range
    generator, but require one product-native belt comparison rather than a new

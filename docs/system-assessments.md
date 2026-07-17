@@ -239,10 +239,10 @@ the integrated planet.
   ecology model itself.
 - **Cost:** semantic biomes can be cheap; persistent vegetation, competition,
   disturbance and fine tree placement can become large state/render problems.
-- **Pareto posture:** **Selected proposed V0.** Implement equilibrium fractional
-  physiognomy before labels: global limitations, vegetation coverage, optional
-  regions and visible tree representation need not share one fidelity or
-  resolution. See [Living Surface V0](living-surface.md).
+- **Pareto posture:** **Accepted bounded layer.** Equilibrium fractional
+  physiognomy is implemented on demand and its linear presentation is
+  selectable. Regions, biome calibration and richer vegetation remain separate
+  gated decisions. See [Living Surface V0](living-surface.md).
 
 ### Culture, settlement and civilization
 
@@ -255,10 +255,11 @@ the integrated planet.
 - **Cost:** extremely elastic; a deep agent simulation could eclipse the planet
   generator, while grounded settlement/route/cultural diffusion models may
   yield much of the visible narrative value.
-- **Pareto posture:** **Missing horizon, not near-term commitment.** Preserve
-  geography-derived affordances and semantic regions now so later human systems
-  can consume coherent inputs. Choose eventual depth by emergent narrative and
-  visual/game payoff rather than simulation completeness.
+- **Pareto posture:** **Consequential Geography V0 selected as a bounded
+  semantic/product slice.** It tests aggregate sites and routes without claiming
+  population, history or civilization simulation. Deeper human systems remain
+  a future portfolio choice. See the
+  [V0 decision](consequential-geography.md).
 
 ## Semantic and presentation systems
 

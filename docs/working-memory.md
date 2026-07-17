@@ -18,8 +18,8 @@ it become a chronological activity log.
 Surface have completed their bounded decisions. The current roadmap selects two
 different kinds of next work: contract the oversized product/experiment surface
 immediately, then build Consequential Geography V0 as the next product slice.
-That slice uses traversability, water/coast access, living opportunity, broad
-affordances, aggregate settlements and routes to test whether the existing
+That slice uses traversability, water/coast access, named relative living
+opportunity, aggregate sites and routes to test whether the existing
 planetary systems matter together. Structural mountain organization remains the
 highest-priority model rework, but it gets one product-native belt contract—not
 another H/C/G/I campaign. Sediment and richer ecology do not advance by
