@@ -7,6 +7,7 @@
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 
+use glam::Vec3;
 use serde::Serialize;
 
 use super::{
@@ -176,7 +177,7 @@ pub struct AggregateSite {
     /// greedy admission rather than claimed as persistent world identity.
     pub id: usize,
     pub anchor_cell: usize,
-    pub candidate_preselection_rank: usize,
+    pub candidate_support_rank: usize,
     pub freshwater_source: bool,
     pub nearest_freshwater_source_cell: usize,
     pub nearest_freshwater_source_kind: FreshwaterSourceKind,
@@ -208,18 +209,47 @@ pub struct AggregateSite {
     pub required_spacing_km: f32,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct SiteRelationshipClassCounts {
+    pub joint_freshwater_and_coast_exact_source: usize,
+    pub freshwater_only_exact_source: usize,
+    pub coast_only_exact_source: usize,
+    pub neither_exact_source_but_freshwater_viable: usize,
+}
+
+impl SiteRelationshipClassCounts {
+    pub fn total(self) -> usize {
+        self.joint_freshwater_and_coast_exact_source
+            + self.freshwater_only_exact_source
+            + self.coast_only_exact_source
+            + self.neither_exact_source_but_freshwater_viable
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct SiteTierRelationshipCensus {
+    pub eligible: SiteRelationshipClassCounts,
+    pub preselected: SiteRelationshipClassCounts,
+    pub catchment_passed: SiteRelationshipClassCounts,
+    pub selected: SiteRelationshipClassCounts,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct AggregateSiteSelection {
     pub config: SiteSelectionConfig,
     pub traversal: TraversalConfig,
     pub aggregate_river_policy: RiverThresholdPolicy,
     pub eligible_cell_count: usize,
-    pub local_maximum_candidate_count: usize,
-    pub preselected_candidate_count: usize,
+    /// Factor-neutral maximin cover of the hard-eligible domain, in proposal
+    /// order. Bounded to `config.candidate_pool_size <= 512` cells.
+    pub candidate_support_anchor_cells: Vec<usize>,
+    pub candidate_support_count: usize,
+    pub candidate_support_rule: &'static str,
     pub catchment_rejected_count: usize,
-    pub candidate_pool_count: usize,
+    pub catchment_passed_candidate_count: usize,
     pub catchment_search_count: usize,
     pub catchment_visited_cell_count: usize,
+    pub tier_relationship_census: SiteTierRelationshipCensus,
     pub sites: Vec<AggregateSite>,
     pub site_shortfall: usize,
     pub spacing_suppressed_candidate_count: usize,
@@ -405,12 +435,6 @@ impl ConsequentialGeographyComponents {
 }
 
 #[derive(Clone, Copy, Debug)]
-struct RankedCandidate {
-    cell: usize,
-    preliminary_score: f32,
-}
-
-#[derive(Clone, Copy, Debug)]
 struct CatchmentCell {
     cell: usize,
     access_weight: f32,
@@ -420,7 +444,7 @@ struct CatchmentCell {
 #[derive(Clone, Debug)]
 struct EvaluatedCandidate {
     anchor_cell: usize,
-    preselection_rank: usize,
+    support_rank: usize,
     local_trimmed_mean_absolute_grade: f32,
     freshwater_access_generalized_km: f32,
     freshwater_factor: f32,
@@ -445,8 +469,8 @@ fn select_sites_from_fields(
     config: SiteSelectionConfig,
 ) -> Result<AggregateSiteSelection, &'static str> {
     let n = tessellation.num_cells();
-    let mut proposal_scores = vec![f32::NEG_INFINITY; n];
-    let mut eligible_cell_count = 0;
+    let mut local_grades = vec![f32::INFINITY; n];
+    let mut eligible_cells = Vec::new();
     for cell in 0..n {
         if submerged[cell] {
             continue;
@@ -466,77 +490,24 @@ fn select_sites_from_fields(
         if local_grade > config.maximum_local_trimmed_mean_grade {
             continue;
         }
-        let coast_proximity = coast_proximity_factor(
-            components.coast_access_generalized_km[cell],
-            config.coast_access_scale_generalized_km,
-        );
-        let coast_multiplier = 1.0 + config.coast_bonus * coast_proximity;
-        let living_margin = if config.minimum_local_living_opportunity < 1.0 {
-            (local_living - config.minimum_local_living_opportunity)
-                / (1.0 - config.minimum_local_living_opportunity)
-        } else {
-            1.0
-        };
-        let freshwater_margin =
-            1.0 - freshwater_access / config.freshwater_access_limit_generalized_km;
-        let terrain_margin = 1.0 - local_grade / config.maximum_local_trimmed_mean_grade;
-        proposal_scores[cell] = living_margin
-            .min(freshwater_margin)
-            .min(terrain_margin)
-            .max(0.0)
-            * coast_multiplier;
-        eligible_cell_count += 1;
+        local_grades[cell] = local_grade;
+        eligible_cells.push(cell);
     }
 
-    let mut ranked = Vec::new();
-    for cell in 0..n {
-        let score = proposal_scores[cell];
-        if !score.is_finite() {
-            continue;
-        }
-        let is_local_maximum = tessellation.neighbors(cell).iter().all(|&neighbor| {
-            proposal_scores[neighbor] < score
-                || (proposal_scores[neighbor].to_bits() == score.to_bits() && neighbor > cell)
-        });
-        if is_local_maximum {
-            ranked.push(RankedCandidate {
-                cell,
-                preliminary_score: score,
-            });
-        }
-    }
-    let local_maximum_candidate_count = ranked.len();
-    ranked.sort_unstable_by(|a, b| {
-        b.preliminary_score
-            .total_cmp(&a.preliminary_score)
-            .then_with(|| a.cell.cmp(&b.cell))
-    });
-
-    let mut pool_cells = Vec::with_capacity(config.candidate_pool_size);
-    for (rank, candidate) in ranked.into_iter().enumerate() {
-        if pool_cells.iter().all(|&(accepted, _)| {
-            physical_distance_km(tessellation, candidate.cell, accepted)
-                >= config.candidate_spacing_km
-        }) {
-            pool_cells.push((candidate.cell, rank + 1));
-            if pool_cells.len() == config.candidate_pool_size {
-                break;
-            }
-        }
-    }
-
-    let preselected_candidate_count = pool_cells.len();
+    let eligible_cell_count = eligible_cells.len();
+    let candidate_support_anchor_cells = spatial_maximin_candidate_support(
+        tessellation,
+        &eligible_cells,
+        config.candidate_pool_size,
+        config.candidate_spacing_km,
+    );
+    let candidate_support_count = candidate_support_anchor_cells.len();
     let areas = tessellation.cell_areas_ref();
     let mut distance_scratch = vec![f32::INFINITY; n];
-    let mut candidates = Vec::with_capacity(pool_cells.len());
+    let mut candidates = Vec::with_capacity(candidate_support_count);
     let mut catchment_visited_cell_count = 0usize;
-    for (anchor_cell, preselection_rank) in pool_cells {
-        let local_grade = local_trimmed_mean_absolute_land_grade(
-            tessellation,
-            elevation,
-            submerged,
-            anchor_cell,
-        )?;
+    for (support_index, &anchor_cell) in candidate_support_anchor_cells.iter().enumerate() {
+        let local_grade = local_grades[anchor_cell];
         let freshwater_access = components.freshwater_access_generalized_km[anchor_cell]
             .ok_or("preselected site lost freshwater access")?;
         let freshwater_factor = limiting_factor(
@@ -570,7 +541,7 @@ fn select_sites_from_fields(
         }
         candidates.push(EvaluatedCandidate {
             anchor_cell,
-            preselection_rank,
+            support_rank: support_index + 1,
             local_trimmed_mean_absolute_grade: local_grade,
             freshwater_access_generalized_km: freshwater_access,
             freshwater_factor,
@@ -589,9 +560,9 @@ fn select_sites_from_fields(
         });
     }
 
-    let candidate_pool_count = candidates.len();
-    let catchment_rejected_count = preselected_candidate_count - candidate_pool_count;
-    let mut admitted = vec![false; candidate_pool_count];
+    let catchment_passed_candidate_count = candidates.len();
+    let catchment_rejected_count = candidate_support_count - catchment_passed_candidate_count;
+    let mut admitted = vec![false; catchment_passed_candidate_count];
     let mut claimed_access_weight = vec![0.0f32; n];
     let mut sites = Vec::with_capacity(config.site_count);
     let mut stopped_for_no_unclaimed_opportunity = false;
@@ -663,7 +634,7 @@ fn select_sites_from_fields(
         sites.push(AggregateSite {
             id: sites.len(),
             anchor_cell: candidate.anchor_cell,
-            candidate_preselection_rank: candidate.preselection_rank,
+            candidate_support_rank: candidate.support_rank,
             freshwater_source: components.freshwater_source[candidate.anchor_cell],
             nearest_freshwater_source_cell,
             nearest_freshwater_source_kind,
@@ -712,22 +683,131 @@ fn select_sites_from_fields(
     } else {
         SiteSelectionStopReason::CandidateOrSpacingExhausted
     };
+    let catchment_passed_cells: Vec<usize> = candidates
+        .iter()
+        .map(|candidate| candidate.anchor_cell)
+        .collect();
+    let selected_cells: Vec<usize> = sites.iter().map(|site| site.anchor_cell).collect();
+    let tier_relationship_census = SiteTierRelationshipCensus {
+        eligible: relationship_class_counts(&eligible_cells, components, config),
+        preselected: relationship_class_counts(&candidate_support_anchor_cells, components, config),
+        catchment_passed: relationship_class_counts(&catchment_passed_cells, components, config),
+        selected: relationship_class_counts(&selected_cells, components, config),
+    };
     Ok(AggregateSiteSelection {
         config,
         traversal: components.traversal,
         aggregate_river_policy: components.aggregate_river_policy,
         eligible_cell_count,
-        local_maximum_candidate_count,
-        preselected_candidate_count,
+        candidate_support_anchor_cells,
+        candidate_support_count,
+        candidate_support_rule: "first hard-eligible cell by ascending cell ID; then repeatedly maximize minimum squared chord distance to existing support with lower cell ID breaking exact ties; stop at candidate pool size or candidate-spacing chord threshold",
         catchment_rejected_count,
-        candidate_pool_count,
-        catchment_search_count: preselected_candidate_count,
+        catchment_passed_candidate_count,
+        catchment_search_count: candidate_support_count,
         catchment_visited_cell_count,
+        tier_relationship_census,
         site_shortfall: config.site_count - sites.len(),
         sites,
         spacing_suppressed_candidate_count,
         stop_reason,
     })
+}
+
+fn spatial_maximin_candidate_support(
+    tessellation: &Tessellation,
+    eligible_cells: &[usize],
+    maximum_count: usize,
+    minimum_spacing_km: f32,
+) -> Vec<usize> {
+    if eligible_cells.is_empty() || maximum_count == 0 {
+        return Vec::new();
+    }
+    debug_assert!(eligible_cells.windows(2).all(|pair| pair[0] < pair[1]));
+    let minimum_chord_squared = if minimum_spacing_km > std::f32::consts::PI * PLANET_RADIUS_KM {
+        f32::INFINITY
+    } else {
+        let angle = minimum_spacing_km / PLANET_RADIUS_KM;
+        let chord = 2.0 * (0.5 * angle).sin();
+        chord * chord
+    };
+    let positions: Vec<Vec3> = eligible_cells
+        .iter()
+        .map(|&cell| tessellation.cell_center(cell))
+        .collect();
+    let first = eligible_cells[0];
+    let first_position = positions[0];
+    let mut support = Vec::with_capacity(maximum_count.min(eligible_cells.len()));
+    support.push(first);
+    let mut minimum_chord_squared_by_eligible = Vec::with_capacity(eligible_cells.len());
+    minimum_chord_squared_by_eligible.push(f32::INFINITY);
+    for &position in positions.iter().skip(1) {
+        minimum_chord_squared_by_eligible.push((position - first_position).length_squared());
+    }
+    while support.len() < maximum_count && support.len() < eligible_cells.len() {
+        let mut next: Option<(usize, usize, f32)> = None;
+        for (eligible_index, (&cell, &separation)) in eligible_cells
+            .iter()
+            .zip(&minimum_chord_squared_by_eligible)
+            .enumerate()
+        {
+            if !separation.is_finite() {
+                continue;
+            }
+            if next.is_none_or(|(_, best_cell, best_separation)| {
+                separation > best_separation
+                    || (separation.to_bits() == best_separation.to_bits() && cell < best_cell)
+            }) {
+                next = Some((eligible_index, cell, separation));
+            }
+        }
+        let Some((eligible_index, cell, separation)) = next else {
+            break;
+        };
+        if separation < minimum_chord_squared {
+            break;
+        }
+        support.push(cell);
+        minimum_chord_squared_by_eligible[eligible_index] = f32::INFINITY;
+        let position = positions[eligible_index];
+        for (&other_position, minimum) in
+            positions.iter().zip(&mut minimum_chord_squared_by_eligible)
+        {
+            if minimum.is_finite() {
+                let chord_squared = (other_position - position).length_squared();
+                *minimum = minimum.min(chord_squared);
+            }
+        }
+    }
+    support
+}
+
+fn relationship_class_counts(
+    cells: &[usize],
+    components: &ConsequentialGeographyComponents,
+    config: SiteSelectionConfig,
+) -> SiteRelationshipClassCounts {
+    let mut counts = SiteRelationshipClassCounts::default();
+    for &cell in cells {
+        match (
+            components.freshwater_source[cell],
+            components.coast_source[cell],
+        ) {
+            (true, true) => counts.joint_freshwater_and_coast_exact_source += 1,
+            (true, false) => counts.freshwater_only_exact_source += 1,
+            (false, true) => counts.coast_only_exact_source += 1,
+            (false, false)
+                if components.freshwater_access_generalized_km[cell].is_some_and(|access| {
+                    access <= config.freshwater_access_limit_generalized_km
+                }) =>
+            {
+                counts.neither_exact_source_but_freshwater_viable += 1;
+            }
+            (false, false) => {}
+        }
+    }
+    debug_assert_eq!(counts.total(), cells.len());
+    counts
 }
 
 fn unclaimed_living_opportunity(catchment: &[CatchmentCell], claimed_access_weight: &[f32]) -> f32 {
@@ -1381,6 +1461,39 @@ mod tests {
         let first_cells: Vec<usize> = first.sites.iter().map(|site| site.anchor_cell).collect();
         let second_cells: Vec<usize> = second.sites.iter().map(|site| site.anchor_cell).collect();
         assert_eq!(first_cells, second_cells);
+        assert_eq!(
+            first.candidate_support_anchor_cells,
+            second.candidate_support_anchor_cells
+        );
+        assert_eq!(
+            first.candidate_support_count,
+            first.candidate_support_anchor_cells.len()
+        );
+        assert!(first.candidate_support_count <= selection_config.candidate_pool_size);
+        assert_eq!(
+            first.tier_relationship_census.eligible.total(),
+            first.eligible_cell_count
+        );
+        assert_eq!(
+            first.tier_relationship_census.preselected.total(),
+            first.candidate_support_count
+        );
+        assert_eq!(
+            first.tier_relationship_census.catchment_passed.total(),
+            first.catchment_passed_candidate_count
+        );
+        assert_eq!(
+            first.tier_relationship_census.selected.total(),
+            first.sites.len()
+        );
+        for (index, &cell) in first.candidate_support_anchor_cells.iter().enumerate() {
+            for &other in first.candidate_support_anchor_cells.iter().skip(index + 1) {
+                assert!(
+                    physical_distance_km(&tess, cell, other)
+                        >= selection_config.candidate_spacing_km
+                );
+            }
+        }
         assert_eq!(first.sites.len(), 12);
         assert!(first
             .sites
@@ -1395,6 +1508,107 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn candidate_support_is_neutral_to_coast_bonus() {
+        let tess = tessellation(600);
+        let n = tess.num_cells();
+        let elevation = vec![0.0; n];
+        let submerged = vec![false; n];
+        let mut components = synthetic_components(
+            (0..n)
+                .map(|cell| 0.1 + 0.9 * (0.5 + 0.5 * tess.cell_center(cell).x))
+                .collect(),
+        );
+        components.coast_access_generalized_km = (0..n)
+            .map(|cell| Some(500.0 * (0.5 + 0.5 * tess.cell_center(cell).z)))
+            .collect();
+        let mut no_bonus = site_config();
+        no_bonus.candidate_pool_size = 80;
+        no_bonus.candidate_spacing_km = 200.0;
+        no_bonus.minimum_site_spacing_km = 200.0;
+        no_bonus.catchment_budget_generalized_km = 600.0;
+        no_bonus.coast_bonus = 0.0;
+        let mut full_bonus = no_bonus;
+        full_bonus.coast_bonus = 1.0;
+
+        let without = select_sites_from_fields(
+            &tess,
+            &elevation,
+            &submerged,
+            &components,
+            no_bonus.validate().unwrap(),
+        )
+        .unwrap();
+        let with = select_sites_from_fields(
+            &tess,
+            &elevation,
+            &submerged,
+            &components,
+            full_bonus.validate().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            without.candidate_support_anchor_cells,
+            with.candidate_support_anchor_cells
+        );
+    }
+
+    #[test]
+    fn broad_catchment_can_win_despite_lower_point_opportunity() {
+        let tess = tessellation(900);
+        let n = tess.num_cells();
+        let elevation = vec![0.0; n];
+        let submerged = vec![false; n];
+        let mut selection_config = site_config();
+        selection_config.candidate_pool_size = 64;
+        selection_config.candidate_spacing_km = 200.0;
+        selection_config.minimum_site_spacing_km = 200.0;
+        selection_config.catchment_budget_generalized_km = 1_500.0;
+        selection_config.minimum_local_living_opportunity = 0.0;
+        selection_config.coast_bonus = 0.0;
+        let selection_config = selection_config.validate().unwrap();
+        let eligible: Vec<usize> = (0..n).collect();
+        let support = spatial_maximin_candidate_support(
+            &tess,
+            &eligible,
+            selection_config.candidate_pool_size,
+            selection_config.candidate_spacing_km,
+        );
+        let rich_anchor = support[10];
+        let point_favorite = support
+            .iter()
+            .copied()
+            .max_by(|&a, &b| {
+                physical_distance_km(&tess, rich_anchor, a).total_cmp(&physical_distance_km(
+                    &tess,
+                    rich_anchor,
+                    b,
+                ))
+            })
+            .unwrap();
+        let mut living = vec![0.05; n];
+        for (cell, opportunity) in living.iter_mut().enumerate() {
+            if physical_distance_km(&tess, rich_anchor, cell) <= 1_100.0 {
+                *opportunity = 1.0;
+            }
+        }
+        for &cell in &support {
+            living[cell] = 0.20;
+        }
+        living[point_favorite] = 1.0;
+        let components = synthetic_components(living);
+        let selection =
+            select_sites_from_fields(&tess, &elevation, &submerged, &components, selection_config)
+                .unwrap();
+
+        assert_eq!(selection.sites[0].anchor_cell, rich_anchor);
+        assert!(
+            components.relative_living_opportunity[rich_anchor]
+                < components.relative_living_opportunity[point_favorite]
+        );
+        assert_eq!(selection.sites[0].local_living_opportunity, 0.20);
     }
 
     #[test]
