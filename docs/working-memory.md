@@ -119,6 +119,22 @@ drainage/hillslope/ridge hierarchy, or pilot-driven refinement must supply
 physical samples where that hierarchy matters; styling existing trunks is not
 enough.
 
+The first fixed-budget pilot-density experiment also rejects a tempting but
+insufficient interpretation of adaptivity. Fine generation already runs a
+cheap 100k coarse-hydrology preview before density allocation. A robust pilot
+coupled tectonic activity to stream-power opportunity or ambiguous headwater
+routing, then mean-normalized it to preserve the baseline 1,552,892-cell
+uncapped integral, ocean prior and 250k cap. It realized 255,750 cells versus
+255,866 control and reduced the density ratio from 3,629:1 to 2,355:1, but
+coarsened finest-land p1 spacing from 6.7 to 8.2 km, reduced semantic river
+cells from 12,835 to 11,719, lowered maximum slope about 9%, left checkerboard
+fraction unchanged and did not improve the tableland or close the native-1M
+gap. “Less dominated” is not itself the objective. Coarse receiver ambiguity
+cannot predict branching detail absent from the coarse surface. Retain
+pilot-driven adaptivity as an architecture option only if the pilot observes
+an intermediate response solve or informative local probes; do not add another
+scalar blend of the existing coarse slope/flow/activity fields.
+
 ## Recent lithosphere result
 
 Seed `12345`'s terrain-blind source remains episode 0 /
