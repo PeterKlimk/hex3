@@ -211,6 +211,18 @@ hierarchy needs selective refinement, an adaptive-aware semantic threshold or
 a compatible sub-grid representation. Compare future resolutions at fixed
 effective semantic scale, never at the current moving default floor.
 
+A matched visual packet now awaits human review under
+`artifacts/captures/seed-12345-resolution-visual-v0/`. It holds the river target
+fixed at an actually represented 10,000 km² for both 255,866 and 997,486 cells,
+uses identical globe, highest-peak and broadest-range cameras, and pairs
+Physical (`0.0015696123`) with Authentic (`0.04`) relief. This is the visual
+decision point: judge whether 1M contributes readable geographic structure at
+globe or regional scale, whether the extra detail survives Physical, and
+whether either resolution changes the smooth-roof defect. Generation plus the
+integrated render path cost 26.74 s / 988,920 KiB at 250k versus 88.51 s /
+1,730,212 KiB at 1M, both with fine-cache hits. Do not interpret the packet
+before human review or turn file-size/facet differences into a promotion.
+
 ## Recent lithosphere result
 
 Seed `12345`'s terrain-blind source remains episode 0 /
