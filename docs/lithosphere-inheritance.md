@@ -1,7 +1,8 @@
 # Lithosphere Inheritance V0 decision
 
-Status: **source state and explicit relationship semantics implemented on
-demand; generated history assignment incomplete and not promoted**, 2026-07-18.
+Status: **source-only chronological history and initial consumer audit complete;
+assembly/suture prior retained experimentally, paleorift arm not justified, and
+nothing promoted into the product**, 2026-07-18.
 
 This decision follows the source-only failure in
 [Structural Mountain V0](structural-mountain.md). It chooses the smallest
@@ -182,9 +183,9 @@ scalar score again becomes independent hot-spot selection, or if the graph has
 no useful consumer beyond mountain styling. Do not tune terrain to rescue the
 state seam.
 
-## Source-only implementation checkpoint
+## Basement skeleton checkpoint
 
-The first implementation now generates deterministic basement provinces inside
+The first implementation generated deterministic basement provinces inside
 the existing continental/craton envelope and compiles every exact internal
 province contact into a typed spherical graph. It also exposes one generic
 plate-boundary relationship query: a boundary may be unrelated, coincide with
@@ -193,16 +194,12 @@ geometric endpoint incidence and the minimum unoriented tangent angle reported.
 The canonical cell-edge identity now belongs to tessellation rather than the
 mountain module.
 
-This is deliberately an on-demand diagnostic seam. It is not retained in
-`World`, selected by the ordinary product, cached, or read by elevation,
-drainage, semantics or rendering. The current generator emits candidate
-basement contacts, not sutures: assigning geological history is precisely the
-unresolved next step. The type system and explicit relationship layer can carry
-sutures, inherited rifts and transfer links, but the generator emits none of
-them; finite generated history, maturity, competence and current-episode damage
-do not yet exist. Divergent boundaries now have a separate inert application
-assessment, but it is not yet a causal response because no rift localization or
-terrain changes.
+This was deliberately built first as an on-demand diagnostic seam. It is not
+retained in `World`, selected by the ordinary product, cached, or read by
+elevation, drainage, semantics or rendering. At this checkpoint the generator
+emitted candidate basement contacts only. Divergent boundaries gained a
+separate inert application assessment, but not a localization response or
+terrain consequence.
 
 The fixed seed `12345` report at 100,000 coarse cells records:
 
@@ -251,7 +248,9 @@ Unreferenced endpoints remain tips. Candidate `BasementContact` segments cannot
 participate in these relationships; they must first receive an explicit suture
 or inherited-rift interpretation. Every endpoint can belong to at most one
 relationship, and canonical endpoint ordering makes serialization deterministic.
-The generated basement skeleton emits an empty relationship set.
+The basement skeleton emits an empty relationship set. Generated history also
+leaves it empty unless an event supplies an exact relationship; it does not turn
+incidence into geology.
 
 The decisive manufactured counterfactual now passes. Four arms with identical
 vertex geometry and an explicit crossing-unlinked declaration compile into two
@@ -276,11 +275,112 @@ localization. The retained report is
 [`generated/lithosphere-inheritance-seed-12345-v1.json`](generated/lithosphere-inheritance-seed-12345-v1.json).
 
 This passes the explicit-topology and manufactured multi-consumer semantics gate.
-It does not pass generated-world causality. The next principled task is to decide
-and test a source-only prior that selects a finite, sparse history of sutures,
-inherited rifts and transfer links without observing plates, target mountains or
-terrain. Do not connect the relationship layer to terrain before that prior
-produces coherent fixed-corpus collision and rift evidence.
+
+## Chronological source-history checkpoint
+
+The selected prior is chronological rather than a random structural mask:
+
+```text
+coherent basement provinces
+  -> per-craton terrane assembly forest
+  -> finite preserved portions of assembly sutures
+later independent extension axes
+  -> finite intra-province paleorift traces
+present collision/rifting
+  -> typed application only
+```
+
+Each assembly event joins two previously separate terrane components. Only a
+bounded physical-length portion of its contact remains as named inherited
+structure; the rest stays an ordinary candidate basement contact. This keeps the
+history causally sufficient to assemble each generated craton without claiming
+that every contact or the whole original suture is preserved equally.
+
+After assembly, at most four cratons receive one later paleorift event. Its host
+province and latent great-circle axis are selected without present plates or
+terrain. The trace follows a simple exact Voronoi-edge path inside that province
+to a target measured in kilometres, bounded by host scale. This is a coarse
+rift-system envelope, not a claim that natural faults follow cell edges.
+
+Every named edge and compiled segment carries its chronological source event.
+Candidate contacts carry none, and source-event identity is part of segment
+chaining, so coincident histories cannot merge accidentally. A validator checks
+that assembly events own only sutures between different provinces, paleorift
+events own only intra-province rifts, all events own support, and explicit
+relationship topology remains valid.
+
+Basement and history seeds are independently controllable. Resampling only
+history must leave cell/province ownership and the complete candidate-contact
+geometry fixed while changing which finite traces are named. This is the key
+causal counterfactual; present plates, dynamics, features, mountains, elevation,
+hydrology and rendering are absent from the generator API.
+
+V0 intentionally generates no transfer, junction or crossing relationships yet.
+Those semantics remain tested and available, but absence is more honest than a
+proximity repair or a mandatory showcase. Exact later reuse of an assembly
+suture is also deferred because the current one-event-per-edge provenance would
+have to become an overlay rather than overwrite the older event. The audit must
+show that this additional expressiveness pays before adding it.
+
+The next gate is therefore empirical, still before terrain: inspect physical
+trace scale and sparsity, verify the fixed-history counterfactual, and ask whether
+real continental-collision and continental-rift boundaries encounter useful
+named state. Do not connect the history to localization or topography before
+that evidence exists.
+
+## Initial source audit and verdict
+
+The compact source audit passes the assembly/suture representation gate but not
+the paleorift gate, and it does **not** reopen the reviewed mountain response.
+
+At seed `12345` and 100k coarse cells, 63 assembly events and four paleorift
+events name 42,956 km of structure against 179,107 km of original candidate
+contact. The named/contact length ratio is 24.0%; preserved sutures alone own
+22.3% of candidate-contact length. Of named length, 96.9% belongs to a
+segment at least 300 km long with at least four exact source edges, while 0.15%
+belongs to one-edge fragments. Median segment length is 570 km for sutures and
+725 km for paleorifts. On-demand generation takes about 0.07 seconds in the
+release audit.
+
+The assembly reduction is provisionally stable rather than edge-count stable.
+At 50k / 100k / 200k cells for seed `12345`, named/contact ratios are 21.1 /
+24.0 / 22.3%, coherent named shares are 93.7 / 96.9 / 96.7% and suture medians
+are 578 / 570 / 539 km. Paleorift medians are 483 / 725 / 405 km; four traces
+are too few and too unstable to support the same claim. The generated worlds
+themselves are not feature-identical across resolution; these are distributional
+checks only.
+
+At 100k cells, spot-check seeds `12345`, `8675309` and `1001` have named/contact
+ratios of 24.0, 18.7 and 22.5% and coherent named shares of 96.9, 92.1 and
+90.4%. Every world has named suture contacts under both real continental
+collision and real continental-rifting applications. Seed `12345` also has six
+collision edges contacting a paleorift. No tested continental-rifting edge
+contacts a named paleorift, and generated explicit relationship count remains
+zero. Suture reactivation therefore supplies the demonstrated second consumer;
+the new paleorift traces do not yet demonstrate a present rift-nucleation
+consumer.
+
+The fixed-basement counterfactual behaves correctly. Resampling only history at
+seed `12345` preserves candidate geometry exactly, changes named-edge Jaccard to
+0.153, keeps named length close (42,956 versus 43,429 km) and changes 51 current
+plate-boundary contact locations.
+
+Most importantly, all ten contacts on the selected 3,200 km collision parent
+remain unnamed candidate basement contacts. They carry no history event. The
+prior therefore supplies no new causal reason to divide that parent, and
+Structural Mountain V0 remains stopped at one finite continuous opportunity.
+Choosing another history seed until this target receives a convenient suture
+would violate the decision.
+
+Retain the assembly/suture generator as an inexpensive experimental source seam.
+The current paleorift arm is an implemented negative result: its physical-scale
+evidence is unstable and it has no demonstrated rift-nucleation consumer. Do not
+store either arm in `World`, tune them toward the reviewed mountain, or connect
+them to terrain. Before retaining or expanding paleorifts, transfer generation
+or multi-event edge overlays, require one genuine consumer that can use interior
+inherited rifts to alter where extension nucleates; the present boundary-contact
+query is not that mechanism. The retained seed report is
+[`generated/lithosphere-inheritance-seed-12345-v2.json`](generated/lithosphere-inheritance-seed-12345-v2.json).
 
 ## Consequences for current work
 

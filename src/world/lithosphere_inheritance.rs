@@ -2,9 +2,10 @@
 //!
 //! This module is deliberately upstream of terrain. It subdivides the existing
 //! continental envelope into coherent material provinces, compiles their exact
-//! Voronoi contacts into a candidate graph, and exposes geometric relationships to
-//! any plate boundary. It does not read or write elevation, drainage, erosion,
-//! semantic landforms, or presentation state.
+//! Voronoi contacts, and names a sparse subset through chronological assembly and
+//! paleorift source events. It exposes exact geometric relationships to any plate
+//! boundary. It does not read or write elevation, drainage, erosion, semantic
+//! landforms, or presentation state.
 
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap};
@@ -59,6 +60,37 @@ pub enum InheritedStructureKindV0 {
     TransferLink,
 }
 
+/// A source-only event that can name inherited structure without consulting
+/// present-day plates, dynamics, terrain, or rendering state.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LithosphereHistoryEventV0 {
+    pub id: u32,
+    /// Total chronological order within this generated source history.
+    pub sequence: u32,
+    pub craton_id: u32,
+    pub provenance: LithosphereHistoryEventProvenanceV0,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum LithosphereHistoryEventProvenanceV0 {
+    /// The preserved arc records the contact used to merge two previously
+    /// independent terrane components. Components are sorted canonically.
+    TerraneAssembly {
+        component_a: Vec<u32>,
+        component_b: Vec<u32>,
+    },
+    /// A later, independent extensional episode hosted by one constituent
+    /// basement province of the assembled craton.
+    /// The unit vector is the normal of the latent great-circle rift axis.
+    Paleorift { province_id: u32, latent_axis: Vec3 },
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+struct LithosphereSourceHistoryV0 {
+    events: Vec<LithosphereHistoryEventV0>,
+    graph: InheritedStructureGraphV0,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct InheritedStructureEdgeV0 {
     pub id: CellEdgeId,
@@ -70,6 +102,9 @@ pub struct InheritedStructureEdgeV0 {
     /// Canonically sorted province identity; V0 support carries no side polarity.
     pub provinces: [u32; 2],
     pub kind: InheritedStructureKindV0,
+    /// Source-history event that named this edge. Candidate basement contacts
+    /// deliberately carry no event.
+    pub history_event_id: Option<u32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -77,6 +112,9 @@ pub struct InheritedStructureSegmentV0 {
     pub id: u32,
     pub kind: InheritedStructureKindV0,
     pub provinces: [u32; 2],
+    /// Part of chain identity: different events cannot merge merely because
+    /// their exact geometry meets.
+    pub history_event_id: Option<u32>,
     pub source_edges: Vec<CellEdgeId>,
     pub vertices_in_order: Vec<u32>,
     pub closed: bool,
@@ -168,6 +206,7 @@ pub struct LithosphereInheritanceV0 {
     /// Province ID per coarse cell; `OCEANIC_BASEMENT_PROVINCE` over oceanic crust.
     pub cell_province: Vec<u32>,
     pub provinces: Vec<BasementProvinceV0>,
+    pub history_events: Vec<LithosphereHistoryEventV0>,
     pub graph: InheritedStructureGraphV0,
 }
 
@@ -236,6 +275,7 @@ pub enum LithosphereInheritanceErrorV0 {
     InvalidStructureRelationship(u32),
     MissingStructureSegment(u32),
     InvalidRelationshipMetadata,
+    InvalidHistoryEvent(u32),
 }
 
 impl std::fmt::Display for LithosphereInheritanceErrorV0 {
@@ -249,6 +289,26 @@ impl std::error::Error for LithosphereInheritanceErrorV0 {}
 /// Generate a deterministic, terrain-blind basement subdivision and contact graph.
 pub fn generate_lithosphere_inheritance_v0(
     seed: u64,
+    tessellation: &Tessellation,
+    crust: &Crust,
+    config: LithosphereInheritanceConfigV0,
+) -> Result<LithosphereInheritanceV0, LithosphereInheritanceErrorV0> {
+    generate_lithosphere_inheritance_with_history_seed_v0(
+        seed,
+        splitmix64(seed ^ 0x6869_7374_6f72_795f),
+        tessellation,
+        crust,
+        config,
+    )
+}
+
+/// Generate with independent basement and source-history seeds.
+///
+/// Changing only `history_seed` is guaranteed to preserve province ownership
+/// and the complete candidate basement-contact geometry.
+pub fn generate_lithosphere_inheritance_with_history_seed_v0(
+    basement_seed: u64,
+    history_seed: u64,
     tessellation: &Tessellation,
     crust: &Crust,
     config: LithosphereInheritanceConfigV0,
@@ -272,7 +332,7 @@ pub fn generate_lithosphere_inheritance_v0(
             .sum::<f64>();
         let count = province_count(cells.len(), area_km2, config);
         let seeds = farthest_point_seeds(
-            seed ^ u64::from(craton).wrapping_mul(0x9e37_79b9_7f4a_7c15),
+            basement_seed ^ u64::from(craton).wrapping_mul(0x9e37_79b9_7f4a_7c15),
             tessellation,
             cells,
             count,
@@ -308,7 +368,7 @@ pub fn generate_lithosphere_inheritance_v0(
         }
     }
 
-    let provinces = province_seeds
+    let provinces: Vec<BasementProvinceV0> = province_seeds
         .into_iter()
         .map(|(id, craton_id, seed_cell)| {
             let members = cell_province
@@ -330,13 +390,204 @@ pub fn generate_lithosphere_inheritance_v0(
             }
         })
         .collect();
-    let graph = compile_structure_graph(tessellation, crust, &cell_province)?;
+    let candidate_graph = compile_structure_graph(tessellation, crust, &cell_province)?;
+    let source_history = select_lithosphere_source_history_v0(
+        history_seed,
+        tessellation,
+        &provinces,
+        &cell_province,
+        &candidate_graph,
+    )?;
     Ok(LithosphereInheritanceV0 {
         config,
         cell_province,
         provinces,
-        graph,
+        history_events: source_history.events,
+        graph: source_history.graph,
     })
+}
+
+/// Resample source history while holding basement provinces and their candidate
+/// contact geometry fixed.
+///
+/// This is the causal seam for experiments: `history_seed` may change named
+/// sutures and paleorifts, but it cannot change province ownership or the exact
+/// candidate contacts supplied by the caller.
+fn select_lithosphere_source_history_v0(
+    history_seed: u64,
+    tessellation: &Tessellation,
+    provinces: &[BasementProvinceV0],
+    cell_province: &[u32],
+    candidate_graph: &InheritedStructureGraphV0,
+) -> Result<LithosphereSourceHistoryV0, LithosphereInheritanceErrorV0> {
+    if cell_province.len() != tessellation.num_cells()
+        || candidate_graph.edges.iter().any(|edge| {
+            edge.kind != InheritedStructureKindV0::BasementContact
+                || edge.history_event_id.is_some()
+        })
+    {
+        return Err(LithosphereInheritanceErrorV0::InvalidManufacturedGraph);
+    }
+    let province_craton: BTreeMap<_, _> = provinces
+        .iter()
+        .map(|province| (province.id, province.craton_id))
+        .collect();
+    if province_craton.len() != provinces.len() {
+        return Err(LithosphereInheritanceErrorV0::InvalidManufacturedGraph);
+    }
+
+    let mut contact_edges = BTreeMap::<[u32; 2], Vec<CellEdgeId>>::new();
+    for edge in &candidate_graph.edges {
+        let Some(&craton_a) = province_craton.get(&edge.provinces[0]) else {
+            return Err(LithosphereInheritanceErrorV0::InvalidProvinceContact(
+                edge.id,
+            ));
+        };
+        let Some(&craton_b) = province_craton.get(&edge.provinces[1]) else {
+            return Err(LithosphereInheritanceErrorV0::InvalidProvinceContact(
+                edge.id,
+            ));
+        };
+        if edge.provinces[0] == edge.provinces[1] {
+            return Err(LithosphereInheritanceErrorV0::InvalidProvinceContact(
+                edge.id,
+            ));
+        }
+        if craton_a != craton_b {
+            // A present craton envelope may touch another one. That exact edge
+            // remains an unnamed candidate; it is not evidence for either
+            // craton's internal assembly history.
+            continue;
+        }
+        contact_edges
+            .entry(edge.provinces)
+            .or_default()
+            .push(edge.id);
+    }
+
+    let mut contact_pairs: Vec<_> = contact_edges.keys().copied().collect();
+    contact_pairs.sort_by_key(|pair| {
+        (
+            splitmix64(
+                history_seed
+                    ^ u64::from(pair[0]).wrapping_mul(0x9e37_79b9_7f4a_7c15)
+                    ^ u64::from(pair[1]).wrapping_mul(0xbf58_476d_1ce4_e5b9),
+            ),
+            *pair,
+        )
+    });
+
+    let mut parent: BTreeMap<u32, u32> = provinces
+        .iter()
+        .map(|province| (province.id, province.id))
+        .collect();
+    let mut named = BTreeMap::<CellEdgeId, (InheritedStructureKindV0, u32)>::new();
+    let mut events = Vec::new();
+    for pair in contact_pairs {
+        let root_a = assembly_root(&mut parent, pair[0]);
+        let root_b = assembly_root(&mut parent, pair[1]);
+        if root_a == root_b {
+            continue;
+        }
+        let mut component_a = assembly_component_members(&mut parent, root_a);
+        let mut component_b = assembly_component_members(&mut parent, root_b);
+        if component_b < component_a {
+            std::mem::swap(&mut component_a, &mut component_b);
+        }
+        let event_id = events.len() as u32;
+        let craton_id = province_craton[&pair[0]];
+        events.push(LithosphereHistoryEventV0 {
+            id: event_id,
+            sequence: event_id,
+            craton_id,
+            provenance: LithosphereHistoryEventProvenanceV0::TerraneAssembly {
+                component_a,
+                component_b,
+            },
+        });
+        for edge in select_preserved_contact_arc(history_seed, event_id, pair, candidate_graph)? {
+            named.insert(edge, (InheritedStructureKindV0::Suture, event_id));
+        }
+        assembly_union(&mut parent, root_a, root_b);
+    }
+
+    let mut edges = candidate_graph.edges.clone();
+    for edge in &mut edges {
+        if let Some(&(kind, event_id)) = named.get(&edge.id) {
+            edge.kind = kind;
+            edge.history_event_id = Some(event_id);
+        }
+    }
+
+    // One later rift per craton, with a small global cap. These events are
+    // deliberately independent of assembly-pair selection and present plates.
+    let mut cratons = BTreeMap::<u32, Vec<&BasementProvinceV0>>::new();
+    for province in provinces {
+        if province.cell_count >= 8 {
+            cratons
+                .entry(province.craton_id)
+                .or_default()
+                .push(province);
+        }
+    }
+    let mut craton_ids: Vec<_> = cratons.keys().copied().collect();
+    craton_ids.sort_by_key(|&craton| {
+        (
+            splitmix64(history_seed ^ 0x7269_6674_5f63_7261 ^ u64::from(craton)),
+            craton,
+        )
+    });
+    craton_ids.truncate(4);
+    for craton_id in craton_ids {
+        let eligible = &cratons[&craton_id];
+        let province = eligible
+            .iter()
+            .min_by_key(|province| {
+                (
+                    splitmix64(
+                        history_seed
+                            ^ 0x7269_6674_5f70_726f
+                            ^ u64::from(province.id).wrapping_mul(0x94d0_49bb_1331_11eb),
+                    ),
+                    province.id,
+                )
+            })
+            .expect("craton map contains only eligible provinces");
+        let axis = latent_axis(history_seed, province.id);
+        let host_scale_km = province.area_km2.sqrt() as f32;
+        let maximum_length_km = (host_scale_km * 0.6).clamp(300.0, 1_500.0);
+        let unit = splitmix64(history_seed ^ 0x7269_6674_5f6c_656e ^ u64::from(province.id)) as f64
+            / u64::MAX as f64;
+        let target_length_km = 300.0 + (maximum_length_km - 300.0) * unit as f32;
+        let event_id = events.len() as u32;
+        let rift_edges = select_intra_province_rift_path(
+            history_seed,
+            event_id,
+            tessellation,
+            cell_province,
+            province.id,
+            axis,
+            target_length_km,
+        )?;
+        let rift_length_km: f32 = rift_edges.iter().map(|edge| edge.length_km).sum();
+        if rift_edges.len() < 2 || rift_length_km < target_length_km.min(250.0) {
+            continue;
+        }
+        events.push(LithosphereHistoryEventV0 {
+            id: event_id,
+            sequence: event_id,
+            craton_id,
+            provenance: LithosphereHistoryEventProvenanceV0::Paleorift {
+                province_id: province.id,
+                latent_axis: axis,
+            },
+        });
+        edges.extend(rift_edges);
+    }
+
+    let graph = compile_graph_from_edges(edges)?;
+    validate_lithosphere_source_history_v0(provinces, &events, &graph)?;
+    Ok(LithosphereSourceHistoryV0 { events, graph })
 }
 
 /// Describe the exact relationship between any plate boundary and inherited state.
@@ -723,6 +974,286 @@ fn assign_craton_provinces(
     }
 }
 
+fn assembly_root(parent: &mut BTreeMap<u32, u32>, province: u32) -> u32 {
+    let mut root = province;
+    while parent[&root] != root {
+        root = parent[&root];
+    }
+    let mut current = province;
+    while parent[&current] != current {
+        let next = parent[&current];
+        parent.insert(current, root);
+        current = next;
+    }
+    root
+}
+
+fn assembly_component_members(parent: &mut BTreeMap<u32, u32>, root: u32) -> Vec<u32> {
+    let provinces: Vec<_> = parent.keys().copied().collect();
+    provinces
+        .into_iter()
+        .filter(|&province| assembly_root(parent, province) == root)
+        .collect()
+}
+
+fn assembly_union(parent: &mut BTreeMap<u32, u32>, first: u32, second: u32) {
+    let (lower, higher) = if first < second {
+        (first, second)
+    } else {
+        (second, first)
+    };
+    parent.insert(higher, lower);
+}
+
+fn select_preserved_contact_arc(
+    history_seed: u64,
+    event_id: u32,
+    provinces: [u32; 2],
+    candidate_graph: &InheritedStructureGraphV0,
+) -> Result<Vec<CellEdgeId>, LithosphereInheritanceErrorV0> {
+    let mut candidates: Vec<_> = candidate_graph
+        .segments
+        .iter()
+        .filter(|segment| {
+            segment.kind == InheritedStructureKindV0::BasementContact
+                && segment.history_event_id.is_none()
+                && segment.provinces == provinces
+        })
+        .collect();
+    candidates.sort_by_key(|segment| {
+        (
+            splitmix64(
+                history_seed
+                    ^ 0x6173_7365_6d62_6c79
+                    ^ u64::from(event_id).wrapping_mul(0x9e37_79b9_7f4a_7c15)
+                    ^ u64::from(segment.id),
+            ),
+            segment.id,
+        )
+    });
+    let segment = candidates
+        .first()
+        .ok_or(LithosphereInheritanceErrorV0::InvalidManufacturedGraph)?;
+    let unit = splitmix64(
+        history_seed
+            ^ 0x7375_7475_7265_5f6e
+            ^ u64::from(event_id).wrapping_mul(0xbf58_476d_1ce4_e5b9),
+    ) as f64
+        / u64::MAX as f64;
+    let maximum_length_km = segment.length_km.min(1_200.0);
+    let minimum_length_km = maximum_length_km.min(200.0);
+    let target_length_km =
+        minimum_length_km + (maximum_length_km - minimum_length_km) * unit as f32;
+    let edge_lengths: BTreeMap<_, _> = candidate_graph
+        .edges
+        .iter()
+        .map(|edge| (edge.id, edge.length_km))
+        .collect();
+    let mut windows = Vec::new();
+    for start in 0..segment.source_edges.len() {
+        let mut length_km = 0.0;
+        for end in start..segment.source_edges.len() {
+            length_km += edge_lengths[&segment.source_edges[end]];
+            if length_km >= target_length_km {
+                windows.push((start, end + 1));
+                break;
+            }
+        }
+    }
+    if windows.is_empty() {
+        return Ok(segment.source_edges.clone());
+    }
+    let choice = (splitmix64(history_seed ^ 0x6172_635f_7374_6172 ^ u64::from(event_id)) as usize)
+        % windows.len();
+    let (start, end) = windows[choice];
+    Ok(segment.source_edges[start..end].to_vec())
+}
+
+fn latent_axis(history_seed: u64, province: u32) -> Vec3 {
+    let keyed = history_seed ^ u64::from(province).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+    let unit = |salt: u64| {
+        // The high 53 bits map exactly into [0, 1), avoiding the inclusive
+        // endpoint produced by division by `u64::MAX`.
+        ((splitmix64(keyed ^ salt) >> 11) as f64 * (1.0 / (1_u64 << 53) as f64)) as f32
+    };
+    let z = 1.0 - 2.0 * unit(0x6178_6973_5f7a_5f5f);
+    let azimuth = std::f32::consts::TAU * unit(0x6178_6973_5f70_6869);
+    let radial = (1.0 - z * z).max(0.0).sqrt();
+    Vec3::new(radial * azimuth.cos(), radial * azimuth.sin(), z)
+}
+
+fn select_intra_province_rift_path(
+    history_seed: u64,
+    event_id: u32,
+    tessellation: &Tessellation,
+    cell_province: &[u32],
+    province: u32,
+    axis: Vec3,
+    target_length_km: f32,
+) -> Result<Vec<InheritedStructureEdgeV0>, LithosphereInheritanceErrorV0> {
+    let mut available = Vec::new();
+    for cell_a in 0..tessellation.num_cells() {
+        if cell_province[cell_a] != province {
+            continue;
+        }
+        for &cell_b in tessellation.neighbors(cell_a) {
+            if cell_b <= cell_a || cell_province[cell_b] != province {
+                continue;
+            }
+            let id = CellEdgeId::new(cell_a, cell_b);
+            let vertices = tessellation
+                .shared_edge_vertices(cell_a, cell_b)
+                .ok_or(LithosphereInheritanceErrorV0::MissingSharedTopology(id))?;
+            let endpoints = vertices.map(|vertex| tessellation.voronoi.vertices[vertex as usize]);
+            let chord = endpoints[0].distance(endpoints[1]);
+            available.push(InheritedStructureEdgeV0 {
+                id,
+                cells: [cell_a, cell_b],
+                vertices,
+                endpoints,
+                length_km: 2.0 * (0.5 * chord).clamp(0.0, 1.0).asin() * PLANET_RADIUS_KM,
+                provinces: [province, province],
+                kind: InheritedStructureKindV0::InheritedRift,
+                history_event_id: Some(event_id),
+            });
+        }
+    }
+    if available.is_empty() {
+        return Ok(Vec::new());
+    }
+    available.sort_by_key(|edge| edge.id);
+    let mut incidence = BTreeMap::<u32, Vec<usize>>::new();
+    for (index, edge) in available.iter().enumerate() {
+        for vertex in edge.vertices {
+            incidence.entry(vertex).or_default().push(index);
+        }
+    }
+    let mut seeds: Vec<_> = (0..available.len()).collect();
+    seeds.sort_by_key(|&index| {
+        let edge = &available[index];
+        let midpoint = (edge.endpoints[0] + edge.endpoints[1]).normalize_or_zero();
+        (
+            OrderedFloat(axis.dot(midpoint).abs()),
+            splitmix64(history_seed ^ 0x7269_6674_5f73_6565 ^ edge_hash(edge.id)),
+            edge.id,
+        )
+    });
+
+    let mut best: Vec<usize> = Vec::new();
+    for &seed in seeds.iter().take(32) {
+        let path = grow_rift_path(
+            history_seed,
+            axis,
+            target_length_km,
+            seed,
+            &available,
+            &incidence,
+        );
+        let path_length_km: f32 = path.iter().map(|&index| available[index].length_km).sum();
+        let best_length_km: f32 = best.iter().map(|&index| available[index].length_km).sum();
+        if path_length_km.min(target_length_km) > best_length_km.min(target_length_km)
+            || (path_length_km.min(target_length_km) == best_length_km.min(target_length_km)
+                && path.len() < best.len())
+        {
+            best = path;
+        }
+        let selected_length_km: f32 = best.iter().map(|&index| available[index].length_km).sum();
+        if best.len() >= 2 && selected_length_km >= target_length_km {
+            break;
+        }
+    }
+    Ok(best
+        .into_iter()
+        .map(|index| available[index].clone())
+        .collect())
+}
+
+fn grow_rift_path(
+    history_seed: u64,
+    axis: Vec3,
+    target_length_km: f32,
+    seed: usize,
+    available: &[InheritedStructureEdgeV0],
+    incidence: &BTreeMap<u32, Vec<usize>>,
+) -> Vec<usize> {
+    let seed_edge = &available[seed];
+    let reverse = splitmix64(history_seed ^ edge_hash(seed_edge.id)) & 1 != 0;
+    let (mut front, mut back) = if reverse {
+        (seed_edge.vertices[1], seed_edge.vertices[0])
+    } else {
+        (seed_edge.vertices[0], seed_edge.vertices[1])
+    };
+    let mut path = vec![seed];
+    let mut length_km = seed_edge.length_km;
+    let mut used_edges = BTreeSet::from([seed]);
+    let mut used_vertices = BTreeSet::from([front, back]);
+    while (length_km < target_length_km || path.len() < 2) && path.len() < 64 {
+        let extension = [front, back]
+            .into_iter()
+            .enumerate()
+            .flat_map(|(side, vertex)| {
+                incidence
+                    .get(&vertex)
+                    .into_iter()
+                    .flatten()
+                    .copied()
+                    .map(move |edge| (side, vertex, edge))
+            })
+            .filter(|(_, vertex, edge)| {
+                if used_edges.contains(edge) {
+                    return false;
+                }
+                let candidate = &available[*edge];
+                let other = if candidate.vertices[0] == *vertex {
+                    candidate.vertices[1]
+                } else {
+                    candidate.vertices[0]
+                };
+                !used_vertices.contains(&other)
+            })
+            .min_by_key(|(_, vertex, edge)| {
+                let candidate = &available[*edge];
+                let origin = candidate.endpoints[usize::from(candidate.vertices[1] == *vertex)];
+                let target = candidate.endpoints[usize::from(candidate.vertices[0] == *vertex)];
+                let tangent = tangent_toward(origin, target);
+                let desired = axis.cross(origin).normalize_or_zero();
+                let midpoint =
+                    (candidate.endpoints[0] + candidate.endpoints[1]).normalize_or_zero();
+                let score = (1.0 - tangent.dot(desired).abs()) + axis.dot(midpoint).abs();
+                (
+                    OrderedFloat(score),
+                    splitmix64(history_seed ^ edge_hash(candidate.id)),
+                    candidate.id,
+                )
+            });
+        let Some((side, vertex, edge)) = extension else {
+            break;
+        };
+        let candidate = &available[edge];
+        let other = if candidate.vertices[0] == vertex {
+            candidate.vertices[1]
+        } else {
+            candidate.vertices[0]
+        };
+        used_edges.insert(edge);
+        used_vertices.insert(other);
+        length_km += candidate.length_km;
+        if side == 0 {
+            path.insert(0, edge);
+            front = other;
+        } else {
+            path.push(edge);
+            back = other;
+        }
+    }
+    path
+}
+
+fn edge_hash(edge: CellEdgeId) -> u64 {
+    (edge.cell_a as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15)
+        ^ (edge.cell_b as u64).wrapping_mul(0xbf58_476d_1ce4_e5b9)
+}
+
 fn compile_structure_graph(
     tessellation: &Tessellation,
     crust: &Crust,
@@ -758,6 +1289,7 @@ fn compile_structure_graph(
                 length_km,
                 provinces,
                 kind: InheritedStructureKindV0::BasementContact,
+                history_event_id: None,
             });
         }
     }
@@ -787,11 +1319,25 @@ fn compile_graph_from_edges(
         if visited.contains(&edge.id) {
             continue;
         }
-        let component = chain_component(edge.id, edge.provinces, edge.kind, &incidence, &by_id);
+        let component = chain_component(
+            edge.id,
+            edge.provinces,
+            edge.kind,
+            edge.history_event_id,
+            &incidence,
+            &by_id,
+        );
         let mut terminal: Option<(u32, CellEdgeId)> = None;
         for id in &component {
             for vertex in by_id[id].vertices {
-                if !continues_through(vertex, edge.provinces, edge.kind, &incidence, &by_id) {
+                if !continues_through(
+                    vertex,
+                    edge.provinces,
+                    edge.kind,
+                    edge.history_event_id,
+                    &incidence,
+                    &by_id,
+                ) {
                     terminal = Some(terminal.map_or((vertex, *id), |current| {
                         std::cmp::min(current, (vertex, *id))
                     }));
@@ -813,6 +1359,7 @@ fn compile_graph_from_edges(
             if !current_edge.vertices.contains(&from_vertex)
                 || current_edge.provinces != edge.provinces
                 || current_edge.kind != edge.kind
+                || current_edge.history_event_id != edge.history_event_id
             {
                 return Err(LithosphereInheritanceErrorV0::InvalidManufacturedGraph);
             }
@@ -828,7 +1375,14 @@ fn compile_graph_from_edges(
                 closed = true;
                 break;
             }
-            if !continues_through(to_vertex, edge.provinces, edge.kind, &incidence, &by_id) {
+            if !continues_through(
+                to_vertex,
+                edge.provinces,
+                edge.kind,
+                edge.history_event_id,
+                &incidence,
+                &by_id,
+            ) {
                 break;
             }
             let next = incidence[&to_vertex]
@@ -846,6 +1400,7 @@ fn compile_graph_from_edges(
             id: segments.len() as u32,
             kind: edge.kind,
             provinces: edge.provinces,
+            history_event_id: edge.history_event_id,
             source_edges,
             vertices_in_order,
             closed,
@@ -898,6 +1453,7 @@ fn continues_through(
     vertex: u32,
     provinces: [u32; 2],
     kind: InheritedStructureKindV0,
+    history_event_id: Option<u32>,
     incidence: &BTreeMap<u32, Vec<CellEdgeId>>,
     by_id: &BTreeMap<CellEdgeId, &InheritedStructureEdgeV0>,
 ) -> bool {
@@ -905,15 +1461,18 @@ fn continues_through(
         return false;
     };
     incident.len() == 2
-        && incident
-            .iter()
-            .all(|edge| by_id[edge].provinces == provinces && by_id[edge].kind == kind)
+        && incident.iter().all(|edge| {
+            by_id[edge].provinces == provinces
+                && by_id[edge].kind == kind
+                && by_id[edge].history_event_id == history_event_id
+        })
 }
 
 fn chain_component(
     seed: CellEdgeId,
     provinces: [u32; 2],
     kind: InheritedStructureKindV0,
+    history_event_id: Option<u32>,
     incidence: &BTreeMap<u32, Vec<CellEdgeId>>,
     by_id: &BTreeMap<CellEdgeId, &InheritedStructureEdgeV0>,
 ) -> BTreeSet<CellEdgeId> {
@@ -921,12 +1480,13 @@ fn chain_component(
     let mut frontier = vec![seed];
     while let Some(edge) = frontier.pop() {
         for &vertex in &by_id[&edge].vertices {
-            if !continues_through(vertex, provinces, kind, incidence, by_id) {
+            if !continues_through(vertex, provinces, kind, history_event_id, incidence, by_id) {
                 continue;
             }
             for &next in &incidence[&vertex] {
                 if by_id[&next].provinces == provinces
                     && by_id[&next].kind == kind
+                    && by_id[&next].history_event_id == history_event_id
                     && component.insert(next)
                 {
                     frontier.push(next);
@@ -935,6 +1495,183 @@ fn chain_component(
         }
     }
     component
+}
+
+/// Validate that every named edge and compiled segment has an explicit,
+/// kind-compatible source event, that candidate contacts do not, and that the
+/// event stream is a possible chronology for the supplied basement provinces.
+fn validate_lithosphere_source_history_v0(
+    provinces: &[BasementProvinceV0],
+    events: &[LithosphereHistoryEventV0],
+    graph: &InheritedStructureGraphV0,
+) -> Result<(), LithosphereInheritanceErrorV0> {
+    if events
+        .iter()
+        .enumerate()
+        .any(|(index, event)| event.id != index as u32 || event.sequence != event.id)
+    {
+        return Err(LithosphereInheritanceErrorV0::InvalidManufacturedGraph);
+    }
+
+    let province_craton: BTreeMap<_, _> = provinces
+        .iter()
+        .map(|province| (province.id, province.craton_id))
+        .collect();
+    if province_craton.len() != provinces.len() {
+        return Err(LithosphereInheritanceErrorV0::InvalidManufacturedGraph);
+    }
+    let mut parent: BTreeMap<_, _> = provinces
+        .iter()
+        .map(|province| (province.id, province.id))
+        .collect();
+    let mut reached_paleorifts = false;
+    for event in events {
+        match &event.provenance {
+            LithosphereHistoryEventProvenanceV0::TerraneAssembly {
+                component_a,
+                component_b,
+            } => {
+                if reached_paleorifts
+                    || !is_canonical_nonempty_component(component_a)
+                    || !is_canonical_nonempty_component(component_b)
+                    || component_a >= component_b
+                    || component_a
+                        .iter()
+                        .any(|province| component_b.binary_search(province).is_ok())
+                    || component_a
+                        .iter()
+                        .chain(component_b)
+                        .any(|province| province_craton.get(province) != Some(&event.craton_id))
+                {
+                    return Err(LithosphereInheritanceErrorV0::InvalidHistoryEvent(event.id));
+                }
+                let root_a = assembly_root(&mut parent, component_a[0]);
+                let root_b = assembly_root(&mut parent, component_b[0]);
+                if root_a == root_b
+                    || assembly_component_members(&mut parent, root_a) != *component_a
+                    || assembly_component_members(&mut parent, root_b) != *component_b
+                {
+                    return Err(LithosphereInheritanceErrorV0::InvalidHistoryEvent(event.id));
+                }
+                assembly_union(&mut parent, root_a, root_b);
+            }
+            LithosphereHistoryEventProvenanceV0::Paleorift {
+                province_id,
+                latent_axis,
+            } => {
+                reached_paleorifts = true;
+                if province_craton.get(province_id) != Some(&event.craton_id)
+                    || !latent_axis.is_finite()
+                    || (latent_axis.length_squared() - 1.0).abs() > 1.0e-4
+                {
+                    return Err(LithosphereInheritanceErrorV0::InvalidHistoryEvent(event.id));
+                }
+            }
+        }
+    }
+    let mut cratons = BTreeMap::<u32, Vec<u32>>::new();
+    for province in provinces {
+        cratons
+            .entry(province.craton_id)
+            .or_default()
+            .push(province.id);
+    }
+    for members in cratons.values() {
+        let roots: BTreeSet<_> = members
+            .iter()
+            .map(|&province| assembly_root(&mut parent, province))
+            .collect();
+        if roots.len() != 1 {
+            return Err(LithosphereInheritanceErrorV0::InvalidManufacturedGraph);
+        }
+    }
+
+    let mut used_events = BTreeSet::new();
+    for edge in &graph.edges {
+        validate_structure_source(edge.kind, edge.provinces, edge.history_event_id, events)?;
+        if let Some(event) = edge.history_event_id {
+            used_events.insert(event);
+        }
+    }
+    for segment in &graph.segments {
+        validate_structure_source(
+            segment.kind,
+            segment.provinces,
+            segment.history_event_id,
+            events,
+        )?;
+        if segment.source_edges.iter().any(|edge_id| {
+            graph
+                .edges
+                .binary_search_by_key(edge_id, |edge| edge.id)
+                .ok()
+                .is_none_or(|index| {
+                    let edge = &graph.edges[index];
+                    edge.kind != segment.kind
+                        || edge.provinces != segment.provinces
+                        || edge.history_event_id != segment.history_event_id
+                })
+        }) {
+            return Err(LithosphereInheritanceErrorV0::InvalidManufacturedGraph);
+        }
+    }
+    if used_events.len() != events.len() {
+        let missing = events
+            .iter()
+            .find(|event| !used_events.contains(&event.id))
+            .map_or(u32::MAX, |event| event.id);
+        return Err(LithosphereInheritanceErrorV0::InvalidHistoryEvent(missing));
+    }
+    validate_structure_relationships_v0(graph)
+}
+
+fn is_canonical_nonempty_component(component: &[u32]) -> bool {
+    !component.is_empty() && component.windows(2).all(|pair| pair[0] < pair[1])
+}
+
+fn validate_structure_source(
+    kind: InheritedStructureKindV0,
+    provinces: [u32; 2],
+    history_event_id: Option<u32>,
+    events: &[LithosphereHistoryEventV0],
+) -> Result<(), LithosphereInheritanceErrorV0> {
+    let Some(event_id) = history_event_id else {
+        return if kind == InheritedStructureKindV0::BasementContact {
+            Ok(())
+        } else {
+            Err(LithosphereInheritanceErrorV0::InvalidHistoryEvent(u32::MAX))
+        };
+    };
+    if kind == InheritedStructureKindV0::BasementContact {
+        return Err(LithosphereInheritanceErrorV0::InvalidHistoryEvent(event_id));
+    }
+    let event = events
+        .get(event_id as usize)
+        .filter(|event| event.id == event_id)
+        .ok_or(LithosphereInheritanceErrorV0::InvalidHistoryEvent(event_id))?;
+    let compatible = match (&event.provenance, kind) {
+        (
+            LithosphereHistoryEventProvenanceV0::TerraneAssembly {
+                component_a,
+                component_b,
+            },
+            InheritedStructureKindV0::Suture,
+        ) => {
+            provinces[0] != provinces[1]
+                && ((component_a.contains(&provinces[0]) && component_b.contains(&provinces[1]))
+                    || (component_a.contains(&provinces[1]) && component_b.contains(&provinces[0])))
+        }
+        (
+            LithosphereHistoryEventProvenanceV0::Paleorift { province_id, .. },
+            InheritedStructureKindV0::InheritedRift | InheritedStructureKindV0::TransferLink,
+        ) => provinces == [*province_id, *province_id],
+        _ => false,
+    };
+    if compatible {
+        Ok(())
+    } else {
+        Err(LithosphereInheritanceErrorV0::InvalidHistoryEvent(event_id))
+    }
 }
 
 /// Validate explicit geological relationships independently of geometric incidence.
@@ -1287,6 +2024,281 @@ mod tests {
     }
 
     #[test]
+    fn named_structure_is_sparse_and_has_chronological_source_provenance() {
+        let (_, _, inheritance) = generated(79, 2_000);
+        validate_lithosphere_source_history_v0(
+            &inheritance.provinces,
+            &inheritance.history_events,
+            &inheritance.graph,
+        )
+        .unwrap();
+        let named_edges = inheritance
+            .graph
+            .edges
+            .iter()
+            .filter(|edge| edge.kind != InheritedStructureKindV0::BasementContact)
+            .count();
+        let candidates = inheritance.graph.edges.len() - named_edges;
+        assert!(named_edges > 0);
+        assert!(candidates > named_edges);
+        assert!(inheritance.graph.relationships.is_empty());
+
+        let mut event_lengths = BTreeMap::<u32, f32>::new();
+        let maximum_edge_length = inheritance
+            .graph
+            .edges
+            .iter()
+            .map(|edge| edge.length_km)
+            .fold(0.0_f32, f32::max);
+        for edge in &inheritance.graph.edges {
+            match edge.kind {
+                InheritedStructureKindV0::BasementContact => {
+                    assert_eq!(edge.history_event_id, None);
+                }
+                InheritedStructureKindV0::Suture | InheritedStructureKindV0::InheritedRift => {
+                    *event_lengths
+                        .entry(edge.history_event_id.unwrap())
+                        .or_default() += edge.length_km;
+                }
+                InheritedStructureKindV0::TransferLink => {
+                    panic!("V0 generator does not invent transfer links")
+                }
+            }
+        }
+        assert_eq!(event_lengths.len(), inheritance.history_events.len());
+        for event in &inheritance.history_events {
+            let length_km = event_lengths[&event.id];
+            match event.provenance {
+                LithosphereHistoryEventProvenanceV0::TerraneAssembly { .. } => {
+                    assert!(length_km <= 1_200.0 + maximum_edge_length);
+                }
+                LithosphereHistoryEventProvenanceV0::Paleorift { .. } => {
+                    assert!(length_km >= 250.0);
+                    assert!(length_km <= 1_500.0 + maximum_edge_length);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn history_seed_resamples_names_without_moving_basement_geometry() {
+        let mut rng = ChaCha8Rng::seed_from_u64(80);
+        let tessellation = Tessellation::generate(2_000, 1, &mut rng);
+        let crust = Crust::generate(&tessellation, 3, 0.45, &mut rng);
+        let config = LithosphereInheritanceConfigV0 {
+            target_province_area_km2: 8_000_000.0,
+            maximum_provinces_per_craton: 8,
+            minimum_average_cells_per_province: 8,
+        };
+        let first = generate_lithosphere_inheritance_with_history_seed_v0(
+            80,
+            1,
+            &tessellation,
+            &crust,
+            config,
+        )
+        .unwrap();
+        let second = generate_lithosphere_inheritance_with_history_seed_v0(
+            80,
+            2,
+            &tessellation,
+            &crust,
+            config,
+        )
+        .unwrap();
+        assert_eq!(first.cell_province, second.cell_province);
+        assert_eq!(first.provinces, second.provinces);
+        assert_ne!(first.history_events, second.history_events);
+
+        let first_contacts: Vec<_> = first
+            .graph
+            .edges
+            .iter()
+            .filter(|edge| edge.provinces[0] != edge.provinces[1])
+            .map(|edge| {
+                (
+                    edge.id,
+                    edge.cells,
+                    edge.vertices,
+                    edge.endpoints,
+                    edge.length_km,
+                    edge.provinces,
+                )
+            })
+            .collect();
+        let second_contacts: Vec<_> = second
+            .graph
+            .edges
+            .iter()
+            .filter(|edge| edge.provinces[0] != edge.provinces[1])
+            .map(|edge| {
+                (
+                    edge.id,
+                    edge.cells,
+                    edge.vertices,
+                    edge.endpoints,
+                    edge.length_km,
+                    edge.provinces,
+                )
+            })
+            .collect();
+        assert_eq!(first_contacts, second_contacts);
+    }
+
+    #[test]
+    fn source_event_is_part_of_segment_chain_identity() {
+        let edge = |id: CellEdgeId, vertices, event| InheritedStructureEdgeV0 {
+            id,
+            cells: [id.cell_a, id.cell_b],
+            vertices,
+            endpoints: [Vec3::X, Vec3::Y],
+            length_km: 300.0,
+            provinces: [0, 0],
+            kind: InheritedStructureKindV0::InheritedRift,
+            history_event_id: Some(event),
+        };
+        let graph = compile_graph_from_edges(vec![
+            edge(CellEdgeId::new(0, 1), [10, 11], 0),
+            edge(CellEdgeId::new(2, 3), [11, 12], 1),
+        ])
+        .unwrap();
+        let events = vec![
+            LithosphereHistoryEventV0 {
+                id: 0,
+                sequence: 0,
+                craton_id: 0,
+                provenance: LithosphereHistoryEventProvenanceV0::Paleorift {
+                    province_id: 0,
+                    latent_axis: Vec3::Z,
+                },
+            },
+            LithosphereHistoryEventV0 {
+                id: 1,
+                sequence: 1,
+                craton_id: 0,
+                provenance: LithosphereHistoryEventProvenanceV0::Paleorift {
+                    province_id: 0,
+                    latent_axis: Vec3::X,
+                },
+            },
+        ];
+        let provinces = vec![BasementProvinceV0 {
+            id: 0,
+            craton_id: 0,
+            seed_cell: 0,
+            cell_count: 8,
+            area_km2: 1_000_000.0,
+        }];
+        assert_eq!(graph.segments.len(), 2);
+        assert_eq!(graph.incidences.len(), 3);
+        assert_eq!(
+            graph
+                .incidences
+                .iter()
+                .find(|incidence| incidence.vertex == 11)
+                .unwrap()
+                .kind,
+            InheritedStructureIncidenceKindV0::MultiTrace
+        );
+        validate_lithosphere_source_history_v0(&provinces, &events, &graph).unwrap();
+    }
+
+    #[test]
+    fn source_history_rejects_forged_assembly_components() {
+        let provinces: Vec<_> = (0..3)
+            .map(|id| BasementProvinceV0 {
+                id,
+                craton_id: 7,
+                seed_cell: id as usize,
+                cell_count: 8,
+                area_km2: 1_000_000.0,
+            })
+            .collect();
+        let events = vec![
+            LithosphereHistoryEventV0 {
+                id: 0,
+                sequence: 0,
+                craton_id: 7,
+                provenance: LithosphereHistoryEventProvenanceV0::TerraneAssembly {
+                    component_a: vec![0],
+                    component_b: vec![1],
+                },
+            },
+            LithosphereHistoryEventV0 {
+                id: 1,
+                sequence: 1,
+                craton_id: 7,
+                provenance: LithosphereHistoryEventProvenanceV0::TerraneAssembly {
+                    // Province 0 is no longer a complete current component.
+                    component_a: vec![0],
+                    component_b: vec![2],
+                },
+            },
+        ];
+        let graph = compile_graph_from_edges(Vec::new()).unwrap();
+        assert_eq!(
+            validate_lithosphere_source_history_v0(&provinces, &events, &graph),
+            Err(LithosphereInheritanceErrorV0::InvalidHistoryEvent(1))
+        );
+    }
+
+    #[test]
+    fn latent_axes_are_unit_length_and_isotropic_over_many_keys() {
+        let mut mean = Vec3::ZERO;
+        let mut mean_square = Vec3::ZERO;
+        let sample_count = 20_000;
+        for province in 0..sample_count {
+            let axis = latent_axis(0x5eed_cafe, province);
+            assert!(axis.is_finite());
+            assert!((axis.length_squared() - 1.0).abs() < 1.0e-5);
+            mean += axis;
+            mean_square += axis * axis;
+        }
+        mean /= sample_count as f32;
+        mean_square /= sample_count as f32;
+        assert!(mean.abs().max_element() < 0.02, "biased mean: {mean:?}");
+        assert!(
+            (mean_square - Vec3::splat(1.0 / 3.0)).abs().max_element() < 0.02,
+            "anisotropic second moment: {mean_square:?}"
+        );
+    }
+
+    #[test]
+    fn source_history_rejects_non_unit_paleorift_axis() {
+        let province = BasementProvinceV0 {
+            id: 0,
+            craton_id: 0,
+            seed_cell: 0,
+            cell_count: 8,
+            area_km2: 1_000_000.0,
+        };
+        let graph = compile_graph_from_edges(vec![InheritedStructureEdgeV0 {
+            id: CellEdgeId::new(0, 1),
+            cells: [0, 1],
+            vertices: [10, 11],
+            endpoints: [Vec3::X, Vec3::Y],
+            length_km: 300.0,
+            provinces: [0, 0],
+            kind: InheritedStructureKindV0::InheritedRift,
+            history_event_id: Some(0),
+        }])
+        .unwrap();
+        let events = vec![LithosphereHistoryEventV0 {
+            id: 0,
+            sequence: 0,
+            craton_id: 0,
+            provenance: LithosphereHistoryEventProvenanceV0::Paleorift {
+                province_id: 0,
+                latent_axis: Vec3::splat(1.0),
+            },
+        }];
+        assert_eq!(
+            validate_lithosphere_source_history_v0(&[province], &events, &graph),
+            Err(LithosphereInheritanceErrorV0::InvalidHistoryEvent(0))
+        );
+    }
+
+    #[test]
     fn generation_rejects_inconsistent_crust_identity() {
         let (tessellation, mut crust, inheritance) = generated(78, 1_000);
         let ocean = crust
@@ -1343,7 +2355,16 @@ mod tests {
                 <= inheritance.graph.total_length_km * 1e-6
         );
         for edge in &inheritance.graph.edges {
-            assert_ne!(edge.provinces[0], edge.provinces[1]);
+            if edge.kind == InheritedStructureKindV0::InheritedRift {
+                assert_eq!(edge.provinces[0], edge.provinces[1]);
+                assert!(edge.history_event_id.is_some());
+            } else {
+                assert_ne!(edge.provinces[0], edge.provinces[1]);
+                assert_eq!(
+                    edge.history_event_id.is_some(),
+                    edge.kind == InheritedStructureKindV0::Suture
+                );
+            }
             assert_eq!(crust.types[edge.cells[0]], CrustType::Continental);
             assert_eq!(crust.types[edge.cells[1]], CrustType::Continental);
             assert_eq!(
@@ -1437,6 +2458,7 @@ mod tests {
             length_km: 10.0,
             provinces,
             kind: InheritedStructureKindV0::BasementContact,
+            history_event_id: None,
         };
         let continuation = compile_graph_from_edges(vec![
             edge(0, 1, [10, 11], [0, 1]),
@@ -1482,6 +2504,7 @@ mod tests {
             id,
             kind,
             provinces: [0, 1],
+            history_event_id: (kind != InheritedStructureKindV0::BasementContact).then_some(0),
             source_edges: vec![CellEdgeId::new(id as usize * 2, id as usize * 2 + 1)],
             vertices_in_order: vec![start, end],
             closed: false,

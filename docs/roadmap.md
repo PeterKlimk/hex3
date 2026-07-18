@@ -154,7 +154,7 @@ See the [lower-corridor audit](audits/consequential-geography-lower-corridor-202
 Kill condition: if authored weights dominate geography or the result is a
 decorative overlay, stop. Retain only useful traversability/access semantics.
 
-### 3. [Lithosphere Inheritance V0](lithosphere-inheritance.md) — explicit semantics pass, generated history next
+### 3. [Lithosphere Inheritance V0](lithosphere-inheritance.md) — experimental source seam retained; terrain remains stopped
 
 The tableland/“long Uluru” range grammar remains the largest established visible
 model defect. The product-native structural compiler has now shown that the
@@ -206,16 +206,34 @@ the shared Voronoi support can inflate exact overlap. These contacts have not
 been assigned geological history; this is useful source structure, not yet a
 license for segmented relief.
 
-The explicit relationship gate now passes independently of generated history.
+The explicit relationship gate passes independently of generated history.
 Endpoint hyperedges distinguish continuation, junction, finite offset transfer
 and crossing-unlinked. Identical four-arm geometry produces two components when
 declared as an unlinked crossing and one when declared as a junction; an offset
 transfer is invalid without a finite connector. Collision and continental-rift
 assessments share the same geological contact while retaining separate
-applications. Generated basement state intentionally contains zero such
-relationships, so the next gate is a plate-blind, terrain-blind prior selecting
-a sparse finite suture/rift/transfer history. Only coherent fixed-corpus evidence
-from that prior may reopen terrain response.
+applications.
+
+The plate-blind, terrain-blind chronological prior is implemented on demand.
+Per-craton terrane-assembly forests retain finite physical-length suture arcs;
+later independent latent axes retain up to four finite intra-province paleorift
+traces. Every named edge has an owning event, candidate contacts have none, and
+basement/history seeds can be varied independently. Generated transfers and
+multi-event suture reuse remain deliberately absent rather than inferred from
+proximity.
+
+The compact source audit passes causal independence, history resampling,
+sparsity, coherence and physical-scale stability for the assembly/suture arm.
+Three 100k worlds expose named sutures to both continental collision and
+continental-rifting applications. The paleorift arm does not pass: its four-trace
+physical median is unstable across resolution and it does not yet demonstrate a
+rift-nucleation consumer. The reviewed seed `12345` collision parent encounters
+only unnamed candidate contacts. Retain the assembly/suture seam experimentally,
+but do not promote it into `World` or reopen that terrain response. The next
+project decision should zoom out again: either justify an interior-rift consumer
+with clear product value or compare the continuous-massif outcome against other
+portfolio interventions. Do not expand history topology merely to ensure a
+convenient mountain subdivision.
 
 ## Later decision set
 

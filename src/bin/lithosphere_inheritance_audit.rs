@@ -1,6 +1,6 @@
 //! Source-only audit of basement provinces and their exact plate-boundary relationships.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -9,15 +9,17 @@ use clap::Parser;
 use hex3::world::{
     assess_plate_boundary_inheritance_v0, catalog_structural_source_belts,
     collect_convergent_fronts, collect_plate_boundaries, compile_structural_mountain,
-    generate_lithosphere_inheritance_v0, query_boundary_inheritance_v0,
-    select_primary_structural_source_belt, BasementProvinceV0, BoundaryEdgeId,
-    BoundaryInheritanceContactKindV0, BoundaryKind, ConvergentFrontEdge, InheritedStructureEdgeV0,
-    InheritedStructureIncidenceKindV0, InheritedStructureIncidenceV0,
-    InheritedStructureRelationshipKindV0, InheritedStructureRelationshipTopologyV0,
-    InheritedStructureRelationshipV0, InheritedStructureSegmentEndRefV0,
-    InheritedStructureSegmentV0, LithosphereInheritanceConfigV0, LithosphereInheritanceV0,
-    PlateBoundaryEdge, StructuralMountainGraph, StructuralRegime, StructuralSegment,
-    VoronoiBackend, World, LITHOSPHERE_INHERITANCE_SEED_SALT, NUM_PLATES_DEFAULT, PLANET_RADIUS_KM,
+    generate_lithosphere_inheritance_v0, generate_lithosphere_inheritance_with_history_seed_v0,
+    query_boundary_inheritance_v0, select_primary_structural_source_belt, BasementProvinceV0,
+    BoundaryEdgeId, BoundaryInheritanceContactKindV0, BoundaryKind, ConvergentFrontEdge,
+    InheritedStructureEdgeV0, InheritedStructureIncidenceKindV0, InheritedStructureIncidenceV0,
+    InheritedStructureKindV0, InheritedStructureRelationshipKindV0,
+    InheritedStructureRelationshipTopologyV0, InheritedStructureRelationshipV0,
+    InheritedStructureSegmentEndRefV0, InheritedStructureSegmentV0,
+    LithosphereHistoryEventProvenanceV0, LithosphereHistoryEventV0, LithosphereInheritanceConfigV0,
+    LithosphereInheritanceV0, PlateBoundaryEdge, StructuralMountainGraph, StructuralRegime,
+    StructuralSegment, VoronoiBackend, World, LITHOSPHERE_INHERITANCE_SEED_SALT,
+    NUM_PLATES_DEFAULT, PLANET_RADIUS_KM,
 };
 use serde::Serialize;
 
@@ -30,7 +32,7 @@ struct Cli {
     cells: usize,
     #[arg(
         long,
-        default_value = "docs/generated/lithosphere-inheritance-seed-12345-v1.json"
+        default_value = "docs/generated/lithosphere-inheritance-seed-12345-v2.json"
     )]
     output: PathBuf,
 }
@@ -45,6 +47,8 @@ struct Report {
     config: LithosphereInheritanceConfigV0,
     provinces: ProvinceSummary,
     graph: GraphSummary,
+    history: HistorySummary,
+    history_resample_counterfactual: HistoryResampleCounterfactual,
     plate_boundaries: Vec<BoundaryKindSummary>,
     selected_collision_parent: SelectedParentSummary,
 }
@@ -78,11 +82,50 @@ struct GraphSummary {
 }
 
 #[derive(Serialize)]
+struct HistorySummary {
+    assembly_event_count: usize,
+    paleorift_event_count: usize,
+    per_kind: Vec<StructureKindSummary>,
+    original_candidate_contact_length_km: f64,
+    named_length_km: f64,
+    /// All named support divided by original candidate-contact length. This is
+    /// a scale ratio, not a subset fraction, because paleorifts are internal.
+    named_length_to_candidate_contact_ratio: f64,
+    /// Preserved suture support divided by the contact skeleton it was selected
+    /// from. Unlike the all-named ratio, numerator is a subset of denominator.
+    preserved_suture_fraction_of_candidate_contact_length: f64,
+    /// Fraction of named length in segments at least 300 km long and containing
+    /// at least four exact source edges.
+    named_coherent_length_fraction: f64,
+    /// Fraction of named length carried by one-edge segments.
+    single_edge_named_length_fraction: f64,
+}
+
+#[derive(Serialize)]
+struct StructureKindSummary {
+    kind: InheritedStructureKindV0,
+    source_edge_count: usize,
+    segment_count: usize,
+    length_km: f64,
+    segment_length_km: ScalarSummary,
+}
+
+#[derive(Serialize)]
+struct HistoryResampleCounterfactual {
+    candidate_geometry_identical: bool,
+    named_edge_jaccard: f64,
+    baseline_named_length_km: f64,
+    resampled_named_length_km: f64,
+    named_boundary_contact_location_change_count: usize,
+}
+
+#[derive(Serialize)]
 struct BoundaryKindSummary {
     kind: String,
     edge_count: usize,
     application_counts: BTreeMap<String, usize>,
     geology_counts: BTreeMap<String, usize>,
+    application_geology_counts: BTreeMap<String, usize>,
     unrelated_count: usize,
     coincident_count: usize,
     vertex_contact_count: usize,
@@ -113,6 +156,8 @@ struct ParentContactEvent {
     kind: String,
     shared_vertices: Vec<u32>,
     structure_segment_ids: Vec<u32>,
+    structure_kinds: Vec<InheritedStructureKindV0>,
+    history_event_ids: Vec<u32>,
     geometric_incidence_ids: Vec<u32>,
     structure_relationship_ids: Vec<u32>,
     structure_relationship_kinds: Vec<InheritedStructureRelationshipKindV0>,
@@ -138,8 +183,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     world.generate_features();
     let config = LithosphereInheritanceConfigV0::default();
     let inheritance_started = Instant::now();
+    let basement_seed = cli.seed.wrapping_add(LITHOSPHERE_INHERITANCE_SEED_SALT);
     let inheritance = generate_lithosphere_inheritance_v0(
-        cli.seed.wrapping_add(LITHOSPHERE_INHERITANCE_SEED_SALT),
+        basement_seed,
         &world.tessellation,
         world.crust.as_ref().expect("crust generated"),
         config,
@@ -164,11 +210,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let provinces = province_summary(&inheritance);
     let graph = graph_summary(&inheritance);
+    let history = history_summary(&inheritance);
+    let resampled = generate_lithosphere_inheritance_with_history_seed_v0(
+        basement_seed,
+        cli.seed ^ 0x7265_7361_6d70_6c65,
+        &world.tessellation,
+        world.crust.as_ref().expect("crust generated"),
+        config,
+    )?;
+    let history_resample_counterfactual =
+        history_resample_counterfactual(&world, &inheritance, &resampled, &boundaries)?;
     let plate_boundaries = boundary_summaries(&world, &inheritance, &boundaries)?;
     let selected_collision_parent =
         selected_parent_summary(&world, &inheritance, &fronts.edges, source.id, parent)?;
     let report = Report {
-        schema: "hex3-lithosphere-inheritance-audit-v1",
+        schema: "hex3-lithosphere-inheritance-audit-v2",
         seed: cli.seed,
         requested_coarse_cells: cli.cells,
         elapsed_seconds: started.elapsed().as_secs_f32(),
@@ -176,6 +232,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         config,
         provinces,
         graph,
+        history,
+        history_resample_counterfactual,
         plate_boundaries,
         selected_collision_parent,
     };
@@ -262,10 +320,232 @@ fn graph_summary(inheritance: &LithosphereInheritanceV0) -> GraphSummary {
     }
 }
 
+fn history_summary(inheritance: &LithosphereInheritanceV0) -> HistorySummary {
+    let assembly_event_count = inheritance
+        .history_events
+        .iter()
+        .filter(|event| {
+            matches!(
+                event.provenance,
+                LithosphereHistoryEventProvenanceV0::TerraneAssembly { .. }
+            )
+        })
+        .count();
+    let paleorift_event_count = inheritance
+        .history_events
+        .iter()
+        .filter(|event| {
+            matches!(
+                event.provenance,
+                LithosphereHistoryEventProvenanceV0::Paleorift { .. }
+            )
+        })
+        .count();
+    let per_kind = [
+        InheritedStructureKindV0::BasementContact,
+        InheritedStructureKindV0::Suture,
+        InheritedStructureKindV0::InheritedRift,
+        InheritedStructureKindV0::TransferLink,
+    ]
+    .into_iter()
+    .map(|kind| StructureKindSummary {
+        kind,
+        source_edge_count: inheritance
+            .graph
+            .edges
+            .iter()
+            .filter(|edge| edge.kind == kind)
+            .count(),
+        segment_count: inheritance
+            .graph
+            .segments
+            .iter()
+            .filter(|segment| segment.kind == kind)
+            .count(),
+        length_km: inheritance
+            .graph
+            .segments
+            .iter()
+            .filter(|segment| segment.kind == kind)
+            .map(|segment| f64::from(segment.length_km))
+            .sum(),
+        segment_length_km: summarize(
+            inheritance
+                .graph
+                .segments
+                .iter()
+                .filter(|segment| segment.kind == kind)
+                .map(|segment| f64::from(segment.length_km)),
+        ),
+    })
+    .collect();
+    let original_candidate_contact_length_km = inheritance
+        .graph
+        .edges
+        .iter()
+        .filter(|edge| edge.provinces[0] != edge.provinces[1])
+        .map(|edge| f64::from(edge.length_km))
+        .sum();
+    let named_segments: Vec<_> = inheritance
+        .graph
+        .segments
+        .iter()
+        .filter(|segment| segment.kind != InheritedStructureKindV0::BasementContact)
+        .collect();
+    let named_length_km: f64 = named_segments
+        .iter()
+        .map(|segment| f64::from(segment.length_km))
+        .sum();
+    let suture_length_km: f64 = named_segments
+        .iter()
+        .filter(|segment| segment.kind == InheritedStructureKindV0::Suture)
+        .map(|segment| f64::from(segment.length_km))
+        .sum();
+    let coherent_named_length_km: f64 = named_segments
+        .iter()
+        .filter(|segment| segment.length_km >= 300.0 && segment.source_edges.len() >= 4)
+        .map(|segment| f64::from(segment.length_km))
+        .sum();
+    let single_edge_named_length_km: f64 = named_segments
+        .iter()
+        .filter(|segment| segment.source_edges.len() == 1)
+        .map(|segment| f64::from(segment.length_km))
+        .sum();
+    HistorySummary {
+        assembly_event_count,
+        paleorift_event_count,
+        per_kind,
+        original_candidate_contact_length_km,
+        named_length_km,
+        named_length_to_candidate_contact_ratio: ratio(
+            named_length_km,
+            original_candidate_contact_length_km,
+        ),
+        preserved_suture_fraction_of_candidate_contact_length: ratio(
+            suture_length_km,
+            original_candidate_contact_length_km,
+        ),
+        named_coherent_length_fraction: ratio(coherent_named_length_km, named_length_km),
+        single_edge_named_length_fraction: ratio(single_edge_named_length_km, named_length_km),
+    }
+}
+
+fn history_resample_counterfactual(
+    world: &World,
+    baseline: &LithosphereInheritanceV0,
+    resampled: &LithosphereInheritanceV0,
+    boundaries: &[PlateBoundaryEdge],
+) -> Result<HistoryResampleCounterfactual, Box<dyn std::error::Error>> {
+    let candidate_geometry = |inheritance: &LithosphereInheritanceV0| {
+        inheritance
+            .graph
+            .edges
+            .iter()
+            .filter(|edge| edge.provinces[0] != edge.provinces[1])
+            .map(|edge| {
+                (
+                    edge.id,
+                    edge.cells,
+                    edge.vertices,
+                    edge.endpoints,
+                    edge.length_km,
+                    edge.provinces,
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let named_edges = |inheritance: &LithosphereInheritanceV0| {
+        inheritance
+            .graph
+            .edges
+            .iter()
+            .filter(|edge| edge.kind != InheritedStructureKindV0::BasementContact)
+            .map(|edge| edge.id)
+            .collect::<BTreeSet<_>>()
+    };
+    let baseline_named_edges = named_edges(baseline);
+    let resampled_named_edges = named_edges(resampled);
+    let union_count = baseline_named_edges.union(&resampled_named_edges).count();
+    let named_edge_jaccard = if union_count == 0 {
+        1.0
+    } else {
+        baseline_named_edges
+            .intersection(&resampled_named_edges)
+            .count() as f64
+            / union_count as f64
+    };
+    let named_length = |inheritance: &LithosphereInheritanceV0| {
+        inheritance
+            .graph
+            .edges
+            .iter()
+            .filter(|edge| edge.kind != InheritedStructureKindV0::BasementContact)
+            .map(|edge| f64::from(edge.length_km))
+            .sum()
+    };
+    let mut named_boundary_contact_location_change_count = 0;
+    for boundary in boundaries {
+        let id = BoundaryEdgeId::new(boundary.cell_a, boundary.cell_b);
+        let baseline_relationship =
+            query_boundary_inheritance_v0(&world.tessellation, baseline, id)?;
+        let resampled_relationship =
+            query_boundary_inheritance_v0(&world.tessellation, resampled, id)?;
+        if relationship_contacts_named_structure(
+            baseline,
+            &baseline_relationship.structure_segment_ids,
+        ) != relationship_contacts_named_structure(
+            resampled,
+            &resampled_relationship.structure_segment_ids,
+        ) {
+            named_boundary_contact_location_change_count += 1;
+        }
+    }
+    Ok(HistoryResampleCounterfactual {
+        candidate_geometry_identical: baseline.cell_province == resampled.cell_province
+            && baseline.provinces == resampled.provinces
+            && candidate_geometry(baseline) == candidate_geometry(resampled),
+        named_edge_jaccard,
+        baseline_named_length_km: named_length(baseline),
+        resampled_named_length_km: named_length(resampled),
+        named_boundary_contact_location_change_count,
+    })
+}
+
+fn relationship_contacts_named_structure(
+    inheritance: &LithosphereInheritanceV0,
+    segment_ids: &[u32],
+) -> bool {
+    segment_ids.iter().any(|id| {
+        inheritance.graph.segments.iter().any(|segment| {
+            segment.id == *id && segment.kind != InheritedStructureKindV0::BasementContact
+        })
+    })
+}
+
+fn ratio(numerator: f64, denominator: f64) -> f64 {
+    if denominator > 0.0 {
+        numerator / denominator
+    } else {
+        0.0
+    }
+}
+
 fn retained_payload_bytes(inheritance: &LithosphereInheritanceV0) -> usize {
     std::mem::size_of::<LithosphereInheritanceV0>()
         + inheritance.cell_province.len() * std::mem::size_of::<u32>()
         + inheritance.provinces.len() * std::mem::size_of::<BasementProvinceV0>()
+        + inheritance.history_events.len() * std::mem::size_of::<LithosphereHistoryEventV0>()
+        + inheritance
+            .history_events
+            .iter()
+            .map(|event| match &event.provenance {
+                LithosphereHistoryEventProvenanceV0::TerraneAssembly {
+                    component_a,
+                    component_b,
+                } => (component_a.len() + component_b.len()) * std::mem::size_of::<u32>(),
+                LithosphereHistoryEventProvenanceV0::Paleorift { .. } => 0,
+            })
+            .sum::<usize>()
         + inheritance.graph.edges.len() * std::mem::size_of::<InheritedStructureEdgeV0>()
         + inheritance.graph.segments.len() * std::mem::size_of::<InheritedStructureSegmentV0>()
         + inheritance
@@ -331,12 +611,19 @@ fn boundary_summaries(
             .collect::<Result<Vec<_>, _>>()?;
         let mut application_counts = BTreeMap::new();
         let mut geology_counts = BTreeMap::new();
+        let mut application_geology_counts = BTreeMap::new();
         for assessment in &assessments {
             *application_counts
                 .entry(format!("{:?}", assessment.application))
                 .or_insert(0) += 1;
             *geology_counts
                 .entry(format!("{:?}", assessment.geology))
+                .or_insert(0) += 1;
+            *application_geology_counts
+                .entry(format!(
+                    "{:?}/{:?}",
+                    assessment.application, assessment.geology
+                ))
                 .or_insert(0) += 1;
         }
         let contacted_length_km = members
@@ -354,6 +641,7 @@ fn boundary_summaries(
             edge_count: members.len(),
             application_counts,
             geology_counts,
+            application_geology_counts,
             unrelated_count: relationships
                 .iter()
                 .filter(|relation| relation.kind == BoundaryInheritanceContactKindV0::Unrelated)
@@ -423,12 +711,31 @@ fn selected_parent_summary(
         explicit_relationship_contact_count +=
             usize::from(!relationship.structure_relationship_ids.is_empty());
         if relationship.kind != BoundaryInheritanceContactKindV0::Unrelated {
+            let contacted_segments: Vec<_> = relationship
+                .structure_segment_ids
+                .iter()
+                .filter_map(|id| {
+                    inheritance
+                        .graph
+                        .segments
+                        .iter()
+                        .find(|segment| segment.id == *id)
+                })
+                .collect();
             events.push(ParentContactEvent {
                 edge_id: edge_pair(*id),
                 midpoint_km,
                 kind: format!("{:?}", relationship.kind),
                 shared_vertices: relationship.shared_vertices,
                 structure_segment_ids: relationship.structure_segment_ids,
+                structure_kinds: contacted_segments
+                    .iter()
+                    .map(|segment| segment.kind)
+                    .collect(),
+                history_event_ids: contacted_segments
+                    .iter()
+                    .filter_map(|segment| segment.history_event_id)
+                    .collect(),
                 geometric_incidence_ids: relationship.geometric_incidence_ids,
                 structure_relationship_ids: relationship.structure_relationship_ids,
                 structure_relationship_kinds: relationship.structure_relationship_kinds,

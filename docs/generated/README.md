@@ -39,3 +39,8 @@ Current bounded evidence:
   corrects that distinction, records tip/multi-trace incidence separately and
   confirms that the generated candidate skeleton contains zero explicit
   continuation, junction, crossing or transfer relationships.
+- [`lithosphere-inheritance-seed-12345-v2.json`](lithosphere-inheritance-seed-12345-v2.json)
+  records the chronological assembly/paleorift prior, physical trace scale and
+  sparsity, fixed-basement history-resample counterfactual, application/geology
+  cross-tab and the fact that the reviewed collision parent still contacts only
+  unnamed basement candidates.

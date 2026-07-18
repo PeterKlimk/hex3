@@ -49,28 +49,32 @@ inherited before it.
 
 The architecture decision selects tectonic memory, not a competence texture:
 coherent basement provinces plus a sparse directional graph of inherited
-sutures/rifts, with explicit tips, links, offsets and transfer nodes. First add
-and audit that state before terrain and expose it to both collision organization
-and rift localization. If the cheap source state fails to create coherent
+sutures/rifts, with explicit tips, links, offsets and transfer nodes. The
+selected compression is chronological: assemble terrane components first and
+retain finite suture evidence, then run a separate paleorift episode under an
+independent latent axis. If the cheap source state fails to create coherent
 multi-consumer relationships, accept continuous finite massifs and relax the
 universal internal-hierarchy target. Do not insert random subsegments or
 independent ridge noise.
 
-The first on-demand source seam is implemented. It preserves the existing
-continent/craton envelope, deterministically grows 68 connected basement
-provinces on the fixed 100k seed and compiles 4,157 exact province-contact edges
-into 134 candidate basement-contact segments. Generation costs about 0.05 s and
-the retained vector payload estimate is 0.83 MB. It is not stored in `World` and
-changes no terrain, hydrology, semantics or rendering. The generic relationship
-query finds two short exact contact runs in the selected 3,200 km collision
-parent and 20 contacts among current divergent edges. Do not overread either
-result: shared Voronoi support inflates exact coincidence, divergent terrain
-response does not yet consume the state, no explicit relationship occurs on the
-selected parent, and no candidate contact has yet earned a suture interpretation.
-Current generation emits only the full basement-contact skeleton; it lacks
-finite inherited rifts, sparse history selection, maturity and competence.
+The first on-demand basement seam preserves the existing continent/craton
+envelope, deterministically grows 68 connected provinces on the fixed 100k seed
+and compiles 4,157 exact province-contact edges into 134 candidate segments.
+Its old audit cost about 0.05 s and estimated 0.83 MB if retained. It is not
+stored in `World` and changes no terrain, hydrology, semantics or rendering.
 
-The explicit relationship semantics now pass their manufactured gate. Shared
+The chronological source prior is now implemented over that skeleton. A
+per-craton assembly forest records which two terrane components each event
+merged, while only a bounded kilometre-scale portion of the chosen contact is
+preserved as a named suture. A later independent episode creates at most four
+finite intra-province paleorift paths under latent great-circle axes. Named
+edges and segments carry their source event; ordinary contacts carry none, and
+event identity prevents accidental segment chaining. Basement and history seeds
+are separable, so history can change while province ownership and complete
+candidate-contact geometry remain fixed. The generator API still cannot observe
+plates, dynamics, target mountains, terrain or rendering.
+
+The explicit relationship semantics pass their manufactured gate. Shared
 Voronoi incidence is geometry only. Declared endpoint relationships separately
 represent continuation, three-plus-arm junctions, crossing-unlinked and offset
 transfer through a finite connector. With identical four-arm geometry, crossing
@@ -79,11 +83,34 @@ with a mismatched connector endpoint is rejected. Candidate basement contacts
 cannot enter geological relationships. The same named inherited-rift contact is
 classified as one geology for both continental collision and continental rifting
 while those consumer applications remain distinct; oceanic spreading and locally
-non-opening edges stay separate. The corrected fixed audit has 64 tip and 68
-multi-trace geometric incidences but zero explicit relationships globally and on
-the selected parent. The next gate is therefore the source prior that selects a
-sparse finite history without reading plates, target mountains or terrain—not
-relief tuning or automatic promotion of contact geometry.
+non-opening edges stay separate. Generated history intentionally emits no
+transfer, junction or crossing relationship yet and does not infer one from
+incidence. Exact suture reuse is also absent because preserving two events on one
+edge needs overlay provenance, not relabeling. The immediate gate is a compact
+source audit of physical scale, sparsity, history resampling and actual named
+collision/rift contacts—not relief tuning or automatic promotion.
+
+That compact gate now passes the assembly/suture representation but not the
+paleorift arm or target mountain intervention. Across the seed-12345
+50k/100k/200k spot check, named/contact ratio stays 21.1--24.0%, coherent named
+share stays 93.7--96.9% and suture median length stays 539--578 km. Paleorift
+median shifts 483 / 725 / 405 km; four traces do not support physical-scale
+stability. The three 100k worlds keep 18.7--24.0% named/contact ratio and
+90.4--96.9% coherent named share. Fixed-basement history resampling preserves
+candidate geometry, has only 0.153 named-edge Jaccard at seed 12345 and moves 51
+boundary contact locations.
+Both collision and continental-rifting applications encounter named sutures in
+all three 100k worlds. Interior paleorifts do not yet show a continental-rift
+contact, so their genuine consumer remains missing.
+
+All ten contacts on the reviewed 3,200 km collision parent are still unnamed
+basement candidates. The honest result remains one continuous finite massif;
+resampling history until the target becomes convenient is forbidden. Retain the
+cheap generator as experimental source state, but zoom out before adding
+transfers, provenance overlays or an interior-rift response. Treat current
+paleorift generation as an implemented negative result until that missing
+consumer has enough product value, versus accepting this belt grammar and
+spending effort elsewhere.
 
 The earlier fixed replay rejects the reviewed height component as one belt.
 On the current 255,866-cell fine baseline its core corresponds well to the old
