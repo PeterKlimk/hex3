@@ -107,6 +107,18 @@ buy-back candidate must introduce relevant information through terrain-aware
 continuous reconstruction, conditioned sub-grid detail/drainage, or selective
 physical refinement. Do not build a subdivision/LOD ladder from this prototype.
 
+The first conditioned substitution also fails, more informatively. A
+renderer-only finite valley-normal profile around the existing selected
+physical drainage trunks was almost imperceptible at 100 m equivalent depth and
+still did not change mountain grammar at a bounded 300 m upper-bound. The
+broadest-range image was byte-identical to control at both amplitudes. Cost was
+negligible, but the selected network contains no unresolved tributary/divide
+hierarchy to reconstruct. Remove the prototype rather than retain another
+control. A credible substitute must generate a terrain-compatible subordinate
+drainage/hillslope/ridge hierarchy, or pilot-driven refinement must supply
+physical samples where that hierarchy matters; styling existing trunks is not
+enough.
+
 ## Recent lithosphere result
 
 Seed `12345`'s terrain-blind source remains episode 0 /
