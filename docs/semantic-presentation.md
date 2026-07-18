@@ -154,6 +154,40 @@ labels and generalization.
 Profiles may share a renderer. They differ in communication contract, not in
 which world is loaded.
 
+## Selected bounded slice: World Readability V0
+
+The next product slice does not add a new physical stage. It composes the
+unchanged product-control world through existing semantics:
+
+```text
+current physical relief + landmass/coast/water-body identity
+  + river hierarchy + Living Surface fractions
+  -> one scale policy and presentation recipe
+  -> one Authentic scene across Globe and Map
+```
+
+The first packet uses one unchanged world, fixed globe and regional cameras and
+the current Authentic scene as control. The candidate makes the existing Living
+Surface palette, semantic water hierarchy and major-river selection work
+together under the current relief treatment. One deterministic scale policy
+selects which existing river and water objects appear; Globe and Map consume the
+same identities. No new relief algorithm, texture or feature classification is
+part of V0.
+
+Before capture, select one or two existing relationships by deterministic
+importance—for example a major trunk and its receiving water body, plus their
+surrounding relief and living cover. The A/B passes only if human review finds
+those relationships materially easier to read than in the current Authentic
+control. Numeric checks require unchanged world state and object topology,
+identical selected identities across Globe and Map, deterministic scale
+selection and complete capture metadata. Attractive color alone is not a pass.
+
+V0 does not authorize named regions or biomes, landform elements, forest assets,
+seasons, sediment, new terrain noise or hillshade, automatic pass/chokepoint
+labels, a generic entity framework, a renderer reset or terrain validation
+through presentation. A specific failure in this packet may motivate one later
+discriminator; it does not pre-authorize a ladder.
+
 ## Surface and feature ownership
 
 | Concern | World owner | Semantic owner | Presentation owner |
@@ -234,4 +268,3 @@ first-class sidecar or export section.
    decide simulation and rendering depth independently by scale and payoff.
 7. Prefer illustrative lighting improvements over expensive physically based
    rendering until materials and viewing distance make that depth worthwhile.
-

@@ -181,7 +181,9 @@ a retained stage. [Consequential Geography V0](consequential-geography.md) is
 an on-demand derivative with implemented access, aggregate-site and bounded
 terrestrial-route operators; its site prior and full product layer remain
 unpromoted. Whether any part later earns retained state will be decided from
-its consumers and invalidation needs. Cryosphere,
+its consumers and invalidation needs. World Readability V0 is the selected
+semantic/presentation consumer over existing Stage-4 state, not a numbered
+world-generation stage. Cryosphere,
 persistent sediment/soils,
 seasonality and richer culture/civilization remain candidates. Their dependency
 shape is a graph rather than a simple numbered sequence:

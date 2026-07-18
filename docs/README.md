@@ -25,7 +25,8 @@ audits and archived material are evidence, not current policy.
 - [Living Surface V0](living-surface.md)
 - [Consequential Geography V0](consequential-geography.md)
 - [Elevation and unit contract](units.md)
-- [Semantic and presentation architecture](semantic-presentation.md)
+- [Semantic and presentation architecture](semantic-presentation.md) — includes
+  the selected World Readability V0 slice.
 - [Semantic objects](semantics.md)
 - [Presentation contract](presentation.md)
 - [Validation policy](validation.md)

@@ -3,9 +3,10 @@
 Status: **current architecture decision**, 2026-07-18.
 
 This document decides how terrain, drainage and landform meaning fit together.
-It does not promote a terrain replacement. The exact next comparison is the
-[Structural Mountain V0 contract](structural-mountain.md); prior H/C/G and
-landform-packet documents remain research evidence rather than active policy.
+It does not promote a terrain replacement. [Structural Mountain V0](structural-mountain.md)
+and [Lithosphere Inheritance V0](lithosphere-inheritance.md) have completed their
+bounded source decisions; prior H/C/G and landform-packet documents remain
+research evidence rather than active policy.
 
 See the [project thesis](thesis.md), [model strategy](model-strategy.md),
 [current architecture](architecture.md) and
@@ -33,11 +34,11 @@ This is an ownership rule, not a demand for full geodynamics or hydraulics. The
 current legacy path remains the usable product control. It is not the presumed
 target architecture.
 
-The next owner is one finite-segment, product-native uplift organizer consumed
-by a drainage-conditioned surface response. It must replace rather than stack
-over the legacy convergent height and repeated uplift owners. A disclosed
-graph-first reconstruction remains a fallback only if the selected response
-cannot earn its cost; it is not a parallel campaign.
+If terrain ownership is reopened, the candidate must replace rather than stack
+over the legacy convergent height and repeated uplift owners. It should treat
+finite uplift forcing, drainage/divide organization and nonlinear hillslope
+response as one coupled ownership problem. A new source-segmentation ladder is
+not the current task.
 
 ## Precise defect
 
@@ -108,43 +109,41 @@ The mountain campaign produced several durable conclusions:
 - drainage and erosion express supplied organization but do not reliably invent
   first-order range structure from a symmetric ribbon.
 
-These are constraints on the next owner, not reasons to tune old rungs. The old
+These are constraints on any future owner, not reasons to tune old rungs. The old
 experiment amendments, artifact schemas and planar promotion campaign are no
 longer prerequisites. Their results remain indexed under
 [research](research/README.md) and [audits](audits/README.md).
 
-## Selected next slice
+## Current disposition and reopening gate
 
-The [Structural Mountain V0 contract](structural-mountain.md) fixes one actual
-generated belt: seed `12345`'s previously reviewed broadest range. From its
-causally attributed convergent front set, crust setting and bounded history
-evidence, the candidate must:
+Structural Mountain V0 compiled one coherent 3,200 km collision parent, then
+stopped because its source contained one continuous opportunity maximum and no
+defensible internal low. The source-only inheritance follow-up generated cheap,
+coherent terrane-assembly sutures, but none of the reviewed parent's contacts
+carry that history. Its paleorift arm also lacks physical-scale stability and a
+demonstrated rift-nucleation consumer.
 
-1. compile a sparse hierarchy of finite linked deformation segments;
-2. conserve one disclosed cumulative uplift-opportunity budget;
-3. express finite tips, width variation, defensible flank asymmetry and
-   transfer lows in that forcing;
-4. replace both legacy convergent height and repeated uplift in the comparison
-   domain, splitting the current combined convergent/rift uplift source so rift
-   ownership remains fixed;
-5. let rerouted incision and hillslope response own final valleys, watershed
-   topology own divides and final crest support distinguish ridges;
-   and
-6. demonstrate internal belt hierarchy plus one basin/trunk/cross-belt drainage
-   consequence against unchanged legacy.
+The principled result is not to manufacture missing segmentation. Continuity
+alone is no longer a rejection criterion for this causally continuous parent.
+This relaxes the universal requirement that every mountain system expose
+internal hierarchy; it does not promote a new terrain response, endorse the
+legacy generic capped ribbon or establish that the tableland defect is rare.
 
-The first comparison is deliberately one belt and two rows, not a seed sweep or
-architecture tournament. Physical and diagnostic evidence decide whether the
-terrain exists; Authentic presentation decides whether it communicates. Peak,
-cap, relief and persistence metrics support that judgment but do not define it.
+Terrain work therefore pauses. Reopen the broader terrain owner only if a small
+fixed ordinary-world Physical/Diagnostic corpus shows that smooth roofs are
+recurrent modeled morphology. The [World Readability V0](roadmap.md#2-world-readability-v0)
+A/B may establish that the morphology materially harms the cartographic product;
+it may not establish physical validity. A reopened comparison must replace
+scalar final-height plus repeated-uplift ownership and demonstrate a
+drainage/divide consequence. It may not select a convenient seed, tune relief,
+add independent crest texture or expand geological history merely to force a
+break in one belt.
 
-If the candidate passes, move the same owner upstream so coarse atmosphere and
-adaptive allocation consume a consistent preview, then test a small generated
-corpus. If it fails, identify the missing relationship and stop. A prettier
-parameter setting is not a new architecture.
+## Pareto-important capabilities while terrain is paused
 
-## Pareto-important capabilities after the slice
-
+- **Scale-aware world readability:** make current product-control relief and
+  retained water, river and Living Surface relationships visible before
+  inferring that another physical mechanism is missing.
 - **Consumer-driven landform objects:** ranges, divides, saddles, valleys and
   crossings remain valuable, but should be built only when terrain evaluation,
   maps or consequence systems require them.
@@ -169,6 +168,7 @@ parameter setting is not a new architecture.
 - building a universal landform ontology or artifact bureaucracy; or
 - optimizing an undecided landscape composition.
 
-The near-term goal is narrower: determine whether one cheap, causally grounded
-organization owner can replace the universal ribbon grammar and improve both
-the mountain and the drainage it organizes.
+The near-term goal is product-facing and bounded: make named existing geographic
+relationships more legible without falsifying state, while retaining an
+independent Physical/Diagnostic trigger for a genuine terrain-owner rework if
+the tableland grammar is endemic rather than exceptional.

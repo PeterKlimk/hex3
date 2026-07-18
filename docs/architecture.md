@@ -116,6 +116,9 @@ The default product path remains the legacy orogen model. Numerous conserved,
 history-aware, thin-sheet and moving-carrier alternatives are implemented for
 evaluation. They are architecture experiments, not simultaneous features of a
 normal world and not accepted product behavior merely because their code exists.
+The on-demand Lithosphere Inheritance generator likewise remains experimental
+and outside `World`; it records coherent basement provinces and assembly/suture
+history but does not currently drive terrain.
 
 At fine scale, the coarse envelope and fields guide adaptive sampling and
 substrate construction. Fluvial incision, hillslope diffusion, uplift and
@@ -280,11 +283,14 @@ Plausible later domains include:
 
 The [cross-system disposition](system-disposition.md) retains Water Geography
 V0 as an enabling slice and the completed bounded Living Surface V0 as an
-on-demand semantic/presentation layer. Consequential Geography V0 is the active
-derived consumer: access, provisional aggregate sites and terrain-sensitive
-terrestrial route corridors now exist on demand, while route-local
-relationships and promotion remain open. Sediment, richer ecology and deeper
-human history remain behind explicit gates.
+on-demand semantic/presentation layer. Consequential Geography V0 has completed
+its bounded decision: access, provisional aggregate sites, terrain-sensitive
+terrestrial route corridors and conservative lower-corridor evidence exist on
+demand, but no human layer or route-local feature ladder is active. The current
+selected next consumer is World Readability V0, which will compose current
+product-control relief, land/water identity, river hierarchy and Living Surface
+state into an Authentic scene. It is not implemented architecture yet. Sediment,
+richer ecology and deeper human history remain behind explicit gates.
 This ordering does not assign a fidelity class or linear stage number. Some
 domains may be semantic derivations, some simulations, some authentic hacks and
 some presentation-only systems, with graph-shaped dependencies.

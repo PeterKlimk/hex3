@@ -14,8 +14,38 @@ it become a chronological activity log.
 
 ## Active focus
 
-**Find an honest source-only prior for sparse lithosphere history; do not build
-mountain terrain yet.** Seed `12345`'s terrain-blind source remains episode 0 /
+**Build one bounded World Readability V0 from retained state; do not add another
+physical stage yet.** The working hypothesis is that Hex3 already generates
+more coherent geography than its ordinary view communicates. Combine current
+product-control relief, landmass/coast/water-body identity, river hierarchy and
+Living Surface fractions through one deterministic scale policy and declared
+Authentic recipe.
+Use fixed globe and regional cameras with the current Authentic scene as control.
+Select one or two existing relationships by deterministic importance and require
+human review to find them materially easier to read. Preserve Globe/Map identity
+and topology and disclose presentation state. Attractive color alone is not a
+pass.
+
+Do not add descriptive regions or DEM-derived terrain elements in the first
+packet; require a specific residual readability failure before either. Do not
+promote biomes, forest assets, sites, routes,
+passes, chokepoints, sediment, seasons, richer ecology, a generic semantic
+framework or a renderer rewrite. First finish removing rejected/default-off
+model controls from the ordinary CLI; the research feature boundary already
+exists.
+
+The mountain disposition is deliberately two-part. Drop continuity alone as a
+rejection criterion for the reviewed causally continuous parent, and stop
+expanding inheritance merely to split it. Do not accept the legacy capped
+ribbon/tableland owner as final. Reopen broader terrain ownership only if a
+small fixed ordinary-world Physical/Diagnostic corpus shows smooth roofs are
+recurrent modeled morphology and the cartographic A/B shows product harm. Then
+compare a coupled uplift–drainage/divide–hillslope owner, not another
+segmentation ladder.
+
+## Recent lithosphere result
+
+Seed `12345`'s terrain-blind source remains episode 0 /
 plates `[0, 2]`: 72 edges and 3,254 km, comprising one 3,200 km collision parent
 plus two one-edge continental-receiving subduction transitions. Exact legacy
 response binding passes. Sixty-seven edges are represented by the old writer;
@@ -53,9 +83,9 @@ sutures/rifts, with explicit tips, links, offsets and transfer nodes. The
 selected compression is chronological: assemble terrane components first and
 retain finite suture evidence, then run a separate paleorift episode under an
 independent latent axis. If the cheap source state fails to create coherent
-multi-consumer relationships, accept continuous finite massifs and relax the
-universal internal-hierarchy target. Do not insert random subsegments or
-independent ridge noise.
+multi-consumer relationships, drop continuity alone as a rejection criterion
+and relax the universal internal-hierarchy target. Do not insert random
+subsegments or independent ridge noise.
 
 The first on-demand basement seam preserves the existing continent/craton
 envelope, deterministically grows 68 connected provinces on the fixed 100k seed
@@ -104,7 +134,7 @@ all three 100k worlds. Interior paleorifts do not yet show a continental-rift
 contact, so their genuine consumer remains missing.
 
 All ten contacts on the reviewed 3,200 km collision parent are still unnamed
-basement candidates. The honest result remains one continuous finite massif;
+basement candidates. The source supplies no honest internal subdivision;
 resampling history until the target becomes convenient is forbidden. Retain the
 cheap generator as experimental source state, but zoom out before adding
 transfers, provenance overlays or an interior-rift response. Treat current
@@ -1240,6 +1270,8 @@ explicit persistent skeleton, or a physical channel-initiation threshold.
 - Do not infer physical success from attractive cartography or Earth-like
   marginal statistics.
 - Prefer a decisive object/cause comparison over another global metric.
-- Keep the selected slice bounded: it establishes access, traversability,
-  affordances, aggregate sites and routes. It does not absorb agents, economy,
-  culture, seasons, sediment, richer ecology or a mountain replacement.
+- Keep the selected slice bounded: it composes current product-control relief,
+  water, river and Living Surface state across scales. It does not absorb named
+  biomes,
+  forest assets, sites/routes, agents, economy, culture, seasons, sediment,
+  richer ecology or a mountain replacement.

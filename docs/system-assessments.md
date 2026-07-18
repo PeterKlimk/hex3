@@ -309,8 +309,10 @@ the integrated planet.
 
 1. The bounded mountain comparison located a real forcing/organization defect,
    but H remains a control and C, G and manufactured I do not earn product
-   ownership. Mountain work is parked pending real front topology, history and
-   inherited material state. See the
+   ownership. The inheritance follow-up does not divide the reviewed belt
+   honestly. Drop continuity alone as a rejection criterion for the reviewed
+   parent, but keep the legacy generic tableland owner as unresolved debt and
+   reopen it only under the ordinary-world trigger in the
    [landscape organization strategy](landscape-strategy.md).
 2. Water Geography V0 now joins connected ocean identity, moisture source,
    lakes/basins/outlets, river roles, repair provenance and exact raw coast
@@ -321,12 +323,12 @@ the integrated planet.
    stable regional and hydrologic consequences plus manufactured causal signs.
 4. Semantic derivation and reproducible presentation profiles are comparatively
    cheap, high-leverage architecture, not substitutes for physical state.
-5. Water/climate inputs now have declared meaning, and bounded equilibrium
-   physiognomy is accepted as an on-demand layer. Consequential Geography V0 is
-   the next expansion because it tests several retained systems together and
-   directly advances the board/globe identity; persistent sediment remains a
-   strong physical candidate behind a deliberate material/time/river/lowland
-   gate.
+5. Water/climate inputs now have declared meaning, bounded equilibrium
+   physiognomy is accepted on demand, and Consequential Geography has completed
+   its bounded decision. World Readability V0 is the next expansion because it
+   composes several retained systems at product scale and directly advances the
+   board/globe identity; persistent sediment remains a strong physical candidate
+   behind a deliberate material/time/river/lowland gate.
 6. Geological time matters only if processes share it. A physical clock attached
    to otherwise uncoupled or non-convergent operators is not progress by itself.
 7. The implemented Stage 4 frontier leaves major creative space: aggregate

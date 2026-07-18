@@ -5,13 +5,14 @@ assembly/suture prior retained experimentally, paleorift arm not justified, and
 nothing promoted into the product**, 2026-07-18.
 
 This decision follows the source-only failure in
-[Structural Mountain V0](structural-mountain.md). It chooses the smallest
-missing causal owner worth building before any mountain terrain response.
+[Structural Mountain V0](structural-mountain.md). The contract below records the
+smallest missing causal owner that was built and evaluated before any mountain
+terrain response; it is no longer an active implementation instruction.
 
 ## Decision
 
-Add **tectonic memory** to the coarse world model as two related but distinct
-forms of pre-terrain state:
+The evaluated design added **tectonic memory** as two related but distinct forms
+of on-demand pre-terrain state:
 
 1. coherent basement/material provinces; and
 2. a sparse directional graph of inherited sutures, rifts and their linkage or
@@ -394,8 +395,10 @@ The expensive lifecycle implementation remains quarantined. Useful concepts—
 material identity, persistent damage, rotated fabric and conservative ledgers—
 may be extracted later, but the named model is not a prerequisite for V0.
 
-The alternative remains explicit: if sparse inherited state does not create
-coherent multi-consumer relationships cheaply, retain finite continuous
-massifs, relax the universal internal-hierarchy target, and spend the project
-budget on a higher-value missing system. The decision is to test the causal
-owner, not to guarantee its promotion.
+The portfolio has now taken that alternative: drop continuity alone as a
+rejection criterion for the reviewed parent, relax the universal
+internal-hierarchy target and spend the next project budget on
+[World Readability V0](roadmap.md#2-world-readability-v0). This does not endorse
+the legacy generic tableland owner; the ordinary-world terrain escalation gate
+remains explicit. The source test earned a useful experimental assembly/suture
+seam, not guaranteed promotion or further topology work.

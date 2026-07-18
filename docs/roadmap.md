@@ -37,6 +37,11 @@ Two bounded integration slices are also complete:
   physiognomy and a selectable linear relief palette without creating a retained
   ecology stage.
 
+Consequential Geography has also closed its bounded discriminator without
+promoting a human layer. Structural Mountain and Lithosphere Inheritance close
+as source decisions without authorizing terrain; their retained outcomes are
+summarized below and specified in their own decision documents.
+
 The large mountain/landscape experiment campaign is historical evidence, not an
 active roadmap. Its current conclusion is maintained in
 [landscape strategy](landscape-strategy.md); exact contracts and outcomes remain
@@ -51,10 +56,10 @@ automatically the best product move.
 
 | Product promise | Candidate intervention | Current decision |
 |---|---|---|
-| The product is lean enough to reason about and iterate | Separate product code/API/CLI from the experimental laboratory; remove unconditional rendering allocations | **Immediate enabling work** |
+| The product is lean enough to reason about and iterate | Separate product code/API/CLI from the experimental laboratory; remove unconditional rendering allocations | **Partly complete enabling work; finish the ordinary CLI contraction** |
 | Geography has visible consequences | Traversability, water/coast access, named relative opportunities, aggregate sites and least-cost routes | **Bounded discriminator complete; retain useful operators without vertical expansion** |
-| Terrain is morphologically convincing | Replace scalar final-height ownership with one structural range/forcing owner or disclosed authentic range hack | **Selected next model rework** |
-| The planet is readable and explainable | Consumer-driven regions, passes, crossings, chokepoints, labels and scale generalization | **Build only as pulled by the selected consequence layer** |
+| Terrain is morphologically convincing | Replace scalar final-height ownership with one structural range/forcing owner or disclosed authentic range hack | **Defect retained, rework paused; continuity alone is not a rejection criterion, universal smooth roofs remain debt** |
+| The planet is readable and explainable | Scale-aware relief, land/water hierarchy, rivers and living cover in one coherent cartographic scene | **Selected next bounded slice** |
 | Landscapes connect source to sink | Persistent mobile/deposited material, floodplains, terminal fill and deltas | **Research/design gate; not next by default** |
 | The world feels more visibly alive | Forest structure, vegetation assets, seasons or disturbance | **Gated; accepted Living Surface does not authorize vertical expansion** |
 
@@ -65,28 +70,68 @@ condition and cheaper alternative.
 
 ## Immediate sequence
 
-### 1. Contract the product surface
+### 1. Finish the ordinary product surface
 
-Separate the ordinary application from the research laboratory without deleting
-historical evidence or reusable operators.
+The research landscape modules and binaries are now behind the explicit
+`research-landscape` feature, and inactive large rendering resources are lazy.
+Finish the same contraction at the ordinary CLI boundary: default-off erosion,
+meso-relief, glacial and sweep-era controls should not make rejected or
+quarantined owners appear to be supported product choices. Preserve the legacy
+terrain path as the disclosed usable control. This is a bounded cleanup, not a
+model campaign.
 
-- hide quarantined orogen models and default-off erosion/fine knobs from the
-  normal product CLI;
-- keep the landform/landscape testbeds and their binaries behind the explicit
-  non-default `research-landscape` build/module boundary;
-- keep the legacy terrain owner as the disclosed usable control, not as an
-  endorsed final architecture;
-- retain the now-lazy alternative colored fill meshes and relief edges plus the
-  one-texel pre-hydrology river fallback; share or retire further inactive-stage
-  resources only where measurement justifies it; and
-- measure actual product build/runtime/memory changes, without turning cleanup
-  into a new model campaign.
+### 2. World Readability V0
 
-Exit condition: a contributor can identify the product path without navigating
-rejected terrain rungs, and ordinary rendering no longer allocates hundreds of
-MiB for unused stage-local resources.
+Compose the unchanged product-control world at planet and regional scales before
+adding another physical stage. The slice consumes existing physical and semantic
+state:
 
-### 2. [Consequential Geography V0](consequential-geography.md) — bounded decision complete
+```text
+current physical relief + landmass/coast/water-body identity
+  + river hierarchy + Living Surface fractions
+  -> one scale policy and presentation recipe
+  -> one declared Authentic cartographic scene
+```
+
+The first packet is one unchanged world at fixed globe and regional cameras,
+with the current Authentic scene as control. It makes the existing Living
+Surface palette, semantic water hierarchy and major-river selection work
+together under the current relief treatment. Before capture, choose one or two
+existing relationships by deterministic importance, such as a major trunk and
+its receiving water body. Human review must find those relationships materially
+easier to read in the A/B. Numeric checks require unchanged world/object
+topology, deterministic selection, Globe/Map identity parity and capture
+metadata. Attractive color alone is not a pass.
+
+Do not add region or landform classification, a new relief/texture algorithm,
+calibrated biomes, a universal semantic database, a renderer rewrite or new
+physical simulation. A specific failure may motivate one later discriminator;
+it does not pre-authorize a ladder.
+
+### 3. Terrain escalation gate
+
+Drop continuity alone as a rejection criterion for the reviewed causally
+continuous collision parent. This relaxes the universal demand for internal
+mountain segmentation; it does **not** promote a new terrain response, endorse
+the legacy capped distance-band height owner or declare the long-tableland
+defect solved.
+
+Judge recurrence and modeled morphology on a small fixed ordinary-world
+Physical/Diagnostic terrain corpus. Use the cartographic A/B only to judge
+product harm and payoff, never physical validity. Reopen broader terrain
+ownership only if smooth roofs are recurrent in the physical evidence and still
+materially damage the product. That rework must begin from the coupled owner—
+finite uplift forcing, drainage/divide organization and nonlinear hillslope
+response—not from another
+target-belt segmentation ladder. Paleorifts, transfers, seed selection, relief
+tuning and crest noise are not substitutes.
+
+This gate avoids spending another campaign on one exceptional belt without
+hiding an endemic surface defect under styling.
+
+## Completed bounded decisions
+
+### [Consequential Geography V0](consequential-geography.md) — bounded decision complete
 
 Use existing final terrain, physical grade, water geography and Living Surface
 fractions to test whether the generated planet constrains one plausible
@@ -154,13 +199,13 @@ See the [lower-corridor audit](audits/consequential-geography-lower-corridor-202
 Kill condition: if authored weights dominate geography or the result is a
 decorative overlay, stop. Retain only useful traversability/access semantics.
 
-### 3. [Lithosphere Inheritance V0](lithosphere-inheritance.md) — experimental source seam retained; terrain remains stopped
+### [Lithosphere Inheritance V0](lithosphere-inheritance.md) — experimental source seam retained; terrain remains stopped
 
 The tableland/“long Uluru” range grammar remains the largest established visible
 model defect. The product-native structural compiler has now shown that the
 current source does not contain enough causal state to repair it honestly.
 
-The selected task is therefore upstream state, not mountain response. Add
+The selected task was therefore upstream state, not mountain response: add
 coherent basement provinces plus a sparse directional graph of inherited
 sutures/rifts. This state is generated before terrain, has explicit topology
 and orientation, and must serve both collision organization and rift
@@ -190,9 +235,9 @@ tapers would manufacture the needed lows. Structural Mountain V0 stops with
 The crust follow-up finds craton `3` on both sides of every parent edge and only
 one broad ocean-margin-distance envelope. Existing craton labels, experimental
 strain and lifecycle damage do not provide pre-collision structural memory.
-Build and audit the new source state before revisiting terrain. If it cannot
-produce coherent multi-consumer relationships cheaply, relax the universal
-internal-hierarchy target and retain continuous finite massifs. Do not add
+The subsequent source audit did not divide the reviewed parent honestly, so the
+portfolio now drops continuity alone as a rejection criterion and relaxes the
+universal internal-hierarchy target. Do not add
 independent ridge noise, lower a bend threshold, revive the manufactured
 organization ladder, tune amplitudes, or stack relief over the current scalar
 height owner.
@@ -229,11 +274,12 @@ continental-rifting applications. The paleorift arm does not pass: its four-trac
 physical median is unstable across resolution and it does not yet demonstrate a
 rift-nucleation consumer. The reviewed seed `12345` collision parent encounters
 only unnamed candidate contacts. Retain the assembly/suture seam experimentally,
-but do not promote it into `World` or reopen that terrain response. The next
-project decision should zoom out again: either justify an interior-rift consumer
-with clear product value or compare the continuous-massif outcome against other
-portfolio interventions. Do not expand history topology merely to ensure a
-convenient mountain subdivision.
+but do not promote it into `World` or reopen that terrain response. The
+portfolio comparison now selects World Readability V0 ahead of either an
+interior-rift consumer or a new terrain campaign. Do not expand history topology
+merely to ensure a convenient mountain subdivision. Interior paleorifts remain
+implemented negative evidence until a genuine rift consumer wins a later
+portfolio decision.
 
 ## Later decision set
 

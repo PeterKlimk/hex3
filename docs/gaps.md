@@ -36,23 +36,23 @@ visible consequences.
 ## Comparative matrix
 
 **Water Geography V0**, **Living Surface V0** and the bounded Consequential
-Geography discriminator are complete. The current portfolio selects
-[Lithosphere Inheritance V0](lithosphere-inheritance.md) as the missing upstream
-owner exposed by [Structural Mountain V0](structural-mountain.md). Persistent
-sediment remains the leading large physical candidate behind its own design
-gate.
+Geography discriminator are complete. [Lithosphere Inheritance V0](lithosphere-inheritance.md)
+retains an experimental assembly/suture seam but closes without authorizing
+terrain. The current portfolio selects World Readability V0 over accepted
+state. Persistent sediment remains the leading large physical candidate behind
+its own design gate.
 
 | Candidate | Visible payoff | Emergence / reach | Cost / readiness | Provisional Pareto view |
 |---|---|---|---|---|
 | Product/research boundary and presentation allocation | Indirect visual payoff; large iteration and comprehensibility gain | Very high across every future change | Medium; research code is about 54k LOC and stage-local river textures alone are ~128 MiB each | **Immediate enabling work** |
-| Landform semantics: ranges, plateaus, ridges, valleys, divides and passes | High through inspection and feature-aware rendering | Very high across causal validation, cartography, ecology and later culture | Medium; the completed packet is reusable evidence but product definitions remain incomplete | **Retain evidence; continue only for a consumer** |
-| Lithosphere inheritance / regional mountain organization owner | Very high; targets tableland grammar without painting terrain | Very high across collision, rifting, terrain, water barriers, geology and later worlds | Medium; current craton/plate overlay lacks terranes or inherited structure, but reusable exact fronts and graph operators exist | **Selected: implement the source-only inherited-state seam before mountain terrain** |
+| Landform semantics: ranges, plateaus, ridges, valleys, divides and passes | High through inspection and feature-aware rendering | Very high across causal validation, cartography, ecology and later culture | Medium; the completed packet is reusable evidence but product definitions remain incomplete | **Not in the first World Readability packet; derive only after a specific consumer failure** |
+| Lithosphere inheritance / regional mountain organization owner | Potentially very high; targets tableland grammar without painting terrain | Very high across collision, rifting, terrain, water barriers, geology and later worlds | Medium; the experimental assembly/suture arm passes its source gate, but the reviewed belt has no named contact and paleorifts lack a consumer | **Stop expansion; retain the experimental seam and drop continuity alone as a rejection criterion** |
 | Water-geography truth contract and object integration | High for lakes, rivers, coasts, inspection and cartography | Very high across climate validation, hydrology, ecology and later settlement | Low–medium; retained inputs, compact graph and exact diagnostic geometry now exist | **Completed enabling slice** |
 | Controlled correspondence batteries for current systems | Indirect visually; prevents expensive false confidence | Very high across tectonics, climate, hydrology, erosion and remapping | Low–medium; idealized cases and ablations | **Use inside bounded decisions** |
-| Presentation transform ledger plus matched physical/cartographic views | High clarity and prevents false geometric inference | High diagnostic and rendering leverage | Low; physical/cartographic split already exists | **Immediate** |
-| Explicit semantic objects and regions | High through inspection, cartography and later gameplay | Very high; reused by rendering, validation, ecology and civilization | Low–medium; much logic already exists implicitly | **Derive when a route/site/presentation consumer needs them** |
-| Presentation profiles, legends and capture metadata | High clarity; moderate spectacle | High diagnostic and decision value | Low; ready now | **Do early** |
-| Consistent scale-dependent rivers/overlays | High at globe/map scales | Medium; improves all thematic views | Medium; semantic generalization needed first | **Early** |
+| Presentation transform ledger plus matched physical/cartographic views | High clarity and prevents false geometric inference | High diagnostic and rendering leverage | Low; physical/cartographic split already exists | **Selected inside World Readability V0** |
+| Explicit semantic objects and regions | High through inspection, cartography and later gameplay | Very high; reused by rendering, validation, ecology and civilization | Low–medium; water objects already exist but region classifications do not | **Reuse accepted water/river objects now; new regions remain behind a demonstrated consumer need** |
+| Presentation profiles, legends and capture metadata | High clarity; moderate spectacle | High diagnostic and decision value | Low; ready now | **Selected inside World Readability V0** |
+| Consistent scale-dependent rivers/overlays | High at globe/map scales | Medium; improves all thematic views | Medium; shared water/river semantics are ready | **Selected inside World Readability V0** |
 | Elevation/unit/scale contract | Indirect visually, critical diagnostically | Very high across terrain, erosion and rendering | Low–medium; requires careful normalization audit | **Do early** |
 | Unified experiment/config provenance | Indirect but prevents invalid decisions | Very high across all development | Low–medium | **Do early** |
 | Biome constraints and ecological regions | Very high recognizability and world identity | High; consumes climate, water, elevation and future soils/resources | Medium; diagnostic prototype exposes unvalidated inputs, not an ecology stage | **Still unselected; require a consumer and stronger causal grammar beyond the accepted fractional layer** |
@@ -126,12 +126,23 @@ Risks include producing a climate lookup-table painted over terrain, circular
 wetland halos around map-selected rivers, allowing noisy cell classifications,
 or treating rendered trees as ecological state.
 
-## Selected missing consequence layer
+## Selected visible integration layer
+
+World Readability V0 is the selected high-payoff consumer of retained state. It
+combines current product-control relief, existing landmass/coast/water-body
+identity, river hierarchy and Living Surface fractions in one Authentic recipe.
+The fixed A/B asks whether one or two deterministically selected geographic
+relationships are materially easier to read than in the current Authentic
+control, with no world/object topology change and with Globe/Map identity parity.
+The first packet creates no new region or landform classification, relief
+algorithm or texture. Attractive color alone is not a pass.
+
+## Completed missing consequence layer
 
 The [Consequential Geography V0 decision](consequential-geography.md) uses
 current terrain, water/coast identity and Living Surface opportunity to derive
 traversability, named relative opportunity components, aggregate sites and
-least-cost routes. It is selected because it
+least-cost routes. It was selected because it
 directly advances the globe/board identity while testing several retained
 systems together.
 
@@ -226,10 +237,10 @@ produces stable, interpretable behavior and meaningful consequences.
 
 Targeted external research should now compare:
 
-1. aggregate settlement-site and route-network models used in procedural games,
-   spatial history, transport geography and strategy maps;
-2. least-cost and network-formation methods over irregular terrain, including
-   harbor opportunities, crossings, route-local gaps and chokepoints;
+1. multiscale cartographic selection and land-cover/water composition used in
+   globes, natural maps and strategy-board views;
+2. neutral physiographic regions or DEM-derived terrain elements only after a
+   selected consumer demonstrates a specific need;
 3. structural range generators and reduced tectonic/landscape models that avoid
    universal smooth tablelands without requiring full geodynamics;
 4. reduced sediment-routing models that preserve mass and generate one useful

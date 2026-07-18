@@ -32,10 +32,16 @@ parks those mountain implementations, and retained **Water Geography V0** plus
 closed its bounded discriminator with useful access/route operators but no
 promoted human layer. [Structural Mountain V0](structural-mountain.md) then
 accepted a product-native source compiler but found that current crust/history
-state cannot support honest internal organization. The current
-[roadmap](roadmap.md) therefore selects the upstream
-[Lithosphere Inheritance V0](lithosphere-inheritance.md) state seam. This is
-not a commitment to deepen every retained system.
+state cannot support honest internal organization. The subsequent
+[Lithosphere Inheritance V0](lithosphere-inheritance.md) audit retained a cheap
+experimental assembly/suture seam but did not subdivide the reviewed collision
+parent or establish an interior-rift consumer. The current [roadmap](roadmap.md)
+therefore drops continuity alone as a rejection criterion for the reviewed
+parent and selects **World Readability V0**: make current product-control relief,
+water hierarchy, rivers and living cover cohere across scales before adding
+another physical stage. This is not
+acceptance of the legacy smooth-roof owner or a commitment to deepen every
+retained system.
 
 ## Alternatives considered
 
@@ -152,11 +158,14 @@ That pass produced explicit system dispositions rather than one universal
 fidelity direction. Water Geography, Living Surface and Consequential Geography
 have completed their bounded decisions. The selected sequence is now:
 
-1. keep the ordinary product path separate from quarantined research machinery;
-2. implement and judge source-only inherited basement provinces and structural
-   memory before resuming Structural Mountain terrain, without reviving the
-   H/C/G/I ladder; and
-3. keep sediment, seasonal hydroecology, richer vegetation, ocean structure and
+1. finish contracting the ordinary CLI around the already-separated product
+   path;
+2. build one bounded, scale-aware Authentic cartographic scene from accepted
+   relief, land/water identity, river hierarchy and Living Surface state;
+3. reopen broader terrain ownership only if a fixed ordinary-world
+   Physical/Diagnostic corpus shows recurrent smooth-roof morphology and the
+   cartographic A/B separately shows material product harm; and
+4. keep sediment, seasonal hydroecology, richer vegetation, ocean structure and
    cryosphere behind their explicit consumer and ownership gates.
 
 Missing systems remain central, but continue to compete against fixing,

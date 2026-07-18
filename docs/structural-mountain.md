@@ -1,14 +1,14 @@
 # Structural Mountain V0 contract
 
-Status: **source-first target and observation binding accepted; current source
-organization rejected as insufficient; terrain replacement paused behind the
-selected [Lithosphere Inheritance V0](lithosphere-inheritance.md) decision**,
+Status: **bounded source decision complete; current organization rejected as
+insufficient; inheritance follow-up does not subdivide the reviewed parent;
+terrain replacement paused behind the ordinary-world escalation gate**,
 2026-07-18.
 
-This document defines the one product-native mountain comparison authorized by
-the [roadmap](roadmap.md). It replaces the old H/C/G campaign as the active
-instruction. Those planar experiments remain useful research history; they are
-not a queue of unfinished promotion work.
+This document records the completed product-native mountain source comparison.
+It replaced the old H/C/G campaign; neither it nor those planar experiments is
+an active queue of unfinished promotion work. The current decision lives in the
+[roadmap](roadmap.md#3-terrain-escalation-gate).
 
 ## Product outcome and precise defect
 
@@ -594,8 +594,10 @@ semantics.
 ## Consequence of the decision
 
 The product-facing front/episode record, finite-parent graph, source target and
-legacy binding are complete enough to retain. The next implementation task now
-belongs upstream: add and inspect the bounded inherited-state seam defined by
-[Lithosphere Inheritance V0](lithosphere-inheritance.md). Do not touch terrain
-response until that source-only state earns a relationship, and do not revive
-O1/O2/O3, H/C/G, carrier tuning or the full planar evidence campaign.
+legacy binding are complete enough to retain. The bounded
+[Lithosphere Inheritance V0](lithosphere-inheritance.md) follow-up retains an
+experimental source seam but supplies no named contact on this parent. Accept
+continuity as insufficient by itself to reject this causally continuous parent;
+no new terrain response has been promoted. Do not touch terrain response unless
+the ordinary-world escalation gate is met, and do not revive O1/O2/O3, H/C/G,
+carrier tuning or the full planar evidence campaign.

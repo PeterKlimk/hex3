@@ -230,9 +230,11 @@ future consumers.
    matched views and make cross-system dispositions before choosing another
    stage.
 
-Water Geography and Living Surface now provide coherent bounded inputs. The
-post-Living portfolio decision selects Consequential Geography V0 so sites and
-routes can test whether those inputs and terrain matter together. Small
+Water Geography and Living Surface now provide coherent bounded inputs, and the
+Consequential Geography discriminator has completed without promoting a human
+layer. The current portfolio selects World Readability V0 so current
+product-control relief, water, rivers and living cover can be judged together at
+product scales. Small
 instrumentation or semantic extraction changes remain appropriate when pulled
 by that consumer. Local ablations require a specific relationship decision and
 stop condition; producing another optimizable metric is not sufficient reason.
