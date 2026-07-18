@@ -45,7 +45,8 @@ use super::coloring::{
 use super::view::{ReliefPreset, RiverMode};
 use super::world::{
     advance_to_stage_2, advance_to_stage_3, advance_to_stage_3_with_cap, advance_to_stage_4,
-    create_world_with_orogen_model, generate_world_buffers, ErosionOverrides,
+    create_world_with_orogen_model, generate_world_buffers,
+    generate_world_buffers_with_display_subdivision, ErosionOverrides,
 };
 
 /// Knobs the sweep can vary, mapped onto [`ErosionOverrides`] fields.
@@ -194,6 +195,9 @@ pub struct SweepOptions {
     pub river_mode: RiverMode,
     pub river_threshold_policy: String,
     pub river_min_catchment_km2: Option<f32>,
+    /// Research-only render subdivision. It interpolates an unchanged physical
+    /// surface and is therefore meaningful only as a globe display A/B.
+    pub display_subdivision_levels: usize,
 }
 
 /// Apply one knob=value onto the overrides. Errors on an unknown knob name.
@@ -593,6 +597,7 @@ struct CaptureConfig {
     river_mode: &'static str,
     river_threshold_policy: String,
     river_min_catchment_km2: Option<f32>,
+    display_subdivision_levels: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -3754,6 +3759,10 @@ pub fn run_sweep(opts: SweepOptions) {
     if !opts.zoom_alt.is_finite() || opts.zoom_alt <= 0.0 {
         panic!("--sweep-zoom-alt must be finite and greater than zero");
     }
+    assert!(
+        opts.display_subdivision_levels <= 1,
+        "--sweep-display-subdivision is a bounded 0/1 discriminator, not a display-LOD ladder"
+    );
     let mut target_ids = std::collections::HashSet::new();
     for target in &opts.targets {
         if !target_ids.insert(target.id.as_str()) {
@@ -3895,9 +3904,18 @@ pub fn run_sweep(opts: SweepOptions) {
         && opts.knob2.is_none();
     let shared_world =
         render_only_presentation.then(|| generate_tile_world(&opts, &opts.base_erosion));
-    let shared_buffers = shared_world
-        .as_ref()
-        .map(|world| generate_world_buffers(&gpu.device, &gpu.queue, world));
+    let shared_buffers = shared_world.as_ref().map(|world| {
+        if opts.display_subdivision_levels == 0 {
+            generate_world_buffers(&gpu.device, &gpu.queue, world)
+        } else {
+            generate_world_buffers_with_display_subdivision(
+                &gpu.device,
+                &gpu.queue,
+                world,
+                opts.display_subdivision_levels,
+            )
+        }
+    });
 
     for (ti, (overrides, label, fname, knob_values)) in tiles.iter().enumerate() {
         print!("[{}/{}] {label} ... ", ti + 1, n_tiles);
@@ -3919,8 +3937,18 @@ pub fn run_sweep(opts: SweepOptions) {
             montage = vec![0u8; (montage_w * montage_h * 4) as usize];
         }
 
-        let owned_buffers = (!render_only_presentation)
-            .then(|| generate_world_buffers(&gpu.device, &gpu.queue, world));
+        let owned_buffers = (!render_only_presentation).then(|| {
+            if opts.display_subdivision_levels == 0 {
+                generate_world_buffers(&gpu.device, &gpu.queue, world)
+            } else {
+                generate_world_buffers_with_display_subdivision(
+                    &gpu.device,
+                    &gpu.queue,
+                    world,
+                    opts.display_subdivision_levels,
+                )
+            }
+        });
         let buffers = shared_buffers
             .as_ref()
             .or(owned_buffers.as_ref())
@@ -4004,6 +4032,7 @@ pub fn run_sweep(opts: SweepOptions) {
             river_mode: river_mode_label(opts.river_mode),
             river_threshold_policy: opts.river_threshold_policy.clone(),
             river_min_catchment_km2: opts.river_min_catchment_km2,
+            display_subdivision_levels: opts.display_subdivision_levels,
         },
         views: views.iter().map(|view| view.sidecar.clone()).collect(),
         tiles: tile_records,

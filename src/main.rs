@@ -468,6 +468,12 @@ struct Cli {
     #[arg(long, default_value = "major", hide = HIDE_RESEARCH_CLI)]
     sweep_rivers: String,
 
+    /// Research-only globe display A/B: geodesically subdivide each unified
+    /// render triangle this many times after sampling the unchanged world.
+    /// One level produces four display triangles per physical render triangle.
+    #[arg(long, default_value_t = 0, hide = HIDE_RESEARCH_CLI)]
+    sweep_display_subdivision: usize,
+
     /// Legacy flag: equivalent to --stage 2
     #[arg(long, hide = true)]
     stage2: bool,
@@ -522,6 +528,7 @@ mod cli_contract_tests {
         "--emergent-lambda",
         "--meso-relief",
         "--sweep-stack",
+        "--sweep-display-subdivision",
     ];
 
     #[cfg(not(feature = "research-landscape"))]
@@ -575,6 +582,8 @@ mod cli_contract_tests {
             "k",
             "--sweep-values",
             "0.02,0.03",
+            "--sweep-display-subdivision",
+            "1",
         ])
         .expect("quarantined compatibility switches should still parse");
 
@@ -586,6 +595,7 @@ mod cli_contract_tests {
         assert_eq!(cli.glacial_k, 0.0);
         assert_eq!(cli.meso_relief, 0.5);
         assert_eq!(cli.sweep.as_deref(), Some("k"));
+        assert_eq!(cli.sweep_display_subdivision, 1);
     }
 
     #[test]
@@ -728,6 +738,7 @@ fn main() {
                 "catchment-km2".to_string()
             },
             river_min_catchment_km2: (!cli.river_legacy).then_some(cli.river_min_catchment_km2),
+            display_subdivision_levels: cli.sweep_display_subdivision,
         };
         app::sweep::run_sweep(opts);
     } else if cli.headless {

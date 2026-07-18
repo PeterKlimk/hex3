@@ -97,6 +97,16 @@ record generation time, peak memory and display footprint. The output should be
 a resolution/representation ownership decision, not a generic optimization
 campaign or proof that every fine cell deserves to be rendered.
 
+The first display-decoupling control is a bounded negative result. On the
+seed-12345 255,866-cell world, splitting every unified display triangle into
+four geodesic triangles while linearly interpolating the unchanged surface is
+visually almost identical to native 250k and does not approach the native
+997,486-cell result. It adds about 38% capture wall time and 34% peak RSS. This
+rejects extra display triangles alone, not the coarse-world direction: the next
+buy-back candidate must introduce relevant information through terrain-aware
+continuous reconstruction, conditioned sub-grid detail/drainage, or selective
+physical refinement. Do not build a subdivision/LOD ladder from this prototype.
+
 ## Recent lithosphere result
 
 Seed `12345`'s terrain-blind source remains episode 0 /

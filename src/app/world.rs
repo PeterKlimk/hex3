@@ -780,6 +780,29 @@ pub fn generate_world_buffers(
     queue: &wgpu::Queue,
     world: &World,
 ) -> WorldBuffers {
+    generate_world_buffers_internal(device, queue, world, 0)
+}
+
+/// Research-only display discriminator: build the ordinary product buffers but
+/// geodesically subdivide the unified globe mesh after physical state has been
+/// sampled. This changes no `World` field and adds no terrain information.
+/// Palette regeneration and Map projection are intentionally outside this
+/// bounded prototype.
+pub fn generate_world_buffers_with_display_subdivision(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    world: &World,
+    display_subdivision_levels: usize,
+) -> WorldBuffers {
+    generate_world_buffers_internal(device, queue, world, display_subdivision_levels)
+}
+
+fn generate_world_buffers_internal(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    world: &World,
+    display_subdivision_levels: usize,
+) -> WorldBuffers {
     let use_fine = world.shows_fine();
     let voronoi = &world.active_tessellation().voronoi;
 
@@ -787,7 +810,8 @@ pub fn generate_world_buffers(
 
     // Unified mesh with material-aware lighting for Relief mode.
     let unified_mesh = build_surface_palette_mesh(world, SurfacePalette::Terrain)
-        .expect("ordinary terrain palette is available at every stage");
+        .expect("ordinary terrain palette is available at every stage")
+        .subdivide_globe_display(display_subdivision_levels);
 
     // Edge lines: default gray + plates with colored boundaries
     let edge_color = Vec3::new(0.35, 0.35, 0.35);

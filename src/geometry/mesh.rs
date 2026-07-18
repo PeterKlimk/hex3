@@ -1,5 +1,5 @@
 use glam::Vec3;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use super::SphericalVoronoi;
 
@@ -409,6 +409,49 @@ impl UnifiedMesh {
         }
     }
 
+    /// Subdivide globe triangles without sampling or changing physical state.
+    ///
+    /// Each level splits one triangle into four. New vertices are geodesic edge
+    /// midpoints on the unit sphere; elevation and color are linear
+    /// interpolants of existing render vertices. This is deliberately a display
+    /// discriminator, not terrain refinement: it cannot create a peak, valley,
+    /// divide or channel absent from the supplied mesh.
+    ///
+    /// The result is globe-only. Map wrap offsets are reset because an
+    /// antimeridian-aware display tessellator needs a separate projection
+    /// contract. Mixed-material edges retain the water-dominant convention used
+    /// by the shared-vertex fine mesh.
+    pub fn subdivide_globe_display(mut self, levels: usize) -> Self {
+        assert_eq!(
+            self.indices.len() % 3,
+            0,
+            "display subdivision requires triangle indices"
+        );
+        for _ in 0..levels {
+            let mut edge_midpoints = HashMap::with_capacity(self.indices.len() / 2);
+            let mut subdivided = Vec::with_capacity(self.indices.len() * 4);
+            for triangle in self.indices.chunks_exact(3) {
+                let a = triangle[0];
+                let b = triangle[1];
+                let c = triangle[2];
+                let ab = display_midpoint(&mut self.vertices, &mut edge_midpoints, a, b);
+                let bc = display_midpoint(&mut self.vertices, &mut edge_midpoints, b, c);
+                let ca = display_midpoint(&mut self.vertices, &mut edge_midpoints, c, a);
+                subdivided.extend_from_slice(&[
+                    a, ab, ca, // corner A
+                    ab, b, bc, // corner B
+                    ca, bc, c, // corner C
+                    ab, bc, ca, // center
+                ]);
+            }
+            self.indices = subdivided;
+        }
+        if levels > 0 {
+            self.edge_indices.clear();
+        }
+        self
+    }
+
     /// Project vertices to 2D equirectangular map coordinates.
     pub fn to_map_vertices(&self) -> (Vec<UnifiedVertex>, Vec<u32>) {
         // First pass: project all vertices
@@ -560,6 +603,45 @@ impl UnifiedMesh {
         let positions: Vec<[f32; 3]> = self.vertices.iter().map(|v| v.position).collect();
         MapProjection::compute(&positions, &self.indices)
     }
+}
+
+fn display_midpoint(
+    vertices: &mut Vec<UnifiedVertex>,
+    edge_midpoints: &mut HashMap<(u32, u32), u32>,
+    a: u32,
+    b: u32,
+) -> u32 {
+    let edge = if a < b { (a, b) } else { (b, a) };
+    if let Some(&midpoint) = edge_midpoints.get(&edge) {
+        return midpoint;
+    }
+    let va = vertices[a as usize];
+    let vb = vertices[b as usize];
+    let sum = Vec3::from_array(va.position) + Vec3::from_array(vb.position);
+    assert!(
+        sum.length_squared() > 1.0e-12,
+        "display subdivision cannot bisect an antipodal edge"
+    );
+    let position = sum.normalize();
+    let color = (Vec3::from_array(va.color) + Vec3::from_array(vb.color)) * 0.5;
+    let material = if va.material == vb.material {
+        va.material
+    } else {
+        // The fine shared-vertex builder makes any water-touching vertex water;
+        // Ocean=1 and Lake=2, so max preserves that water-dominant convention.
+        va.material.max(vb.material)
+    };
+    let midpoint = vertices.len() as u32;
+    vertices.push(UnifiedVertex {
+        position: position.to_array(),
+        normal: position.to_array(),
+        color: color.to_array(),
+        elevation: (va.elevation + vb.elevation) * 0.5,
+        material,
+        wrap_offset: 0.0,
+    });
+    edge_midpoints.insert(edge, midpoint);
+    midpoint
 }
 
 /// Project a 3D sphere point to 2D equirectangular coordinates.
@@ -1287,6 +1369,18 @@ mod tests {
     use super::*;
     use crate::geometry::{lloyd_relax, random_sphere_points, SphericalVoronoi};
 
+    fn display_triangle() -> UnifiedMesh {
+        UnifiedMesh {
+            vertices: vec![
+                UnifiedVertex::land(Vec3::X, Vec3::X, Vec3::new(0.2, 0.4, 0.6), 0.1),
+                UnifiedVertex::land(Vec3::Y, Vec3::Y, Vec3::new(0.4, 0.6, 0.8), 0.3),
+                UnifiedVertex::land(Vec3::Z, Vec3::Z, Vec3::new(0.6, 0.8, 1.0), 0.5),
+            ],
+            indices: vec![0, 1, 2],
+            edge_indices: vec![0, 1, 1, 2, 2, 0],
+        }
+    }
+
     #[test]
     fn test_mesh_generation() {
         let mut points = random_sphere_points(50);
@@ -1303,5 +1397,43 @@ mod tests {
         for &idx in &mesh.indices {
             assert!(idx < max_idx, "Invalid triangle index: {}", idx);
         }
+    }
+
+    #[test]
+    fn display_subdivision_splits_without_new_extrema() {
+        let mesh = display_triangle().subdivide_globe_display(1);
+        assert_eq!(mesh.vertices.len(), 6);
+        assert_eq!(mesh.indices.len(), 12);
+        assert!(mesh.edge_indices.is_empty());
+        for vertex in &mesh.vertices {
+            let position = Vec3::from_array(vertex.position);
+            assert!((position.length() - 1.0).abs() < 1.0e-6);
+            assert!((0.1..=0.5).contains(&vertex.elevation));
+            assert_eq!(vertex.material, Material::Land as u32);
+            assert_eq!(vertex.wrap_offset, 0.0);
+        }
+        assert_eq!(mesh.vertices[3].elevation, 0.2);
+        assert_eq!(mesh.vertices[4].elevation, 0.4);
+        assert_eq!(mesh.vertices[5].elevation, 0.3);
+        assert!(mesh
+            .indices
+            .iter()
+            .all(|&index| (index as usize) < mesh.vertices.len()));
+    }
+
+    #[test]
+    fn display_subdivision_is_deterministic_and_level_zero_is_identity() {
+        let unchanged = display_triangle().subdivide_globe_display(0);
+        assert_eq!(unchanged.indices, vec![0, 1, 2]);
+        assert_eq!(unchanged.edge_indices, vec![0, 1, 1, 2, 2, 0]);
+
+        let a = display_triangle().subdivide_globe_display(2);
+        let b = display_triangle().subdivide_globe_display(2);
+        assert_eq!(a.indices, b.indices);
+        assert_eq!(
+            bytemuck::cast_slice::<UnifiedVertex, u8>(&a.vertices),
+            bytemuck::cast_slice::<UnifiedVertex, u8>(&b.vertices)
+        );
+        assert_eq!(a.indices.len(), 3 * 16);
     }
 }
