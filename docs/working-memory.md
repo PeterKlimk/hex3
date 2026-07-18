@@ -43,6 +43,60 @@ recurrent modeled morphology and the cartographic A/B shows product harm. Then
 compare a coupled uplift–drainage/divide–hillslope owner, not another
 segmentation ladder.
 
+## Active resolution and cost branch
+
+Do not collapse this question into either “keep the maximum mesh” or “coarsen
+the product.” The high-resolution surface currently has three different roles:
+it is a research microscope that exposes missing detail and bad grammar, a
+future capability for drainage/erosion/local views, and an expensive product
+representation whose present visual return is inconsistent. The existing
+`1.5 km` mountain-cell target was introduced as an approximate
+channel-initiation/hillslope scale. Later fixed-radius probes showed convergence
+of much of the *current model's* relief near the million-cell range; that does
+not establish that the resulting morphology is good enough to justify that
+cost. In particular, higher resolution sometimes produces valuable branching,
+warped ridge-and-valley texture (drainage-organized or dendritic dissection),
+but it also reveals smooth roofs, repeated grammar and insufficient process
+detail.
+
+Keep the following options live and composable until a scale-specific visual
+and causal comparison discriminates them:
+
+- optimize the retained fine process path, especially erosion time, peak
+  working memory, duplicated pre/post surface state and unconditional
+  simulation-resolution rendering;
+- use fewer physical cells for ordinary work and product views without deleting
+  the higher-resolution research/reference capability;
+- make refinement more responsive to the consequences of a cheap pilot
+  hydrology/erosion solve—channel heads, drainage ambiguity, divides, curvature,
+  incision/uplift gradients, lakes and coasts—then run the retained solve on a
+  stable adapted mesh;
+- use a physically conditioned sub-cell detail representation for effects that
+  need to read visually but do not yet justify physical cells. Generic noise is
+  not enough: any authentic hack should follow modeled drainage, divides,
+  slope, substrate and range organization and must not contradict semantic
+  topology;
+- decouple process, semantic and display resolution so a detailed physical
+  surface can feed a deliberately pixelled globe, bounded regional detail and
+  sparse/local close-up representation.
+
+Algorithmic geometry changes are explicitly on the table. Adaptive refinement
+does not have to reconstruct a complete global diagram after every decision:
+because `s2-voronoi` is separately controlled, it may add hint-driven local
+updates, partial diagrams or other low-cost recalculation primitives if Hex3 can
+state the required locality and validity contract. Prefer a bounded pilot then
+one stable rebuild/update over remeshing after every erosion step unless
+conservative state transfer, drainage-topology perturbation and determinism are
+solved. Voronoi speed alone does not remove those coupling costs, but current
+library APIs are not a fixed architectural limit.
+
+Before changing defaults, compare a known valuable dissected/"veined" mountain
+and a smooth/tableland counterexample at matched globe and regional cameras.
+Judge which morphology is created, merely smoothed, newly exposed or lost; also
+record generation time, peak memory and display footprint. The output should be
+a resolution/representation ownership decision, not a generic optimization
+campaign or proof that every fine cell deserves to be rendered.
+
 ## Recent lithosphere result
 
 Seed `12345`'s terrain-blind source remains episode 0 /
