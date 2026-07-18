@@ -1,6 +1,6 @@
 # Cross-system disposition
 
-Status: **current project decision**, 2026-07-18.
+Status: **current project decision**, 2026-07-19.
 
 This document closes the first cross-system disposition pass. It decides what
 the product should retain, simplify, replace, quarantine, remove or research
@@ -212,9 +212,9 @@ or cartographic generalization, none of which is claimed by V0.
 
 ## Current portfolio result
 
-1. **Finish contracting the product surface:** research code and large inactive
-   resources are separated/lazy; remove rejected and quarantined controls from
-   the ordinary CLI without deleting the laboratory.
+1. **Preserve the contracted product surface:** research code and large inactive
+   resources are separated/lazy; quarantined controls appear in CLI help only
+   under the explicit research feature.
 2. **Retain the completed bounded consequence operators:** do not expand them
    into population, economy or culture without a new portfolio decision.
 3. **Build World Readability V0 next:** combine current product-control relief,

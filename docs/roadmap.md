@@ -1,6 +1,6 @@
 # Hex3 roadmap
 
-Status: **current portfolio decision**, 2026-07-18.
+Status: **current portfolio decision**, 2026-07-19.
 
 This roadmap turns the [project thesis](thesis.md), [model strategy](model-strategy.md)
 and [cross-system disposition](system-disposition.md) into a short, revisable
@@ -42,6 +42,12 @@ promoting a human layer. Structural Mountain and Lithosphere Inheritance close
 as source decisions without authorizing terrain; their retained outcomes are
 summarized below and specified in their own decision documents.
 
+The product/research boundary is also contracted. Quarantined geometry, orogen,
+erosion, glacial, meso-relief and sweep controls remain parse-compatible for
+existing scripts but appear in `hex3 --help` only when built with the explicit
+`research-landscape` feature. The ordinary CLI retains product, presentation and
+operational controls plus the disclosed legacy terrain baseline.
+
 The large mountain/landscape experiment campaign is historical evidence, not an
 active roadmap. Its current conclusion is maintained in
 [landscape strategy](landscape-strategy.md); exact contracts and outcomes remain
@@ -56,7 +62,7 @@ automatically the best product move.
 
 | Product promise | Candidate intervention | Current decision |
 |---|---|---|
-| The product is lean enough to reason about and iterate | Separate product code/API/CLI from the experimental laboratory; remove unconditional rendering allocations | **Partly complete enabling work; finish the ordinary CLI contraction** |
+| The product is lean enough to reason about and iterate | Separate product code/API/CLI from the experimental laboratory; remove unconditional rendering allocations | **Completed enabling work; preserve the boundary** |
 | Geography has visible consequences | Traversability, water/coast access, named relative opportunities, aggregate sites and least-cost routes | **Bounded discriminator complete; retain useful operators without vertical expansion** |
 | Terrain is morphologically convincing | Replace scalar final-height ownership with one structural range/forcing owner or disclosed authentic range hack | **Defect retained, rework paused; continuity alone is not a rejection criterion, universal smooth roofs remain debt** |
 | The planet is readable and explainable | Scale-aware relief, land/water hierarchy, rivers and living cover in one coherent cartographic scene | **Selected next bounded slice** |
@@ -70,17 +76,7 @@ condition and cheaper alternative.
 
 ## Immediate sequence
 
-### 1. Finish the ordinary product surface
-
-The research landscape modules and binaries are now behind the explicit
-`research-landscape` feature, and inactive large rendering resources are lazy.
-Finish the same contraction at the ordinary CLI boundary: default-off erosion,
-meso-relief, glacial and sweep-era controls should not make rejected or
-quarantined owners appear to be supported product choices. Preserve the legacy
-terrain path as the disclosed usable control. This is a bounded cleanup, not a
-model campaign.
-
-### 2. World Readability V0
+### 1. World Readability V0
 
 Compose the unchanged product-control world at planet and regional scales before
 adding another physical stage. The slice consumes existing physical and semantic
@@ -108,7 +104,7 @@ calibrated biomes, a universal semantic database, a renderer rewrite or new
 physical simulation. A specific failure may motivate one later discriminator;
 it does not pre-authorize a ladder.
 
-### 3. Terrain escalation gate
+### 2. Terrain escalation gate
 
 Drop continuity alone as a rejection criterion for the reviewed causally
 continuous collision parent. This relaxes the universal demand for internal

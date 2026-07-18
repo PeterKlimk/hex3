@@ -1,6 +1,6 @@
 # Landscape organization strategy
 
-Status: **current architecture decision**, 2026-07-18.
+Status: **current architecture decision**, 2026-07-19.
 
 This document decides how terrain, drainage and landform meaning fit together.
 It does not promote a terrain replacement. [Structural Mountain V0](structural-mountain.md)
@@ -131,7 +131,7 @@ legacy generic capped ribbon or establish that the tableland defect is rare.
 
 Terrain work therefore pauses. Reopen the broader terrain owner only if a small
 fixed ordinary-world Physical/Diagnostic corpus shows that smooth roofs are
-recurrent modeled morphology. The [World Readability V0](roadmap.md#2-world-readability-v0)
+recurrent modeled morphology. The [World Readability V0](roadmap.md#1-world-readability-v0)
 A/B may establish that the morphology materially harms the cartographic product;
 it may not establish physical validity. A reopened comparison must replace
 scalar final-height plus repeated-uplift ownership and demonstrate a

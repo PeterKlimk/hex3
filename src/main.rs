@@ -10,6 +10,8 @@ use app::world::{
 };
 use hex3::world::{FineCacheMode, OrogenModel, VoronoiBackend};
 
+const HIDE_RESEARCH_CLI: bool = !cfg!(feature = "research-landscape");
+
 #[derive(Clone, Copy, Debug, ValueEnum)]
 enum CliVoronoiBackend {
     #[value(name = "convex-hull")]
@@ -112,15 +114,14 @@ struct Cli {
     #[arg(long)]
     seed: Option<u64>,
 
-    /// Coarse Voronoi cell count (default 100000). Sweep this to test
-    /// resolution independence of stages 1-2 (lithosphere/atmosphere).
+    /// Coarse Voronoi cell count. Controls global resolution and generation cost
+    /// for stages 1-2 (lithosphere/atmosphere).
     #[arg(long, default_value_t = 100_000)]
     cells: usize,
 
-    /// Uniform multiplier on the fine-mesh cell-size targets (plains/mountain/
-    /// ocean km). >1 coarsens the fine mesh, <1 refines it. Sweep this to test
-    /// resolution independence of stages 3-4 (erosion/fine hydrology). A value
-    /// other than 1.0 disables the fine-base disk cache.
+    /// Uniform multiplier on the fine-mesh cell-size targets. >1 coarsens the
+    /// fine mesh; <1 refines it. A value other than 1.0 disables the fine-base
+    /// disk cache.
     #[arg(long, default_value_t = 1.0)]
     fine_scale: f32,
 
@@ -148,7 +149,7 @@ struct Cli {
     export: Option<PathBuf>,
 
     /// Bake the river network into an equirectangular PNG (river-render dev/debug).
-    #[arg(long, value_name = "FILE")]
+    #[arg(long, value_name = "FILE", hide = HIDE_RESEARCH_CLI)]
     river_texture: Option<PathBuf>,
 
     /// River render density: minimum catchment area (km²) that renders as a
@@ -161,11 +162,16 @@ struct Cli {
     /// A/B: use the LEGACY count-equivalent river render thresholds (tuned on
     /// the coarse mesh; on the fine mesh they render only the largest trunk
     /// stubs — see diagnose --river-audit).
-    #[arg(long, default_value_t = false)]
+    #[arg(long, default_value_t = false, hide = HIDE_RESEARCH_CLI)]
     river_legacy: bool,
 
-    /// Voronoi backend to use (convex-hull or knn-clipping)
-    #[arg(long, value_enum, default_value_t = CliVoronoiBackend::ConvexHull)]
+    /// Compatibility switch for quarantined geometry-backend comparisons.
+    #[arg(
+        long,
+        value_enum,
+        default_value_t = CliVoronoiBackend::ConvexHull,
+        hide = HIDE_RESEARCH_CLI
+    )]
     voronoi_backend: CliVoronoiBackend,
 
     /// Compatibility switch for quarantined orogen experiments. The ordinary
@@ -174,7 +180,7 @@ struct Cli {
         long,
         value_enum,
         default_value_t = CliOrogenModel::Legacy,
-        hide = true
+        hide = HIDE_RESEARCH_CLI
     )]
     orogen_model: CliOrogenModel,
 
@@ -189,186 +195,196 @@ struct Cli {
     /// MFD erosion exponent (routing ladder Rung 2/3). <0 = EROSION_MFD_EXPONENT
     /// default (off); 0 = single-flow; ~1 dispersive .. high ≈ single-flow. Set
     /// >0 to visually A/B MFD incision. See docs/archive/specs/erosion-routing-ladder.md.
-    #[arg(long, default_value_t = -1.0)]
+    #[arg(long, default_value_t = -1.0, hide = HIDE_RESEARCH_CLI)]
     erosion_mfd_exponent: f32,
 
     /// Barnes convergent flat resolution (Rung 1). -1 = default (on); 0 = off
     /// (old flood_parent wavefront); 1 = on. A/B the spiral-on-flats fix.
-    #[arg(long, default_value_t = -1)]
+    #[arg(long, default_value_t = -1, hide = HIDE_RESEARCH_CLI)]
     erosion_flat_resolution: i8,
 
     /// Plains alluvial regime gate: channel slope (elev/km) at/above which
     /// incision is full; gentler channels fade to alluvial (floodplains, not
     /// ditches). <0 = EROSION_CONFINEMENT_SLOPE default (off). See
     /// docs/archive/specs/erosion-valleys-not-channels.md.
-    #[arg(long, default_value_t = -1.0)]
+    #[arg(long, default_value_t = -1.0, hide = HIDE_RESEARCH_CLI)]
     erosion_confinement_slope: f32,
 
     /// Erosion erodibility K (incision strength; default 4e-2). <0 = default.
     /// LOWER = gentler dissection (less sharp). Visual dissection-texture lever.
-    #[arg(long, default_value_t = -1.0)]
+    #[arg(long, default_value_t = -1.0, hide = HIDE_RESEARCH_CLI)]
     erosion_k: f32,
 
     /// Stream-power SLOPE exponent n in E=K·A^m·S^n (default 1). <0 = default.
     /// >1 (≈1.5–2) = sharper valleys/divides ("ranges not bumps"). Newton-solved.
-    #[arg(long, default_value_t = -1.0)]
+    #[arg(long, default_value_t = -1.0, hide = HIDE_RESEARCH_CLI)]
     erosion_n: f32,
 
     /// Hillslope diffusivity (smoothing; default 2e-8). <0 = default. HIGHER =
     /// smoother (rounds the sharp dissection). Visual dissection-texture lever.
-    #[arg(long, default_value_t = -1.0)]
+    #[arg(long, default_value_t = -1.0, hide = HIDE_RESEARCH_CLI)]
     erosion_diffusivity: f32,
 
     /// Channel-initiation support area (km² at mean land wetness; default 30).
     /// <0 = default. HIGHER = channels start later = LOWER drainage density
     /// (fewer/broader valleys, less "busy"). The primary density lever.
-    #[arg(long, default_value_t = -1.0)]
+    #[arg(long, default_value_t = -1.0, hide = HIDE_RESEARCH_CLI)]
     erosion_channel_support: f32,
 
     /// Uplift-FORCING smoothing length (km; escalation #1). Smooths the per-step
     /// tectonic uplift source over a sub-grid orogenic width to remove mountain-top
     /// cell-scale "swiss cheese" without flattening orogens. <0 = default; 0 = off.
     /// See docs/archive/specs/erosion-uplift-smoothing.md.
-    #[arg(long, default_value_t = -1.0)]
+    #[arg(long, default_value_t = -1.0, hide = HIDE_RESEARCH_CLI)]
     erosion_uplift_smooth: f32,
 
     /// Roering nonlinear-hillslope critical slope S_c (escalation #2; Δelev/radian,
     /// ~grade·637). Diffusivity blows up toward S_c -> planar slopes + crisp
     /// ridges (vs linear-creep mush). <0 = default; 0 = off. Visual de-prickle
     /// lever; sweep ~150-300. See docs/archive/specs/erosion-escalations.md.
-    #[arg(long, default_value_t = -1.0)]
+    #[arg(long, default_value_t = -1.0, hide = HIDE_RESEARCH_CLI)]
     erosion_hillslope_crit: f32,
 
     /// Hillslope-diffusion Jacobi sweeps per step (default 6). 0 = default. LOWER =
     /// cheaper diffuse phase; 6->3 measured metric-equivalent (incision percentiles
     /// byte-identical) — a near-free speedup, visual-confirm it.
-    #[arg(long, default_value_t = 0)]
+    #[arg(long, default_value_t = 0, hide = HIDE_RESEARCH_CLI)]
     erosion_diffusion_iters: usize,
 
     /// Steps between drainage re-routings (default 6). 0 = default; 1 = re-route
     /// every step. HIGHER = cheaper route phase; 6->12 measured near-equivalent
     /// (~3-5% incision drift). Visual-A/B the speedup.
-    #[arg(long, default_value_t = 0)]
+    #[arg(long, default_value_t = 0, hide = HIDE_RESEARCH_CLI)]
     erosion_reroute_interval: usize,
 
     /// Fluvial step count per precip pass (default 60). 0 = default. FEWER = cheaper
     /// AND less-mature / less-dissected terrain (erosion is still evolving at 60, not
     /// converged) — a perf x "less busy" fidelity dial, not free.
-    #[arg(long, default_value_t = 0)]
+    #[arg(long, default_value_t = 0, hide = HIDE_RESEARCH_CLI)]
     erosion_steps: usize,
 
     /// Coupled erode<->precip feedback passes (default 2). 0 = default; 1 = no
     /// feedback (halves total erosion, but +16% incision / pricklier — the 2nd pass
     /// does anti-prickle healing). Fidelity dial, not free.
-    #[arg(long, default_value_t = 0)]
+    #[arg(long, default_value_t = 0, hide = HIDE_RESEARCH_CLI)]
     erosion_precip_iters: usize,
 
     /// Tectonic uplift scale ("Hold & carve"). <0 = EROSION_UPLIFT_SCALE default;
     /// 0 = relaxation only. NOTE: ignored by the default emergent path.
-    #[arg(long, default_value_t = -1.0)]
+    #[arg(long, default_value_t = -1.0, hide = HIDE_RESEARCH_CLI)]
     erosion_uplift_scale: f32,
 
     /// Emergent builder over-rebuild gain (relief-spectrum candidate B). >1 builds
     /// more orogen volume than the coarse target so erosion carves the excess into
     /// relief. <0 = EMERGENT_REBUILD_GAIN default (1.2).
-    #[arg(long, default_value_t = -1.0)]
+    #[arg(long, default_value_t = -1.0, hide = HIDE_RESEARCH_CLI)]
     erosion_rebuild_gain: f32,
 
     /// Depositional repose slope (fans/floodplains/deltas). <0 = default; 0 =
     /// sink-fill only.
-    #[arg(long, default_value_t = -1.0)]
+    #[arg(long, default_value_t = -1.0, hide = HIDE_RESEARCH_CLI)]
     erosion_deposition_slope: f32,
 
     /// Lithologic erodibility contrast sigma. <0 = default; 0 = uniform K.
-    #[arg(long, default_value_t = -1.0)]
+    #[arg(long, default_value_t = -1.0, hide = HIDE_RESEARCH_CLI)]
     erosion_litho_sigma: f32,
 
     /// Structural-grain erodibility strength (fold-belt ridge-and-valley). <0 =
     /// default; 0 = off.
-    #[arg(long, default_value_t = -1.0)]
+    #[arg(long, default_value_t = -1.0, hide = HIDE_RESEARCH_CLI)]
     erosion_litho_grain: f32,
 
     /// Orographic precip modulation strength (windward wetter, lee drier). <0 =
     /// default; 0 = coarse precip.
-    #[arg(long, default_value_t = -1.0)]
+    #[arg(long, default_value_t = -1.0, hide = HIDE_RESEARCH_CLI)]
     erosion_orographic_strength: f32,
 
     /// Downwind rain-shadow strength (propagate lee dry-anomaly downwind). <0 = default
     /// (0=off); up = stronger progressive lee drying.
-    #[arg(long, default_value_t = -1.0)]
+    #[arg(long, default_value_t = -1.0, hide = HIDE_RESEARCH_CLI)]
     erosion_downwind_shadow: f32,
 
     /// Lakes-as-evaporation precip boost. <0 = default; 0 = off.
-    #[arg(long, default_value_t = -1.0)]
+    #[arg(long, default_value_t = -1.0, hide = HIDE_RESEARCH_CLI)]
     erosion_lake_evap: f32,
 
     /// Glacial abrasion coefficient (ice-flux over-deepening). <0 = default; 0 =
     /// no glacial pass.
-    #[arg(long, default_value_t = -1.0)]
+    #[arg(long, default_value_t = -1.0, hide = HIDE_RESEARCH_CLI)]
     glacial_k: f32,
 
     /// A4 drainage-pulse dial: burn-in erode → trunk/interfluve uplift modifier →
     /// frozen final epoch (meso-a4-drainage-pulse.md). <0 = default (0=off).
-    #[arg(long, default_value_t = -1.0)]
+    #[arg(long, default_value_t = -1.0, hide = HIDE_RESEARCH_CLI)]
     drainage_pulse: f32,
 
     /// A4 burn-in epoch steps (drainage self-organization). 0 = default (80).
-    #[arg(long, default_value_t = 0)]
+    #[arg(long, default_value_t = 0, hide = HIDE_RESEARCH_CLI)]
     pulse_burnin_steps: usize,
 
     /// A4 trunk-proximity Gaussian sigma, km. <0 = default (15).
-    #[arg(long, default_value_t = -1.0)]
+    #[arg(long, default_value_t = -1.0, hide = HIDE_RESEARCH_CLI)]
     pulse_smooth_km: f32,
 
     /// Fault range-front scarp relief. <0 = default; 0 = off (smooth fronts).
-    #[arg(long, default_value_t = -1.0)]
+    #[arg(long, default_value_t = -1.0, hide = HIDE_RESEARCH_CLI)]
     fault_scarp: f32,
 
     /// Fine interior structural relief amplitude (P1a: mid-band fault/fold grain
     /// that breaks the flat orogen summit). <0 = default; 0 = off (pure interpolant).
-    #[arg(long, default_value_t = -1.0)]
+    #[arg(long, default_value_t = -1.0, hide = HIDE_RESEARCH_CLI)]
     interior_relief: f32,
 
     /// Fine strike-band weight (P1b: interior grain aligned to the nearest orogen
     /// front vs isotropic). <0 = default; 0 = isotropic (P1a).
-    #[arg(long, default_value_t = -1.0)]
+    #[arg(long, default_value_t = -1.0, hide = HIDE_RESEARCH_CLI)]
     front_strike_weight: f32,
 
     /// Fine margin contrast (P1c: sharpen relief on active coasts, damp passive).
     /// <0 = default; 0 = off (P1b).
-    #[arg(long, default_value_t = -1.0)]
+    #[arg(long, default_value_t = -1.0, hide = HIDE_RESEARCH_CLI)]
     margin_contrast: f32,
 
     /// Emergent-orogens demotion fraction (erosion-v3): demote λ·(arc+collision) and
     /// rebuild via active uplift. <0 = default (0=off). Pair with --erosion-uplift-scale.
-    #[arg(long, default_value_t = -1.0)]
+    #[arg(long, default_value_t = -1.0, hide = HIDE_RESEARCH_CLI)]
     emergent_lambda: f32,
 
     /// O0 structured emergent uplift (asymmetric+segmented vs uniform rebuild).
     /// <0 = default (0=off); 1 = fully structured. Needs --emergent-lambda + --erosion-n~2.
-    #[arg(long, default_value_t = -1.0)]
+    #[arg(long, default_value_t = -1.0, hide = HIDE_RESEARCH_CLI)]
     emergent_structured: f32,
     /// Candidate A meso uplift-shape modulation depth. <0 = default (0=off);
     /// 0 = off; 0.3-0.9 = test. Regenerates the fine base.
-    #[arg(long, default_value_t = -1.0)]
+    #[arg(long, default_value_t = -1.0, hide = HIDE_RESEARCH_CLI)]
     meso_relief: f32,
     /// Fold-train irregularity 0..1 (cross-strike decorrelation + 2nd octave +
     /// crest sharpening). <0 = default (0.7); 0 = plain periodic train.
-    #[arg(long, default_value_t = -1.0, allow_hyphen_values = true)]
+    #[arg(
+        long,
+        default_value_t = -1.0,
+        allow_hyphen_values = true,
+        hide = HIDE_RESEARCH_CLI
+    )]
     meso_irregularity: f32,
 
     /// Meso construction style: 0 = fold train (foreland preset), 1 =
     /// massif-corridor (alpine default). <0 = default (1).
-    #[arg(long, default_value_t = -1, allow_hyphen_values = true)]
+    #[arg(
+        long,
+        default_value_t = -1,
+        allow_hyphen_values = true,
+        hide = HIDE_RESEARCH_CLI
+    )]
     meso_style: i32,
 
     /// Candidate A' meso base-elevation relief amplitude. <0 = default (0=off);
     /// elevation units: 0.01 is about 100 m. Regenerates the fine base.
-    #[arg(long, default_value_t = -1.0)]
+    #[arg(long, default_value_t = -1.0, hide = HIDE_RESEARCH_CLI)]
     meso_base_relief: f32,
     /// Candidate A meso fold-train wavelength in km. <0 = default (25 km).
     /// Regenerates the fine base.
-    #[arg(long, default_value_t = -1.0)]
+    #[arg(long, default_value_t = -1.0, hide = HIDE_RESEARCH_CLI)]
     meso_wavelength_km: f32,
 
     /// Sweep mode: erosion knob to vary across columns (enables a headless
@@ -376,7 +392,7 @@ struct Cli {
     /// hillslope_crit, confinement_slope, uplift_smooth, mfd_exponent,
     /// diffusion_iters, reroute_interval, steps, precip_iters, flat_resolution,
     /// relief_scale and river_width_scale (renderer-only).
-    #[arg(long)]
+    #[arg(long, hide = HIDE_RESEARCH_CLI)]
     sweep: Option<String>,
 
     /// Cumulative-stack preset (o3a, p1, v3, o0, meso), or the special
@@ -387,61 +403,69 @@ struct Cli {
     /// or `consequential-geography` (matched aggregate-site probe, ablations and
     /// same-site physical/zero-grade terrestrial routes; stage 4).
     /// Ignores --sweep/--sweep-values.
-    #[arg(long)]
+    #[arg(long, hide = HIDE_RESEARCH_CLI)]
     sweep_stack: Option<String>,
 
     /// Comma-separated values for --sweep (e.g. "10,30,60,120").
-    #[arg(long, default_value = "")]
+    #[arg(long, default_value = "", hide = HIDE_RESEARCH_CLI)]
     sweep_values: String,
 
     /// Optional second knob varied across rows (2-D grid).
-    #[arg(long)]
+    #[arg(long, hide = HIDE_RESEARCH_CLI)]
     sweep2: Option<String>,
 
     /// Comma-separated values for --sweep2.
-    #[arg(long, default_value = "")]
+    #[arg(long, default_value = "", hide = HIDE_RESEARCH_CLI)]
     sweep2_values: String,
 
     /// Output directory for sweep PNG tiles + montage.png.
-    #[arg(long, default_value = "sweep_out")]
+    #[arg(
+        long,
+        default_value = "sweep_out",
+        hide = HIDE_RESEARCH_CLI
+    )]
     out_dir: PathBuf,
 
     /// Sweep tile width in pixels.
-    #[arg(long, default_value_t = 1024)]
+    #[arg(long, default_value_t = 1024, hide = HIDE_RESEARCH_CLI)]
     sweep_width: u32,
 
     /// Sweep tile height in pixels.
-    #[arg(long, default_value_t = 1024)]
+    #[arg(long, default_value_t = 1024, hide = HIDE_RESEARCH_CLI)]
     sweep_height: u32,
 
     /// Sweep camera yaw in degrees (globe orbit).
-    #[arg(long, default_value_t = 30.0)]
+    #[arg(long, default_value_t = 30.0, hide = HIDE_RESEARCH_CLI)]
     sweep_yaw: f32,
 
     /// Sweep camera pitch in degrees (globe orbit).
-    #[arg(long, default_value_t = 25.0)]
+    #[arg(long, default_value_t = 25.0, hide = HIDE_RESEARCH_CLI)]
     sweep_pitch: f32,
 
     /// Sweep camera distance from globe center (overview).
-    #[arg(long, default_value_t = 2.2)]
+    #[arg(long, default_value_t = 2.2, hide = HIDE_RESEARCH_CLI)]
     sweep_distance: f32,
 
     /// Zoomed close-up views per tile (auto-aimed at the highest land), in
     /// addition to the globe overview. 0 = overview only.
-    #[arg(long, default_value_t = 3)]
+    #[arg(long, default_value_t = 3, hide = HIDE_RESEARCH_CLI)]
     sweep_zoom_views: usize,
 
     /// Close-up camera altitude above target (smaller = tighter zoom).
-    #[arg(long, default_value_t = 0.3)]
+    #[arg(long, default_value_t = 0.3, hide = HIDE_RESEARCH_CLI)]
     sweep_zoom_alt: f32,
 
     /// Stable close-up target as id:latitude_degrees:longitude_degrees. Repeat
     /// for matched dossier captures. Explicit targets replace auto highlands.
-    #[arg(long, value_name = "ID:LAT_DEG:LON_DEG")]
+    #[arg(
+        long,
+        value_name = "ID:LAT_DEG:LON_DEG",
+        hide = HIDE_RESEARCH_CLI
+    )]
     sweep_target: Vec<app::sweep::SweepTarget>,
 
     /// Rivers in sweep tiles: off, major, or all.
-    #[arg(long, default_value = "major")]
+    #[arg(long, default_value = "major", hide = HIDE_RESEARCH_CLI)]
     sweep_rivers: String,
 
     /// Legacy flag: equivalent to --stage 2
@@ -466,24 +490,102 @@ mod cli_contract_tests {
     use super::{Cli, CliOrogenModel};
     use clap::{CommandFactory, Parser};
 
+    #[cfg(not(feature = "research-landscape"))]
+    const QUARANTINED_HELP_MARKERS: &[&str] = &[
+        "--voronoi-backend",
+        "--orogen-model",
+        "--river-texture",
+        "--river-legacy",
+        "--erosion-",
+        "--glacial-",
+        "--drainage-pulse",
+        "--fault-scarp",
+        "--interior-relief",
+        "--front-strike-weight",
+        "--margin-contrast",
+        "--emergent-",
+        "--meso-",
+        "--sweep",
+    ];
+
+    #[cfg(feature = "research-landscape")]
+    const REPRESENTATIVE_RESEARCH_FLAGS: &[&str] = &[
+        "--voronoi-backend",
+        "--orogen-model",
+        "--river-texture",
+        "--river-legacy",
+        "--erosion-mfd-exponent",
+        "--erosion-k",
+        "--glacial-k",
+        "--drainage-pulse",
+        "--fault-scarp",
+        "--emergent-lambda",
+        "--meso-relief",
+        "--sweep-stack",
+    ];
+
+    #[cfg(not(feature = "research-landscape"))]
     #[test]
-    fn product_help_hides_quarantined_orogen_ladder() {
+    fn product_help_hides_quarantined_research_surface() {
         let help = Cli::command().render_long_help().to_string();
 
-        assert!(!help.contains("--orogen-model"));
+        for marker in QUARANTINED_HELP_MARKERS {
+            assert!(
+                !help.contains(marker),
+                "product help exposed research marker {marker}"
+            );
+        }
         assert!(!help.contains("history-carrier-lifecycle"));
         assert!(!help.contains("thin-sheet"));
+
+        for flag in [
+            "--relief-preset",
+            "--river-width-scale",
+            "--river-min-catchment-km2",
+            "--no-fine-cache",
+            "--rebuild-fine-cache",
+        ] {
+            assert!(help.contains(flag), "product help omitted {flag}");
+        }
+    }
+
+    #[cfg(feature = "research-landscape")]
+    #[test]
+    fn research_help_exposes_quarantined_research_surface() {
+        let help = Cli::command().render_long_help().to_string();
+
+        for flag in REPRESENTATIVE_RESEARCH_FLAGS {
+            assert!(help.contains(flag), "research help omitted {flag}");
+        }
     }
 
     #[test]
-    fn hidden_orogen_switch_remains_parse_compatible() {
-        let cli = Cli::try_parse_from(["hex3", "--orogen-model", "history-carrier-lifecycle"])
-            .expect("hidden compatibility switch should still parse");
+    fn quarantined_switches_remain_parse_compatible() {
+        let cli = Cli::try_parse_from([
+            "hex3",
+            "--orogen-model",
+            "history-carrier-lifecycle",
+            "--erosion-k",
+            "0.03",
+            "--glacial-k",
+            "0.0",
+            "--meso-relief",
+            "0.5",
+            "--sweep",
+            "k",
+            "--sweep-values",
+            "0.02,0.03",
+        ])
+        .expect("quarantined compatibility switches should still parse");
 
         assert!(matches!(
             cli.orogen_model,
             CliOrogenModel::HistoryCarrierLifecycle
         ));
+        assert_eq!(cli.erosion_k, 0.03);
+        assert_eq!(cli.glacial_k, 0.0);
+        assert_eq!(cli.meso_relief, 0.5);
+        assert_eq!(cli.sweep.as_deref(), Some("k"));
     }
 
     #[test]

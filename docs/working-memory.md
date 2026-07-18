@@ -1,6 +1,6 @@
 # Hex3 working memory
 
-Status: **active, non-authoritative scratchpad**. Last consolidated 2026-07-18.
+Status: **active, non-authoritative scratchpad**. Last consolidated 2026-07-19.
 
 This document preserves medium-term context across evaluation passes so the
 active investigation does not erase other important findings. It is a queue of
@@ -30,9 +30,9 @@ Do not add descriptive regions or DEM-derived terrain elements in the first
 packet; require a specific residual readability failure before either. Do not
 promote biomes, forest assets, sites, routes,
 passes, chokepoints, sediment, seasons, richer ecology, a generic semantic
-framework or a renderer rewrite. First finish removing rejected/default-off
-model controls from the ordinary CLI; the research feature boundary already
-exists.
+framework or a renderer rewrite. The ordinary CLI contraction is complete:
+quarantined model and sweep controls remain compatible but are visible only in
+research-feature help.
 
 The mountain disposition is deliberately two-part. Drop continuity alone as a
 rejection criterion for the reviewed causally continuous parent, and stop

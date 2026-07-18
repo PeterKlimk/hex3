@@ -398,7 +398,7 @@ may be extracted later, but the named model is not a prerequisite for V0.
 The portfolio has now taken that alternative: drop continuity alone as a
 rejection criterion for the reviewed parent, relax the universal
 internal-hierarchy target and spend the next project budget on
-[World Readability V0](roadmap.md#2-world-readability-v0). This does not endorse
+[World Readability V0](roadmap.md#1-world-readability-v0). This does not endorse
 the legacy generic tableland owner; the ordinary-world terrain escalation gate
 remains explicit. The source test earned a useful experimental assembly/suture
 seam, not guaranteed promotion or further topology work.

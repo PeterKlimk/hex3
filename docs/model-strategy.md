@@ -1,6 +1,6 @@
 # Hex3 model strategy
 
-Status: **current project decision**, 2026-07-18.
+Status: **current project decision**, 2026-07-19.
 
 Hex3 is an **authentic systemic world generator** built from reduced causal
 models. It uses different fidelity levels by domain, but one common rule:
@@ -158,10 +158,10 @@ That pass produced explicit system dispositions rather than one universal
 fidelity direction. Water Geography, Living Surface and Consequential Geography
 have completed their bounded decisions. The selected sequence is now:
 
-1. finish contracting the ordinary CLI around the already-separated product
-   path;
-2. build one bounded, scale-aware Authentic cartographic scene from accepted
-   relief, land/water identity, river hierarchy and Living Surface state;
+1. preserve the contracted product/research boundary;
+2. build one bounded, scale-aware Authentic cartographic scene from current
+   product-control relief, land/water identity, river hierarchy and Living
+   Surface state;
 3. reopen broader terrain ownership only if a fixed ordinary-world
    Physical/Diagnostic corpus shows recurrent smooth-roof morphology and the
    cartographic A/B separately shows material product harm; and
