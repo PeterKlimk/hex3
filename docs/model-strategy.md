@@ -102,6 +102,44 @@ These are current claims, not protection for current implementations. A system
 may be simplified, replaced or removed if a cheaper mechanism preserves its
 contract—or if the contract itself has little product value.
 
+## Resolution and representation contract
+
+Hex3 does not have one meaningful “world resolution.” It has at least four
+resolution owners, and increasing one does not automatically improve the
+others:
+
+| Owner | Resolution answers | Current rule |
+|---|---|---|
+| Causal/process state | Which interactions can physically reorganize the world? | State the represented physical scale; do not treat a sub-cell threshold as resolved geometry |
+| Sampled surface | Which relief, drainage and water geometry is explicitly carried? | Allocate cells where causal response pays; preserve a coarser ordinary path and a higher-resolution reference path |
+| Semantic state | Which rivers, ranges, basins and relationships exist at a chosen use scale? | Record requested and effectively representable scales; compare networks only at matched physical thresholds |
+| Cartographic scene | Which of those objects can be read in the current view? | Select, simplify and exaggerate by view scale without changing physical state or semantic identity |
+
+The million-cell surface remains useful as a research microscope and regional
+reference. It is not the universal product target. A July 2026 scale audit
+found that the current global four-cell river-policy floor is about 19,730 km²
+at 103k cells, 7,974 km² at 256k and 2,045 km² at 997k. Because the mesh is
+adaptive, this global-mean floor is substantially more conservative than land
+sampling alone: by a local-area heuristic, an unfloored 2,000 km² network is
+four-cell-resolved along about 21%, 39% and 69% of its length at those caps.
+The 4 km² erosion-support scale is explicit network geometry at none of them.
+
+At a fixed representable 10,000 km² threshold, 256k and 997k produce the same
+approximate drainage density (`0.0020 km/km²`). The larger surface roughly
+doubles path samples and adds 16–21% more head/junction events, but does not
+create a proportionally richer planet-scale network. This supports a coarser
+ordinary physical surface plus selective reference/adaptive/sub-grid detail;
+it does not yet select the ordinary cap or authorize replacing high-resolution
+research. Below-grid detail must be derived from compatible terrain, drainage
+and substrate state, not generic noise.
+
+Consequently, resolution comparisons must hold semantic thresholds fixed and
+report any sampling floor. Apparent gains caused by lowering the effective
+catchment threshold as cell count rises are not evidence that the physical
+model improved. Conversely, detail that is sub-pixel in a planet view may
+remain valuable for erosion coupling, regional inspection or later consumers;
+cartographic invisibility is not by itself grounds for deleting it.
+
 ## What qualifies as an authentic hack
 
 An authentic hack need not reproduce the hidden mechanism. It must preserve a

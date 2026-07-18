@@ -19,7 +19,7 @@ exits at the coarse stage.
 | Lakes | semantic lakes/ponds, depth, area, shape, outlet, catchment and climate-dial response | component-to-semantic-object correspondence is assumed; some object summaries are count-weighted |
 | Detail survival | fixed tectonic footprint across coarse, fine base and erosion; support, volume and relief | footprint is relative to each world's maximum forcing |
 | Mountains | elevation-mask components, range geometry, peaks, passes, profiles, relief spectra and drainage grain | “mountain” is a threshold mask, not shared semantics; many nested thresholds |
-| Rivers | shared All/Major masks, Strahler/Horton structure, mouths and trunk profiles | length is cell-area approximation; default report still uses incompatible river populations |
+| Rivers | shared All/Major masks, Strahler/Horton structure, mouths and trunk profiles; requested/effective catchment ladder plus an unfloored local-resolution probe | length is cell-area approximation; the current four-global-mean-cell floor is conservative on an adaptive mesh, and unfloored selection is diagnostic only |
 | Biomes | shared seasonless potentials, broad labels, uncertainty and component coherence | provisional classifier, not calibrated ecology |
 | Resolution pilot | short solved-surface response and area--slope baseline versus native-reference slope, neighbour relief and separately counted selected-channel heads/junctions; global and within-density-band area-budget capture | predictor evidence only, not a remeshing result; selected rivers are map semantics rather than literal channel initiation, and the native reference inherits the current density prior |
 

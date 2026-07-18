@@ -3914,12 +3914,235 @@ fn run_river_audit(world: &World, seed: u64, top: usize) {
             RiverThresholdPolicy::catchment(min_catchment),
         ),
     ];
+    river_scale_panel(tess, hydro, &areas, land_km2);
     let water = WaterBodySemantics::build(tess, hydro);
     for (label, policy) in modes {
         let network = RiverNetwork::build(tess, hydro, &water, policy);
         river_mode_panel(
             &label, tess, hydro, &network, elev, &areas, land_km2, cont_len, top,
         );
+    }
+}
+
+#[derive(Clone, Copy)]
+struct RiverScaleStats {
+    cells: usize,
+    heads: usize,
+    junctions: usize,
+    max_order: u8,
+    cell_width_p50_km: f32,
+    reach_length_p50_km: f32,
+    length_km: f64,
+}
+
+/// Show which physical catchment scales the current mesh can actually express
+/// as semantic river geometry. This is deliberately part of the existing river
+/// audit rather than another experimental harness.
+fn river_scale_panel(
+    tess: &hex3::world::Tessellation,
+    hydro: &hex3::world::Hydrology,
+    areas: &[f32],
+    land_km2: f64,
+) {
+    use hex3::world::{Hydrology, RiverThresholdPolicy};
+
+    const REQUESTED_KM2: [f32; 6] = [4.0, 100.0, 500.0, 2_000.0, 10_000.0, 50_000.0];
+    const PLANET_VIEW_WIDTH_PX: f32 = 1_920.0;
+
+    let n = tess.num_cells();
+    let mean_cell_km2 = 4.0 * std::f32::consts::PI * EARTH_RADIUS_KM.powi(2) / n.max(1) as f32;
+    let mut land_widths: Vec<f32> = (0..n)
+        .filter(|&cell| !hydro.is_submerged(cell))
+        .map(|cell| areas[cell].sqrt() * EARTH_RADIUS_KM)
+        .collect();
+    land_widths.sort_by(f32::total_cmp);
+    let quantile = |values: &[f32], fraction: f32| {
+        values
+            .get((((values.len().saturating_sub(1)) as f32 * fraction) as usize).min(values.len()))
+            .copied()
+            .unwrap_or(0.0)
+    };
+
+    println!("\n  [CATCHMENT-SCALE LADDER]");
+    println!(
+        "    mesh: {n} cells; global mean {:.0} km²; land cell width p10/p50/p90 {:.1}/{:.1}/{:.1} km",
+        mean_cell_km2,
+        quantile(&land_widths, 0.10),
+        quantile(&land_widths, 0.50),
+        quantile(&land_widths, 0.90),
+    );
+    println!(
+        "    requested effective span_km px@1920   cells  heads  joins ord cell_km reach_km  Dd_km/km²  status"
+    );
+
+    let circumference_km = 2.0 * std::f32::consts::PI * EARTH_RADIUS_KM;
+    let mut previous: Option<(f32, RiverScaleStats)> = None;
+    for requested in REQUESTED_KM2 {
+        let policy = RiverThresholdPolicy::catchment(requested);
+        let effective = policy
+            .effective_all_minimum_km2(n)
+            .expect("catchment policy has physical scale");
+        let same_as_previous = previous
+            .as_ref()
+            .is_some_and(|(prior, _)| prior.to_bits() == effective.to_bits());
+        let stats = if let Some((_, stats)) =
+            previous.filter(|(prior, _)| prior.to_bits() == effective.to_bits())
+        {
+            stats
+        } else {
+            let selection = RiverSelection::build(hydro, policy);
+            river_scale_stats(tess, hydro, areas, &selection.all_cells)
+        };
+        previous = Some((effective, stats));
+
+        let span_km = 2.0 * (effective / std::f32::consts::PI).sqrt();
+        let pixels = span_km / circumference_km * PLANET_VIEW_WIDTH_PX;
+        let status = if same_as_previous {
+            "same floor"
+        } else if effective > requested * 1.001 {
+            "mesh floor"
+        } else {
+            "physical"
+        };
+        println!(
+            "    {:>9.0} {:>9.0} {:>7.0} {:>7.2} {:>7} {:>6} {:>6} {:>3} {:>7.1} {:>8.1} {:>10.4}  {}",
+            requested,
+            effective,
+            span_km,
+            pixels,
+            stats.cells,
+            stats.heads,
+            stats.junctions,
+            stats.max_order,
+            stats.cell_width_p50_km,
+            stats.reach_length_p50_km,
+            stats.length_km / land_km2.max(1e-30),
+            status,
+        );
+    }
+    println!(
+        "    span_km is equal-area basin diameter; px@1920 is its equatorial span in a full-width planet map, not rendered river width"
+    );
+
+    println!("\n    [UNFLOORED PHYSICAL-SELECTION PROBE]");
+    println!("    requested   cells  heads  joins ord cell_km reach_km  Dd_km/km² local4%");
+    for requested in [4.0f32, 100.0, 500.0, 2_000.0] {
+        let threshold = Hydrology::flow_for_catchment_km2(requested);
+        let mask: Vec<bool> = (0..n)
+            .map(|cell| hydro.flow_accumulation[cell] >= threshold && !hydro.is_submerged(cell))
+            .collect();
+        let stats = river_scale_stats(tess, hydro, areas, &mask);
+        let resolved_length_km: f64 = (0..n)
+            .filter(|&cell| {
+                mask[cell] && 4.0 * areas[cell] * EARTH_RADIUS_KM * EARTH_RADIUS_KM <= requested
+            })
+            .map(|cell| (areas[cell].sqrt() * EARTH_RADIUS_KM) as f64)
+            .sum();
+        println!(
+            "    {:>9.0} {:>7} {:>6} {:>6} {:>3} {:>7.1} {:>8.1} {:>10.4} {:>6.1}%",
+            requested,
+            stats.cells,
+            stats.heads,
+            stats.junctions,
+            stats.max_order,
+            stats.cell_width_p50_km,
+            stats.reach_length_p50_km,
+            stats.length_km / land_km2.max(1e-30),
+            (100.0 * resolved_length_km / stats.length_km.max(f64::EPSILON)).max(0.0),
+        );
+    }
+    println!(
+        "    local4% is network length on cells for which the requested basin spans at least four local cell areas"
+    );
+}
+
+fn river_scale_stats(
+    tess: &hex3::world::Tessellation,
+    hydro: &hex3::world::Hydrology,
+    areas: &[f32],
+    mask: &[bool],
+) -> RiverScaleStats {
+    let n = tess.num_cells();
+    let mut channel_cells: Vec<usize> = (0..n).filter(|&cell| mask[cell]).collect();
+    let mut upstream_count = vec![0u8; n];
+    for &cell in &channel_cells {
+        if let Some(downstream) = hydro.downstream(cell).filter(|&next| mask[next]) {
+            upstream_count[downstream] = upstream_count[downstream].saturating_add(1);
+        }
+    }
+
+    channel_cells.sort_by(|&a, &b| {
+        hydro.flow_accumulation[a]
+            .total_cmp(&hydro.flow_accumulation[b])
+            .then_with(|| a.cmp(&b))
+    });
+    let mut order = vec![0u8; n];
+    let mut best_upstream = vec![0u8; n];
+    let mut best_ties = vec![0u8; n];
+    for &cell in &channel_cells {
+        order[cell] = match best_upstream[cell] {
+            0 => 1,
+            best if best_ties[cell] >= 2 => best.saturating_add(1),
+            best => best,
+        };
+        if let Some(downstream) = hydro.downstream(cell).filter(|&next| mask[next]) {
+            if order[cell] > best_upstream[downstream] {
+                best_upstream[downstream] = order[cell];
+                best_ties[downstream] = 1;
+            } else if order[cell] == best_upstream[downstream] {
+                best_ties[downstream] = best_ties[downstream].saturating_add(1);
+            }
+        }
+    }
+
+    let mut reach_lengths = Vec::new();
+    for &start in &channel_cells {
+        if upstream_count[start] == 1 {
+            continue;
+        }
+        let mut current = start;
+        let mut length = 0.0f32;
+        while let Some(next) = hydro.downstream(current).filter(|&cell| mask[cell]) {
+            length +=
+                (tess.cell_center(current) - tess.cell_center(next)).length() * EARTH_RADIUS_KM;
+            current = next;
+            if upstream_count[current] != 1 {
+                break;
+            }
+        }
+        if length > 0.0 {
+            reach_lengths.push(length);
+        }
+    }
+    reach_lengths.sort_by(f32::total_cmp);
+    let mut cell_widths: Vec<f32> = channel_cells
+        .iter()
+        .map(|&cell| areas[cell].sqrt() * EARTH_RADIUS_KM)
+        .collect();
+    cell_widths.sort_by(f32::total_cmp);
+    let median = |values: &[f32]| values.get(values.len() / 2).copied().unwrap_or(0.0);
+
+    RiverScaleStats {
+        cells: channel_cells.len(),
+        heads: channel_cells
+            .iter()
+            .filter(|&&cell| upstream_count[cell] == 0)
+            .count(),
+        junctions: channel_cells
+            .iter()
+            .filter(|&&cell| upstream_count[cell] >= 2)
+            .count(),
+        max_order: channel_cells
+            .iter()
+            .map(|&cell| order[cell])
+            .max()
+            .unwrap_or(0),
+        cell_width_p50_km: median(&cell_widths),
+        reach_length_p50_km: median(&reach_lengths),
+        length_km: channel_cells
+            .iter()
+            .map(|&cell| (areas[cell].sqrt() * EARTH_RADIUS_KM) as f64)
+            .sum(),
     }
 }
 

@@ -114,6 +114,21 @@ major islands; range aggregation should preserve principal orientation and
 extent. These are semantic/cartographic validation questions, not terrain-model
 questions.
 
+Selection scale and sampling scale are also distinct. A requested 2,000 km²
+river threshold is a semantic/cartographic choice; the current implementation
+raises it to a four-global-mean-cell floor when the surface is too coarse. Both
+requested and effective thresholds must therefore be visible in provenance.
+On adaptive meshes this global floor can be much coarser than typical land
+cells, so it is a conservative implementation limit rather than a physical
+definition. Do not compare river counts across resolutions unless the effective
+physical threshold is held fixed.
+
+For scale intuition, a circular 2,000 km² catchment spans about 50 km, or 2.4
+pixels across a 1,920-pixel full-width planet map at the equator; 10,000 km² is
+about 113 km or 5.4 pixels. Screen-space river strokes can legitimately keep
+important trunks visible below those spans. They do not make unresolved local
+tributary or valley geometry part of the physical surface.
+
 ## Presentation profiles
 
 A presentation profile bundles choices that should otherwise not be inferred

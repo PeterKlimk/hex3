@@ -154,8 +154,9 @@ struct Cli {
 
     /// River render density: minimum catchment area (km²) that renders as a
     /// river in 'All' mode (Major outlet/branch scale with it, 75×/12.5×).
-    /// Physical and resolution-independent. Earth-ish map density ~1000-4000;
-    /// higher = sparser rivers.
+    /// Physical when represented by at least four global-mean cells; coarser
+    /// meshes raise the effective threshold. Earth-ish map density ~1000-4000;
+    /// higher = sparser rivers. Diagnose reports requested/effective values.
     #[arg(long, default_value_t = app::world::RIVER_DEFAULT_MIN_CATCHMENT_KM2)]
     river_min_catchment_km2: f32,
 

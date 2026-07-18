@@ -20,7 +20,9 @@ pub enum RiverThresholdPolicy {
         outlet_fraction: f32,
         branch_fraction: f32,
     },
-    /// Resolution-independent catchment thresholds at land-mean wetness.
+    /// Physical catchment thresholds at land-mean wetness. The effective
+    /// minimum is clamped to four global-mean cells when the mesh is too coarse
+    /// to represent the requested scale.
     CatchmentKm2 {
         minimum: f32,
         major_outlet_multiplier: f32,
@@ -48,6 +50,22 @@ impl RiverThresholdPolicy {
             minimum,
             major_outlet_multiplier: 75.0,
             major_branch_multiplier: 12.5,
+        }
+    }
+
+    /// Effective minimum catchment represented by the `all_cells` mask.
+    ///
+    /// `None` denotes the legacy count-equivalent policy. A catchment policy is
+    /// physical only once its requested scale spans at least four global-mean
+    /// cells; below that point the semantic network is resolution-limited.
+    pub fn effective_all_minimum_km2(self, num_cells: usize) -> Option<f32> {
+        match self {
+            Self::Legacy { .. } => None,
+            Self::CatchmentKm2 { minimum, .. } => {
+                let mean_cell_km2 =
+                    4.0 * std::f32::consts::PI * PLANET_RADIUS_KM.powi(2) / num_cells.max(1) as f32;
+                Some(minimum.max(4.0 * mean_cell_km2))
+            }
         }
     }
 }
@@ -384,9 +402,9 @@ fn thresholds(
             major_outlet_multiplier,
             major_branch_multiplier,
         } => {
-            let mean_cell_km2 =
-                4.0 * std::f32::consts::PI * PLANET_RADIUS_KM.powi(2) / num_cells.max(1) as f32;
-            let all_minimum = minimum.max(4.0 * mean_cell_km2);
+            let all_minimum = policy
+                .effective_all_minimum_km2(num_cells)
+                .expect("catchment policy has an effective physical threshold");
             let per_count = hydrology.mean_cell_discharge.max(1e-12);
             (
                 Hydrology::flow_for_catchment_km2(all_minimum),
@@ -394,6 +412,26 @@ fn thresholds(
                 Hydrology::flow_for_catchment_km2(major_branch_multiplier * minimum) / per_count,
             )
         }
+    }
+}
+
+#[cfg(test)]
+mod policy_tests {
+    use super::RiverThresholdPolicy;
+
+    #[test]
+    fn catchment_policy_discloses_resolution_floor() {
+        let policy = RiverThresholdPolicy::catchment(2_000.0);
+        let at_one_million = policy.effective_all_minimum_km2(1_000_000).unwrap();
+        let at_one_hundred_million = policy.effective_all_minimum_km2(100_000_000).unwrap();
+
+        assert!(at_one_million > 2_000.0);
+        assert!((at_one_million - 2_040.0).abs() < 5.0);
+        assert_eq!(at_one_hundred_million, 2_000.0);
+        assert_eq!(
+            RiverThresholdPolicy::legacy().effective_all_minimum_km2(1_000_000),
+            None
+        );
     }
 }
 

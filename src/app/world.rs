@@ -554,8 +554,11 @@ fn log_hydrology_stats(world: &World) {
         .filter(|&i| hydrology.downstream(i).is_some())
         .count();
 
-    let rivers =
-        hex3::world::RiverSelection::build(hydrology, hex3::world::RiverThresholdPolicy::default());
+    let river_policy = hex3::world::RiverThresholdPolicy::default();
+    let effective_river_minimum = river_policy
+        .effective_all_minimum_km2(num_cells)
+        .expect("default river policy has a physical threshold");
+    let rivers = hex3::world::RiverSelection::build(hydrology, river_policy);
     let river_cells = rivers
         .all_cells
         .iter()
@@ -572,10 +575,11 @@ fn log_hydrology_stats(world: &World) {
         dry_basin_cells
     );
     log::info!(
-        "Rivers: drainage={} cells, semantic rivers={} (catchment>={:.0} km²), max_flow={:.0} count-equiv",
+        "Rivers: drainage={} cells, semantic rivers={} (catchment requested/effective={:.0}/{:.0} km²), max_flow={:.0} count-equiv",
         cells_with_drainage,
         river_cells,
         RIVER_DEFAULT_MIN_CATCHMENT_KM2,
+        effective_river_minimum,
         rivers.max_flow_count_equivalent
     );
     if let Some(fine) = &world.fine {
@@ -588,7 +592,6 @@ fn log_hydrology_stats(world: &World) {
     }
 }
 
-/// Compute resolution-independent river thresholds from cell count.
 /// River rendering color - muted blue matching lake/water colors.
 const RIVER_COLOR: Vec3 = Vec3::new(0.15, 0.35, 0.60);
 
@@ -619,12 +622,11 @@ impl RiverRenderData {
 }
 
 /// River render threshold calibration. `Catchment` (the default) thresholds on
-/// PHYSICAL catchment area (km² at land-mean wetness) — resolution- and
-/// adaptive-mesh-independent. `Legacy` is the old count-equivalent scheme,
-/// kept for A/B: it was tuned on the coarse mesh, and on the adaptive fine
-/// mesh its effective catchment is enormous (the "stub rivers" defect measured
-/// by `diagnose --river-audit`). Select with `--river-legacy` /
-/// `--river-min-catchment-km2`.
+/// PHYSICAL catchment area (km² at land-mean wetness) when the mesh can
+/// represent it. The semantic policy clamps the effective minimum to four
+/// global-mean cells; `diagnose --river-audit` reports that resolution floor.
+/// `Legacy` is the old count-equivalent scheme, kept for controlled A/Bs.
+/// Select with `--river-legacy` / `--river-min-catchment-km2`.
 #[derive(Clone, Copy, Debug)]
 pub enum RiverThresholdMode {
     Legacy,

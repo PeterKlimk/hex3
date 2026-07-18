@@ -176,6 +176,41 @@ the strong relief allocator, leave drainage allocation explicitly unresolved,
 and do not start a multi-objective remesher until the network target and its
 causal or sub-grid representation are better defined.
 
+The subsequent scale audit supplies that missing ownership distinction. The
+current catchment river policy silently clamps its requested threshold to four
+*global-mean* cells. On seed 12345 this makes the effective minimum 19,730 km²
+at 103,408 cells, 7,974 km² at 255,866 and 2,045 km² at 997,486. The policy is
+therefore not resolution-independent below its sampling floor, and default
+river counts across these caps are not comparable. Because ocean cells are
+coarse and land is preferentially refined, this global floor is also much more
+conservative than typical land sampling.
+
+An audit-only unfloored physical selection separates policy from actual local
+support:
+
+| Cap / actual cells | Land-cell width p50 | 2,000 km² network length locally spanning ≥4 cell areas (area heuristic) | Current effective policy floor |
+|---|---:|---:|---:|
+| 100k / 103,408 | 20.0 km | 20.6% | 19,730 km² |
+| 250k / 255,866 | 12.3 km | 39.3% | 7,974 km² |
+| 1M / 997,486 | 6.0 km | 69.2% | 2,045 km² |
+
+The 4 km² erosion-support scale is 0% locally four-cell-resolved at every cap:
+it is a sub-cell process gate, not explicit channel geometry. At a fixed,
+actually represented 10,000 km² network scale, 250k and 1M both produce
+`0.0020 km/km²` approximate drainage density. The 1M surface carries 23,456
+versus 11,047 path cells, 3,076 versus 2,656 heads, 1,118 versus 926 junctions
+and maximum Strahler order 4 versus 3. In other words, it mainly buys denser path
+sampling and roughly 16–21% more discrete topology events, not a fivefold gain
+in planet-scale river organization.
+
+Do not infer from this that 250k is the final product cap or that the current
+appearance is acceptable. Retain 1M as reference/microscope capability. For
+ordinary planet/regional work, a much coarser surface is now credible when the
+consumer needs roughly 10,000 km²-and-larger drainage, while 2,000 km² regional
+hierarchy needs selective refinement, an adaptive-aware semantic threshold or
+a compatible sub-grid representation. Compare future resolutions at fixed
+effective semantic scale, never at the current moving default floor.
+
 ## Recent lithosphere result
 
 Seed `12345`'s terrain-blind source remains episode 0 /
