@@ -135,6 +135,22 @@ pilot-driven adaptivity as an architecture option only if the pilot observes
 an intermediate response solve or informative local probes; do not add another
 scalar blend of the existing coarse slope/flow/activity fields.
 
+The next predictor audit gives pilot-driven adaptivity a narrower positive
+result rather than reviving that scalar blend. A genuinely cheap 103,408-cell
+pilot ran 24 erosion steps (four routing refreshes), was reduced to compact
+predictors and dropped before a full 997,486-cell reference was generated.
+Within ten equal-land-area bands of the existing density prior, spending the
+top 10% of area by maximum-neighbour pilot-response variation captured 46.2%
+of native fine-only slope gain, 26.6% of fine-only neighbour-relief gain and
+38.5% of within-pilot-cell relief: conditional lifts of 4.62x, 2.66x and 3.85x.
+It captured only 7.9% of selected native channel heads and junctions (0.79x),
+however, and reached merely 1.00x at a 20% area budget. Absolute response,
+routing change and an averaged combined signal did not repair that split.
+Therefore retain terrain-response variation as a credible *relief* allocator,
+but reject one scalar response-driven remesher. Subordinate drainage needs its
+own causal predictor, sub-grid hierarchy or explicit budget; future adaptivity
+must compose these objectives rather than average them into one demand field.
+
 ## Recent lithosphere result
 
 Seed `12345`'s terrain-blind source remains episode 0 /

@@ -1,14 +1,15 @@
 # Numerical instrumentation inventory
 
-Status: code/document synthesis as of 2026-07-12. This inventory describes what
+Status: code/document synthesis updated 2026-07-19. This inventory describes what
 exists; it does not endorse historical thresholds.
 
 ## Diagnostic surface
 
 `diagnose` is both a default world report and an experimental harness. It
 supports dedicated audits for tectonic history, rebuild fidelity, drainage,
-lakes, detail survival, mountains, rivers and biome proxies. Most audits require
-full fine generation; tectonic history exits at the coarse stage.
+lakes, detail survival, mountains, rivers, biome proxies and cross-resolution
+pilot predictiveness. Most audits require full fine generation; tectonic history
+exits at the coarse stage.
 
 | Audit | Principal populations and measurements | Main cautions |
 |---|---|---|
@@ -20,6 +21,7 @@ full fine generation; tectonic history exits at the coarse stage.
 | Mountains | elevation-mask components, range geometry, peaks, passes, profiles, relief spectra and drainage grain | “mountain” is a threshold mask, not shared semantics; many nested thresholds |
 | Rivers | shared All/Major masks, Strahler/Horton structure, mouths and trunk profiles | length is cell-area approximation; default report still uses incompatible river populations |
 | Biomes | shared seasonless potentials, broad labels, uncertainty and component coherence | provisional classifier, not calibrated ecology |
+| Resolution pilot | short solved-surface response versus native-reference slope, neighbour relief and selected-channel heads/junctions; global and within-density-band area-budget capture | predictor evidence only, not a remeshing result; native reference inherits the current density prior and cannot reveal regions it never sampled |
 
 The default report additionally covers mesh resolution, erosion incision,
 hypsometry, Moran's I, continent/island masks, tectonic placement, climate and
@@ -132,4 +134,3 @@ experiment decisions unless they meet the current validation policy.
 6. Attach tolerance and control response to every invariant/gate.
 7. Add missing relationship and product-character metrics rather than expanding
    isolated field summaries indefinitely.
-

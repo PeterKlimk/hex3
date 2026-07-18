@@ -11,7 +11,11 @@ use clap::{Parser, ValueEnum};
 use hex3::world::diagnostics::{
     distance_from_mask, measure_components, ComponentStats, EARTH_RADIUS_KM,
 };
-use hex3::world::{elevation_to_km, CellWaterState, OrogenModel, World, ELEVATION_UNIT_KM};
+use hex3::world::{
+    elevation_to_km, CellWaterState, FineSurface, OrogenModel, RiverSelection,
+    RiverThresholdPolicy, World, ELEVATION_UNIT_KM,
+};
+use kiddo::{KdTree, SquaredEuclidean};
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
 enum CliOrogenModel {
@@ -93,6 +97,17 @@ struct Cli {
     /// continuous potentials, transition coverage, and coherent regions.
     #[arg(long, default_value_t = false)]
     biome_audit: bool,
+    /// Run a bounded cross-resolution pilot-response audit and exit. The pilot
+    /// mesh is discarded before the native reference is generated.
+    #[arg(long, default_value_t = false)]
+    resolution_pilot_audit: bool,
+    /// Fine-cell cap for the cheap response pilot.
+    #[arg(long, default_value_t = 100_000)]
+    pilot_max: usize,
+    /// Erosion steps in the short pilot response. The default spans four
+    /// re-route intervals at the current default interval of six.
+    #[arg(long, default_value_t = 24)]
+    pilot_steps: usize,
     /// Fine-mesh cell cap (the emergent count is coarsened to fit). Lower it to
     /// iterate faster on erosion/roughness probes. 0 = use the FINE_MAX_CELLS default.
     #[arg(long, default_value_t = 0)]
@@ -475,6 +490,33 @@ fn main() {
             "fine density override: plains={:.1} mountain={:.1} ocean={:.1} km, exp={:.1}, weights slope/flow/activity={:.1}/{:.1}/{:.1}",
             dp.plains_km, dp.mountain_km, dp.ocean_km, dp.exponent, dp.slope_weight, dp.flow_weight, dp.activity_weight
         );
+    }
+
+    if cli.resolution_pilot_audit {
+        let native_max = if cli.fine_max == 0 {
+            1_000_000
+        } else {
+            cli.fine_max
+        };
+        if cli.pilot_max == 0 || cli.pilot_steps == 0 {
+            eprintln!("--pilot-max and --pilot-steps must both be greater than zero");
+            std::process::exit(2);
+        }
+        if native_max <= cli.pilot_max {
+            eprintln!(
+                "--fine-max ({native_max}) must be greater than --pilot-max ({}) for --resolution-pilot-audit",
+                cli.pilot_max
+            );
+            std::process::exit(2);
+        }
+        run_resolution_pilot_audit(
+            &mut world,
+            cli.seed,
+            cli.pilot_max,
+            native_max,
+            cli.pilot_steps,
+        );
+        return;
     }
 
     if cli.fine_max > 0 {
@@ -3878,6 +3920,456 @@ fn run_river_audit(world: &World, seed: u64, top: usize) {
         river_mode_panel(
             &label, tess, hydro, &network, elev, &areas, land_km2, cont_len, top,
         );
+    }
+}
+
+// ===================== RESOLUTION-PILOT AUDIT =====================
+
+#[derive(Clone, Copy, Default)]
+struct NativePilotBin {
+    land_area: f64,
+    slope_mass: f64,
+    neighbor_relief_mass: f64,
+    min_elevation: f32,
+    max_elevation: f32,
+    channel_events: f64,
+}
+
+impl NativePilotBin {
+    fn empty() -> Self {
+        Self {
+            min_elevation: f32::INFINITY,
+            max_elevation: f32::NEG_INFINITY,
+            ..Self::default()
+        }
+    }
+}
+
+/// Ask whether a short solved surface adds spatial information beyond the
+/// existing coarse slope/flow/activity density prior. This deliberately stops
+/// before remeshing: a response field that cannot rank where native refinement
+/// pays does not justify transfer and mesh-lifecycle machinery.
+fn run_resolution_pilot_audit(
+    world: &mut World,
+    seed: u64,
+    pilot_max: usize,
+    native_max: usize,
+    pilot_steps: usize,
+) {
+    let audit_start = std::time::Instant::now();
+    eprintln!(
+        "resolution pilot: generating capped pilot (cap={pilot_max}, response_steps={pilot_steps})"
+    );
+    world.generate_fine_pre_with_cap(pilot_max);
+
+    let short_start = std::time::Instant::now();
+    let mut short_params = world.erosion_params;
+    short_params.steps = pilot_steps;
+    short_params.precip_outer_iters = 1;
+    short_params.drainage_pulse = 0.0;
+    short_params.glacial_k = 0.0;
+    let short = {
+        let fine = world.fine.as_ref().expect("pilot fine world");
+        FineSurface::generate(seed, &fine.base, &fine.pre.hydrology, short_params)
+    };
+    let short_seconds = short_start.elapsed().as_secs_f64();
+
+    let (signed_response, abs_response, response_variation, routing_change) = {
+        let fine = world.fine.as_ref().expect("pilot fine world");
+        let tess = fine.tessellation();
+        let n = tess.num_cells();
+        let signed: Vec<f32> = (0..n)
+            .map(|i| {
+                // Keep drainage-integration repair out of the pilot signal: the
+                // response is the terrain supplied to hydrology, not its sparse
+                // outlet-path correction.
+                short.hydrology.pre_integration_elevation(i) - fine.base.base_elevation[i]
+            })
+            .collect();
+        let absolute: Vec<f32> = signed.iter().map(|value| value.abs()).collect();
+        let variation: Vec<f32> = (0..n)
+            .map(|i| {
+                tess.neighbors(i)
+                    .iter()
+                    .map(|&neighbor| (signed[i] - signed[neighbor]).abs())
+                    .fold(0.0f32, f32::max)
+            })
+            .collect();
+        let routing: Vec<f32> = (0..n)
+            .map(|i| {
+                (fine.pre.hydrology.downstream(i) != short.hydrology.downstream(i)) as u8 as f32
+            })
+            .collect();
+        (signed, absolute, variation, routing)
+    };
+    drop(short);
+
+    let full_pilot_start = std::time::Instant::now();
+    world.generate_fine_eroded();
+    let full_pilot_seconds = full_pilot_start.elapsed().as_secs_f64();
+
+    // Retain only compact predictors/reference summaries. `world.fine.take()` is
+    // essential: generate_fine_pre_with_cap constructs its replacement before
+    // assignment, which would otherwise overlap both heavy FineWorlds in RAM.
+    let pilot = world.fine.take().expect("completed pilot fine world");
+    let pilot_tess = pilot.tessellation();
+    let pilot_surface = pilot.eroded.as_ref().expect("full pilot erosion");
+    let pilot_n = pilot_tess.num_cells();
+    let centers: Vec<[f32; 3]> = (0..pilot_n)
+        .map(|i| pilot_tess.cell_center(i).to_array())
+        .collect();
+    let pilot_areas = pilot_tess.cell_areas();
+    let pilot_land: Vec<bool> = pilot_surface
+        .elevation
+        .values
+        .iter()
+        .map(|&value| value >= 0.0)
+        .collect();
+    let density = pilot.density().to_vec();
+    let low_slope_energy: Vec<f64> = (0..pilot_n)
+        .map(|i| {
+            let slope = pilot_surface.elevation.physical_grade(pilot_tess, i) as f64;
+            slope * slope
+        })
+        .collect();
+    let low_neighbor_relief_energy: Vec<f64> = (0..pilot_n)
+        .map(|i| {
+            let elevation = pilot_surface.elevation.values[i];
+            let delta = pilot_tess
+                .neighbors(i)
+                .iter()
+                .map(|&neighbor| (elevation - pilot_surface.elevation.values[neighbor]).abs())
+                .fold(0.0f32, f32::max) as f64;
+            delta * delta
+        })
+        .collect();
+    let normalized_abs = robust_unit_interval(&abs_response, &pilot_land);
+    let normalized_variation = robust_unit_interval(&response_variation, &pilot_land);
+    let combined: Vec<f32> = (0..pilot_n)
+        .map(|i| {
+            (normalized_abs[i] + normalized_variation[i] + routing_change[i].clamp(0.0, 1.0)) / 3.0
+        })
+        .collect();
+    let pilot_actual = pilot_n;
+    drop(pilot);
+    drop(signed_response);
+
+    let mut tree = KdTree::<f32, 3>::with_capacity(centers.len());
+    for (index, center) in centers.iter().enumerate() {
+        tree.add(center, index as u64);
+    }
+
+    eprintln!(
+        "resolution pilot: pilot heavy state dropped; generating native reference (cap={native_max})"
+    );
+    let native_start = std::time::Instant::now();
+    world.generate_fine_pre_with_cap(native_max);
+    world.generate_fine_eroded();
+    let native_seconds = native_start.elapsed().as_secs_f64();
+
+    let native = world.fine.as_ref().expect("native fine world");
+    let native_tess = native.tessellation();
+    let native_surface = native.eroded.as_ref().expect("native erosion");
+    let native_elevation = &native_surface.elevation;
+    let native_hydrology = &native_surface.hydrology;
+    let native_areas = native_tess.cell_areas();
+    let native_rivers = RiverSelection::build(native_hydrology, RiverThresholdPolicy::default());
+    let mut bins = vec![NativePilotBin::empty(); pilot_n];
+    let mut native_land_area = 0.0f64;
+
+    for i in 0..native_tess.num_cells() {
+        if native_elevation.values[i] < 0.0 {
+            continue;
+        }
+        let area = native_areas[i] as f64;
+        native_land_area += area;
+        let center = native_tess.cell_center(i).to_array();
+        let owner = tree.nearest_one::<SquaredEuclidean>(&center).item as usize;
+        if !pilot_land[owner] {
+            continue;
+        }
+        let slope = native_elevation.physical_grade(native_tess, i) as f64;
+        let neighbor_delta = native_tess
+            .neighbors(i)
+            .iter()
+            .map(|&neighbor| (native_elevation.values[i] - native_elevation.values[neighbor]).abs())
+            .fold(0.0f32, f32::max) as f64;
+        let bin = &mut bins[owner];
+        bin.land_area += area;
+        bin.slope_mass += area * slope * slope;
+        bin.neighbor_relief_mass += area * neighbor_delta * neighbor_delta;
+        bin.min_elevation = bin.min_elevation.min(native_elevation.values[i]);
+        bin.max_elevation = bin.max_elevation.max(native_elevation.values[i]);
+
+        if native_rivers.all_cells[i] {
+            let upstream = native_tess
+                .neighbors(i)
+                .iter()
+                .filter(|&&neighbor| {
+                    native_rivers.all_cells[neighbor]
+                        && native_hydrology.downstream(neighbor) == Some(i)
+                })
+                .count();
+            if upstream == 0 || upstream >= 2 {
+                bin.channel_events += 1.0;
+            }
+        }
+    }
+
+    let mut native_slope_mass = vec![0.0f64; pilot_n];
+    let mut slope_gain_mass = vec![0.0f64; pilot_n];
+    let mut native_neighbor_mass = vec![0.0f64; pilot_n];
+    let mut neighbor_gain_mass = vec![0.0f64; pilot_n];
+    let mut within_owner_relief_mass = vec![0.0f64; pilot_n];
+    let mut channel_event_mass = vec![0.0f64; pilot_n];
+    for i in 0..pilot_n {
+        let bin = bins[i];
+        if bin.land_area <= 0.0 {
+            continue;
+        }
+        native_slope_mass[i] = bin.slope_mass;
+        native_neighbor_mass[i] = bin.neighbor_relief_mass;
+        let native_slope_mean = bin.slope_mass / bin.land_area;
+        let native_neighbor_mean = bin.neighbor_relief_mass / bin.land_area;
+        slope_gain_mass[i] =
+            (native_slope_mean - low_slope_energy[i]).max(0.0) * pilot_areas[i] as f64;
+        neighbor_gain_mass[i] =
+            (native_neighbor_mean - low_neighbor_relief_energy[i]).max(0.0) * pilot_areas[i] as f64;
+        if bin.min_elevation.is_finite() && bin.max_elevation.is_finite() {
+            let range = (bin.max_elevation - bin.min_elevation) as f64;
+            within_owner_relief_mass[i] = bin.land_area * range * range;
+        }
+        channel_event_mass[i] = bin.channel_events;
+    }
+
+    let predictors: [(&str, &[f32]); 5] = [
+        ("density-control", &density),
+        ("abs-response", &abs_response),
+        ("response-variation", &response_variation),
+        ("routing-change", &routing_change),
+        ("combined-response", &combined),
+    ];
+    let targets: [(&str, &[f64]); 6] = [
+        ("native-slope-energy", &native_slope_mass),
+        ("fine-only-slope-gain", &slope_gain_mass),
+        ("native-neighbor-relief", &native_neighbor_mass),
+        ("fine-only-neighbor-gain", &neighbor_gain_mass),
+        ("within-pilot-cell-relief", &within_owner_relief_mass),
+        ("selected-channel-heads+junctions", &channel_event_mass),
+    ];
+
+    println!("\n================ RESOLUTION PILOT seed={seed} ================");
+    println!(
+        "pilot cap/actual {pilot_max}/{pilot_actual}; native cap/actual {native_max}/{}; pilot steps {pilot_steps}/{}",
+        native_tess.num_cells(),
+        world.erosion_params.steps
+    );
+    println!(
+        "timing: short response {:.2}s, full pilot {:.2}s, native {:.2}s, total {:.2}s",
+        short_seconds,
+        full_pilot_seconds,
+        native_seconds,
+        audit_start.elapsed().as_secs_f64()
+    );
+    let mapped_land_area: f64 = bins.iter().map(|bin| bin.land_area).sum();
+    println!(
+        "ownership coverage: {:.2}% of native land area maps to pilot-final land",
+        100.0 * mapped_land_area / native_land_area.max(f64::EPSILON)
+    );
+    println!(
+        "signal: integration cuts excluded; conditional columns rank within ten equal-land-area density bands"
+    );
+    println!(
+        "entries are captured target mass / lift over equal-area selection; 10% and 20% land-area budgets"
+    );
+    for (target_name, target_mass) in targets {
+        let total: f64 = target_mass.iter().sum();
+        println!("\n-- {target_name} (mass={total:.6e}) --");
+        println!(
+            "  predictor                 global-10       global-20       conditional-10  conditional-20"
+        );
+        for (predictor_name, predictor) in predictors {
+            let g10 = area_budget_capture(predictor, target_mass, &pilot_areas, &pilot_land, 0.10);
+            let g20 = area_budget_capture(predictor, target_mass, &pilot_areas, &pilot_land, 0.20);
+            let c10 = density_stratified_capture(
+                predictor,
+                &density,
+                target_mass,
+                &pilot_areas,
+                &pilot_land,
+                0.10,
+            );
+            let c20 = density_stratified_capture(
+                predictor,
+                &density,
+                target_mass,
+                &pilot_areas,
+                &pilot_land,
+                0.20,
+            );
+            println!(
+                "  {predictor_name:<25} {:>6.2}%/{:>4.2}x  {:>6.2}%/{:>4.2}x  {:>6.2}%/{:>4.2}x  {:>6.2}%/{:>4.2}x",
+                100.0 * g10,
+                g10 / 0.10,
+                100.0 * g20,
+                g20 / 0.20,
+                100.0 * c10,
+                c10 / 0.10,
+                100.0 * c20,
+                c20 / 0.20,
+            );
+        }
+    }
+    println!(
+        "\nInterpretation: remeshing is justified only if a response predictor adds conditional lift over the density bands on both fine-only relief and channel organization. Native 1M remains density-prior sampled, so failure is stronger evidence than success."
+    );
+}
+
+fn robust_unit_interval(values: &[f32], mask: &[bool]) -> Vec<f32> {
+    let mut finite: Vec<f32> = values
+        .iter()
+        .zip(mask)
+        .filter_map(|(&value, &included)| (included && value.is_finite()).then_some(value))
+        .collect();
+    finite.sort_by(|a, b| a.total_cmp(b));
+    if finite.is_empty() {
+        return vec![0.0; values.len()];
+    }
+    let at = |q: f32| {
+        let index = ((finite.len() - 1) as f32 * q).round() as usize;
+        finite[index]
+    };
+    let lo = at(0.05);
+    let mut hi = at(0.95);
+    if hi <= lo {
+        hi = *finite.last().unwrap();
+    }
+    let span = hi - lo;
+    values
+        .iter()
+        .map(|&value| {
+            if value.is_finite() && span > f32::EPSILON {
+                ((value - lo) / span).clamp(0.0, 1.0)
+            } else {
+                0.0
+            }
+        })
+        .collect()
+}
+
+fn area_budget_capture(
+    predictor: &[f32],
+    target_mass: &[f64],
+    areas: &[f32],
+    land: &[bool],
+    fraction: f64,
+) -> f64 {
+    let indices: Vec<usize> = (0..predictor.len()).filter(|&i| land[i]).collect();
+    capture_over_indices(&indices, predictor, target_mass, areas, fraction)
+}
+
+fn density_stratified_capture(
+    predictor: &[f32],
+    density: &[f32],
+    target_mass: &[f64],
+    areas: &[f32],
+    land: &[bool],
+    fraction: f64,
+) -> f64 {
+    let mut by_density: Vec<usize> = (0..density.len()).filter(|&i| land[i]).collect();
+    by_density.sort_by(|&a, &b| density[a].total_cmp(&density[b]));
+    let total_area: f64 = by_density.iter().map(|&i| areas[i] as f64).sum();
+    let total_target: f64 = target_mass.iter().sum();
+    if total_area <= 0.0 || total_target <= 0.0 {
+        return 0.0;
+    }
+    let mut strata: [Vec<usize>; 10] = std::array::from_fn(|_| Vec::new());
+    let mut cumulative_area = 0.0;
+    for index in by_density {
+        let midpoint = cumulative_area + 0.5 * areas[index] as f64;
+        let stratum = ((10.0 * midpoint / total_area).floor() as usize).min(9);
+        strata[stratum].push(index);
+        cumulative_area += areas[index] as f64;
+    }
+    let captured: f64 = strata
+        .iter()
+        .map(|indices| capture_mass_over_indices(indices, predictor, target_mass, areas, fraction))
+        .sum();
+    captured / total_target
+}
+
+fn capture_over_indices(
+    indices: &[usize],
+    predictor: &[f32],
+    target_mass: &[f64],
+    areas: &[f32],
+    fraction: f64,
+) -> f64 {
+    let total_target: f64 = target_mass.iter().sum();
+    if total_target <= 0.0 {
+        return 0.0;
+    }
+    capture_mass_over_indices(indices, predictor, target_mass, areas, fraction) / total_target
+}
+
+fn capture_mass_over_indices(
+    indices: &[usize],
+    predictor: &[f32],
+    target_mass: &[f64],
+    areas: &[f32],
+    fraction: f64,
+) -> f64 {
+    let mut ranked = indices.to_vec();
+    ranked.sort_by(|&a, &b| {
+        predictor[b]
+            .total_cmp(&predictor[a])
+            .then_with(|| a.cmp(&b))
+    });
+    let total_area: f64 = ranked.iter().map(|&i| areas[i] as f64).sum();
+    let mut remaining = total_area * fraction.clamp(0.0, 1.0);
+    let mut captured = 0.0;
+    for index in ranked {
+        if remaining <= 0.0 {
+            break;
+        }
+        let area = areas[index] as f64;
+        if area <= 0.0 {
+            continue;
+        }
+        let used = remaining.min(area);
+        captured += target_mass[index] * used / area;
+        remaining -= used;
+    }
+    captured
+}
+
+#[cfg(test)]
+mod resolution_pilot_tests {
+    use super::{area_budget_capture, density_stratified_capture, robust_unit_interval};
+
+    #[test]
+    fn robust_normalization_clips_outlier_without_nan() {
+        let normalized = robust_unit_interval(&[0.0, 1.0, 2.0, 3.0, 1000.0], &[true; 5]);
+        assert_eq!(normalized[0], 0.0);
+        assert_eq!(normalized[4], 1.0);
+        assert!(normalized.iter().all(|value| value.is_finite()));
+    }
+
+    #[test]
+    fn area_budget_capture_respects_fractional_boundary_cell() {
+        let capture =
+            area_budget_capture(&[2.0, 1.0], &[8.0, 2.0], &[1.0, 1.0], &[true, true], 0.25);
+        assert!((capture - 0.4).abs() < 1e-12);
+    }
+
+    #[test]
+    fn conditional_capture_can_find_signal_inside_density_bands() {
+        let predictor: Vec<f32> = (0..20).map(|i| (i % 2 == 0) as u8 as f32).collect();
+        let density: Vec<f32> = (0..20).map(|i| (i / 2) as f32).collect();
+        let target: Vec<f64> = predictor.iter().map(|&value| value as f64).collect();
+        let capture =
+            density_stratified_capture(&predictor, &density, &target, &[1.0; 20], &[true; 20], 0.5);
+        assert!((capture - 1.0).abs() < 1e-12);
     }
 }
 
