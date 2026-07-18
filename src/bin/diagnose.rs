@@ -3932,7 +3932,8 @@ struct NativePilotBin {
     neighbor_relief_mass: f64,
     min_elevation: f32,
     max_elevation: f32,
-    channel_events: f64,
+    channel_heads: f64,
+    channel_junctions: f64,
 }
 
 impl NativePilotBin {
@@ -3974,7 +3975,7 @@ fn run_resolution_pilot_audit(
     };
     let short_seconds = short_start.elapsed().as_secs_f64();
 
-    let (signed_response, abs_response, response_variation, routing_change) = {
+    let (signed_response, abs_response, response_variation, routing_change, specific_area_slope) = {
         let fine = world.fine.as_ref().expect("pilot fine world");
         let tess = fine.tessellation();
         let n = tess.num_cells();
@@ -4000,7 +4001,24 @@ fn run_resolution_pilot_audit(
                 (fine.pre.hydrology.downstream(i) != short.hydrology.downstream(i)) as u8 as f32
             })
             .collect();
-        (signed, absolute, variation, routing)
+        // A compact, physically motivated channel baseline: specific catchment
+        // area supplies water while local grade supplies stream power. The
+        // exponent is a diagnostic ranking choice, not a calibrated erosion law.
+        let area_slope: Vec<f32> = (0..n)
+            .map(|i| {
+                if short.elevation.values[i] < 0.0 {
+                    return f32::NEG_INFINITY;
+                }
+                let catchment_km2 = short.hydrology.flow_accumulation[i].max(0.0)
+                    * EARTH_RADIUS_KM
+                    * EARTH_RADIUS_KM;
+                let contour_width_km = tess.cell_areas_ref()[i].max(1e-20).sqrt() * EARTH_RADIUS_KM;
+                let specific_area_km = catchment_km2 / contour_width_km.max(1e-6);
+                let slope = short.elevation.physical_grade(tess, i);
+                specific_area_km.max(1e-6).ln() + 2.0 * slope.max(1e-6).ln()
+            })
+            .collect();
+        (signed, absolute, variation, routing, area_slope)
     };
     drop(short);
 
@@ -4110,8 +4128,10 @@ fn run_resolution_pilot_audit(
                         && native_hydrology.downstream(neighbor) == Some(i)
                 })
                 .count();
-            if upstream == 0 || upstream >= 2 {
-                bin.channel_events += 1.0;
+            if upstream == 0 {
+                bin.channel_heads += 1.0;
+            } else if upstream >= 2 {
+                bin.channel_junctions += 1.0;
             }
         }
     }
@@ -4121,7 +4141,8 @@ fn run_resolution_pilot_audit(
     let mut native_neighbor_mass = vec![0.0f64; pilot_n];
     let mut neighbor_gain_mass = vec![0.0f64; pilot_n];
     let mut within_owner_relief_mass = vec![0.0f64; pilot_n];
-    let mut channel_event_mass = vec![0.0f64; pilot_n];
+    let mut channel_head_mass = vec![0.0f64; pilot_n];
+    let mut channel_junction_mass = vec![0.0f64; pilot_n];
     for i in 0..pilot_n {
         let bin = bins[i];
         if bin.land_area <= 0.0 {
@@ -4139,22 +4160,32 @@ fn run_resolution_pilot_audit(
             let range = (bin.max_elevation - bin.min_elevation) as f64;
             within_owner_relief_mass[i] = bin.land_area * range * range;
         }
-        channel_event_mass[i] = bin.channel_events;
+        channel_head_mass[i] = bin.channel_heads;
+        channel_junction_mass[i] = bin.channel_junctions;
     }
 
-    let predictors: [(&str, &[f32]); 5] = [
+    let channel_event_mass: Vec<f64> = channel_head_mass
+        .iter()
+        .zip(&channel_junction_mass)
+        .map(|(&heads, &junctions)| heads + junctions)
+        .collect();
+
+    let predictors: [(&str, &[f32]); 6] = [
         ("density-control", &density),
         ("abs-response", &abs_response),
         ("response-variation", &response_variation),
         ("routing-change", &routing_change),
         ("combined-response", &combined),
+        ("specific-area-slope", &specific_area_slope),
     ];
-    let targets: [(&str, &[f64]); 6] = [
+    let targets: [(&str, &[f64]); 8] = [
         ("native-slope-energy", &native_slope_mass),
         ("fine-only-slope-gain", &slope_gain_mass),
         ("native-neighbor-relief", &native_neighbor_mass),
         ("fine-only-neighbor-gain", &neighbor_gain_mass),
         ("within-pilot-cell-relief", &within_owner_relief_mass),
+        ("selected-channel-heads", &channel_head_mass),
+        ("selected-channel-junctions", &channel_junction_mass),
         ("selected-channel-heads+junctions", &channel_event_mass),
     ];
 
@@ -4221,7 +4252,7 @@ fn run_resolution_pilot_audit(
         }
     }
     println!(
-        "\nInterpretation: remeshing is justified only if a response predictor adds conditional lift over the density bands on both fine-only relief and channel organization. Native 1M remains density-prior sampled, so failure is stronger evidence than success."
+        "\nInterpretation: judge relief and channel allocators separately; each must add conditional lift over the density bands on its own target. The native reference remains density-prior sampled, so failure is stronger evidence than success."
     );
 }
 

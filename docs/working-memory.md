@@ -151,6 +151,31 @@ but reject one scalar response-driven remesher. Subordinate drainage needs its
 own causal predictor, sub-grid hierarchy or explicit budget; future adaptivity
 must compose these objectives rather than average them into one demand field.
 
+A physical-prior follow-up does **not** yet supply that missing drainage
+allocator. Reality motivates an area--slope initiation threshold (specific
+catchment area supplies water; grade supplies erosive power), while branching
+and divide placement arise nonlocally from drainage competition
+([Istanbulluoglu et al. 2002](https://research.fs.usda.gov/treesearch/23956);
+[Forte and Whipple 2018](https://repository.lsu.edu/geo_pubs/1260/)). The audit now
+splits selected-network heads from junctions and ranks a cheap area--slope score
+from the same 24-step pilot. Against native 1M it captures combined events at
+2.28x globally, but only 0.84x within density bands at a 10% area budget (heads
+0.85x; junctions 0.83x), rising to just 1.10x at 20%. Thus it mostly
+rediscovers information already in density. A four-arm correlated
+perturb/respond/reroute probe also failed to predict topology robustly and was
+removed rather than retained as machinery. Its apparent area--slope success on
+a two-step baseline disappeared once measured on the evolved pilot, which is a
+useful warning against immature-surface proxies.
+
+There is also a semantic-scale mismatch: these targets are heads and junctions
+of the selected cartographic network (default catchment scale 2,000 km²), not
+literal geomorphic channel initiation (the erosion solver's channel support is
+around 4 km²). The experiment therefore rejects this score as a predictor of
+*map-network organization*; it does not reject area--slope physics. Preserve
+the strong relief allocator, leave drainage allocation explicitly unresolved,
+and do not start a multi-objective remesher until the network target and its
+causal or sub-grid representation are better defined.
+
 ## Recent lithosphere result
 
 Seed `12345`'s terrain-blind source remains episode 0 /

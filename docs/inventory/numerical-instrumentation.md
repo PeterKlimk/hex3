@@ -21,7 +21,7 @@ exits at the coarse stage.
 | Mountains | elevation-mask components, range geometry, peaks, passes, profiles, relief spectra and drainage grain | “mountain” is a threshold mask, not shared semantics; many nested thresholds |
 | Rivers | shared All/Major masks, Strahler/Horton structure, mouths and trunk profiles | length is cell-area approximation; default report still uses incompatible river populations |
 | Biomes | shared seasonless potentials, broad labels, uncertainty and component coherence | provisional classifier, not calibrated ecology |
-| Resolution pilot | short solved-surface response versus native-reference slope, neighbour relief and selected-channel heads/junctions; global and within-density-band area-budget capture | predictor evidence only, not a remeshing result; native reference inherits the current density prior and cannot reveal regions it never sampled |
+| Resolution pilot | short solved-surface response and area--slope baseline versus native-reference slope, neighbour relief and separately counted selected-channel heads/junctions; global and within-density-band area-budget capture | predictor evidence only, not a remeshing result; selected rivers are map semantics rather than literal channel initiation, and the native reference inherits the current density prior |
 
 The default report additionally covers mesh resolution, erosion incision,
 hypsometry, Moran's I, continent/island masks, tectonic placement, climate and
