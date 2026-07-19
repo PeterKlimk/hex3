@@ -367,7 +367,7 @@ impl UnifiedMesh {
             }
         }
 
-        let vertices: Vec<UnifiedVertex> = voronoi
+        let mut vertices: Vec<UnifiedVertex> = voronoi
             .vertices
             .iter()
             .enumerate()
@@ -396,9 +396,15 @@ impl UnifiedMesh {
                 continue;
             }
             for i in 1..n - 1 {
-                indices.push(cell.vertex_indices[0]);
-                indices.push(cell.vertex_indices[i]);
-                indices.push(cell.vertex_indices[i + 1]);
+                append_map_safe_shared_triangle(
+                    &mut vertices,
+                    &mut indices,
+                    [
+                        cell.vertex_indices[0],
+                        cell.vertex_indices[i],
+                        cell.vertex_indices[i + 1],
+                    ],
+                );
             }
         }
 
@@ -602,6 +608,50 @@ impl UnifiedMesh {
     pub fn compute_projection(&self) -> MapProjection {
         let positions: Vec<[f32; 3]> = self.vertices.iter().map(|v| v.position).collect();
         MapProjection::compute(&positions, &self.indices)
+    }
+}
+
+/// Append one triangle from a shared-vertex spherical mesh while keeping its
+/// equirectangular map projection local at the antimeridian.
+///
+/// A shared spherical vertex cannot own one globally correct wrap offset: cells
+/// on the two sides of the seam need opposite copies. Only seam-crossing
+/// triangles are duplicated. Their right-map copy shifts negative longitudes by
+/// +2 and their left-map copy shifts positive longitudes by -2. Globe rendering
+/// ignores `wrap_offset`, so the two copies are coincident there; the depth test
+/// discards the redundant fragment without changing the physical surface.
+fn append_map_safe_shared_triangle(
+    vertices: &mut Vec<UnifiedVertex>,
+    indices: &mut Vec<u32>,
+    triangle: [u32; 3],
+) {
+    let source = triangle.map(|index| vertices[index as usize]);
+    let projected_x =
+        source.map(|vertex| sphere_to_equirectangular(Vec3::from_array(vertex.position)).0);
+    let min_x = projected_x.into_iter().fold(f32::INFINITY, f32::min);
+    let max_x = projected_x.into_iter().fold(f32::NEG_INFINITY, f32::max);
+    if max_x - min_x <= 1.0 {
+        indices.extend_from_slice(&triangle);
+        return;
+    }
+
+    for wrap_left_copy in [false, true] {
+        let base = vertices.len() as u32;
+        for (mut vertex, x) in source.into_iter().zip(projected_x) {
+            vertex.wrap_offset = if wrap_left_copy {
+                if x > 0.0 {
+                    -2.0
+                } else {
+                    0.0
+                }
+            } else if x < 0.0 {
+                2.0
+            } else {
+                0.0
+            };
+            vertices.push(vertex);
+        }
+        indices.extend_from_slice(&[base, base + 1, base + 2]);
     }
 }
 
@@ -1381,6 +1431,16 @@ mod tests {
         }
     }
 
+    fn sphere_point(latitude_deg: f32, longitude_deg: f32) -> Vec3 {
+        let latitude = latitude_deg.to_radians();
+        let longitude = longitude_deg.to_radians();
+        Vec3::new(
+            latitude.cos() * longitude.cos(),
+            latitude.sin(),
+            latitude.cos() * longitude.sin(),
+        )
+    }
+
     #[test]
     fn test_mesh_generation() {
         let mut points = random_sphere_points(50);
@@ -1435,5 +1495,57 @@ mod tests {
             bytemuck::cast_slice::<UnifiedVertex, u8>(&b.vertices)
         );
         assert_eq!(a.indices.len(), 3 * 16);
+    }
+
+    #[test]
+    fn shared_triangle_keeps_local_map_triangle_unchanged() {
+        let mut vertices = [
+            sphere_point(0.0, 10.0),
+            sphere_point(1.0, 11.0),
+            sphere_point(-1.0, 12.0),
+        ]
+        .into_iter()
+        .map(|position| UnifiedVertex::land(position, position, Vec3::ONE, 0.0))
+        .collect::<Vec<_>>();
+        let mut indices = Vec::new();
+
+        append_map_safe_shared_triangle(&mut vertices, &mut indices, [0, 1, 2]);
+
+        assert_eq!(vertices.len(), 3);
+        assert_eq!(indices, [0, 1, 2]);
+    }
+
+    #[test]
+    fn shared_triangle_duplicates_both_antimeridian_map_sides() {
+        let mut vertices = [
+            sphere_point(0.0, 179.0),
+            sphere_point(1.0, -179.0),
+            sphere_point(-1.0, 178.0),
+        ]
+        .into_iter()
+        .map(|position| UnifiedVertex::land(position, position, Vec3::ONE, 0.0))
+        .collect::<Vec<_>>();
+        let mut indices = Vec::new();
+
+        append_map_safe_shared_triangle(&mut vertices, &mut indices, [0, 1, 2]);
+
+        assert_eq!(vertices.len(), 9);
+        assert_eq!(indices.len(), 6);
+        for triangle in indices.chunks_exact(3) {
+            let projected = [triangle[0], triangle[1], triangle[2]].map(|index| {
+                let vertex = vertices[index as usize];
+                sphere_to_equirectangular(Vec3::from_array(vertex.position)).0 + vertex.wrap_offset
+            });
+            let min = projected.into_iter().fold(f32::INFINITY, f32::min);
+            let max = projected.into_iter().fold(f32::NEG_INFINITY, f32::max);
+            assert!(max - min < 0.05, "map triangle still spans the seam");
+        }
+        for local in 0..3 {
+            assert_eq!(vertices[3 + local].position, vertices[6 + local].position);
+            assert_ne!(
+                vertices[3 + local].wrap_offset,
+                vertices[6 + local].wrap_offset
+            );
+        }
     }
 }

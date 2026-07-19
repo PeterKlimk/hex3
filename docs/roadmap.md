@@ -65,7 +65,7 @@ automatically the best product move.
 | The product is lean enough to reason about and iterate | Separate product code/API/CLI from the experimental laboratory; remove unconditional rendering allocations | **Completed enabling work; preserve the boundary** |
 | Geography has visible consequences | Traversability, water/coast access, named relative opportunities, aggregate sites and least-cost routes | **Bounded discriminator complete; retain useful operators without vertical expansion** |
 | Terrain is morphologically convincing | Replace scalar final-height ownership with one structural range/forcing owner or disclosed authentic range hack | **Defect retained, rework paused; continuity alone is not a rejection criterion, universal smooth roofs remain debt** |
-| The planet is readable and explainable | Scale-aware relief, land/water hierarchy, rivers and living cover in one coherent cartographic scene | **Selected next bounded slice** |
+| The planet is readable and explainable | Scale-aware relief, land/water hierarchy, rivers and living cover in one coherent cartographic scene | **V0 packet implemented; human visual decision pending** |
 | Landscapes connect source to sink | Persistent mobile/deposited material, floodplains, terminal fill and deltas | **Research/design gate; not next by default** |
 | The world feels more visibly alive | Forest structure, vegetation assets, seasons or disturbance | **Gated; accepted Living Surface does not authorize vertical expansion** |
 
@@ -98,6 +98,16 @@ its receiving water body. Human review must find those relationships materially
 easier to read in the A/B. Numeric checks require unchanged world/object
 topology, deterministic selection, Globe/Map identity parity and capture
 metadata. Attractive color alone is not a pass.
+
+The first seed-`12345` packet is now implemented over one unchanged 255,866-cell
+Stage-4 world. Its control is Terrain + Authentic + Major rivers; its candidate
+uses Living Surface globally and reveals All rivers only in the regional view.
+The technical admission checks pass, and the packet exposed and corrected a
+real shared-mesh antimeridian defect in Unified Map without changing Globe
+output. Human visual review remains authoritative. The mechanically selected
+highest-discharge mouth has a two-cell principal trunk, so this first packet may
+reject that target-selection rule even if the composed regional scene is an
+improvement; do not disguise that weakness by tuning the camera or model.
 
 Do not add region or landform classification, a new relief/texture algorithm,
 calibrated biomes, a universal semantic database, a renderer rewrite or new

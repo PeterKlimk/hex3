@@ -402,7 +402,9 @@ struct Cli {
     /// selects a coast complex and overflowing lake; stage 4), or
     /// `living-surface-preview` (global fractional-physiognomy evidence; stage 4),
     /// or `consequential-geography` (matched aggregate-site probe, ablations and
-    /// same-site physical/zero-grade terrestrial routes; stage 4).
+    /// same-site physical/zero-grade terrestrial routes; stage 4), or
+    /// `world-readability-v0` (matched Terrain/Living Surface globe, map and
+    /// derived river-mouth relationship views over one Stage-4 world).
     /// Ignores --sweep/--sweep-values.
     #[arg(long, hide = HIDE_RESEARCH_CLI)]
     sweep_stack: Option<String>,

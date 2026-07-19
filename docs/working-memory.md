@@ -1,6 +1,6 @@
 # Hex3 working memory
 
-Status: **active, non-authoritative scratchpad**. Last consolidated 2026-07-19.
+Status: **active, non-authoritative scratchpad**. Last consolidated 2026-07-20.
 
 This document preserves medium-term context across evaluation passes so the
 active investigation does not erase other important findings. It is a queue of
@@ -14,8 +14,8 @@ it become a chronological activity log.
 
 ## Active focus
 
-**Build one bounded World Readability V0 from retained state; do not add another
-physical stage yet.** The working hypothesis is that Hex3 already generates
+**Review the implemented World Readability V0 before adding another physical
+stage.** The working hypothesis is that Hex3 already generates
 more coherent geography than its ordinary view communicates. Combine current
 product-control relief, landmass/coast/water-body identity, river hierarchy and
 Living Surface fractions through one deterministic scale policy and declared
@@ -25,6 +25,14 @@ Select one or two existing relationships by deterministic importance and require
 human review to find them materially easier to read. Preserve Globe/Map identity
 and topology and disclose presentation state. Attractive color alone is not a
 pass.
+
+The first seed-`12345` packet is technically admissible after correcting the
+Unified Map antimeridian seam; matched Globe output did not change. The
+candidate visibly exposes more regional drainage, but that observation is not
+yet human acceptance. Its deterministic highest-discharge mouth has only a
+two-cell principal trunk, making target selection—not river physics—a plausible
+failure. Preserve both findings: judge the composed scene first, then replace
+the selector only if the intended relationship cannot actually be read.
 
 Do not add descriptive regions or DEM-derived terrain elements in the first
 packet; require a specific residual readability failure before either. Do not

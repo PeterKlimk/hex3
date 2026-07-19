@@ -30,11 +30,12 @@ use hex3::{
     world::{
         assess_route_lower_corridor, build_aggregate_route_network, AggregateRouteNetwork,
         AggregateSiteSelection, BasinSpillDestination, ConsequentialGeographyComponents,
-        FineCacheMode, FreshwaterSourceKind, LivingSurfaceSemantics, OrogenModel, RiverSelection,
-        RiverThresholdPolicy, RouteLowerCorridorAssessment, RouteLowerCorridorEvidence,
-        RouteLowerCorridorOmission, RouteNetworkConfig, SemanticWaterKind, ShorelineLoop,
-        SiteSelectionConfig, Tessellation, TraversalConfig, VoronoiBackend, WaterBodyId,
-        WaterBodySemantics, WaterGeographyGeometry, World, PLANET_RADIUS_KM, RELIEF_SCALE,
+        FineCacheMode, FreshwaterSourceKind, LivingSurfaceSemantics, OrogenModel, RiverNetwork,
+        RiverSelection, RiverThresholdPolicy, RouteLowerCorridorAssessment,
+        RouteLowerCorridorEvidence, RouteLowerCorridorOmission, RouteNetworkConfig,
+        SemanticWaterKind, ShorelineLoop, SiteSelectionConfig, Tessellation, TraversalConfig,
+        VoronoiBackend, WaterBodyId, WaterBodySemantics, WaterGeographyGeometry, World,
+        PLANET_RADIUS_KM, RELIEF_SCALE,
     },
 };
 
@@ -42,11 +43,11 @@ use super::coloring::{
     cell_color_terrain, cell_material, living_surface_blended_color, LIVING_HERBACEOUS_COLOR,
     LIVING_WETLAND_COLOR, LIVING_WOODY_COLOR,
 };
-use super::view::{ReliefPreset, RiverMode};
+use super::view::{ReliefPreset, RiverMode, SurfacePalette};
 use super::world::{
     advance_to_stage_2, advance_to_stage_3, advance_to_stage_3_with_cap, advance_to_stage_4,
     create_world_with_orogen_model, generate_world_buffers,
-    generate_world_buffers_with_display_subdivision, ErosionOverrides,
+    generate_world_buffers_with_display_subdivision, regenerate_surface_palette, ErosionOverrides,
 };
 
 /// Knobs the sweep can vary, mapped onto [`ErosionOverrides`] fields.
@@ -3753,6 +3754,534 @@ fn run_consequential_geography_packet(opts: &SweepOptions) {
     );
 }
 
+#[derive(Clone, Debug, Serialize)]
+struct ReadabilityRelationship {
+    selection_rule: &'static str,
+    fallback: &'static str,
+    mouth_cell: usize,
+    downstream_water_cell: usize,
+    head_cell: usize,
+    trunk_cells_head_to_mouth: Vec<usize>,
+    discharge_equivalent_km2: f32,
+    strahler_order_at_mouth: u8,
+    selected_mouth_is_major: bool,
+    receiving_water_body_index: usize,
+    receiving_water_body_id: WaterBodyId,
+    receiving_water_kind: SemanticWaterKind,
+    receiving_water_area_km2: f32,
+    receiving_water_anchor_cell: usize,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ReadabilityMouthCandidate {
+    mouth_cell: usize,
+    downstream_water_cell: usize,
+    water_body_index: usize,
+    discharge: f32,
+    major: bool,
+}
+
+/// Choose an ocean/lake mouth without letting iterator order decide equal-flow
+/// ties. A world with no major candidate falls back to all represented mouths.
+fn select_readability_mouth(
+    candidates: &[ReadabilityMouthCandidate],
+) -> Option<(ReadabilityMouthCandidate, &'static str)> {
+    let best = |major_only: bool| {
+        candidates
+            .iter()
+            .filter(|candidate| !major_only || candidate.major)
+            .max_by(|a, b| {
+                a.discharge
+                    .total_cmp(&b.discharge)
+                    // Lower cell identity wins an exact discharge tie.
+                    .then_with(|| b.mouth_cell.cmp(&a.mouth_cell))
+            })
+            .copied()
+    };
+    best(true)
+        .map(|candidate| (candidate, "none"))
+        .or_else(|| {
+            best(false).map(|candidate| {
+                (
+                    candidate,
+                    "no major river mouth reached a semantic ocean or lake; selected the highest-discharge represented river mouth reaching an ocean or lake",
+                )
+            })
+        })
+}
+
+fn readability_main_trunk(
+    mouth: usize,
+    hydrology: &hex3::world::Hydrology,
+    network: &RiverNetwork,
+) -> Vec<usize> {
+    let mut trunk = vec![mouth];
+    let mut current = mouth;
+    while let Some(&upstream) = network.upstream[current].iter().max_by(|&&a, &&b| {
+        hydrology.flow_accumulation[a]
+            .total_cmp(&hydrology.flow_accumulation[b])
+            // Lower cell identity wins an exact discharge tie.
+            .then_with(|| b.cmp(&a))
+    }) {
+        trunk.push(upstream);
+        current = upstream;
+        assert!(
+            trunk.len() <= network.all_cells.len(),
+            "river trunk unexpectedly contains a drainage cycle"
+        );
+    }
+    trunk.reverse();
+    trunk
+}
+
+fn readability_relationship(
+    hydrology: &hex3::world::Hydrology,
+    water: &WaterBodySemantics,
+    network: &RiverNetwork,
+) -> ReadabilityRelationship {
+    let candidates: Vec<_> = network
+        .mouths
+        .iter()
+        .filter_map(|&mouth_cell| {
+            let downstream_water_cell = hydrology.downstream(mouth_cell)?;
+            let water_body_index = water.cell_body[downstream_water_cell]?;
+            if !matches!(
+                water.bodies[water_body_index].kind,
+                SemanticWaterKind::Ocean | SemanticWaterKind::Lake
+            ) {
+                return None;
+            }
+            Some(ReadabilityMouthCandidate {
+                mouth_cell,
+                downstream_water_cell,
+                water_body_index,
+                discharge: hydrology.flow_accumulation[mouth_cell],
+                major: network.major_cells[mouth_cell],
+            })
+        })
+        .collect();
+    let (selected, fallback) = select_readability_mouth(&candidates).expect(
+        "world-readability-v0 requires at least one represented river mouth reaching a semantic ocean or lake",
+    );
+    let trunk_cells_head_to_mouth = readability_main_trunk(selected.mouth_cell, hydrology, network);
+    let body = &water.bodies[selected.water_body_index];
+    ReadabilityRelationship {
+        selection_rule: "highest flow_accumulation among represented major river mouths reaching a semantic ocean or lake; exact ties choose lower mouth cell identity",
+        fallback,
+        mouth_cell: selected.mouth_cell,
+        downstream_water_cell: selected.downstream_water_cell,
+        head_cell: trunk_cells_head_to_mouth[0],
+        trunk_cells_head_to_mouth,
+        discharge_equivalent_km2: selected.discharge * PLANET_RADIUS_KM.powi(2),
+        strahler_order_at_mouth: network.strahler_order[selected.mouth_cell],
+        selected_mouth_is_major: selected.major,
+        receiving_water_body_index: selected.water_body_index,
+        receiving_water_body_id: body.id,
+        receiving_water_kind: body.kind,
+        receiving_water_area_km2: body.area_km2,
+        receiving_water_anchor_cell: body.id.anchor_cell,
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct ReadabilityStateCounts {
+    active_cells: usize,
+    drainage_edges: usize,
+    semantic_water_bodies: usize,
+    semantic_water_owned_cells: usize,
+    all_river_cells: usize,
+    major_river_cells: usize,
+    river_mouths: usize,
+    river_reaches: usize,
+    trunk_cells: usize,
+}
+
+fn readability_state_evidence(
+    world: &World,
+    policy: RiverThresholdPolicy,
+) -> (ReadabilityStateCounts, ReadabilityRelationship) {
+    let tessellation = world.active_tessellation();
+    let hydrology = world.active_hydrology().expect("stage 4 hydrology");
+    let water = WaterBodySemantics::build(tessellation, hydrology);
+    let network = RiverNetwork::build(tessellation, hydrology, &water, policy);
+    let relationship = readability_relationship(hydrology, &water, &network);
+    let counts = ReadabilityStateCounts {
+        active_cells: tessellation.num_cells(),
+        drainage_edges: hydrology.drainage_dir.iter().flatten().count(),
+        semantic_water_bodies: water.bodies.len(),
+        semantic_water_owned_cells: water.cell_body.iter().flatten().count(),
+        all_river_cells: network
+            .all_cells
+            .iter()
+            .filter(|&&included| included)
+            .count(),
+        major_river_cells: network
+            .major_cells
+            .iter()
+            .filter(|&&included| included)
+            .count(),
+        river_mouths: network.mouths.len(),
+        river_reaches: network.reaches.len(),
+        trunk_cells: relationship.trunk_cells_head_to_mouth.len(),
+    };
+    (counts, relationship)
+}
+
+fn readability_river_policy(opts: &SweepOptions) -> RiverThresholdPolicy {
+    match opts.river_threshold_policy.as_str() {
+        "legacy-count-equivalent" => RiverThresholdPolicy::legacy(),
+        "catchment-km2" => RiverThresholdPolicy::catchment(
+            opts.river_min_catchment_km2
+                .unwrap_or(hex3::world::DEFAULT_RIVER_MIN_CATCHMENT_KM2),
+        ),
+        other => panic!("world-readability-v0 does not recognize river policy '{other}'"),
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct ReadabilityViewRecord {
+    id: &'static str,
+    role: &'static str,
+    projection: &'static str,
+    map_mode: bool,
+    camera: serde_json::Value,
+    physical_relief_effect: &'static str,
+}
+
+struct ReadabilityView {
+    record: ReadabilityViewRecord,
+    view_proj: Mat4,
+    eye: Vec3,
+}
+
+fn readability_views(
+    opts: &SweepOptions,
+    world: &World,
+    relationship: &ReadabilityRelationship,
+    aspect: f32,
+) -> Vec<ReadabilityView> {
+    let mut globe = OrbitCamera::new();
+    globe.yaw = opts.yaw_deg.to_radians();
+    globe.pitch = opts.pitch_deg.to_radians();
+    globe.distance = opts.distance;
+    globe.aspect = aspect;
+    let globe_eye = globe.eye_position();
+
+    let map_projection = Mat4::orthographic_rh(-1.0, 1.0, -1.0, 1.0, -1.0, 1.0);
+
+    let tessellation = world.active_tessellation();
+    let lower_trunk_index = relationship
+        .trunk_cells_head_to_mouth
+        .len()
+        .saturating_sub(1)
+        * 3
+        / 4;
+    let lower_trunk =
+        tessellation.cell_center(relationship.trunk_cells_head_to_mouth[lower_trunk_index]);
+    let mouth = tessellation.cell_center(relationship.mouth_cell);
+    let receiving = tessellation.cell_center(relationship.downstream_water_cell);
+    let regional_target = (lower_trunk + mouth * 2.0 + receiving).normalize_or_zero();
+    assert!(
+        regional_target.length_squared() > 0.0,
+        "derived relationship target is degenerate"
+    );
+    let mut regional = derived_capture_view(
+        "river-mouth-relationship",
+        regional_target,
+        aspect,
+        opts.zoom_alt,
+    );
+    regional.sidecar.kind = "derived-highest-discharge-river-mouth";
+
+    vec![
+        ReadabilityView {
+            record: ReadabilityViewRecord {
+                id: "globe",
+                role: "fixed whole-planet overview shared by both rows",
+                projection: "perspective globe",
+                map_mode: false,
+                camera: serde_json::json!({
+                    "eye_xyz": vec3_array(globe_eye),
+                    "aim_xyz": [0.0, 0.0, 0.0],
+                    "up_xyz": [0.0, 1.0, 0.0],
+                    "vertical_fov_deg": 45.0,
+                    "aspect": aspect,
+                    "near": 0.01,
+                    "far": 10.0,
+                    "orbit_yaw_deg": opts.yaw_deg,
+                    "orbit_pitch_deg": opts.pitch_deg,
+                    "orbit_distance": opts.distance,
+                }),
+                physical_relief_effect: "Authentic radial displacement and slope shading",
+            },
+            view_proj: globe.view_projection(),
+            eye: globe_eye,
+        },
+        ReadabilityView {
+            record: ReadabilityViewRecord {
+                id: "map",
+                role: "fixed full-world map shared by both rows",
+                projection: "equirectangular, longitude=atan2(z,x), latitude=asin(y), exact 2:1 viewport",
+                map_mode: true,
+                camera: serde_json::json!({
+                    "orthographic_bounds": [-1.0, 1.0, -1.0, 1.0],
+                    "aspect": aspect,
+                    "eye_xyz": [0.0, 0.0, 1.0],
+                }),
+                physical_relief_effect: "flat projection: the map shader intentionally ignores radial relief displacement; Authentic remains the declared row recipe, not effective map geometry",
+            },
+            view_proj: map_projection,
+            eye: Vec3::Z,
+        },
+        ReadabilityView {
+            record: ReadabilityViewRecord {
+                id: "river-mouth-relationship",
+                role: "derived regional view of the selected trunk entering its semantic receiving water body",
+                projection: "perspective globe close-up",
+                map_mode: false,
+                camera: serde_json::to_value(&regional.sidecar).expect("serialize regional camera"),
+                physical_relief_effect: "Authentic radial displacement and slope shading",
+            },
+            view_proj: regional.view_proj,
+            eye: regional.eye,
+        },
+    ]
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_readability_view(
+    gpu: &GpuContext,
+    renderer: &mut Renderer,
+    color_view: &wgpu::TextureView,
+    buffers: &super::world::WorldBuffers,
+    view: &ReadabilityView,
+    river_mode: RiverMode,
+    river_width_scale: f32,
+) {
+    let light = if view.record.map_mode {
+        Vec3::Z
+    } else {
+        Vec3::new(0.5, 1.0, 0.3).normalize()
+    };
+    let uniforms = Uniforms::new(view.view_proj, view.eye, light)
+        .with_relief_scale(ReliefPreset::Authentic.scale())
+        .with_slope_shading(!view.record.map_mode)
+        .with_hemisphere_lighting(false)
+        .with_map_mode(view.record.map_mode)
+        .with_rivers(true)
+        .with_river_major_only(river_mode == RiverMode::Major)
+        .with_river_width_scale(river_width_scale);
+    renderer.render_to_view(
+        &gpu.device,
+        &gpu.queue,
+        color_view,
+        &uniforms,
+        RenderScene {
+            fill_pipeline: if view.record.map_mode {
+                FillPipelineKind::UnifiedMap
+            } else {
+                FillPipelineKind::UnifiedGlobe
+            },
+            fill: IndexedDraw {
+                vertex_buffer: &buffers.unified_vertex_buffer,
+                index_buffer: &buffers.unified_index_buffer,
+                index_count: buffers.num_unified_indices,
+            },
+            river_texture_bind_group: Some(&buffers.river_bind_group),
+            edges: None,
+            arrows: None,
+            pole_markers: None,
+            rivers: None,
+            gpu_particles: None,
+        },
+    );
+}
+
+/// Minimal product-readability discriminator. It owns no new model: two
+/// presentation recipes consume one immutable Stage-4 world and one river SDF.
+fn run_world_readability_packet(opts: &SweepOptions) {
+    assert_eq!(
+        opts.target_stage, 4,
+        "world-readability-v0 requires --stage 4"
+    );
+    assert_eq!(
+        opts.display_subdivision_levels, 0,
+        "world-readability-v0 compares current product rendering without display subdivision"
+    );
+    let world = generate_tile_world(opts, &opts.base_erosion);
+    let policy = readability_river_policy(opts);
+    let (state_counts, relationship) = readability_state_evidence(&world, policy);
+
+    // An exact 2:1 target makes the full map equirectangular. Packet width is
+    // rounded up to even; the generic sweep height is intentionally ignored.
+    let width = opts.width.max(2).next_multiple_of(2);
+    let height = width / 2;
+    let aspect = width as f32 / height as f32;
+    let views = readability_views(opts, &world, &relationship, aspect);
+    let river_width_scale = opts.base_erosion.river_width_scale.unwrap_or(1.0);
+
+    std::fs::create_dir_all(&opts.out_dir)
+        .unwrap_or_else(|error| panic!("create {}: {error}", opts.out_dir.display()));
+    let gpu = pollster::block_on(GpuContext::new_headless(width, height));
+    let mut renderer = Renderer::new(&gpu, &Uniforms::new(Mat4::IDENTITY, Vec3::ZERO, Vec3::Y));
+    let color_tex = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("world_readability_v0_color"),
+        size: wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: gpu.format,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let color_view = color_tex.create_view(&Default::default());
+    let mut buffers = generate_world_buffers(&gpu.device, &gpu.queue, &world);
+    assert_eq!(buffers.surface_palette, SurfacePalette::Terrain);
+    let unified_index_count = buffers.num_unified_indices;
+    let montage_width = width * views.len() as u32;
+    let montage_height = height * 2;
+    let mut montage = vec![0; (montage_width * montage_height * 4) as usize];
+    let row_recipes = [
+        (
+            "control-terrain",
+            "current control: Terrain palette, Authentic relief, Major rivers in all views",
+            SurfacePalette::Terrain,
+        ),
+        (
+            "candidate-living-surface",
+            "candidate composed presentation recipe: existing Living Surface palette, Authentic relief, Major rivers globally and All rivers in the regional relationship view",
+            SurfacePalette::LivingSurface,
+        ),
+    ];
+    let mut row_records = Vec::new();
+    for (row, (id, role, palette)) in row_recipes.into_iter().enumerate() {
+        regenerate_surface_palette(&gpu.queue, &world, &mut buffers, palette)
+            .unwrap_or_else(|error| panic!("world-readability-v0 palette: {error}"));
+        assert_eq!(
+            buffers.num_unified_indices, unified_index_count,
+            "presentation palette changed unified topology"
+        );
+        let mut image_records = Vec::new();
+        for (column, view) in views.iter().enumerate() {
+            let river_mode = if row == 1 && view.record.id == "river-mouth-relationship" {
+                RiverMode::All
+            } else {
+                RiverMode::Major
+            };
+            render_readability_view(
+                &gpu,
+                &mut renderer,
+                &color_view,
+                &buffers,
+                view,
+                river_mode,
+                river_width_scale,
+            );
+            let rgba = read_back_rgba(&gpu, &color_tex, width, height);
+            let filename = format!("{:02}_{id}_{}.png", row + 1, view.record.id);
+            write_png(&opts.out_dir.join(&filename), &rgba, width, height);
+            blit_tile(
+                &mut montage,
+                montage_width,
+                &rgba,
+                width,
+                height,
+                column as u32,
+                row as u32,
+            );
+            image_records.push(serde_json::json!({
+                "view_id": view.record.id,
+                "filename": filename,
+                "river_mode": river_mode_label(river_mode),
+                "relief_preset": ReliefPreset::Authentic.name(),
+                "relief_scale": ReliefPreset::Authentic.scale(),
+                "river_width_scale": river_width_scale,
+                "surface_palette": palette.name(),
+            }));
+        }
+        row_records.push(serde_json::json!({
+            "id": id,
+            "role": role,
+            "surface_palette": palette.name(),
+            "relief_preset": ReliefPreset::Authentic.name(),
+            "relief_scale": ReliefPreset::Authentic.scale(),
+            "images": image_records,
+        }));
+    }
+    write_png(
+        &opts.out_dir.join("montage.png"),
+        &montage,
+        montage_width,
+        montage_height,
+    );
+
+    let sidecar = serde_json::json!({
+        "schema_version": 1,
+        "purpose": "minimal World Readability V0 comparison over one unchanged Stage-4 world",
+        "status": "headless presentation discriminator; no new physical or semantic model and no promoted default",
+        "world_manifest": world.manifest(),
+        "truth_contract": [
+            "both rows use the same immutable Stage-4 World and the same WorldBuffers topology and river texture",
+            "Terrain to Living Surface changes only baked unified-vertex colors; regenerate_surface_palette verifies vertex and index counts",
+            "globe and map use the same Major mask and the same semantic relationship identities",
+            "candidate regional All rivers is an authored scale-dependent presentation policy, so this packet is a composed recipe comparison rather than a palette-only ablation",
+            "water classification, river selection, relief and world state are not regenerated between rows"
+        ],
+        "viewport": {
+            "requested_sweep_width": opts.width,
+            "requested_sweep_height_ignored": opts.height,
+            "effective_width": width,
+            "effective_height": height,
+            "reason": "full equirectangular map requires an exact 2:1 target; width is rounded up to even"
+        },
+        "river_policy": {
+            "requested_name": opts.river_threshold_policy,
+            "requested_minimum_catchment_km2": opts.river_min_catchment_km2,
+            "effective_policy": policy,
+            "effective_all_minimum_catchment_km2": policy.effective_all_minimum_km2(world.num_cells()),
+            "selection_mask_counts": {
+                "all": state_counts.all_river_cells,
+                "major": state_counts.major_river_cells,
+            }
+        },
+        "selected_relationship": relationship,
+        "shared_state_evidence": {
+            "exact_counts": state_counts,
+            "one_immutable_world": true,
+            "one_shared_world_buffers_instance": true,
+            "one_shared_river_texture": true,
+            "unified_index_count_preserved_across_palette_regeneration": unified_index_count,
+        },
+        "views": views.iter().map(|view| &view.record).collect::<Vec<_>>(),
+        "rows": row_records,
+        "montage": {
+            "filename": "montage.png",
+            "rows": "control Terrain recipe, then candidate Living Surface recipe",
+            "columns": "globe, equirectangular map, derived river-mouth relationship"
+        },
+        "known_limitations": [
+            "Living Surface is an existing equilibrium physiognomy presentation, not persistent ecology or a biome model",
+            "the equirectangular map is intentionally flat: Authentic relief is not geometric in map mode",
+            "the regional camera is mechanically derived from the lower trunk, mouth and first receiving-water cell; it is not human-curated",
+            "if no represented major river reaches a semantic ocean or lake, selection falls back to the highest-discharge represented river reaching an ocean or lake and records that fact",
+            "the candidate changes both palette and regional river density, so it cannot isolate their individual visual contributions",
+            "this packet does not tune colors, widths, relief, water classification or renderer behavior"
+        ]
+    });
+    let file = std::fs::File::create(opts.out_dir.join("world-readability-v0.json"))
+        .expect("create world-readability-v0.json");
+    serde_json::to_writer_pretty(BufWriter::new(file), &sidecar)
+        .expect("write world-readability-v0.json");
+    println!(
+        "Done: World Readability V0 packet -> {}",
+        opts.out_dir.display()
+    );
+}
+
 /// Run the sweep: generate + render every knob combination to PNG tiles and a
 /// stitched montage in `opts.out_dir`.
 pub fn run_sweep(opts: SweepOptions) {
@@ -3783,6 +4312,10 @@ pub fn run_sweep(opts: SweepOptions) {
     }
     if opts.stack.as_deref() == Some("consequential-geography") {
         run_consequential_geography_packet(&opts);
+        return;
+    }
+    if opts.stack.as_deref() == Some("world-readability-v0") {
+        run_world_readability_packet(&opts);
         return;
     }
     // Validate knob names up front so a typo fails before any (slow) generation
@@ -4059,8 +4592,8 @@ mod tests {
     use super::{
         apply_knob, baseline_site_probe_config, build_stack_tiles, canonical_path_edges,
         compare_site_positions, diagnostic_coarse_support_site_probe_config,
-        loose_site_probe_config, robust_scale, route_probe_config, selected_orogen_model,
-        tight_site_probe_config, SweepTarget,
+        loose_site_probe_config, robust_scale, route_probe_config, select_readability_mouth,
+        selected_orogen_model, tight_site_probe_config, ReadabilityMouthCandidate, SweepTarget,
     };
     use crate::app::coloring::{
         living_surface_blended_color, LIVING_HERBACEOUS_COLOR, LIVING_WETLAND_COLOR,
@@ -4238,5 +4771,48 @@ mod tests {
             assert_eq!(arm.meso_style, Some(1));
             assert_eq!(arm.meso_wavelength_km, Some(25.0));
         }
+    }
+
+    #[test]
+    fn readability_mouth_prefers_major_then_discharge_then_lower_identity() {
+        let candidate = |mouth_cell, discharge, major| ReadabilityMouthCandidate {
+            mouth_cell,
+            downstream_water_cell: mouth_cell + 100,
+            water_body_index: 0,
+            discharge,
+            major,
+        };
+        let candidates = [
+            candidate(3, 200.0, false),
+            candidate(8, 100.0, true),
+            candidate(5, 100.0, true),
+        ];
+        let (selected, fallback) = select_readability_mouth(&candidates).unwrap();
+        assert_eq!(selected.mouth_cell, 5);
+        assert_eq!(fallback, "none");
+    }
+
+    #[test]
+    fn readability_mouth_discloses_non_major_fallback() {
+        let candidates = [
+            ReadabilityMouthCandidate {
+                mouth_cell: 7,
+                downstream_water_cell: 10,
+                water_body_index: 1,
+                discharge: 40.0,
+                major: false,
+            },
+            ReadabilityMouthCandidate {
+                mouth_cell: 2,
+                downstream_water_cell: 11,
+                water_body_index: 2,
+                discharge: 60.0,
+                major: false,
+            },
+        ];
+        let (selected, fallback) = select_readability_mouth(&candidates).unwrap();
+        assert_eq!(selected.mouth_cell, 2);
+        assert_ne!(fallback, "none");
+        assert!(select_readability_mouth(&[]).is_none());
     }
 }
