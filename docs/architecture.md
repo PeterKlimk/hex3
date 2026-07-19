@@ -289,8 +289,9 @@ terrestrial route corridors and conservative lower-corridor evidence exist on
 demand, but no human layer or route-local feature ladder is active. The current
 selected next consumer is World Readability V0, which will compose current
 product-control relief, land/water identity, river hierarchy and Living Surface
-state into an Authentic scene. It is not implemented architecture yet. Sediment,
-richer ecology and deeper human history remain behind explicit gates.
+state into an Authentic scene. Its accepted recipe is now ordinary product
+behavior: Living Surface at Stage 4 and scale-dependent Major/All river display.
+Sediment, richer ecology and deeper human history remain behind explicit gates.
 This ordering does not assign a fidelity class or linear stage number. Some
 domains may be semantic derivations, some simulations, some authentic hacks and
 some presentation-only systems, with graph-shaped dependencies.

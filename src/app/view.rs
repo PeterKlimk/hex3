@@ -71,6 +71,8 @@ pub enum SurfacePalette {
 }
 
 impl SurfacePalette {
+    pub const PRODUCT_DEFAULT: Self = Self::LivingSurface;
+
     pub fn cycle(self) -> Self {
         match self {
             Self::Terrain => Self::LivingSurface,
@@ -104,20 +106,72 @@ pub enum RiverMode {
 }
 
 impl RiverMode {
-    /// Cycle to the next river mode.
-    pub fn cycle(self) -> Self {
-        match self {
-            Self::Off => Self::Major,
-            Self::Major => Self::All,
-            Self::All => Self::Off,
-        }
-    }
-
     pub fn name(self) -> &'static str {
         match self {
             Self::Off => "Off",
             Self::Major => "Major",
             Self::All => "All",
+        }
+    }
+}
+
+/// Product river-selection policy. Automatic selection is cartographic only:
+/// it switches between the two already-built river masks and never rebuilds
+/// hydrology or semantic river identity.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum RiverDisplay {
+    #[default]
+    Auto,
+    Off,
+    Major,
+    All,
+}
+
+impl RiverDisplay {
+    /// Globe-centre distance at or below which the view is regional enough to
+    /// reveal the complete represented network. The unit sphere has radius 1,
+    /// so this is a camera altitude of 0.5 planet radii.
+    const ALL_RIVERS_MAX_GLOBE_DISTANCE: f32 = 1.5;
+
+    pub fn cycle(self) -> Self {
+        match self {
+            Self::Auto => Self::Off,
+            Self::Off => Self::Major,
+            Self::Major => Self::All,
+            Self::All => Self::Auto,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Auto => "Auto",
+            Self::Off => "Off",
+            Self::Major => "Major",
+            Self::All => "All",
+        }
+    }
+
+    pub fn status_name(self, effective: RiverMode) -> &'static str {
+        match (self, effective) {
+            (Self::Auto, RiverMode::Major) => "Auto→Major",
+            (Self::Auto, RiverMode::All) => "Auto→All",
+            (Self::Auto, RiverMode::Off) => "Auto→Off",
+            _ => self.name(),
+        }
+    }
+
+    pub fn effective(self, view: ViewMode, globe_distance: f32) -> RiverMode {
+        match self {
+            Self::Auto
+                if view == ViewMode::Globe
+                    && globe_distance <= Self::ALL_RIVERS_MAX_GLOBE_DISTANCE =>
+            {
+                RiverMode::All
+            }
+            Self::Auto => RiverMode::Major,
+            Self::Off => RiverMode::Off,
+            Self::Major => RiverMode::Major,
+            Self::All => RiverMode::All,
         }
     }
 }
@@ -273,7 +327,7 @@ impl RenderMode {
 
 #[cfg(test)]
 mod tests {
-    use super::{ReliefPreset, SurfacePalette};
+    use super::{ReliefPreset, RiverDisplay, RiverMode, SurfacePalette, ViewMode};
     use hex3::world::{relief_exaggeration, PHYSICAL_RELIEF_SCALE};
 
     #[test]
@@ -291,6 +345,10 @@ mod tests {
     #[test]
     fn surface_palette_cycle_is_reversible() {
         assert_eq!(
+            SurfacePalette::PRODUCT_DEFAULT,
+            SurfacePalette::LivingSurface
+        );
+        assert_eq!(
             SurfacePalette::Terrain.cycle(),
             SurfacePalette::LivingSurface
         );
@@ -298,5 +356,36 @@ mod tests {
             SurfacePalette::LivingSurface.cycle(),
             SurfacePalette::Terrain
         );
+    }
+
+    #[test]
+    fn automatic_rivers_reveal_detail_only_at_regional_globe_scale() {
+        assert_eq!(
+            RiverDisplay::Auto.effective(ViewMode::Globe, 3.0),
+            RiverMode::Major
+        );
+        assert_eq!(
+            RiverDisplay::Auto.effective(ViewMode::Globe, 1.5),
+            RiverMode::All
+        );
+        assert_eq!(
+            RiverDisplay::Auto.effective(ViewMode::Map, 1.1),
+            RiverMode::Major
+        );
+    }
+
+    #[test]
+    fn explicit_river_modes_override_scale_and_cycle_back_to_auto() {
+        assert_eq!(
+            RiverDisplay::Major.effective(ViewMode::Globe, 1.1),
+            RiverMode::Major
+        );
+        assert_eq!(
+            RiverDisplay::All.effective(ViewMode::Globe, 3.0),
+            RiverMode::All
+        );
+        assert_eq!(RiverDisplay::Auto.cycle(), RiverDisplay::Off);
+        assert_eq!(RiverDisplay::All.cycle(), RiverDisplay::Auto);
+        assert_eq!(RiverDisplay::Auto.status_name(RiverMode::All), "Auto→All");
     }
 }

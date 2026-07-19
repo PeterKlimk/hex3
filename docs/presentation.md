@@ -43,6 +43,14 @@ named preset. Press `X` to cycle Flat → Physical → Authentic → Dramatic.
 The selected scale is shared by terrain, relief edges, and surface-wind
 particles.
 
+## Surface palette
+
+The ordinary Stage-4 Relief view uses the accepted Living Surface palette. It
+derives fractional equilibrium physiognomy from existing final terrain, climate
+and hydrology; it is not retained ecology or a biome simulation. Earlier stages
+remain on the Terrain palette. Press `1` again while in Relief at Stage 4 to
+switch explicitly between Living Surface and Terrain.
+
 ## Rivers
 
 River topology and selection remain physical: catchment area determines which
@@ -52,6 +60,13 @@ the largest real rivers are subpixel in globe views.
 All/Major selection is owned by the shared
 [hydrology semantic layer](semantics.md); the renderer consumes those masks and
 owns only their visual treatment.
+
+The ordinary interactive policy is `Auto`: whole-globe and full-map views show
+Major rivers, while a Globe camera at or below `1.5` radii from the centre
+(altitude `0.5` above the unit sphere) shows All represented rivers. This is a
+view-scale selection between already-built masks; it does not rebuild the river
+network. Press `V` to cycle `Auto -> Off -> Major -> All`; explicit modes ignore
+camera scale. The window title reports `Auto→Major` or `Auto→All`.
 
 ```powershell
 cargo run --release --bin hex3 -- --river-width-scale 0.75

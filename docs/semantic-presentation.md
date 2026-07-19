@@ -208,6 +208,13 @@ scale-dependent river density as the product direction. The selected two-cell
 principal trunk remains weak evidence for the intended source-to-receiver
 relationship and is not accepted by that visual result.
 
+That direction is now integrated in the ordinary app. The Stage-4 product
+palette is Living Surface, with Terrain retained as an explicit alternative.
+River display defaults to `Auto`: Major for the whole Globe and full Map, All
+for regional Globe views at camera distance `<= 1.5`, with explicit
+Off/Major/All overrides. This policy selects existing masks only and changes no
+semantic identity or physical state.
+
 V0 does not authorize named regions or biomes, landform elements, forest assets,
 seasons, sediment, new terrain noise or hillshade, automatic pass/chokepoint
 labels, a generic entity framework, a renderer reset or terrain validation

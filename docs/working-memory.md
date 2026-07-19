@@ -14,23 +14,18 @@ it become a chronological activity log.
 
 ## Active focus
 
-**Integrate the accepted World Readability V0 recipe before adding another
-physical stage.** The packet confirms that Hex3 already generates
-more coherent geography than its ordinary view communicates. Combine current
-product-control relief, landmass/coast/water-body identity, river hierarchy and
-Living Surface fractions through one deterministic scale policy and declared
-Authentic recipe.
-Use fixed globe and regional cameras with the current Authentic scene as control.
-Select one or two existing relationships by deterministic importance and require
-human review to find them materially easier to read. Preserve Globe/Map identity
-and topology and disclose presentation state. Attractive color alone is not a
-pass.
+**Preserve the integrated World Readability V0 recipe and choose the next
+bounded product question before adding another physical stage.** The packet
+confirms that Hex3 already generates more coherent geography than its former
+ordinary view communicated. Do not reopen the accepted composition without a
+specific regression or readability failure.
 
 The first seed-`12345` packet is technically admissible after correcting the
 Unified Map antimeridian seam; matched Globe output did not change. Human review
-found the candidate significantly better. Promote the presentation recipe into
-ordinary behavior narrowly: Living Surface where available and river density
-responsive to view scale, with explicit controls retained. Its deterministic
+found the candidate significantly better. The ordinary app now defaults to
+Living Surface at Stage 4 and `Auto` river density (Major globally, All on a
+regional Globe), with explicit controls retained. A Windows interaction smoke
+test remains. Its deterministic
 highest-discharge mouth has only a two-cell principal trunk, so target selection
 remains a separate failed or inconclusive question rather than a river-physics
 defect. Do not expand that caveat into another evidence ladder now.

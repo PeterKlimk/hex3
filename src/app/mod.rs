@@ -189,8 +189,7 @@ impl ApplicationHandler for App {
                         state.window.request_redraw();
                     }
                     PhysicalKey::Code(KeyCode::KeyV) => {
-                        state.river_mode = state.river_mode.cycle();
-                        println!("Rivers: {}", state.river_mode.name());
+                        state.cycle_river_display();
                         state.window.request_redraw();
                     }
                     PhysicalKey::Code(KeyCode::KeyX) => {

@@ -15,8 +15,8 @@ use hex3::render::{
 use hex3::world::{FineCacheMode, OrogenModel, VoronoiBackend, World};
 
 use super::view::{
-    ClimateLayer, FeatureLayer, NoiseLayer, ReliefPreset, RenderMode, RiverMode, SurfacePalette,
-    ViewMode,
+    ClimateLayer, FeatureLayer, NoiseLayer, ReliefPreset, RenderMode, RiverDisplay, RiverMode,
+    SurfacePalette, ViewMode,
 };
 use super::world::{
     advance_to_stage_2, advance_to_stage_3, advance_to_stage_4, create_world_with_orogen_model,
@@ -58,7 +58,8 @@ pub struct AppState {
     inactive_buffers: std::collections::HashMap<u32, WorldBuffers>,
 
     pub show_edges: bool,
-    pub river_mode: RiverMode,
+    /// Authored scale policy by default; explicit modes remain selectable.
+    pub river_display: RiverDisplay,
     pub noise_layer: NoiseLayer,
     pub feature_layer: FeatureLayer,
     pub climate_layer: ClimateLayer,
@@ -140,7 +141,7 @@ impl AppState {
         println!("  Tab: toggle map view");
         println!("  1-8: Relief/Terrain/Elevation/Plates/Noise/Hydrology/Features/Climate");
         println!("  1 again: cycle Relief palette (Terrain/Living Surface) [Stage 4]");
-        println!("  E: toggle edges | V: cycle rivers (Off/Major/All)");
+        println!("  E: toggle edges | V: cycle rivers (Auto/Off/Major/All)");
         println!("  X: cycle relief (Flat/Physical/Authentic/Dramatic)");
         println!("  H: toggle hemisphere lighting | D: export data");
         println!("  R: regenerate | Space: advance stage");
@@ -154,7 +155,9 @@ impl AppState {
             camera_controller,
             view_mode: ViewMode::Globe,
             render_mode: RenderMode::Relief,
-            surface_palette: SurfacePalette::Terrain,
+            // Living Surface remains armed while early stages correctly render
+            // Terrain; snap_to_stage applies it once Stage 4 is available.
+            surface_palette: SurfacePalette::PRODUCT_DEFAULT,
             world_data,
             world_buffers,
             seed,
@@ -168,7 +171,7 @@ impl AppState {
             viewed_stage: initial_viewed_stage,
             inactive_buffers: std::collections::HashMap::new(),
             show_edges: false,
-            river_mode: RiverMode::Major,
+            river_display: RiverDisplay::Auto,
             noise_layer: NoiseLayer::Combined,
             feature_layer: FeatureLayer::default(),
             climate_layer: ClimateLayer::default(),
@@ -313,6 +316,21 @@ impl AppState {
                 false
             }
         }
+    }
+
+    pub fn cycle_river_display(&mut self) {
+        self.river_display = self.river_display.cycle();
+        let effective = self.effective_river_mode();
+        println!(
+            "Rivers: {} (effective {})",
+            self.river_display.name(),
+            effective.name()
+        );
+    }
+
+    fn effective_river_mode(&self) -> RiverMode {
+        self.river_display
+            .effective(self.view_mode, self.camera.distance)
     }
 
     /// Advance to the next simulation stage.
@@ -479,6 +497,7 @@ impl AppState {
         // Enable map mode for shader-based projection
         let map_mode_enabled = self.view_mode == ViewMode::Map;
 
+        let effective_river_mode = self.effective_river_mode();
         let uniforms = Uniforms::new(view_proj, camera_pos, light_dir)
             .with_relief_scale(if relief_enabled {
                 self.relief_scale
@@ -487,8 +506,8 @@ impl AppState {
             })
             .with_hemisphere_lighting(self.hemisphere_lighting)
             .with_map_mode(map_mode_enabled)
-            .with_rivers(self.river_mode != RiverMode::Off)
-            .with_river_major_only(self.river_mode == RiverMode::Major)
+            .with_rivers(effective_river_mode != RiverMode::Off)
+            .with_river_major_only(effective_river_mode == RiverMode::Major)
             .with_river_width_scale(self.river_width_scale);
 
         // Select pipeline and buffers based on render mode
@@ -596,7 +615,7 @@ impl AppState {
         // other globe modes use line-based rivers.
         let rivers = if self.view_mode == ViewMode::Globe && !use_unified {
             self.world_buffers
-                .river_buffer(self.river_mode)
+                .river_buffer(effective_river_mode)
                 .filter(|(_, count)| *count > 0)
                 .map(|(buffer, count)| SurfaceLineDraw {
                     vertex_buffer: buffer,
@@ -665,12 +684,14 @@ impl AppState {
             ViewMode::Map => "Map",
         };
         let stage = self.viewed_stage;
+        let effective_river_mode = self.effective_river_mode();
         self.window.set_title(&format!(
-            "Hex3 - {} | {} | {} | {} | Stage {} | {:.0} FPS",
+            "Hex3 - {} | {} | {} | {} | Rivers {} | Stage {} | {:.0} FPS",
             view,
             self.render_mode.name(),
             self.world_buffers.surface_palette.name(),
             self.relief_preset.name(),
+            self.river_display.status_name(effective_river_mode),
             stage,
             self.current_fps
         ));

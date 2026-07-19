@@ -16,6 +16,8 @@ for the linked audits. Status terms follow the
 | Uplift | Direct hold-and-carve source with scale `0.003` | Product baseline pending shared geological clock |
 | Optional surface additions | Critical-slope, confinement, en-route deposition, lithology, climate feedback, glacial and drainage pulse neutral | Master controls default to zero; not product-active |
 | Relief | `Authentic` code preset at scale `0.04` | Promoted cartographic presentation; not physical scale |
+| Surface palette | Living Surface at Stage 4; Terrain before Stage 4 and as an explicit alternative | Promoted product presentation; on-demand physiognomy, not retained ecology |
+| River selection | `Auto`: Major for planet/full-map scale, All for regional Globe at camera distance `<= 1.5`; explicit Off/Major/All retained | Promoted cartographic generalization over unchanged semantic masks |
 | River width | Renderer-only screen-space policy | Promoted separation; topology remains modeled |
 
 ## Orogen and tectonic-time models
@@ -507,7 +509,7 @@ specs remain experiment history until archived.
 | Screen-space draped river SDF | Implemented and promoted | Product Relief/wind river path; performance/generalization debt remains |
 | Legacy world-space/fixed-texture river width behavior | Corrected | Falsified presentation interpretation; do not restore |
 | Displaced-facet slope shading | Implemented and used by sweeps, not interactive Relief | Selectable internally/incompletely integrated; decision pending |
-| World Readability V0 composed packet | Implemented on one unchanged seed-`12345` Stage-4 world: Terrain control versus Living Surface, Authentic relief, Major globally and candidate All rivers regionally | Technical admission and human visual gate pass; accepted presentation direction, not yet ordinary product integration; two-cell trunk does not validate the relationship selector |
+| World Readability V0 composed packet | Implemented on one unchanged seed-`12345` Stage-4 world: Terrain control versus Living Surface, Authentic relief, Major globally and candidate All rivers regionally | Technical admission and human visual gate pass; accepted and integrated as ordinary presentation behavior; two-cell trunk does not validate the relationship selector |
 | Unified Map shared-mesh antimeridian wrapping | Corrected with sparse dual copies of seam-crossing triangles; matched Globe captures are byte-identical | Product rendering correctness fix; does not claim polar-singularity handling or change world state |
 | Older layered shader path | Removed after reachability/compile verification | No product capability; unified and flat paths remain |
 | Legacy CPU wind line draw | Removed after every scene supplied `None` | GPU wind particles remain the active presentation |
