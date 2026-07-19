@@ -97,6 +97,25 @@ record generation time, peak memory and display footprint. The output should be
 a resolution/representation ownership decision, not a generic optimization
 campaign or proof that every fine cell deserves to be rendered.
 
+The strongest historical positive-control candidate is now an exact adjacent
+commit pair rather than a vague visual memory. Commit `4add9eb` repaired the O0
+structured-orogen field with real along-front arc-length chaining and coherent
+range segmentation. Its sole child, `a9bc33f`, changed the erosion channel
+support from 30 to 4 km² specifically because the high structured massif was
+under-dissected; the recorded visual result was higher-reaching channels and
+coherent ridge-and-valley carving. This closely matches the remembered shorter,
+hill-like mountains with valuable dendritic/veined structure. Reconstruct seed
+`12345` with the historical `--sweep-stack o0` before treating the current
+250k/1M packet as evidence that resolution has little terrain value. The old
+closeups were auto-targeted and have no surviving camera sidecar, so reproduce
+the original three target-selection views first, then freeze any recovered
+positive region explicitly. Compare channel support 30 versus 4 at matched
+250k/1M resolution to separate the causal model effect from the mesh's ability
+to carry it. July's `b8a580f` massif-corridor replacement and `14d669f`
+corridor-heavy candidate remain secondary candidates; the surviving July 11
+harvest is later plateau/pillar evidence and does not itself show the remembered
+form clearly.
+
 The first display-decoupling control is a bounded negative result. On the
 seed-12345 255,866-cell world, splitting every unified display triangle into
 four geodesic triangles while linearly interpolating the unchanged surface is
