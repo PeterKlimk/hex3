@@ -509,7 +509,7 @@ specs remain experiment history until archived.
 | Screen-space draped river SDF | Implemented and promoted | Product Relief/wind river path; performance/generalization debt remains |
 | Legacy world-space/fixed-texture river width behavior | Corrected | Falsified presentation interpretation; do not restore |
 | Displaced-facet slope shading | Implemented and used by sweeps, not interactive Relief | Selectable internally/incompletely integrated; decision pending |
-| World Readability V0 composed packet | Implemented on one unchanged seed-`12345` Stage-4 world: Terrain control versus Living Surface, Authentic relief, Major globally and candidate All rivers regionally | Technical admission and human visual gate pass; accepted and integrated as ordinary presentation behavior; two-cell trunk does not validate the relationship selector |
+| World Readability V0 composed packet | Implemented on one unchanged seed-`12345` Stage-4 world: Terrain control versus Living Surface, Authentic relief, Major globally and candidate All rivers regionally | Technical admission, human visual gate and Windows interaction smoke pass; accepted and integrated as ordinary presentation behavior; two-cell trunk does not validate the relationship selector |
 | Unified Map shared-mesh antimeridian wrapping | Corrected with sparse dual copies of seam-crossing triangles; matched Globe captures are byte-identical | Product rendering correctness fix; does not claim polar-singularity handling or change world state |
 | Older layered shader path | Removed after reachability/compile verification | No product capability; unified and flat paths remain |
 | Legacy CPU wind line draw | Removed after every scene supplied `None` | GPU wind particles remain the active presentation |

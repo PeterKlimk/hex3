@@ -65,7 +65,7 @@ automatically the best product move.
 | The product is lean enough to reason about and iterate | Separate product code/API/CLI from the experimental laboratory; remove unconditional rendering allocations | **Completed enabling work; preserve the boundary** |
 | Geography has visible consequences | Traversability, water/coast access, named relative opportunities, aggregate sites and least-cost routes | **Bounded discriminator complete; retain useful operators without vertical expansion** |
 | Terrain is morphologically convincing | Replace scalar final-height ownership with one structural range/forcing owner or disclosed authentic range hack | **Defect retained, rework paused; continuity alone is not a rejection criterion, universal smooth roofs remain debt** |
-| The planet is readable and explainable | Scale-aware relief, land/water hierarchy, rivers and living cover in one coherent cartographic scene | **V0 accepted and integrated; preserve and validate on Windows** |
+| The planet is readable and explainable | Scale-aware relief, land/water hierarchy, rivers and living cover in one coherent cartographic scene | **V0 accepted, integrated and Windows-validated; preserve** |
 | Landscapes connect source to sink | Persistent mobile/deposited material, floodplains, terminal fill and deltas | **Research/design gate; not next by default** |
 | The world feels more visibly alive | Forest structure, vegetation assets, seasons or disturbance | **Gated; accepted Living Surface does not authorize vertical expansion** |
 
@@ -114,8 +114,8 @@ The accepted recipe is now ordinary product behavior: Living Surface is armed
 as the Stage-4 default, and `Auto` river display selects Major at planet/full-map
 scale and All at regional Globe scale. Terrain and explicit Off/Major/All modes
 remain available. This is presentation integration, not authority for a new
-ecology, terrain or hydrology model. A representative Windows interaction smoke
-test remains required because that is the supported rendering environment.
+ecology, terrain or hydrology model. The supported Windows application has
+confirmed the default palette and automatic zoom transition work interactively.
 
 Do not add region or landform classification, a new relief/texture algorithm,
 calibrated biomes, a universal semantic database, a renderer rewrite or new

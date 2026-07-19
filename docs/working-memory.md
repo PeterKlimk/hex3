@@ -24,8 +24,8 @@ The first seed-`12345` packet is technically admissible after correcting the
 Unified Map antimeridian seam; matched Globe output did not change. Human review
 found the candidate significantly better. The ordinary app now defaults to
 Living Surface at Stage 4 and `Auto` river density (Major globally, All on a
-regional Globe), with explicit controls retained. A Windows interaction smoke
-test remains. Its deterministic
+regional Globe), with explicit controls retained. The Windows interaction smoke
+test passes. Its deterministic
 highest-discharge mouth has only a two-cell principal trunk, so target selection
 remains a separate failed or inconclusive question rather than a river-physics
 defect. Do not expand that caveat into another evidence ladder now.
