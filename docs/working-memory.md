@@ -116,6 +116,23 @@ corridor-heavy candidate remain secondary candidates; the surviving July 11
 harvest is later plateau/pillar evidence and does not itself show the remembered
 form clearly.
 
+The reconstruction confirms the positive control, with an important qualifier.
+Using `a9bc33f` to sweep the exact parent/child change, support 30 versus 4 km²,
+the matched 950,934-cell zoom3 view shows substantially finer branching flank
+dissection and a more separated summit/ridge form at 4 km²; the distinction is
+much weaker at 244,998 cells. Thus high resolution did carry a valuable effect
+when coupled channel-head/dissection dynamics created appropriate information.
+It was not generic mesh polish, and the current resolution montage did not test
+it. Do not restore O0 unchanged: its historical renderer used relief scale 0.2,
+which greatly amplifies the apparent shortening, while physical maximum height
+changed only modestly; structural-base construction also shifted area-weighted
+land fraction by about 0.7% at 951k. The reusable target is the causal pattern:
+an orogen owner that supplies organized relief plus erosion whose channel heads
+can climb into and subdivide the massif. Future coarse/sub-grid proposals must
+show whether they preserve or convincingly synthesize that subordinate branching
+hierarchy. Reproduction evidence is under
+`artifacts/captures/seed-12345-o0-positive-control-v0/`.
+
 The first display-decoupling control is a bounded negative result. On the
 seed-12345 255,866-cell world, splitting every unified display triangle into
 four geodesic triangles while linearly interpolating the unchanged surface is
