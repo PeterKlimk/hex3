@@ -471,6 +471,10 @@ struct Cli {
     #[arg(long, default_value = "major", hide = HIDE_RESEARCH_CLI)]
     sweep_rivers: String,
 
+    /// Surface palette in generic sweep tiles: terrain or living-surface.
+    #[arg(long, default_value = "terrain", hide = HIDE_RESEARCH_CLI)]
+    sweep_palette: String,
+
     /// Research-only globe display A/B: geodesically subdivide each unified
     /// render triangle this many times after sampling the unchanged world.
     /// One level produces four display triangles per physical render triangle.
@@ -705,6 +709,11 @@ fn main() {
             "all" => app::RiverMode::All,
             other => panic!("invalid --sweep-rivers '{other}'; use off, major, or all"),
         };
+        let surface_palette = match cli.sweep_palette.as_str() {
+            "terrain" => app::SurfacePalette::Terrain,
+            "living-surface" => app::SurfacePalette::LivingSurface,
+            other => panic!("invalid --sweep-palette '{other}'; use terrain or living-surface"),
+        };
         let values1 = parse_values(&cli.sweep_values);
         if cli.sweep_stack.is_none() && values1.is_empty() {
             panic!("--sweep requires --sweep-values (e.g. --sweep-values 10,30,60)");
@@ -735,6 +744,7 @@ fn main() {
             zoom_alt: cli.sweep_zoom_alt,
             targets: cli.sweep_target,
             river_mode,
+            surface_palette,
             river_threshold_policy: if cli.river_legacy {
                 "legacy-count-equivalent".to_string()
             } else {

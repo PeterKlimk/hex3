@@ -19,7 +19,7 @@ use winit::{
 };
 
 pub use state::AppState;
-pub use view::{ClimateLayer, ReliefPreset, RenderMode, RiverMode, ViewMode};
+pub use view::{ClimateLayer, ReliefPreset, RenderMode, RiverMode, SurfacePalette, ViewMode};
 
 /// Configuration for the app from CLI arguments.
 pub struct AppConfig {

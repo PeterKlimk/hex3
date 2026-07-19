@@ -194,6 +194,7 @@ pub struct SweepOptions {
     /// selected highland close-ups; the globe overview is still included.
     pub targets: Vec<SweepTarget>,
     pub river_mode: RiverMode,
+    pub surface_palette: SurfacePalette,
     pub river_threshold_policy: String,
     pub river_min_catchment_km2: Option<f32>,
     /// Research-only render subdivision. It interpolates an unchanged physical
@@ -596,6 +597,7 @@ struct CaptureConfig {
     explicit_targets: Vec<SweepTarget>,
     automatic_zoom_views_if_no_targets: usize,
     river_mode: &'static str,
+    surface_palette: &'static str,
     river_threshold_policy: String,
     river_min_catchment_km2: Option<f32>,
     display_subdivision_levels: usize,
@@ -4438,7 +4440,7 @@ pub fn run_sweep(opts: SweepOptions) {
     let shared_world =
         render_only_presentation.then(|| generate_tile_world(&opts, &opts.base_erosion));
     let shared_buffers = shared_world.as_ref().map(|world| {
-        if opts.display_subdivision_levels == 0 {
+        let mut buffers = if opts.display_subdivision_levels == 0 {
             generate_world_buffers(&gpu.device, &gpu.queue, world)
         } else {
             generate_world_buffers_with_display_subdivision(
@@ -4447,7 +4449,10 @@ pub fn run_sweep(opts: SweepOptions) {
                 world,
                 opts.display_subdivision_levels,
             )
-        }
+        };
+        regenerate_surface_palette(&gpu.queue, world, &mut buffers, opts.surface_palette)
+            .unwrap_or_else(|error| panic!("generic sweep palette: {error}"));
+        buffers
     });
 
     for (ti, (overrides, label, fname, knob_values)) in tiles.iter().enumerate() {
@@ -4471,7 +4476,7 @@ pub fn run_sweep(opts: SweepOptions) {
         }
 
         let owned_buffers = (!render_only_presentation).then(|| {
-            if opts.display_subdivision_levels == 0 {
+            let mut buffers = if opts.display_subdivision_levels == 0 {
                 generate_world_buffers(&gpu.device, &gpu.queue, world)
             } else {
                 generate_world_buffers_with_display_subdivision(
@@ -4480,7 +4485,10 @@ pub fn run_sweep(opts: SweepOptions) {
                     world,
                     opts.display_subdivision_levels,
                 )
-            }
+            };
+            regenerate_surface_palette(&gpu.queue, world, &mut buffers, opts.surface_palette)
+                .unwrap_or_else(|error| panic!("generic sweep palette: {error}"));
+            buffers
         });
         let buffers = shared_buffers
             .as_ref()
@@ -4563,6 +4571,7 @@ pub fn run_sweep(opts: SweepOptions) {
             explicit_targets: opts.targets.clone(),
             automatic_zoom_views_if_no_targets: opts.zoom_views,
             river_mode: river_mode_label(opts.river_mode),
+            surface_palette: opts.surface_palette.name(),
             river_threshold_policy: opts.river_threshold_policy.clone(),
             river_min_catchment_km2: opts.river_min_catchment_km2,
             display_subdivision_levels: opts.display_subdivision_levels,
