@@ -116,22 +116,31 @@ corridor-heavy candidate remain secondary candidates; the surviving July 11
 harvest is later plateau/pillar evidence and does not itself show the remembered
 form clearly.
 
-The reconstruction confirms the positive control, with an important qualifier.
+The reconstruction confirms the positive control, with important qualifiers.
 Using `a9bc33f` to sweep the exact parent/child change, support 30 versus 4 km²,
-the matched 950,934-cell zoom3 view shows substantially finer branching flank
-dissection and a more separated summit/ridge form at 4 km²; the distinction is
-much weaker at 244,998 cells. Thus high resolution did carry a valuable effect
-when coupled channel-head/dissection dynamics created appropriate information.
-It was not generic mesh polish, and the current resolution montage did not test
-it. Do not restore O0 unchanged: its historical renderer used relief scale 0.2,
-which greatly amplifies the apparent shortening, while physical maximum height
-changed only modestly; structural-base construction also shifted area-weighted
-land fraction by about 0.7% at 951k. The reusable target is the causal pattern:
-an orogen owner that supplies organized relief plus erosion whose channel heads
-can climb into and subdivide the massif. Future coarse/sub-grid proposals must
-show whether they preserve or convincingly synthesize that subordinate branching
-hierarchy. Reproduction evidence is under
-`artifacts/captures/seed-12345-o0-positive-control-v0/`.
+the matched 950,934-cell historical-relief view shows substantially more
+organized flank detail than 244,998 cells, while support 4 lowers and separates
+parts of the range. Thus high resolution did carry a valuable effect when coupled
+channel-head/dissection dynamics created appropriate information. It was not
+generic mesh polish, and the current resolution montage did not test it.
+
+The matched Authentic-0.04 rerender narrows the attribution. Fine flank structure
+still survives much more clearly at 951k than 245k, so it was not solely an
+artifact of 0.2 displacement. However, support 4 is not unambiguously more
+readable: it lowers/separates the terrain, while some dark etched texture is more
+conspicuous in the taller support-30 row. The old renderer entangles incision,
+height displacement, snow coloring, triangle normals and lighting, and its
+montage presentation lacks later graphical polish. Treat this as a conservative
+readability observation, not evidence that absent-looking detail is absent from
+the field or that 4 km² is the preferred appearance.
+
+Do not restore O0 unchanged: physical maximum height changed only modestly and
+structural-base construction shifted area-weighted land fraction by about 0.7%
+at 951k. The reusable target is the causal pattern: an orogen owner that supplies
+organized relief plus erosion whose channel heads can climb into and subdivide
+the massif. Future coarse/sub-grid proposals must show whether they preserve or
+convincingly synthesize that subordinate branching hierarchy. Reproduction
+evidence is under `artifacts/captures/seed-12345-o0-positive-control-v0/`.
 
 The first display-decoupling control is a bounded negative result. On the
 seed-12345 255,866-cell world, splitting every unified display triangle into
