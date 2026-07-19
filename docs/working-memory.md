@@ -14,8 +14,8 @@ it become a chronological activity log.
 
 ## Active focus
 
-**Review the implemented World Readability V0 before adding another physical
-stage.** The working hypothesis is that Hex3 already generates
+**Integrate the accepted World Readability V0 recipe before adding another
+physical stage.** The packet confirms that Hex3 already generates
 more coherent geography than its ordinary view communicates. Combine current
 product-control relief, landmass/coast/water-body identity, river hierarchy and
 Living Surface fractions through one deterministic scale policy and declared
@@ -27,12 +27,13 @@ and topology and disclose presentation state. Attractive color alone is not a
 pass.
 
 The first seed-`12345` packet is technically admissible after correcting the
-Unified Map antimeridian seam; matched Globe output did not change. The
-candidate visibly exposes more regional drainage, but that observation is not
-yet human acceptance. Its deterministic highest-discharge mouth has only a
-two-cell principal trunk, making target selection—not river physics—a plausible
-failure. Preserve both findings: judge the composed scene first, then replace
-the selector only if the intended relationship cannot actually be read.
+Unified Map antimeridian seam; matched Globe output did not change. Human review
+found the candidate significantly better. Promote the presentation recipe into
+ordinary behavior narrowly: Living Surface where available and river density
+responsive to view scale, with explicit controls retained. Its deterministic
+highest-discharge mouth has only a two-cell principal trunk, so target selection
+remains a separate failed or inconclusive question rather than a river-physics
+defect. Do not expand that caveat into another evidence ladder now.
 
 Do not add descriptive regions or DEM-derived terrain elements in the first
 packet; require a specific residual readability failure before either. Do not

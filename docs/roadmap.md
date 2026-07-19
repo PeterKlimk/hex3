@@ -65,7 +65,7 @@ automatically the best product move.
 | The product is lean enough to reason about and iterate | Separate product code/API/CLI from the experimental laboratory; remove unconditional rendering allocations | **Completed enabling work; preserve the boundary** |
 | Geography has visible consequences | Traversability, water/coast access, named relative opportunities, aggregate sites and least-cost routes | **Bounded discriminator complete; retain useful operators without vertical expansion** |
 | Terrain is morphologically convincing | Replace scalar final-height ownership with one structural range/forcing owner or disclosed authentic range hack | **Defect retained, rework paused; continuity alone is not a rejection criterion, universal smooth roofs remain debt** |
-| The planet is readable and explainable | Scale-aware relief, land/water hierarchy, rivers and living cover in one coherent cartographic scene | **V0 packet implemented; human visual decision pending** |
+| The planet is readable and explainable | Scale-aware relief, land/water hierarchy, rivers and living cover in one coherent cartographic scene | **V0 direction accepted; product integration next** |
 | Landscapes connect source to sink | Persistent mobile/deposited material, floodplains, terminal fill and deltas | **Research/design gate; not next by default** |
 | The world feels more visibly alive | Forest structure, vegetation assets, seasons or disturbance | **Gated; accepted Living Surface does not authorize vertical expansion** |
 
@@ -104,10 +104,17 @@ Stage-4 world. Its control is Terrain + Authentic + Major rivers; its candidate
 uses Living Surface globally and reveals All rivers only in the regional view.
 The technical admission checks pass, and the packet exposed and corrected a
 real shared-mesh antimeridian defect in Unified Map without changing Globe
-output. Human visual review remains authoritative. The mechanically selected
-highest-discharge mouth has a two-cell principal trunk, so this first packet may
-reject that target-selection rule even if the composed regional scene is an
-improvement; do not disguise that weakness by tuning the camera or model.
+output. Human review found the candidate significantly better and accepts the
+composed presentation direction. The mechanically selected highest-discharge
+mouth still has a two-cell principal trunk, so the packet does not validate that
+relationship-selection rule; do not disguise that separate weakness by tuning
+the camera or model.
+
+The next bounded implementation step is to make the accepted recipe ordinary
+product behavior: default to Living Surface when that semantic state exists and
+make river detail respond to view scale, while preserving the explicit Terrain
+palette and Major-only mode as available controls. This is presentation
+integration, not authority for a new ecology, terrain or hydrology model.
 
 Do not add region or landform classification, a new relief/texture algorithm,
 calibrated biomes, a universal semantic database, a renderer rewrite or new

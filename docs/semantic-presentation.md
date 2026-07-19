@@ -202,9 +202,11 @@ Globe, Unified Map and mechanically derived river-mouth views from one world and
 one GPU buffer set. Map admission required a product correction: shared
 Voronoi triangles crossing the antimeridian now receive sparse left/right map
 copies because a shared spherical vertex cannot carry one globally correct wrap
-offset. The change leaves the matched Globe images byte-identical. Visual
-acceptance is still pending, and the selected two-cell principal trunk is weak
-evidence for the intended source-to-receiver relationship.
+offset. The change leaves the matched Globe images byte-identical. Human review
+found the candidate significantly better, accepting Living Surface plus
+scale-dependent river density as the product direction. The selected two-cell
+principal trunk remains weak evidence for the intended source-to-receiver
+relationship and is not accepted by that visual result.
 
 V0 does not authorize named regions or biomes, landform elements, forest assets,
 seasons, sediment, new terrain noise or hillshade, automatic pass/chokepoint
