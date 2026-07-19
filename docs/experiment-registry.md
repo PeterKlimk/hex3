@@ -1,7 +1,7 @@
 # Experiment registry
 
 This registry separates current product behavior from implemented alternatives.
-It summarizes code and recorded evidence through 2026-07-17; it is not a substitute
+It summarizes code and recorded evidence through 2026-07-20; it is not a substitute
 for the linked audits. Status terms follow the
 [documentation policy](documentation-policy.md).
 
@@ -463,8 +463,8 @@ mean the underlying scientific mechanism is rejected.
 | Interior fine relief | `FINE_INTERIOR_RELIEF = 0` | Implemented/evaluated in fine-synthesis work | Parked procedural substrate |
 | Strike-aligned bands | `FINE_FRONT_STRIKE_WEIGHT = 0` | Implemented/evaluated | Parked; orientation is grounded, relief amplitude/role not promoted |
 | Active/passive margin contrast | `FINE_MARGIN_CONTRAST = 0` | Implemented/evaluated | Parked |
-| Emergent orogen demotion/rebuild | `FINE_EMERGENT_LAMBDA = 0` | Implemented; original premise and several regimes evaluated | Parked/falsified as replacement premise under current solver |
-| Structured O0 uplift | `FINE_EMERGENT_STRUCTURED = 0` | Implemented/evaluated | Parked; ownership overlaps accepted envelope/uplift |
+| Emergent orogen demotion/rebuild | `FINE_EMERGENT_LAMBDA = 0` | Implemented; combined replacement regimes failed, but the reconstructed historical O0 control retains useful dissection evidence | Parked; old combined owner is not promotable, while partial-build/concurrent-response remains mechanism evidence |
+| Structured O0 uplift | `FINE_EMERGENT_STRUCTURED = 0` | Reconstructed at matched 245k/951k density and historical/Authentic relief | Parked implementation; front-organized heterogeneous uplift feeding routed incision is retained as a conditional causal positive control |
 | Meso uplift modulation | `FINE_MESO_RELIEF = 0` | Implemented, numerically promising in composed regimes, visual acceptance incomplete | Parked candidate |
 | Meso base relief | `FINE_MESO_BASE_RELIEF = 0` | Implemented experiment | Parked as prescribed geometry |
 | Drainage-aware uplift pulse | `EROSION_DRAINAGE_PULSE = 0` | Implemented and numerically evaluated; visual acceptance incomplete | Parked; risks circular ownership |

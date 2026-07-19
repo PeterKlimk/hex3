@@ -140,7 +140,9 @@ at 951k. The reusable target is the causal pattern: an orogen owner that supplie
 organized relief plus erosion whose channel heads can climb into and subdivide
 the massif. Future coarse/sub-grid proposals must show whether they preserve or
 convincingly synthesize that subordinate branching hierarchy. Reproduction
-evidence is under `artifacts/captures/seed-12345-o0-positive-control-v0/`.
+evidence is under `artifacts/captures/seed-12345-o0-positive-control-v0/`; the
+retained/rebuild/reject disposition is synthesized in the
+[causal-transplant decision](research/orogen-dissection-causal-transplant-2026-07-20.md).
 
 The first display-decoupling control is a bounded negative result. On the
 seed-12345 255,866-cell world, splitting every unified display triangle into

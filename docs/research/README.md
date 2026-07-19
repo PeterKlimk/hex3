@@ -87,6 +87,10 @@ one bounded terrain question that remains live.
 - [Mountain-system design basis](mountain-system-design-basis-2026-07-13.md)
   — physical, landscape-model and graphics priors for replacing mountain-shape
   tuning with an organization-owner decision.
+- [Orogen dissection causal transplant](orogen-dissection-causal-transplant-2026-07-20.md)
+  — reconciles the reconstructed historical O0 positive control with the
+  current product owner and retains the useful dependency graph without
+  reviving the old implementation.
 - [Bounded orogen organization testbed](orogen-testbed-spec-2026-07-13.md)
   — implementation-ready state, scenario, comparison and falsification contract
   for choosing that organization owner before product integration.

@@ -78,6 +78,31 @@ the world model. A graph-first drainage reconstruction remains a fallback
 architecture only if the selected response cannot earn its cost; it is not a
 second arm in this slice.
 
+### Recovered historical dissection control
+
+The exact historical `4add9eb` to `a9bc33f` source comparison is a conditional
+positive control for the selected dependency graph, not for restoring O0. O0
+was explicitly selected for the reconstruction; the adjacent source change
+only lowered the global channel-support default from 30 to 4 km². With the same
+front-organized structured uplift, lower support allowed incision to reach
+farther into the massif and produced finer branching flank relief. That
+information survived materially better at about 951,000 than 245,000 cells and
+remained visible under Authentic relief `0.04`.
+
+The adjacent pair isolates channel-support sensitivity, not organized versus
+uniform uplift, and its terrain-plus-major-river packet does not independently
+extract divide topology or ablate the fixed hillslope, lithology, deposition
+or orographic operators. The result is deliberately narrow. O0's synthetic
+along-front segmentation, ownership servos and arbitrary constants are not
+accepted source state. The 4 km² gate is sub-cell at 245,000 cells and at best
+of order one finest cell at 951,000 cells, not robust channel-head geometry.
+The negative planar C and finite-parent F responses also show that coupling
+does not invent regional hierarchy from uniform forcing. The retained lesson
+is that causally organized uplift supplies the first-order grammar while
+routing, incision and hillslopes can elaborate it into subordinate valleys and
+divides. See the
+[causal-transplant decision](research/orogen-dissection-causal-transplant-2026-07-20.md).
+
 ## Existing product inputs
 
 The slice consumes evidence already computed or derivable in the ordinary
