@@ -94,6 +94,8 @@ pub use dynamics::{Dynamics, EulerPole, TectonicClock};
 pub use ecology::{BiomeKind, EcologicalCell, EcologicalPotentials, EcologySemantics};
 pub use elevation::{Elevation, NoiseLayerData, OrogenModel};
 pub use erosion::{roughness_counters, ErosionParams, RoughnessCounters};
+#[cfg(feature = "research-landscape")]
+pub use features::LegacyCollisionTrace;
 pub use features::{EpisodeCrustWork, FeatureFields, MaterialEpisodeWork};
 pub use fine::{
     FineBase, FineDensityParams, FineFields, FineStructureParams, FineSurface, FineWorld,

@@ -17,6 +17,9 @@ use hex3::world::{
 };
 use kiddo::{KdTree, SquaredEuclidean};
 
+#[cfg(feature = "research-landscape")]
+use std::path::{Path, PathBuf};
+
 #[derive(Clone, Copy, Debug, ValueEnum)]
 enum CliOrogenModel {
     Legacy,
@@ -75,6 +78,16 @@ struct Cli {
     /// asymmetry, sampled local relief) with Earth references.
     #[arg(long, default_value_t = false)]
     mountain_audit: bool,
+    /// Trace the frozen Legacy collision compiler from attributed convergent
+    /// sources to the highest/largest recurrent mountain roofs. Research only;
+    /// observational (no replacement model or counterfactual).
+    #[cfg(feature = "research-landscape")]
+    #[arg(long, default_value_t = false)]
+    roof_causal_trace: bool,
+    /// Write the roof causal trace's compact deterministic JSON record.
+    #[cfg(feature = "research-landscape")]
+    #[arg(long, requires = "roof_causal_trace")]
+    roof_causal_trace_out: Option<PathBuf>,
     /// Audit the emergent builder per connected orogen: coarse target versus
     /// final peak, plus whether the planet-wide shape normalizer subsidizes or
     /// taxes each component. This is the standing coarse→fine rebuild gate.
@@ -539,6 +552,16 @@ fn main() {
     if cli.mountain_audit {
         run_mountain_audit(&world, cli.seed, cli.top);
         run_roughness_probe(&world);
+        audited = true;
+    }
+    #[cfg(feature = "research-landscape")]
+    if cli.roof_causal_trace {
+        run_roof_causal_trace(
+            &world,
+            cli.seed,
+            cli.cells,
+            cli.roof_causal_trace_out.as_deref(),
+        );
         audited = true;
     }
     if cli.rebuild_fidelity_audit {
@@ -2868,7 +2891,7 @@ fn run_detail_survival_audit(world: &World, seed: u64) {
     let components = measure_components(tess, &relief_network);
     let mut significant_elongation: Vec<f32> = components
         .iter()
-        .filter(|c| c.area_km2 >= 20_000.0)
+        .filter(|c| c.area_km2 >= AUDIT_SIGNIFICANT_RANGE_KM2)
         .map(ComponentStats::elongation)
         .collect();
     significant_elongation.sort_by(f32::total_cmp);
@@ -2896,6 +2919,637 @@ fn run_detail_survival_audit(world: &World, seed: u64) {
 
 const AUDIT_RANGE_ELEV: f32 = 0.15;
 const AUDIT_M_PER_UNIT: f32 = ELEVATION_UNIT_KM * 1_000.0;
+const AUDIT_SIGNIFICANT_RANGE_KM2: f32 = 20_000.0;
+
+#[cfg(feature = "research-landscape")]
+#[derive(Clone, Debug, serde::Serialize)]
+struct RoofTraceStats {
+    count: usize,
+    min: Option<f64>,
+    max: Option<f64>,
+    mean: Option<f64>,
+    std_dev: Option<f64>,
+    cv: Option<f64>,
+}
+
+#[cfg(feature = "research-landscape")]
+impl RoofTraceStats {
+    fn positive(values: impl IntoIterator<Item = f32>) -> Self {
+        let values: Vec<f64> = values
+            .into_iter()
+            .filter(|value| value.is_finite() && *value > 0.0)
+            .map(f64::from)
+            .collect();
+        if values.is_empty() {
+            return Self {
+                count: 0,
+                min: None,
+                max: None,
+                mean: None,
+                std_dev: None,
+                cv: None,
+            };
+        }
+        let count = values.len();
+        let mean = values.iter().sum::<f64>() / count as f64;
+        let variance = values
+            .iter()
+            .map(|value| (value - mean) * (value - mean))
+            .sum::<f64>()
+            / count as f64;
+        let std_dev = variance.sqrt();
+        Self {
+            count,
+            min: values.iter().copied().reduce(f64::min),
+            max: values.iter().copied().reduce(f64::max),
+            mean: Some(mean),
+            std_dev: Some(std_dev),
+            cv: (mean > 0.0).then_some(std_dev / mean),
+        }
+    }
+}
+
+#[cfg(feature = "research-landscape")]
+#[derive(Debug, serde::Serialize)]
+struct RoofTraceStageRecord {
+    stage: &'static str,
+    domain: &'static str,
+    units: &'static str,
+    stats: RoofTraceStats,
+}
+
+#[cfg(feature = "research-landscape")]
+#[derive(Debug, serde::Serialize)]
+struct RoofTraceSurfaceRecord {
+    surface: &'static str,
+    peak_km: f32,
+    cap_500m_km2: f64,
+    cap_1000m_km2: f64,
+    cap_500m_below_1pct_grade_fraction: f64,
+    component_below_1pct_grade_fraction: f64,
+}
+
+#[cfg(feature = "research-landscape")]
+#[derive(Debug, serde::Serialize)]
+struct RoofTraceSourceRecord {
+    selected_fronts: usize,
+    geometric_fronts: usize,
+    co_seed_fronts: usize,
+    bridge_fronts: usize,
+    diffuse_dependency_fronts: usize,
+    collision_fronts: usize,
+    subduction_fronts: usize,
+    total_length_km: f64,
+    episode_count: usize,
+    convergence_km_per_myr: RoofTraceStats,
+    episode_duration_myr: RoofTraceStats,
+    shortening_area_opportunity_km2: f64,
+}
+
+#[cfg(feature = "research-landscape")]
+#[derive(Debug, serde::Serialize)]
+struct RoofTraceRangeRecord {
+    roles: Vec<&'static str>,
+    component_id: usize,
+    fine_cells: usize,
+    area_km2: f32,
+    final_peak_km: f32,
+    direct_coarse_cells: usize,
+    interpolation_support_cells: usize,
+    source: RoofTraceSourceRecord,
+    stages: Vec<RoofTraceStageRecord>,
+    amplitude_saturation_fraction: f64,
+    reconstruction_max_abs_error: f32,
+    collision_mean_uplift_km: f64,
+    collision_share_of_positive_coarse_interpolant: f64,
+    collision_supported_area_fraction: f64,
+    surfaces: Vec<RoofTraceSurfaceRecord>,
+}
+
+#[cfg(feature = "research-landscape")]
+#[derive(Debug, serde::Serialize)]
+struct RoofCausalTraceReport {
+    schema: &'static str,
+    seed: u64,
+    provenance: String,
+    requested_coarse_cells: usize,
+    actual_coarse_cells: usize,
+    actual_fine_cells: usize,
+    orogen_model: String,
+    final_component_threshold_km: f32,
+    significant_component_area_km2: f32,
+    significant_component_count: usize,
+    ranges: Vec<RoofTraceRangeRecord>,
+}
+
+#[cfg(feature = "research-landscape")]
+fn roof_trace_surface_record(
+    surface: &'static str,
+    tess: &hex3::world::Tessellation,
+    component_cells: &[usize],
+    elevation: &[f32],
+) -> RoofTraceSurfaceRecord {
+    let peak = component_cells
+        .iter()
+        .map(|&cell| elevation[cell])
+        .fold(f32::NEG_INFINITY, f32::max);
+    let areas = tess.cell_areas_ref();
+    let radius2 = f64::from(EARTH_RADIUS_KM) * f64::from(EARTH_RADIUS_KM);
+    let mut cap_500m_km2 = 0.0;
+    let mut cap_1000m_km2 = 0.0;
+    let mut flat_500m_km2 = 0.0;
+    let mut component_km2 = 0.0;
+    let mut gentle_component_km2 = 0.0;
+    for &cell in component_cells {
+        let area_km2 = f64::from(areas[cell]) * radius2;
+        component_km2 += area_km2;
+        if elevation[cell] >= peak - 0.10 {
+            cap_1000m_km2 += area_km2;
+        }
+        let center = tess.cell_center(cell);
+        let max_downhill = tess
+            .neighbors(cell)
+            .iter()
+            .map(|&neighbor| {
+                let distance_km =
+                    (center - tess.cell_center(neighbor)).length().max(1e-9) * EARTH_RADIUS_KM;
+                (elevation[cell] - elevation[neighbor]).max(0.0) / distance_km
+            })
+            .fold(0.0f32, f32::max);
+        // Elevation units are 10 km, hence 1e-3 units/km is a 1% grade.
+        if max_downhill < 1.0e-3 {
+            gentle_component_km2 += area_km2;
+        }
+        if elevation[cell] >= peak - 0.05 {
+            cap_500m_km2 += area_km2;
+            if max_downhill < 1.0e-3 {
+                flat_500m_km2 += area_km2;
+            }
+        }
+    }
+    RoofTraceSurfaceRecord {
+        surface,
+        peak_km: peak * ELEVATION_UNIT_KM,
+        cap_500m_km2,
+        cap_1000m_km2,
+        cap_500m_below_1pct_grade_fraction: if cap_500m_km2 > 0.0 {
+            flat_500m_km2 / cap_500m_km2
+        } else {
+            0.0
+        },
+        component_below_1pct_grade_fraction: if component_km2 > 0.0 {
+            gentle_component_km2 / component_km2
+        } else {
+            0.0
+        },
+    }
+}
+
+#[cfg(feature = "research-landscape")]
+fn roof_trace_stats_line(stage: &RoofTraceStageRecord) -> String {
+    let Some(mean) = stage.stats.mean else {
+        return format!(
+            "    {:<25} {:<14} {:>7}  no positive values",
+            stage.stage, stage.domain, stage.stats.count
+        );
+    };
+    format!(
+        "    {:<25} {:<14} {:>7}  {:>10.3e} {:>10.3e} {:>10.3e} {:>10.3e} {:>7.3}",
+        stage.stage,
+        stage.domain,
+        stage.stats.count,
+        stage.stats.min.unwrap_or(mean),
+        stage.stats.max.unwrap_or(mean),
+        mean,
+        stage.stats.std_dev.unwrap_or(0.0),
+        stage.stats.cv.unwrap_or(0.0),
+    )
+}
+
+#[cfg(feature = "research-landscape")]
+fn run_roof_causal_trace(world: &World, seed: u64, requested_cells: usize, out: Option<&Path>) {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use hex3::world::{
+        attribute_legacy_convergent_sources, collect_convergent_fronts, collect_plate_boundaries,
+        StructuralRegime,
+    };
+
+    if world.orogen_model != OrogenModel::Legacy {
+        eprintln!(
+            "--roof-causal-trace requires --orogen-model legacy; selected {}",
+            world.orogen_model
+        );
+        std::process::exit(2);
+    }
+
+    let Some(fine) = world.fine.as_ref() else {
+        println!("\n[ROOF CAUSAL TRACE] no fine surface present");
+        return;
+    };
+    let (Some(plates), Some(crust), Some(dynamics), Some(features), Some(history)) = (
+        world.plates.as_ref(),
+        world.crust.as_ref(),
+        world.dynamics.as_ref(),
+        world.features.as_ref(),
+        world.tectonic_history.as_ref(),
+    ) else {
+        println!("\n[ROOF CAUSAL TRACE] incomplete coarse tectonic state");
+        return;
+    };
+
+    let fine_tess = fine.tessellation();
+    let final_surface = fine.surface_for(u32::MAX);
+    let final_elevation = &final_surface.elevation.values;
+    let mask: Vec<bool> = final_elevation
+        .iter()
+        .map(|&elevation| elevation >= AUDIT_RANGE_ELEV)
+        .collect();
+    let components = measure_components(fine_tess, &mask);
+    let significant: Vec<&ComponentStats> = components
+        .iter()
+        .filter(|component| component.area_km2 >= AUDIT_SIGNIFICANT_RANGE_KM2)
+        .collect();
+
+    println!(
+        "\n================ ROOF CAUSAL TRACE seed={} model={} ================",
+        seed, world.orogen_model
+    );
+    println!(
+        "  fixed domain: final fine elevation >=1.5 km; {} significant components >=20,000 km²",
+        significant.len()
+    );
+    if significant.is_empty() {
+        println!("  no significant ranges to trace");
+        return;
+    }
+
+    let boundaries = collect_plate_boundaries(&world.tessellation, plates, crust, dynamics);
+    let fronts = match collect_convergent_fronts(&world.tessellation, &boundaries, history) {
+        Ok(fronts) => fronts,
+        Err(error) => {
+            println!("  source collection failed: {error}");
+            return;
+        }
+    };
+    let front_by_id: BTreeMap<_, _> = fronts.edges.iter().map(|front| (front.id, front)).collect();
+
+    let highest = significant
+        .iter()
+        .copied()
+        .max_by(|left, right| {
+            let peak = |component: &ComponentStats| {
+                component
+                    .cells
+                    .iter()
+                    .map(|&cell| final_elevation[cell])
+                    .fold(f32::NEG_INFINITY, f32::max)
+            };
+            peak(left)
+                .total_cmp(&peak(right))
+                .then_with(|| right.cells[0].cmp(&left.cells[0]))
+        })
+        .expect("significant checked nonempty");
+    // Keep the two roles distinct when possible so one enormous range cannot
+    // hide the next-largest ordinary roof in the fixed corpus.
+    let largest = significant
+        .iter()
+        .copied()
+        .find(|component| component.cells[0] != highest.cells[0])
+        .unwrap_or(highest);
+    let mut selected: BTreeMap<usize, (Vec<&'static str>, &ComponentStats)> = BTreeMap::new();
+    selected.insert(highest.cells[0], (vec!["highest-peak"], highest));
+    selected
+        .entry(largest.cells[0])
+        .and_modify(|(roles, _)| roles.push("largest-area"))
+        .or_insert_with(|| (vec!["largest-area"], largest));
+
+    let raw_eroded_pre_integration: Vec<f32> = (0..fine_tess.num_cells())
+        .map(|cell| final_surface.hydrology.pre_integration_elevation(cell))
+        .collect();
+    let trace = &features.legacy_collision_trace;
+    let mut range_records = Vec::with_capacity(selected.len());
+
+    for (component_id, (roles, component)) in selected {
+        let attribution = match attribute_legacy_convergent_sources(
+            &world.tessellation,
+            fine_tess,
+            &fine.base.coarse_cell,
+            plates,
+            crust,
+            features,
+            &boundaries,
+            &fronts,
+            &component.cells,
+        ) {
+            Ok(attribution) => attribution,
+            Err(error) => {
+                println!(
+                    "  {:?} component {} attribution failed: {error}",
+                    roles, component_id
+                );
+                continue;
+            }
+        };
+        let selected_fronts: Vec<_> = attribution
+            .selected_source_edges
+            .iter()
+            .filter_map(|id| front_by_id.get(id).copied())
+            .collect();
+        let source_cells: BTreeSet<usize> = selected_fronts
+            .iter()
+            .flat_map(|front| front.cells)
+            .collect();
+        let direct_coarse: BTreeSet<usize> = component
+            .cells
+            .iter()
+            .map(|&cell| fine.base.coarse_cell[cell])
+            .collect();
+        let roof_support: BTreeSet<usize> = attribution.coarse_read_cells.iter().copied().collect();
+
+        let stage =
+            |stage, domain, units, values: &[f32], cells: &BTreeSet<usize>| RoofTraceStageRecord {
+                stage,
+                domain,
+                units,
+                stats: RoofTraceStats::positive(cells.iter().map(|&cell| values[cell])),
+            };
+        let stages = vec![
+            stage(
+                "raw collision seed",
+                "source cells",
+                "legacy forcing*radian",
+                &trace.raw_collision_seed,
+                &source_cells,
+            ),
+            stage(
+                "normalized seed",
+                "source cells",
+                "legacy forcing",
+                &trace.normalized_collision_seed,
+                &source_cells,
+            ),
+            stage(
+                "smoothed forcing",
+                "roof support",
+                "legacy forcing",
+                &trace.smoothed_collision_forcing,
+                &roof_support,
+            ),
+            stage(
+                "uncapped sqrt amplitude",
+                "roof support",
+                "elevation units",
+                &trace.uncapped_sqrt_amplitude,
+                &roof_support,
+            ),
+            stage(
+                "capped amplitude",
+                "roof support",
+                "elevation units",
+                &trace.capped_amplitude,
+                &roof_support,
+            ),
+            stage(
+                "Gaussian distance kernel",
+                "roof support",
+                "dimensionless",
+                &trace.gaussian_distance_kernel,
+                &roof_support,
+            ),
+            stage(
+                "final collision response",
+                "roof support",
+                "elevation units",
+                &trace.final_collision_response,
+                &roof_support,
+            ),
+        ];
+
+        let positive_amplitudes: Vec<usize> = roof_support
+            .iter()
+            .copied()
+            .filter(|&cell| trace.uncapped_sqrt_amplitude[cell] > 0.0)
+            .collect();
+        let saturated = positive_amplitudes
+            .iter()
+            .filter(|&&cell| {
+                trace.uncapped_sqrt_amplitude[cell] > trace.capped_amplitude[cell] + 1.0e-7
+            })
+            .count();
+        let amplitude_saturation_fraction = if positive_amplitudes.is_empty() {
+            0.0
+        } else {
+            saturated as f64 / positive_amplitudes.len() as f64
+        };
+        let reconstruction_max_abs_error = roof_support
+            .iter()
+            .map(|&cell| {
+                (trace.capped_amplitude[cell] * trace.gaussian_distance_kernel[cell]
+                    - trace.final_collision_response[cell])
+                    .abs()
+            })
+            .fold(0.0f32, f32::max);
+
+        let fine_areas = fine_tess.cell_areas_ref();
+        let mut component_area = 0.0f64;
+        let mut collision_area_integral = 0.0f64;
+        let mut positive_coarse_integral = 0.0f64;
+        let mut collision_supported_area = 0.0f64;
+        for &cell in &component.cells {
+            let area = f64::from(fine_areas[cell]);
+            let collision = f64::from(fine.base.fields.elevation_fields.collision[cell].max(0.0));
+            component_area += area;
+            collision_area_integral += collision * area;
+            positive_coarse_integral +=
+                f64::from(fine.base.coarse_base_elevation[cell].max(0.0)) * area;
+            if collision > 0.0 {
+                collision_supported_area += area;
+            }
+        }
+
+        let mut episode_duration = BTreeMap::new();
+        for front in &selected_fronts {
+            episode_duration
+                .entry(front.episode_id)
+                .or_insert(front.episode_duration_myr);
+        }
+        let source_record = RoofTraceSourceRecord {
+            selected_fronts: selected_fronts.len(),
+            geometric_fronts: attribution.geometric_source_edges.len(),
+            co_seed_fronts: attribution.co_seed_source_edges.len(),
+            bridge_fronts: attribution.bridge_source_edges.len(),
+            diffuse_dependency_fronts: attribution.diffuse_dependency_edges.len(),
+            collision_fronts: selected_fronts
+                .iter()
+                .filter(|front| front.regime == StructuralRegime::Collision)
+                .count(),
+            subduction_fronts: selected_fronts
+                .iter()
+                .filter(|front| front.regime == StructuralRegime::Subduction)
+                .count(),
+            total_length_km: selected_fronts
+                .iter()
+                .map(|front| f64::from(front.length_km))
+                .sum(),
+            episode_count: episode_duration.len(),
+            convergence_km_per_myr: RoofTraceStats::positive(
+                selected_fronts
+                    .iter()
+                    .map(|front| front.convergence_km_per_myr),
+            ),
+            episode_duration_myr: RoofTraceStats::positive(episode_duration.values().copied()),
+            shortening_area_opportunity_km2: selected_fronts
+                .iter()
+                .map(|front| front.shortening_area_opportunity_km2)
+                .sum(),
+        };
+
+        let surfaces = vec![
+            roof_trace_surface_record(
+                "fine coarse interpolant",
+                fine_tess,
+                &component.cells,
+                &fine.base.coarse_base_elevation,
+            ),
+            roof_trace_surface_record(
+                "fine base",
+                fine_tess,
+                &component.cells,
+                &fine.base.base_elevation,
+            ),
+            roof_trace_surface_record(
+                "raw eroded pre-integration",
+                fine_tess,
+                &component.cells,
+                &raw_eroded_pre_integration,
+            ),
+            roof_trace_surface_record("final", fine_tess, &component.cells, final_elevation),
+        ];
+        let record = RoofTraceRangeRecord {
+            roles,
+            component_id,
+            fine_cells: component.cells.len(),
+            area_km2: component.area_km2,
+            final_peak_km: component
+                .cells
+                .iter()
+                .map(|&cell| final_elevation[cell])
+                .fold(f32::NEG_INFINITY, f32::max)
+                * ELEVATION_UNIT_KM,
+            direct_coarse_cells: direct_coarse.len(),
+            interpolation_support_cells: roof_support.len(),
+            source: source_record,
+            stages,
+            amplitude_saturation_fraction,
+            reconstruction_max_abs_error,
+            collision_mean_uplift_km: if component_area > 0.0 {
+                ELEVATION_UNIT_KM as f64 * collision_area_integral / component_area
+            } else {
+                0.0
+            },
+            collision_share_of_positive_coarse_interpolant: if positive_coarse_integral > 0.0 {
+                collision_area_integral / positive_coarse_integral
+            } else {
+                0.0
+            },
+            collision_supported_area_fraction: if component_area > 0.0 {
+                collision_supported_area / component_area
+            } else {
+                0.0
+            },
+            surfaces,
+        };
+
+        println!(
+            "\n  {:?}: component={} cells={} area={:.0} km² final-peak={:.2} km",
+            record.roles,
+            record.component_id,
+            record.fine_cells,
+            record.area_km2,
+            record.final_peak_km
+        );
+        println!(
+            "    ancestry: selected={} (geometric={} co-seed={} bridge={}; diffuse dependencies={}) | collision/subduction={}/{}",
+            record.source.selected_fronts,
+            record.source.geometric_fronts,
+            record.source.co_seed_fronts,
+            record.source.bridge_fronts,
+            record.source.diffuse_dependency_fronts,
+            record.source.collision_fronts,
+            record.source.subduction_fronts,
+        );
+        println!(
+            "    source: length={:.0} km episodes={} convergence min/mean/max={:.2}/{:.2}/{:.2} km/Myr duration min/mean/max={:.1}/{:.1}/{:.1} Myr opportunity={:.3e} km²",
+            record.source.total_length_km,
+            record.source.episode_count,
+            record.source.convergence_km_per_myr.min.unwrap_or(0.0),
+            record.source.convergence_km_per_myr.mean.unwrap_or(0.0),
+            record.source.convergence_km_per_myr.max.unwrap_or(0.0),
+            record.source.episode_duration_myr.min.unwrap_or(0.0),
+            record.source.episode_duration_myr.mean.unwrap_or(0.0),
+            record.source.episode_duration_myr.max.unwrap_or(0.0),
+            record.source.shortening_area_opportunity_km2,
+        );
+        println!(
+            "    transform stages (positive values only):                 count         min        max       mean        std      CV"
+        );
+        for stage in &record.stages {
+            println!("{}", roof_trace_stats_line(stage));
+        }
+        println!(
+            "    amplitude: saturated={:.1}% reconstruction max|capped*kernel-response|={:.3e}",
+            100.0 * record.amplitude_saturation_fraction,
+            record.reconstruction_max_abs_error
+        );
+        println!(
+            "    collision contribution: mean={:.2} km; {:.1}% of positive coarse-interpolant elevation-area; supported area={:.1}%",
+            record.collision_mean_uplift_km,
+            100.0 * record.collision_share_of_positive_coarse_interpolant,
+            100.0 * record.collision_supported_area_fraction,
+        );
+        println!(
+            "    fixed-mask surfaces:                         peak km    cap500 km²  cap1000 km²  cap500<1%   all<1%"
+        );
+        for surface in &record.surfaces {
+            println!(
+                "      {:<36} {:>7.2} {:>12.0} {:>12.0} {:>10.1}% {:>8.1}%",
+                surface.surface,
+                surface.peak_km,
+                surface.cap_500m_km2,
+                surface.cap_1000m_km2,
+                100.0 * surface.cap_500m_below_1pct_grade_fraction,
+                100.0 * surface.component_below_1pct_grade_fraction,
+            );
+        }
+        range_records.push(record);
+    }
+
+    let report = RoofCausalTraceReport {
+        schema: "hex3.roof-causal-trace.v1",
+        seed,
+        provenance: world.manifest().summary(),
+        requested_coarse_cells: requested_cells,
+        actual_coarse_cells: world.tessellation.num_cells(),
+        actual_fine_cells: fine_tess.num_cells(),
+        orogen_model: world.orogen_model.to_string(),
+        final_component_threshold_km: AUDIT_RANGE_ELEV * ELEVATION_UNIT_KM,
+        significant_component_area_km2: AUDIT_SIGNIFICANT_RANGE_KM2,
+        significant_component_count: significant.len(),
+        ranges: range_records,
+    };
+    if let Some(path) = out {
+        let json = serde_json::to_string_pretty(&report).expect("roof trace serializes");
+        if let Err(error) = std::fs::write(path, format!("{json}\n")) {
+            eprintln!(
+                "failed to write roof causal trace {}: {error}",
+                path.display()
+            );
+            std::process::exit(2);
+        }
+        eprintln!("wrote roof causal trace {}", path.display());
+    }
+}
 
 /// The (sampled) farthest-apart pair of cells in a component — the range's
 /// principal axis endpoints.
@@ -3357,8 +4011,10 @@ fn run_mountain_audit(world: &World, seed: u64, top: usize) {
         .map(|i| (areas[i] * EARTH_RADIUS_KM * EARTH_RADIUS_KM) as f64)
         .sum();
     let mtn_km2: f64 = comps.iter().map(|c| c.area_km2 as f64).sum();
-    let significant: Vec<&ComponentStats> =
-        comps.iter().filter(|c| c.area_km2 >= 20_000.0).collect();
+    let significant: Vec<&ComponentStats> = comps
+        .iter()
+        .filter(|c| c.area_km2 >= AUDIT_SIGNIFICANT_RANGE_KM2)
+        .collect();
     println!(
         "  mountain land: {:.1}% ({} components, {} significant >=20k km²)  [Earth high-mountain land ~10-12%]",
         100.0 * mtn_km2 / land_km2.max(1e-30),

@@ -48,6 +48,46 @@ pub struct MaterialEpisodeWork {
     pub cell_work: Vec<(usize, f32)>,
 }
 
+/// Per-cell decomposition of the legacy continental-collision response.
+///
+/// This trace exists only in research builds. It retains intermediate arrays
+/// for diagnostics without increasing the default product's world-state size
+/// or changing its feature computation.
+#[cfg(feature = "research-landscape")]
+#[derive(Clone, Debug)]
+pub struct LegacyCollisionTrace {
+    /// Accumulated `sum(rate * multiplier * FEATURE_FORCE_SCALE * edge_length)`
+    /// at collision seed cells, before intensive normalization. These are
+    /// legacy forcing-times-radian units; non-seed cells are zero.
+    pub raw_collision_seed: Vec<f32>,
+
+    /// Edge-length-weighted mean collision forcing times
+    /// `FEATURE_FORCE_REF_SPACING`, in legacy forcing units.
+    pub normalized_collision_seed: Vec<f32>,
+
+    /// Plate-constrained normalized-diffusion average of the normalized seed,
+    /// in the same legacy forcing units.
+    pub smoothed_collision_forcing: Vec<f32>,
+
+    /// `sqrt(smoothed_collision_forcing * COLLISION_SENSITIVITY)` before the
+    /// legacy uplift cap, in elevation units.
+    pub uncapped_sqrt_amplitude: Vec<f32>,
+
+    /// Uncapped amplitude limited to `COLLISION_MAX_UPLIFT`, in elevation
+    /// units.
+    pub capped_amplitude: Vec<f32>,
+
+    /// Dimensionless Gaussian distance profile applied by the product path.
+    /// It is zero outside continental cells and where collision distance is
+    /// unavailable, so multiplication by `capped_amplitude` reconstructs the
+    /// final response directly.
+    pub gaussian_distance_kernel: Vec<f32>,
+
+    /// Final legacy collision uplift retained in `FeatureFields::collision`,
+    /// in elevation units.
+    pub final_collision_response: Vec<f32>,
+}
+
 /// Tectonic feature fields derived from plate boundaries.
 ///
 /// All values are resolution-independent magnitudes (not raw elevations).
@@ -68,6 +108,10 @@ pub struct FeatureFields {
     /// Continental collision uplift (cont-cont convergent).
     /// Stores the computed uplift magnitude.
     pub collision: Vec<f32>,
+
+    /// Research-only decomposition of the legacy collision response.
+    #[cfg(feature = "research-landscape")]
+    pub legacy_collision_trace: LegacyCollisionTrace,
 
     /// Crustal volume added per unit tectonic time at each cell by convergent
     /// boundary kinematics. Units are thickness × unit-sphere area / time.
@@ -612,6 +656,8 @@ impl FeatureFields {
         normalize_force_seed(&mut arc_seed_strength_cont, &arc_seed_weight_cont);
         normalize_force_seed(&mut arc_seed_strength_ocean, &arc_seed_weight_ocean);
         normalize_force_seed(&mut ridge_seed_strength_ocean, &ridge_seed_weight_ocean);
+        #[cfg(feature = "research-landscape")]
+        let raw_collision_seed = collision_seed_strength.clone();
         normalize_force_seed(&mut collision_seed_strength, &collision_seed_weight);
         normalize_force_seed(&mut rift_seed_strength, &rift_seed_weight);
 
@@ -1004,11 +1050,23 @@ impl FeatureFields {
             Vec::new()
         };
 
+        #[cfg(feature = "research-landscape")]
+        let legacy_collision_trace = build_legacy_collision_trace(
+            raw_collision_seed,
+            collision_seed_strength,
+            collision_forcing,
+            &collision_dist,
+            collision.clone(),
+            |cell| crust.crust_type(cell) == CrustType::Continental,
+        );
+
         Self {
             trench,
             arc,
             ridge,
             collision,
+            #[cfg(feature = "research-landscape")]
+            legacy_collision_trace,
             tectonic_crust_flux,
             tectonic_crust_work,
             tectonic_work_mean_duration_myr,
@@ -1039,6 +1097,60 @@ impl FeatureFields {
             arc_distance: arc_dist,
             arc_shape_noise,
         }
+    }
+}
+
+#[cfg(feature = "research-landscape")]
+fn build_legacy_collision_trace(
+    raw_collision_seed: Vec<f32>,
+    normalized_collision_seed: Vec<f32>,
+    smoothed_collision_forcing: Vec<f32>,
+    collision_distance: &[f32],
+    final_collision_response: Vec<f32>,
+    mut is_continental: impl FnMut(usize) -> bool,
+) -> LegacyCollisionTrace {
+    let len = raw_collision_seed.len();
+    assert_eq!(normalized_collision_seed.len(), len);
+    assert_eq!(smoothed_collision_forcing.len(), len);
+    assert_eq!(collision_distance.len(), len);
+    assert_eq!(final_collision_response.len(), len);
+
+    let mut uncapped_sqrt_amplitude = Vec::with_capacity(len);
+    let mut capped_amplitude = Vec::with_capacity(len);
+    let mut gaussian_distance_kernel = Vec::with_capacity(len);
+
+    for cell in 0..len {
+        let forcing = smoothed_collision_forcing[cell].max(0.0);
+        let uncapped = (forcing * COLLISION_SENSITIVITY).sqrt();
+        let capped = uncapped.min(COLLISION_MAX_UPLIFT);
+        let kernel = if is_continental(cell) && collision_distance[cell].is_finite() {
+            gaussian_band(
+                collision_distance[cell],
+                COLLISION_PEAK_DIST,
+                COLLISION_WIDTH,
+            )
+        } else {
+            0.0
+        };
+
+        uncapped_sqrt_amplitude.push(uncapped);
+        capped_amplitude.push(capped);
+        gaussian_distance_kernel.push(kernel);
+
+        debug_assert!(
+            (capped * kernel - final_collision_response[cell]).abs() <= 1e-6,
+            "legacy collision trace does not reconstruct cell {cell}"
+        );
+    }
+
+    LegacyCollisionTrace {
+        raw_collision_seed,
+        normalized_collision_seed,
+        smoothed_collision_forcing,
+        uncapped_sqrt_amplitude,
+        capped_amplitude,
+        gaussian_distance_kernel,
+        final_collision_response,
     }
 }
 
@@ -2001,5 +2113,74 @@ mod tests {
         let (mut s_zero, w_zero) = (vec![0.0f32], vec![0.0f32]);
         normalize_force_seed(&mut s_zero, &w_zero);
         assert_eq!(s_zero[0], 0.0);
+    }
+
+    #[cfg(feature = "research-landscape")]
+    #[test]
+    fn legacy_collision_trace_preserves_lengths_and_reconstructs_response() {
+        let raw = vec![3.0, 4.0, 5.0, 6.0];
+        let normalized = vec![0.3, 0.4, 0.5, 0.6];
+        let forcing = vec![1.0, 4.0, 2.0, 3.0];
+        let distance = vec![
+            COLLISION_PEAK_DIST,
+            COLLISION_PEAK_DIST + COLLISION_WIDTH,
+            COLLISION_PEAK_DIST,
+            f32::INFINITY,
+        ];
+        let eligibility = [true, true, false, true];
+
+        let expected_uncapped: Vec<f32> = forcing
+            .iter()
+            .map(|forcing| (forcing * COLLISION_SENSITIVITY).sqrt())
+            .collect();
+        let expected_capped: Vec<f32> = expected_uncapped
+            .iter()
+            .map(|amplitude| amplitude.min(COLLISION_MAX_UPLIFT))
+            .collect();
+        let expected_kernel = vec![1.0, (-0.5f32).exp(), 0.0, 0.0];
+        let expected_response: Vec<f32> = expected_capped
+            .iter()
+            .zip(&expected_kernel)
+            .map(|(amplitude, kernel)| amplitude * kernel)
+            .collect();
+
+        let trace = build_legacy_collision_trace(
+            raw.clone(),
+            normalized.clone(),
+            forcing.clone(),
+            &distance,
+            expected_response.clone(),
+            |cell| eligibility[cell],
+        );
+
+        for field_len in [
+            trace.raw_collision_seed.len(),
+            trace.normalized_collision_seed.len(),
+            trace.smoothed_collision_forcing.len(),
+            trace.uncapped_sqrt_amplitude.len(),
+            trace.capped_amplitude.len(),
+            trace.gaussian_distance_kernel.len(),
+            trace.final_collision_response.len(),
+        ] {
+            assert_eq!(field_len, forcing.len());
+        }
+        assert_eq!(trace.raw_collision_seed, raw);
+        assert_eq!(trace.normalized_collision_seed, normalized);
+        assert_eq!(trace.smoothed_collision_forcing, forcing);
+        assert_eq!(trace.uncapped_sqrt_amplitude, expected_uncapped);
+        assert_eq!(trace.capped_amplitude, expected_capped);
+        assert_eq!(trace.gaussian_distance_kernel, expected_kernel);
+        assert_eq!(trace.final_collision_response, expected_response);
+
+        for cell in 0..forcing.len() {
+            assert!(
+                (trace.capped_amplitude[cell] * trace.gaussian_distance_kernel[cell]
+                    - trace.final_collision_response[cell])
+                    .abs()
+                    < EPS
+            );
+        }
+        assert!(trace.uncapped_sqrt_amplitude[1] > COLLISION_MAX_UPLIFT);
+        assert_eq!(trace.capped_amplitude[1], COLLISION_MAX_UPLIFT);
     }
 }
