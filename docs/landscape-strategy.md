@@ -1,6 +1,6 @@
 # Landscape organization strategy
 
-Status: **current architecture decision**, 2026-07-19.
+Status: **current architecture decision**, 2026-07-21.
 
 This document decides how terrain, drainage and landform meaning fit together.
 It does not promote a terrain replacement. [Structural Mountain V0](structural-mountain.md)
@@ -34,15 +34,19 @@ This is an ownership rule, not a demand for full geodynamics or hydraulics. The
 current legacy path remains the usable product control. It is not the presumed
 target architecture.
 
-If terrain ownership is reopened, the candidate must replace rather than stack
-over the legacy convergent height and repeated uplift owners. It should treat
+The replacement candidate must replace rather than stack over the legacy
+convergent height and repeated uplift owners. It should treat
 finite uplift forcing, drainage/divide organization and nonlinear hillslope
 response as one coupled ownership problem. A new source-segmentation ladder is
 not the current task.
 
 ## Precise defect
 
-The default convergent response is a smooth, capped distance-band height field.
+The default convergent response is a smooth Gaussian distance-band height
+field. It includes a hard amplitude cap, but the fixed six-range causal corpus
+found zero saturation: the cap is not the active cause there. Normalization,
+long-range smoothing and square-root response compress real forcing variation;
+removing the smoother alone does not generally create range-scale organization.
 Fine structural synthesis is neutral at product defaults. Erosion creates
 substantial relief and dissection but mostly carves the inherited tableland.
 Hydrology supplies valuable drainage and basin topology, but no stable range,
@@ -108,13 +112,23 @@ The mountain campaign produced several durable conclusions:
   tips alone still produced smooth elongated massifs; and
 - drainage and erosion express supplied organization but do not reliably invent
   first-order range structure from a symmetric ribbon.
+- a fixed three-world causal trace found that collision response covers nearly
+  all six selected ranges, the hard amplitude cap is inactive, and default fine
+  synthesis exactly preserves the coarse interpolant;
+- normalization, long-range smoothing and square-root response substantially
+  compress real source variation, but a work-matched nearest-source compiler
+  still produced the same broad distance-band grammar in two of three worlds;
+  the missing generic degree of freedom is therefore not recoverable by simply
+  removing the smoother; and
+- erosion materially dissects and steepens the inherited object, but does not
+  consistently replace its range-scale organization.
 
 These are constraints on any future owner, not reasons to tune old rungs. The old
 experiment amendments, artifact schemas and planar promotion campaign are no
 longer prerequisites. Their results remain indexed under
 [research](research/README.md) and [audits](audits/README.md).
 
-## Current disposition and reopening gate
+## Current disposition and replacement boundary
 
 Structural Mountain V0 compiled one coherent 3,200 km collision parent, then
 stopped because its source contained one continuous opportunity maximum and no
@@ -127,23 +141,34 @@ The principled result is not to manufacture missing segmentation. Continuity
 alone is no longer a rejection criterion for this causally continuous parent.
 This relaxes the universal requirement that every mountain system expose
 internal hierarchy; it does not promote a new terrain response, endorse the
-legacy generic capped ribbon or establish that the tableland defect is rare.
+legacy generic distance-band ribbon or establish that the tableland defect is
+rare.
 
-Terrain work therefore pauses. Reopen the broader terrain owner only if a small
-fixed ordinary-world Physical/Diagnostic corpus shows that smooth roofs are
-recurrent modeled morphology. The [World Readability V0](roadmap.md#1-world-readability-v0)
-A/B may establish that the morphology materially harms the cartographic product;
-it may not establish physical validity. A reopened comparison must replace
-scalar final-height plus repeated-uplift ownership and demonstrate a
-drainage/divide consequence. It may not select a convenient seed, tune relief,
-add independent crest texture or expand geological history merely to force a
-break in one belt.
+The fixed ordinary-world Physical/Diagnostic corpus has now passed the reopening
+gate: the roof is recurrent modeled morphology, not merely one exceptional belt.
+The causal trace locates the generic defect in the conversion of long collision
+fronts into a scalar Gaussian distance-band height field. The compiler erases
+some useful source variation, but the work-matched nearest-source counterfactual
+does not expose a different range grammar in two of three worlds. Erosion is a
+strong mitigator, not the missing owner. See the
+[terrain causal-attribution audit](audits/terrain-causal-attribution-2026-07-21.md).
 
-## Pareto-important capabilities while terrain is paused
+Broader terrain ownership is therefore reopened, but the Legacy path is closed
+to further morphology tuning. The next bounded comparison must replace scalar
+final-height plus repeated-uplift ownership with one coupled owner that consumes
+finite deformation/material opportunity where the current state honestly
+supplies it, then lets drainage/divide organization and nonlinear hillslope
+response allocate the resulting relief. This is not a demand for deeper physics:
+an authentic structural hack is admissible if it preserves those causal
+consequences. It may not select a convenient seed, tune relief, add independent
+crest texture or fabricate internal segmentation where the source is genuinely
+continuous.
 
-- **Scale-aware world readability:** make current product-control relief and
-  retained water, river and Living Surface relationships visible before
-  inferring that another physical mechanism is missing.
+## Pareto-important capabilities alongside terrain replacement
+
+- **Scale-aware world readability:** preserve the accepted product composition
+  and use it to judge whether a replacement pays visually without confusing
+  presentation with physical validation.
 - **Consumer-driven landform objects:** ranges, divides, saddles, valleys and
   crossings remain valuable, but should be built only when terrain evaluation,
   maps or consequence systems require them.
@@ -159,7 +184,8 @@ break in one belt.
 
 ## What is deliberately not next
 
-- tuning legacy uplift, erosion gain, relief scale or river width;
+- tuning or further decomposing legacy uplift, collision smoothing, erosion
+  gain, relief scale or river width;
 - reviving O1/O2/O3, A4 or the H/C/G promotion campaign;
 - adding a crest texture, independent geological noise or decorative passes;
 - completing the experimental carrier/lifecycle model because it exists;
@@ -168,7 +194,7 @@ break in one belt.
 - building a universal landform ontology or artifact bureaucracy; or
 - optimizing an undecided landscape composition.
 
-The near-term goal is product-facing and bounded: make named existing geographic
-relationships more legible without falsifying state, while retaining an
-independent Physical/Diagnostic trigger for a genuine terrain-owner rework if
-the tableland grammar is endemic rather than exceptional.
+The near-term goal is bounded: define one replacement-owner contract and compare
+it with the unchanged Legacy control on ordinary worlds. The comparison must
+test range-scale organization and a drainage/divide consequence, not reward a
+new scalar score or attractive rendering in isolation.

@@ -1,6 +1,6 @@
 # Hex3 working memory
 
-Status: **active, non-authoritative scratchpad**. Last consolidated 2026-07-20.
+Status: **active, non-authoritative scratchpad**. Last consolidated 2026-07-21.
 
 This document preserves medium-term context across evaluation passes so the
 active investigation does not erase other important findings. It is a queue of
@@ -14,8 +14,24 @@ it become a chronological activity log.
 
 ## Active focus
 
-**Preserve the integrated World Readability V0 recipe and choose the next
-bounded product question before adding another physical stage.** The packet
+**Define one bounded replacement for Legacy's long-front-to-direct-height
+terrain owner.** The three-world causal trace passes the terrain reopening gate.
+Collision response blankets the selected ranges; its hard cap is inactive; and
+fine synthesis is neutral. Normalization, smoothing and square-root response do
+erase real forcing variation, but the work-matched nearest-source compiler still
+looks like the same broad distance-band object in two of three worlds. Erosion
+dissects that object rather than reliably supplying its missing regional
+organization. Stop tuning or further decomposing Legacy.
+
+The replacement should consume finite deformation/material opportunity where
+the current plate/history state honestly supplies it, and couple that opportunity
+to drainage/divide organization and nonlinear hillslope response. This is an
+ownership and causal-consequence requirement, not a demand for a more expensive
+geodynamics model. Do not fabricate segmentation for a genuinely continuous
+source; broad plateaus remain valid outcomes, just not the universal grammar.
+See the [causal-attribution audit](audits/terrain-causal-attribution-2026-07-21.md).
+
+Preserve the integrated World Readability V0 recipe while doing this. The packet
 confirms that Hex3 already generates more coherent geography than its former
 ordinary view communicated. Do not reopen the accepted composition without a
 specific regression or readability failure.
@@ -40,12 +56,11 @@ research-feature help.
 
 The mountain disposition is deliberately two-part. Drop continuity alone as a
 rejection criterion for the reviewed causally continuous parent, and stop
-expanding inheritance merely to split it. Do not accept the legacy capped
-ribbon/tableland owner as final. Reopen broader terrain ownership only if a
-small fixed ordinary-world Physical/Diagnostic corpus shows smooth roofs are
-recurrent modeled morphology and the cartographic A/B shows product harm. Then
-compare a coupled uplift–drainage/divide–hillslope owner, not another
-segmentation ladder.
+expanding inheritance merely to split it. The fixed corpus nevertheless shows
+that smooth roofs recur as the generic Legacy response, so broader terrain
+ownership is reopened. Compare one coupled
+uplift-opportunity–drainage/divide–hillslope owner, not another segmentation
+ladder or a Legacy parameter variant.
 
 ## Active resolution and cost branch
 
@@ -829,7 +844,8 @@ The completed discriminating packet compares the same three range targets throug
 ### Mountain-ancestry discriminating result
 
 - The plateau envelope is already present in coarse elevation and follows the
-  smooth, capped tectonic-thickening distance bands.
+  smooth tectonic-thickening distance bands. The available hard cap is inactive
+  in the later fixed six-range causal corpus.
 - Fine coarse interpolation and `FineBase::base_elevation` produce
   byte-identical matched images at all three range cameras. The default fine
   structural layer adds exactly no range organization.
@@ -843,24 +859,26 @@ The completed discriminating packet compares the same three range targets throug
   interfluves and changes basin/lake outcomes. Hold-and-carve is an amplifier
   and coupling risk, not the original grammar owner.
 
-The ownership order is therefore:
+The updated ownership order is therefore:
 
-1. **Primary:** smooth/capped coarse distance-band orogen construction;
+1. **Primary:** smooth coarse distance-band direct-height construction;
 2. **Primary missing mechanism:** no fine crest/divide/ridge hierarchy;
-3. **Secondary amplifier:** repeated broad legacy uplift during erosion;
-4. **Not primary:** hydrologic integration or relief presentation.
+3. **Real but insufficient compiler loss:** normalization, smoothing and square
+   root compress source variation, but nearest-source forcing does not expose a
+   new range grammar in two of three worlds;
+4. **Secondary amplifier:** repeated broad legacy uplift during erosion;
+5. **Strong mitigator, not replacement owner:** erosion; and
+6. **Not primary:** hydrologic integration or relief presentation.
 
 The defect is not the existence of broad plateaus; those are valid outcomes for
-some tectonic, erosional and climatic histories. It is the smooth, capped,
+some tectonic, erosional and climatic histories. It is the smooth,
 approximately equal-width response acting as the generic collision grammar.
 
-The next architecture comparisons preserve total positive tectonic work and
-land hypsometry while isolating: (O1) peaked/asymmetric cross-section geometry
-from (O2) along-strike segmentation. Only then test (O3) a zero-net causal
-crest/divide redistribution against equally powered isotropic structure. The
-erosion-only O4 control remains useful but secondary. See the
-[orogen-organization research note](research/orogen-organization-2026-07-12.md).
-Do not tune uplift gain or add undirected noise.
+The old O1/O2/O3 architecture sequence is closed. The next comparison defines
+one replacement owner that consumes finite deformation/material opportunity and
+couples it to drainage/divide and hillslope response. Keep Legacy as control;
+do not tune its uplift, smoother or cross-section, and do not add undirected
+noise.
 
 ### O1 first result
 
@@ -1248,6 +1266,10 @@ explicit persistent skeleton, or a physical channel-initiation threshold.
 - Range ancestry has now confirmed this: the fine interpolant and fine base are
   visually byte-identical, and the binary no-uplift control retains the same
   broad tabletop grammar.
+- The fixed three-world causal trace rules out the hard cap as active in the six
+  selected ranges. It confirms compiler compression, but work-matched
+  nearest-source forcing fails to reveal a new coherent range grammar in two of
+  three worlds. Erosion mitigates rather than owns the regional structure.
 - Do not respond with undirected noise or relief-scale tuning. Candidate
   replacements include skeleton-organized uplift, drainage-organized range
   construction, localized/evolving forcing, or a simpler disclosed authentic

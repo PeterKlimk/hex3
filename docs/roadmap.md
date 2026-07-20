@@ -1,6 +1,6 @@
 # Hex3 roadmap
 
-Status: **current portfolio decision**, 2026-07-19.
+Status: **current portfolio decision**, 2026-07-21.
 
 This roadmap turns the [project thesis](thesis.md), [model strategy](model-strategy.md)
 and [cross-system disposition](system-disposition.md) into a short, revisable
@@ -64,7 +64,7 @@ automatically the best product move.
 |---|---|---|
 | The product is lean enough to reason about and iterate | Separate product code/API/CLI from the experimental laboratory; remove unconditional rendering allocations | **Completed enabling work; preserve the boundary** |
 | Geography has visible consequences | Traversability, water/coast access, named relative opportunities, aggregate sites and least-cost routes | **Bounded discriminator complete; retain useful operators without vertical expansion** |
-| Terrain is morphologically convincing | Replace scalar final-height ownership with one structural range/forcing owner or disclosed authentic range hack | **Defect retained, rework paused; continuity alone is not a rejection criterion, universal smooth roofs remain debt** |
+| Terrain is morphologically convincing | Replace scalar final-height ownership with one coupled structural forcing–drainage/divide–hillslope owner or disclosed authentic range hack | **Reopening gate passed; replacement is the next bounded architecture slice, not another Legacy tuning campaign** |
 | The planet is readable and explainable | Scale-aware relief, land/water hierarchy, rivers and living cover in one coherent cartographic scene | **V0 accepted, integrated and Windows-validated; preserve** |
 | Landscapes connect source to sink | Persistent mobile/deposited material, floodplains, terminal fill and deltas | **Research/design gate; not next by default** |
 | The world feels more visibly alive | Forest structure, vegetation assets, seasons or disturbance | **Gated; accepted Living Surface does not authorize vertical expansion** |
@@ -124,24 +124,33 @@ it does not pre-authorize a ladder.
 
 ### 2. Terrain escalation gate
 
-Drop continuity alone as a rejection criterion for the reviewed causally
-continuous collision parent. This relaxes the universal demand for internal
+The gate dropped continuity alone as a rejection criterion for the reviewed
+causally continuous collision parent. This relaxes the universal demand for internal
 mountain segmentation; it does **not** promote a new terrain response, endorse
-the legacy capped distance-band height owner or declare the long-tableland
+the Legacy distance-band height owner or declare the long-tableland
 defect solved.
 
-Judge recurrence and modeled morphology on a small fixed ordinary-world
-Physical/Diagnostic terrain corpus. Use the cartographic A/B only to judge
-product harm and payoff, never physical validity. Reopen broader terrain
-ownership only if smooth roofs are recurrent in the physical evidence and still
-materially damage the product. That rework must begin from the coupled owner—
-finite uplift forcing, drainage/divide organization and nonlinear hillslope
-response—not from another
-target-belt segmentation ladder. Paleorifts, transfers, seed selection, relief
-tuning and crest noise are not substitutes.
+The gate is now **passed**. A small fixed ordinary-world Physical/Diagnostic
+corpus establishes recurrence and modeled morphology; cartographic views are
+not used as physical validation. Across three fixed worlds, collision
+response supports nearly all six selected ranges; the hard response cap is
+inactive; and the fine base exactly preserves the coarse interpolant. Removing
+the long-range forcing smoother with a work-matched nearest-real-source
+counterfactual changes amplitude locally but does not create a different
+range-scale grammar in two of three worlds. Erosion strongly mitigates the roof
+but does not reliably replace it. The defect is therefore endemic to the Legacy
+long-front-to-distance-band height representation, not explained by one source,
+the inactive cap, fine interpolation or presentation. Exact evidence and limits
+are in the [terrain causal-attribution audit](audits/terrain-causal-attribution-2026-07-21.md).
 
-This gate avoids spending another campaign on one exceptional belt without
-hiding an endemic surface defect under styling.
+The next terrain task is one bounded replacement-owner design and comparison.
+It must consume finite deformation/material opportunity where available and
+couple uplift opportunity to drainage/divide organization and nonlinear
+hillslope response. It may be a reduced causal model or an authentic structural
+hack; it need not simulate deeper physics that has no visible or downstream
+payoff. Keep Legacy as the usable control, but stop tuning or further
+interrogating it as a candidate architecture. Paleorifts, transfers, seed
+selection, relief tuning and crest noise are not substitutes.
 
 ## Completed bounded decisions
 
