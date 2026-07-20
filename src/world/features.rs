@@ -86,6 +86,55 @@ pub struct LegacyCollisionTrace {
     /// Final legacy collision uplift retained in `FeatureFields::collision`,
     /// in elevation units.
     pub final_collision_response: Vec<f32>,
+
+    /// Nearest real collision seed's normalized forcing, propagated within its
+    /// plate without the legacy normalized diffusion.
+    pub nearest_source_forcing: Vec<f32>,
+
+    /// Nearest-source response after the legacy sqrt/cap and Gaussian geometry,
+    /// before matching its area-integrated positive response to the baseline.
+    pub nearest_source_unmatched_response: Vec<f32>,
+
+    /// Scalar applied to `nearest_source_unmatched_response` to conserve the
+    /// baseline's area-integrated positive response.
+    pub nearest_source_work_scale: f32,
+
+    /// Work-matched nearest-source response.
+    pub nearest_source_matched_response: Vec<f32>,
+
+    /// Nearest propagated forcing after replacing every collision episode's
+    /// edge forcing by that episode's edge-length-weighted mean. If several
+    /// episodes share a seed cell, their means are blended by the edge lengths
+    /// they contribute to that cell.
+    pub episode_mean_forcing: Vec<f32>,
+
+    /// Episode-mean response before area-integrated work matching.
+    pub episode_mean_unmatched_response: Vec<f32>,
+
+    /// Scalar applied to `episode_mean_unmatched_response` for work matching.
+    pub episode_mean_work_scale: f32,
+
+    /// Work-matched episode-mean response.
+    pub episode_mean_matched_response: Vec<f32>,
+}
+
+#[cfg(feature = "research-landscape")]
+#[derive(Clone, Copy, Debug)]
+struct CollisionEpisodeSeedContribution {
+    cell: usize,
+    episode_id: Option<usize>,
+    force: f32,
+    edge_length: f32,
+}
+
+#[cfg(feature = "research-landscape")]
+struct LegacyCollisionTraceContext<'a> {
+    tessellation: &'a Tessellation,
+    plates: &'a Plates,
+    collision_seed_dist0: &'a [f32],
+    episode_seed_contributions: &'a [CollisionEpisodeSeedContribution],
+    collision_distance: &'a [f32],
+    cell_areas: &'a [f32],
 }
 
 /// Tectonic feature fields derived from plate boundaries.
@@ -264,6 +313,8 @@ impl FeatureFields {
 
         let mut collision_seed_strength = vec![0.0f32; num_cells];
         let mut collision_seed_dist0 = vec![f32::INFINITY; num_cells];
+        #[cfg(feature = "research-landscape")]
+        let mut collision_episode_seed_contributions = Vec::new();
 
         // Extensive crust-volume flux. Unlike the legacy feature magnitudes,
         // this is never normalized to an intensive per-cell response: summing
@@ -552,6 +603,15 @@ impl FeatureFields {
                                 uplift_force_a,
                                 b.edge_length,
                             );
+                            #[cfg(feature = "research-landscape")]
+                            collision_episode_seed_contributions.push(
+                                CollisionEpisodeSeedContribution {
+                                    cell: b.cell_a,
+                                    episode_id: episode.map(|episode| episode.id),
+                                    force: uplift_force_a,
+                                    edge_length: b.edge_length,
+                                },
+                            );
                             collision_seed_dist0[b.cell_a] =
                                 collision_seed_dist0[b.cell_a].min(dist0_a);
                             add_force_seed(
@@ -560,6 +620,15 @@ impl FeatureFields {
                                 b.cell_b,
                                 uplift_force_b,
                                 b.edge_length,
+                            );
+                            #[cfg(feature = "research-landscape")]
+                            collision_episode_seed_contributions.push(
+                                CollisionEpisodeSeedContribution {
+                                    cell: b.cell_b,
+                                    episode_id: episode.map(|episode| episode.id),
+                                    force: uplift_force_b,
+                                    edge_length: b.edge_length,
+                                },
                             );
                             collision_seed_dist0[b.cell_b] =
                                 collision_seed_dist0[b.cell_b].min(dist0_b);
@@ -1052,10 +1121,17 @@ impl FeatureFields {
 
         #[cfg(feature = "research-landscape")]
         let legacy_collision_trace = build_legacy_collision_trace(
+            LegacyCollisionTraceContext {
+                tessellation,
+                plates,
+                collision_seed_dist0: &collision_seed_dist0,
+                episode_seed_contributions: &collision_episode_seed_contributions,
+                collision_distance: &collision_dist,
+                cell_areas: &cell_areas,
+            },
             raw_collision_seed,
             collision_seed_strength,
             collision_forcing,
-            &collision_dist,
             collision.clone(),
             |cell| crust.crust_type(cell) == CrustType::Continental,
         );
@@ -1102,18 +1178,20 @@ impl FeatureFields {
 
 #[cfg(feature = "research-landscape")]
 fn build_legacy_collision_trace(
+    context: LegacyCollisionTraceContext<'_>,
     raw_collision_seed: Vec<f32>,
     normalized_collision_seed: Vec<f32>,
     smoothed_collision_forcing: Vec<f32>,
-    collision_distance: &[f32],
     final_collision_response: Vec<f32>,
     mut is_continental: impl FnMut(usize) -> bool,
 ) -> LegacyCollisionTrace {
     let len = raw_collision_seed.len();
     assert_eq!(normalized_collision_seed.len(), len);
     assert_eq!(smoothed_collision_forcing.len(), len);
-    assert_eq!(collision_distance.len(), len);
+    assert_eq!(context.collision_seed_dist0.len(), len);
+    assert_eq!(context.collision_distance.len(), len);
     assert_eq!(final_collision_response.len(), len);
+    assert_eq!(context.cell_areas.len(), len);
 
     let mut uncapped_sqrt_amplitude = Vec::with_capacity(len);
     let mut capped_amplitude = Vec::with_capacity(len);
@@ -1123,9 +1201,9 @@ fn build_legacy_collision_trace(
         let forcing = smoothed_collision_forcing[cell].max(0.0);
         let uncapped = (forcing * COLLISION_SENSITIVITY).sqrt();
         let capped = uncapped.min(COLLISION_MAX_UPLIFT);
-        let kernel = if is_continental(cell) && collision_distance[cell].is_finite() {
+        let kernel = if is_continental(cell) && context.collision_distance[cell].is_finite() {
             gaussian_band(
-                collision_distance[cell],
+                context.collision_distance[cell],
                 COLLISION_PEAK_DIST,
                 COLLISION_WIDTH,
             )
@@ -1143,6 +1221,38 @@ fn build_legacy_collision_trace(
         );
     }
 
+    let nearest_source_forcing = nearest_plate_seed_value_field(
+        context.tessellation,
+        context.plates,
+        &normalized_collision_seed,
+        context.collision_seed_dist0,
+        &normalized_collision_seed,
+    );
+    let nearest_source_unmatched_response =
+        collision_response_from_forcing(&nearest_source_forcing, &gaussian_distance_kernel);
+    let (nearest_source_work_scale, nearest_source_matched_response) = work_match_positive_response(
+        &final_collision_response,
+        &nearest_source_unmatched_response,
+        context.cell_areas,
+    );
+
+    let episode_mean_seed =
+        build_episode_mean_collision_seed(len, context.episode_seed_contributions);
+    let episode_mean_forcing = nearest_plate_seed_value_field(
+        context.tessellation,
+        context.plates,
+        &normalized_collision_seed,
+        context.collision_seed_dist0,
+        &episode_mean_seed,
+    );
+    let episode_mean_unmatched_response =
+        collision_response_from_forcing(&episode_mean_forcing, &gaussian_distance_kernel);
+    let (episode_mean_work_scale, episode_mean_matched_response) = work_match_positive_response(
+        &final_collision_response,
+        &episode_mean_unmatched_response,
+        context.cell_areas,
+    );
+
     LegacyCollisionTrace {
         raw_collision_seed,
         normalized_collision_seed,
@@ -1151,7 +1261,212 @@ fn build_legacy_collision_trace(
         capped_amplitude,
         gaussian_distance_kernel,
         final_collision_response,
+        nearest_source_forcing,
+        nearest_source_unmatched_response,
+        nearest_source_work_scale,
+        nearest_source_matched_response,
+        episode_mean_forcing,
+        episode_mean_unmatched_response,
+        episode_mean_work_scale,
+        episode_mean_matched_response,
     }
+}
+
+#[cfg(feature = "research-landscape")]
+fn build_episode_mean_collision_seed(
+    num_cells: usize,
+    contributions: &[CollisionEpisodeSeedContribution],
+) -> Vec<f32> {
+    // `None` is retained as one explicit unknown-history group. This preserves
+    // every real collision seed if a history lookup is absent while keeping
+    // known episode IDs separate.
+    let mut episode_totals: HashMap<Option<usize>, (f64, f64)> = HashMap::new();
+    for contribution in contributions {
+        let total = episode_totals.entry(contribution.episode_id).or_default();
+        total.0 += f64::from(contribution.force);
+        total.1 += f64::from(contribution.edge_length);
+    }
+
+    let episode_mean_rate: HashMap<_, _> = episode_totals
+        .into_iter()
+        .map(|(episode_id, (force, edge_length))| {
+            let mean = if edge_length > 0.0 {
+                force / edge_length
+            } else {
+                0.0
+            };
+            (episode_id, mean)
+        })
+        .collect();
+
+    let mut cell_rate_length = vec![0.0f64; num_cells];
+    let mut cell_length = vec![0.0f64; num_cells];
+    for contribution in contributions {
+        let edge_length = f64::from(contribution.edge_length);
+        cell_rate_length[contribution.cell] +=
+            episode_mean_rate[&contribution.episode_id] * edge_length;
+        cell_length[contribution.cell] += edge_length;
+    }
+
+    cell_rate_length
+        .into_iter()
+        .zip(cell_length)
+        .map(|(rate_length, edge_length)| {
+            if edge_length > 0.0 {
+                (rate_length / edge_length * f64::from(FEATURE_FORCE_REF_SPACING)) as f32
+            } else {
+                0.0
+            }
+        })
+        .collect()
+}
+
+#[cfg(feature = "research-landscape")]
+fn collision_response_from_forcing(forcing: &[f32], gaussian_kernel: &[f32]) -> Vec<f32> {
+    assert_eq!(forcing.len(), gaussian_kernel.len());
+    forcing
+        .iter()
+        .zip(gaussian_kernel)
+        .map(|(&forcing, &kernel)| {
+            sqrt_response(
+                forcing.max(0.0),
+                COLLISION_SENSITIVITY,
+                COLLISION_MAX_UPLIFT,
+            ) * kernel
+        })
+        .collect()
+}
+
+#[cfg(feature = "research-landscape")]
+fn work_match_positive_response(
+    baseline: &[f32],
+    candidate: &[f32],
+    cell_areas: &[f32],
+) -> (f32, Vec<f32>) {
+    assert_eq!(baseline.len(), candidate.len());
+    assert_eq!(baseline.len(), cell_areas.len());
+
+    let integrated = |values: &[f32]| -> f64 {
+        values
+            .iter()
+            .zip(cell_areas)
+            .map(|(&value, &area)| f64::from(value.max(0.0)) * f64::from(area.max(0.0)))
+            .sum()
+    };
+    let baseline_work = integrated(baseline);
+    let candidate_work = integrated(candidate);
+    let scale = if candidate_work > 0.0 {
+        (baseline_work / candidate_work) as f32
+    } else if baseline_work == 0.0 {
+        1.0
+    } else {
+        // A zero candidate cannot be positively rescaled to match nonzero
+        // baseline work. Keep it zero and make that failure explicit.
+        0.0
+    };
+    let matched = candidate.iter().map(|value| value * scale).collect();
+    (scale, matched)
+}
+
+/// Propagate the value of the nearest real edge-anchored seed within its plate.
+/// Exact path-distance ties choose the lower source-cell index; this keeps the
+/// diagnostic stable without changing the product distance implementation.
+#[cfg(feature = "research-landscape")]
+fn nearest_plate_seed_value_field(
+    tessellation: &Tessellation,
+    plates: &Plates,
+    seed_strength: &[f32],
+    seed_dist0: &[f32],
+    seed_value: &[f32],
+) -> Vec<f32> {
+    #[derive(Clone, Copy, PartialEq)]
+    struct State {
+        dist: f32,
+        cell: usize,
+        source: usize,
+        plate: u32,
+    }
+
+    impl Eq for State {}
+
+    impl Ord for State {
+        fn cmp(&self, other: &Self) -> Ordering {
+            OrderedFloat(other.dist)
+                .cmp(&OrderedFloat(self.dist))
+                .then_with(|| other.source.cmp(&self.source))
+                .then_with(|| other.cell.cmp(&self.cell))
+        }
+    }
+
+    impl PartialOrd for State {
+        fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+            Some(self.cmp(other))
+        }
+    }
+
+    let n = tessellation.num_cells();
+    assert_eq!(seed_strength.len(), n);
+    assert_eq!(seed_dist0.len(), n);
+    assert_eq!(seed_value.len(), n);
+
+    let mut distance = vec![f32::INFINITY; n];
+    let mut source = vec![usize::MAX; n];
+    let mut heap = BinaryHeap::new();
+    for cell in 0..n {
+        let dist = seed_dist0[cell];
+        if seed_strength[cell] > 0.0 && dist.is_finite() {
+            distance[cell] = dist;
+            source[cell] = cell;
+            heap.push(State {
+                dist,
+                cell,
+                source: cell,
+                plate: plates.cell_plate[cell],
+            });
+        }
+    }
+
+    const TIE_EPS: f32 = 1e-6;
+    while let Some(state) = heap.pop() {
+        if state.dist > distance[state.cell] + TIE_EPS
+            || (state.dist >= distance[state.cell] - TIE_EPS && state.source != source[state.cell])
+        {
+            continue;
+        }
+
+        let position = tessellation.cell_center(state.cell);
+        for &neighbor in tessellation.neighbors(state.cell) {
+            if plates.cell_plate[neighbor] != state.plate {
+                continue;
+            }
+            let next_distance =
+                state.dist + angular_distance(position, tessellation.cell_center(neighbor));
+            let shorter = next_distance + TIE_EPS < distance[neighbor];
+            let preferred_tie = (next_distance - distance[neighbor]).abs() <= TIE_EPS
+                && state.source < source[neighbor];
+            if shorter || preferred_tie {
+                distance[neighbor] = next_distance;
+                source[neighbor] = state.source;
+                heap.push(State {
+                    dist: next_distance,
+                    cell: neighbor,
+                    source: state.source,
+                    plate: state.plate,
+                });
+            }
+        }
+    }
+
+    source
+        .into_iter()
+        .map(|source| {
+            if source == usize::MAX {
+                0.0
+            } else {
+                seed_value[source]
+            }
+        })
+        .collect()
 }
 
 fn add_episode_work(
@@ -2118,16 +2433,24 @@ mod tests {
     #[cfg(feature = "research-landscape")]
     #[test]
     fn legacy_collision_trace_preserves_lengths_and_reconstructs_response() {
-        let raw = vec![3.0, 4.0, 5.0, 6.0];
-        let normalized = vec![0.3, 0.4, 0.5, 0.6];
-        let forcing = vec![1.0, 4.0, 2.0, 3.0];
-        let distance = vec![
-            COLLISION_PEAK_DIST,
-            COLLISION_PEAK_DIST + COLLISION_WIDTH,
-            COLLISION_PEAK_DIST,
-            f32::INFINITY,
-        ];
-        let eligibility = [true, true, false, true];
+        use rand::SeedableRng;
+
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(91);
+        let tessellation = Tessellation::generate(32, 0, &mut rng);
+        let plates = Plates::generate(&tessellation, 1, &mut rng);
+        let len = tessellation.num_cells();
+        let mut raw = vec![0.0; len];
+        let mut normalized = vec![0.0; len];
+        let mut seed_dist0 = vec![f32::INFINITY; len];
+        raw[0] = 3.0;
+        raw[1] = 4.0;
+        normalized[0] = 0.3;
+        normalized[1] = 0.4;
+        seed_dist0[0] = 0.01;
+        seed_dist0[1] = 0.01;
+        let forcing: Vec<f32> = (0..len).map(|cell| 1.0 + cell as f32 * 0.1).collect();
+        let distance = vec![COLLISION_PEAK_DIST; len];
+        let eligibility = vec![true; len];
 
         let expected_uncapped: Vec<f32> = forcing
             .iter()
@@ -2137,7 +2460,7 @@ mod tests {
             .iter()
             .map(|amplitude| amplitude.min(COLLISION_MAX_UPLIFT))
             .collect();
-        let expected_kernel = vec![1.0, (-0.5f32).exp(), 0.0, 0.0];
+        let expected_kernel = vec![1.0; len];
         let expected_response: Vec<f32> = expected_capped
             .iter()
             .zip(&expected_kernel)
@@ -2145,10 +2468,30 @@ mod tests {
             .collect();
 
         let trace = build_legacy_collision_trace(
+            LegacyCollisionTraceContext {
+                tessellation: &tessellation,
+                plates: &plates,
+                collision_seed_dist0: &seed_dist0,
+                episode_seed_contributions: &[
+                    CollisionEpisodeSeedContribution {
+                        cell: 0,
+                        episode_id: Some(1),
+                        force: 3.0,
+                        edge_length: 1.0,
+                    },
+                    CollisionEpisodeSeedContribution {
+                        cell: 1,
+                        episode_id: Some(1),
+                        force: 4.0,
+                        edge_length: 1.0,
+                    },
+                ],
+                collision_distance: &distance,
+                cell_areas: &tessellation.cell_areas(),
+            },
             raw.clone(),
             normalized.clone(),
             forcing.clone(),
-            &distance,
             expected_response.clone(),
             |cell| eligibility[cell],
         );
@@ -2161,6 +2504,12 @@ mod tests {
             trace.capped_amplitude.len(),
             trace.gaussian_distance_kernel.len(),
             trace.final_collision_response.len(),
+            trace.nearest_source_forcing.len(),
+            trace.nearest_source_unmatched_response.len(),
+            trace.nearest_source_matched_response.len(),
+            trace.episode_mean_forcing.len(),
+            trace.episode_mean_unmatched_response.len(),
+            trace.episode_mean_matched_response.len(),
         ] {
             assert_eq!(field_len, forcing.len());
         }
@@ -2180,7 +2529,56 @@ mod tests {
                     < EPS
             );
         }
-        assert!(trace.uncapped_sqrt_amplitude[1] > COLLISION_MAX_UPLIFT);
-        assert_eq!(trace.capped_amplitude[1], COLLISION_MAX_UPLIFT);
+        assert!(trace.uncapped_sqrt_amplitude[len - 1] > COLLISION_MAX_UPLIFT);
+        assert_eq!(trace.capped_amplitude[len - 1], COLLISION_MAX_UPLIFT);
+    }
+
+    #[cfg(feature = "research-landscape")]
+    #[test]
+    fn episode_mean_seed_uses_edge_lengths_and_blends_shared_cells() {
+        let contributions = [
+            // Episode 7 mean rate: (2 + 12) / (1 + 3) = 3.5.
+            CollisionEpisodeSeedContribution {
+                cell: 0,
+                episode_id: Some(7),
+                force: 2.0,
+                edge_length: 1.0,
+            },
+            CollisionEpisodeSeedContribution {
+                cell: 1,
+                episode_id: Some(7),
+                force: 12.0,
+                edge_length: 3.0,
+            },
+            // Episode 8 mean rate is 10. Cell 0 shares both episodes, so its
+            // null rate is (3.5*1 + 10*1) / 2 = 6.75.
+            CollisionEpisodeSeedContribution {
+                cell: 0,
+                episode_id: Some(8),
+                force: 10.0,
+                edge_length: 1.0,
+            },
+        ];
+        let seed = build_episode_mean_collision_seed(3, &contributions);
+        assert!((seed[0] - 6.75 * FEATURE_FORCE_REF_SPACING).abs() < EPS);
+        assert!((seed[1] - 3.5 * FEATURE_FORCE_REF_SPACING).abs() < EPS);
+        assert_eq!(seed[2], 0.0);
+    }
+
+    #[cfg(feature = "research-landscape")]
+    #[test]
+    fn positive_response_work_match_uses_cell_area() {
+        let baseline = [2.0, 4.0, -100.0];
+        let candidate = [1.0, 1.0, 9.0];
+        let areas = [1.0, 3.0, 0.0];
+        let (scale, matched) = work_match_positive_response(&baseline, &candidate, &areas);
+        // baseline work = 14; candidate work = 4.
+        assert!((scale - 3.5).abs() < EPS);
+        let matched_work: f32 = matched
+            .iter()
+            .zip(areas)
+            .map(|(&value, area)| value.max(0.0) * area)
+            .sum();
+        assert!((matched_work - 14.0).abs() < EPS);
     }
 }

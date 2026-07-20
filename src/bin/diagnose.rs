@@ -3020,6 +3020,8 @@ struct RoofTraceRangeRecord {
     stages: Vec<RoofTraceStageRecord>,
     amplitude_saturation_fraction: f64,
     reconstruction_max_abs_error: f32,
+    nearest_source_work_scale: f32,
+    episode_mean_work_scale: f32,
     collision_mean_uplift_km: f64,
     collision_share_of_positive_coarse_interpolant: f64,
     collision_supported_area_fraction: f64,
@@ -3039,7 +3041,37 @@ struct RoofCausalTraceReport {
     final_component_threshold_km: f32,
     significant_component_area_km2: f32,
     significant_component_count: usize,
+    baseline_reinterpolation_max_abs_error: f32,
     ranges: Vec<RoofTraceRangeRecord>,
+}
+
+#[cfg(feature = "research-landscape")]
+fn roof_trace_interpolate_coarse_field(
+    coarse: &hex3::world::Tessellation,
+    fine: &hex3::world::Tessellation,
+    coarse_cell: &[usize],
+    values: &[f32],
+) -> Vec<f32> {
+    (0..fine.num_cells())
+        .map(|cell| {
+            let position = fine.cell_center(cell);
+            let nearest = coarse_cell[cell];
+            let mut weighted = 0.0f32;
+            let mut total_weight = 0.0f32;
+            for source in std::iter::once(nearest).chain(coarse.neighbors(nearest).iter().copied())
+            {
+                let distance = coarse
+                    .cell_center(source)
+                    .dot(position)
+                    .clamp(-1.0, 1.0)
+                    .acos();
+                let weight = 1.0 / (distance * distance + 1.0e-8);
+                weighted += values[source] * weight;
+                total_weight += weight;
+            }
+            weighted / total_weight
+        })
+        .collect()
 }
 
 #[cfg(feature = "research-landscape")]
@@ -3228,6 +3260,44 @@ fn run_roof_causal_trace(world: &World, seed: u64, requested_cells: usize, out: 
         .map(|cell| final_surface.hydrology.pre_integration_elevation(cell))
         .collect();
     let trace = &features.legacy_collision_trace;
+    let coarse_elevation = &world.elevation.as_ref().expect("coarse elevation").values;
+    let replace_collision = |replacement: &[f32]| -> Vec<f32> {
+        coarse_elevation
+            .iter()
+            .zip(&features.collision)
+            .zip(replacement)
+            .map(|((&elevation, &legacy_collision), &counterfactual)| {
+                elevation - legacy_collision + counterfactual
+            })
+            .collect()
+    };
+    let reinterpolated_baseline = roof_trace_interpolate_coarse_field(
+        &world.tessellation,
+        fine_tess,
+        &fine.base.coarse_cell,
+        coarse_elevation,
+    );
+    let baseline_reinterpolation_max_abs_error = reinterpolated_baseline
+        .iter()
+        .zip(&fine.base.coarse_base_elevation)
+        .map(|(&reconstructed, &retained)| (reconstructed - retained).abs())
+        .fold(0.0f32, f32::max);
+    let nearest_source_fine = roof_trace_interpolate_coarse_field(
+        &world.tessellation,
+        fine_tess,
+        &fine.base.coarse_cell,
+        &replace_collision(&trace.nearest_source_matched_response),
+    );
+    let episode_mean_fine = roof_trace_interpolate_coarse_field(
+        &world.tessellation,
+        fine_tess,
+        &fine.base.coarse_cell,
+        &replace_collision(&trace.episode_mean_matched_response),
+    );
+    println!(
+        "  diagnostic coarse->fine reconstruction max error: {:.3e}",
+        baseline_reinterpolation_max_abs_error
+    );
     let mut range_records = Vec::with_capacity(selected.len());
 
     for (component_id, (roles, component)) in selected {
@@ -3322,6 +3392,34 @@ fn run_roof_causal_trace(world: &World, seed: u64, requested_cells: usize, out: 
                 "roof support",
                 "elevation units",
                 &trace.final_collision_response,
+                &roof_support,
+            ),
+            stage(
+                "nearest-source forcing",
+                "roof support",
+                "legacy forcing",
+                &trace.nearest_source_forcing,
+                &roof_support,
+            ),
+            stage(
+                "nearest-source matched",
+                "roof support",
+                "elevation units",
+                &trace.nearest_source_matched_response,
+                &roof_support,
+            ),
+            stage(
+                "episode-mean forcing",
+                "roof support",
+                "legacy forcing",
+                &trace.episode_mean_forcing,
+                &roof_support,
+            ),
+            stage(
+                "episode-mean matched",
+                "roof support",
+                "elevation units",
+                &trace.episode_mean_matched_response,
                 &roof_support,
             ),
         ];
@@ -3419,6 +3517,18 @@ fn run_roof_causal_trace(world: &World, seed: u64, requested_cells: usize, out: 
                 &fine.base.base_elevation,
             ),
             roof_trace_surface_record(
+                "nearest-source compiler",
+                fine_tess,
+                &component.cells,
+                &nearest_source_fine,
+            ),
+            roof_trace_surface_record(
+                "episode-mean null compiler",
+                fine_tess,
+                &component.cells,
+                &episode_mean_fine,
+            ),
+            roof_trace_surface_record(
                 "raw eroded pre-integration",
                 fine_tess,
                 &component.cells,
@@ -3443,6 +3553,8 @@ fn run_roof_causal_trace(world: &World, seed: u64, requested_cells: usize, out: 
             stages,
             amplitude_saturation_fraction,
             reconstruction_max_abs_error,
+            nearest_source_work_scale: trace.nearest_source_work_scale,
+            episode_mean_work_scale: trace.episode_mean_work_scale,
             collision_mean_uplift_km: if component_area > 0.0 {
                 ELEVATION_UNIT_KM as f64 * collision_area_integral / component_area
             } else {
@@ -3503,6 +3615,10 @@ fn run_roof_causal_trace(world: &World, seed: u64, requested_cells: usize, out: 
             record.reconstruction_max_abs_error
         );
         println!(
+            "    compiler controls: nearest-source work scale={:.5}; episode-mean work scale={:.5}",
+            record.nearest_source_work_scale, record.episode_mean_work_scale
+        );
+        println!(
             "    collision contribution: mean={:.2} km; {:.1}% of positive coarse-interpolant elevation-area; supported area={:.1}%",
             record.collision_mean_uplift_km,
             100.0 * record.collision_share_of_positive_coarse_interpolant,
@@ -3536,6 +3652,7 @@ fn run_roof_causal_trace(world: &World, seed: u64, requested_cells: usize, out: 
         final_component_threshold_km: AUDIT_RANGE_ELEV * ELEVATION_UNIT_KM,
         significant_component_area_km2: AUDIT_SIGNIFICANT_RANGE_KM2,
         significant_component_count: significant.len(),
+        baseline_reinterpolation_max_abs_error,
         ranges: range_records,
     };
     if let Some(path) = out {
