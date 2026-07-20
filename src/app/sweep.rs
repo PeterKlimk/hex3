@@ -877,6 +877,39 @@ struct RangeLayerRecord {
     image_filenames: Vec<String>,
 }
 
+#[cfg(feature = "research-landscape")]
+#[derive(Debug, Serialize)]
+struct RoofCompilerCounterfactualSidecar {
+    schema_version: u32,
+    purpose: &'static str,
+    status: &'static str,
+    coordinate_convention: &'static str,
+    color_sampling: &'static str,
+    world_manifest: hex3::world::RunManifest,
+    counterfactuals: RoofCompilerCounterfactualContract,
+    cameras: Vec<ViewRecord>,
+    layers: Vec<RangeLayerRecord>,
+    montage_filename: &'static str,
+}
+
+#[cfg(feature = "research-landscape")]
+#[derive(Debug, Serialize)]
+struct RoofCompilerCounterfactualContract {
+    baseline_coarse_elevation: &'static str,
+    baseline_collision_response: &'static str,
+    reconstruction_formula: &'static str,
+    nearest_source_response: &'static str,
+    episode_mean_response: &'static str,
+    interpolation_support: &'static str,
+    interpolation_weight: &'static str,
+    interpolation_epsilon: f32,
+    baseline_reinterpolation_max_abs_error: f32,
+    work_matching_measure: &'static str,
+    nearest_source_work_scale: f32,
+    episode_mean_work_scale: f32,
+    erosion_policy: &'static str,
+}
+
 struct DiagnosticMeshBuffers {
     vertices: wgpu::Buffer,
     indices: wgpu::Buffer,
@@ -2376,6 +2409,259 @@ fn run_range_ancestry(opts: &SweepOptions) {
     serde_json::to_writer_pretty(BufWriter::new(file), &sidecar)
         .expect("write range-ancestry.json");
     println!("Done: range ancestry packet -> {}", opts.out_dir.display());
+}
+
+#[cfg(feature = "research-landscape")]
+fn interpolate_roof_counterfactual(
+    coarse: &Tessellation,
+    fine: &Tessellation,
+    coarse_cell: &[usize],
+    values: &[f32],
+) -> Vec<f32> {
+    assert_eq!(coarse.num_cells(), values.len());
+    assert_eq!(fine.num_cells(), coarse_cell.len());
+    (0..fine.num_cells())
+        .map(|cell| {
+            let position = fine.cell_center(cell);
+            let nearest = coarse_cell[cell];
+            let mut weighted = 0.0f32;
+            let mut total_weight = 0.0f32;
+            for source in std::iter::once(nearest).chain(coarse.neighbors(nearest).iter().copied())
+            {
+                let distance = coarse
+                    .cell_center(source)
+                    .dot(position)
+                    .clamp(-1.0, 1.0)
+                    .acos();
+                let weight = 1.0 / (distance * distance + 1.0e-8);
+                weighted += values[source] * weight;
+                total_weight += weight;
+            }
+            weighted / total_weight
+        })
+        .collect()
+}
+
+/// Render the two work-matched Legacy collision-compiler counterfactuals over
+/// the retained product interpolation support. Both variants are static coarse
+/// reconstructions: erosion runs once for the baseline/final context and is
+/// never run against either counterfactual.
+#[cfg(feature = "research-landscape")]
+fn run_roof_compiler_counterfactual(opts: &SweepOptions) {
+    assert_eq!(
+        opts.target_stage, 4,
+        "roof-compiler-counterfactual requires --stage 4"
+    );
+    assert_eq!(
+        opts.targets.len(),
+        2,
+        "roof-compiler-counterfactual requires exactly two explicit --sweep-target dossier cameras"
+    );
+    assert_eq!(
+        selected_orogen_model(opts.orogen_model, &opts.base_erosion),
+        OrogenModel::Legacy,
+        "roof-compiler-counterfactual requires the Legacy orogen model"
+    );
+
+    let world = generate_tile_world(opts, &opts.base_erosion);
+    let features = world
+        .features
+        .as_ref()
+        .expect("roof-compiler-counterfactual requires Legacy Stage-1 feature fields");
+    let fine = world
+        .fine
+        .as_ref()
+        .expect("roof-compiler-counterfactual requires fine Stage 4");
+    let final_surface = fine
+        .eroded
+        .as_ref()
+        .expect("roof-compiler-counterfactual requires final Stage-4 terrain");
+    let coarse = &world.tessellation;
+    let fine_tess = &fine.base.tessellation;
+    let coarse_elevation = &world.elevation.as_ref().expect("coarse elevation").values;
+    let trace = &features.legacy_collision_trace;
+    let replace_collision = |replacement: &[f32]| -> Vec<f32> {
+        coarse_elevation
+            .iter()
+            .zip(&features.collision)
+            .zip(replacement)
+            .map(|((&baseline, &collision), &counterfactual)| baseline - collision + counterfactual)
+            .collect()
+    };
+    let reinterpolated_baseline = interpolate_roof_counterfactual(
+        coarse,
+        fine_tess,
+        &fine.base.coarse_cell,
+        coarse_elevation,
+    );
+    let baseline_reinterpolation_max_abs_error = reinterpolated_baseline
+        .iter()
+        .zip(&fine.base.coarse_base_elevation)
+        .map(|(&reconstructed, &retained)| (reconstructed - retained).abs())
+        .fold(0.0f32, f32::max);
+    let nearest_source = interpolate_roof_counterfactual(
+        coarse,
+        fine_tess,
+        &fine.base.coarse_cell,
+        &replace_collision(&trace.nearest_source_matched_response),
+    );
+    let episode_mean = interpolate_roof_counterfactual(
+        coarse,
+        fine_tess,
+        &fine.base.coarse_cell,
+        &replace_collision(&trace.episode_mean_matched_response),
+    );
+
+    std::fs::create_dir_all(&opts.out_dir)
+        .unwrap_or_else(|error| panic!("create {}: {error}", opts.out_dir.display()));
+    let gpu = pollster::block_on(GpuContext::new_headless(opts.width, opts.height));
+    let mut renderer = Renderer::new(&gpu, &Uniforms::new(Mat4::IDENTITY, Vec3::ZERO, Vec3::Y));
+    let color_tex = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("roof_compiler_counterfactual_color"),
+        size: wgpu::Extent3d {
+            width: opts.width,
+            height: opts.height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: gpu.format,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let color_view = color_tex.create_view(&Default::default());
+    let product_buffers = generate_world_buffers(&gpu.device, &gpu.queue, &world);
+    let views: Vec<CaptureView> = build_views(&world, opts).into_iter().skip(1).collect();
+    let final_elevation = &final_surface.hydrology.elevation;
+
+    struct Layer<'a> {
+        id: &'static str,
+        label: &'static str,
+        elevation: &'a [f32],
+        source: &'static str,
+    }
+    let layers = [
+        Layer {
+            id: "baseline-fine-coarse-interpolant",
+            label: "baseline fine coarse interpolant",
+            elevation: &fine.base.coarse_base_elevation,
+            source: "FineBase::coarse_base_elevation retained from the product interpolation",
+        },
+        Layer {
+            id: "nearest-source-work-matched",
+            label: "nearest-source work-matched compiler surface",
+            elevation: &nearest_source,
+            source: "interpolate(World::elevation.values - FeatureFields::collision + LegacyCollisionTrace::nearest_source_matched_response)",
+        },
+        Layer {
+            id: "episode-mean-null-work-matched",
+            label: "episode-mean-null work-matched compiler surface",
+            elevation: &episode_mean,
+            source: "interpolate(World::elevation.values - FeatureFields::collision + LegacyCollisionTrace::episode_mean_matched_response)",
+        },
+        Layer {
+            id: "final-terrain-context",
+            label: "final terrain for context",
+            elevation: final_elevation,
+            source: "FineWorld::eroded.hydrology.elevation from the single baseline Stage-4 run",
+        },
+    ];
+
+    let montage_width = opts.width * views.len() as u32;
+    let montage_height = opts.height * layers.len() as u32;
+    let mut montage = vec![0; (montage_width * montage_height * 4) as usize];
+    let mut records = Vec::with_capacity(layers.len());
+    for (layer_index, layer) in layers.iter().enumerate() {
+        let mesh = diagnostic_mesh(&gpu.device, fine_tess, layer.elevation, None);
+        let mut filenames = Vec::with_capacity(views.len());
+        for (view_index, view) in views.iter().enumerate() {
+            render_diagnostic(
+                &gpu,
+                &mut renderer,
+                &color_view,
+                &mesh,
+                &product_buffers.river_bind_group,
+                view.view_proj,
+                view.eye,
+                0.04,
+                true,
+            );
+            let rgba = read_back_rgba(&gpu, &color_tex, opts.width, opts.height);
+            let filename = format!("{:02}_{}_{}.png", layer_index + 1, layer.id, view.label);
+            write_png(
+                &opts.out_dir.join(&filename),
+                &rgba,
+                opts.width,
+                opts.height,
+            );
+            blit_tile(
+                &mut montage,
+                montage_width,
+                &rgba,
+                opts.width,
+                opts.height,
+                view_index as u32,
+                layer_index as u32,
+            );
+            filenames.push(filename);
+        }
+        records.push(RangeLayerRecord {
+            index: layer_index,
+            id: layer.id,
+            label: layer.label,
+            topology: "fine",
+            role: "terrain",
+            source: layer.source,
+            units: "elevation units",
+            relief_scale: 0.04,
+            robust_color_min: None,
+            robust_color_max: None,
+            image_filenames: filenames,
+        });
+        println!("[{}/{}] {}", layer_index + 1, layers.len(), layer.label);
+    }
+    write_png(
+        &opts.out_dir.join("montage.png"),
+        &montage,
+        montage_width,
+        montage_height,
+    );
+
+    let sidecar = RoofCompilerCounterfactualSidecar {
+        schema_version: 1,
+        purpose: "matched-camera terrain comparison of the frozen Legacy collision compiler and two work-matched counterfactual compilers",
+        status: "research-only causal discriminator; no product model, erosion variant, calibration, or tuning",
+        coordinate_convention: "latitude=asin(y); longitude=atan2(z,x); degrees; positive longitude rotates +X toward +Z",
+        color_sampling: "all terrain rows use the same fine Voronoi topology, shared-vertex elevation averaging, material color, lighting, relief scale, and dossier cameras",
+        world_manifest: world.manifest(),
+        counterfactuals: RoofCompilerCounterfactualContract {
+            baseline_coarse_elevation: "World::elevation.values",
+            baseline_collision_response: "World::features.collision (FeatureFields::collision)",
+            reconstruction_formula: "counterfactual coarse elevation = baseline coarse elevation - FeatureFields::collision + research trace matched response",
+            nearest_source_response: "LegacyCollisionTrace::nearest_source_matched_response",
+            episode_mean_response: "LegacyCollisionTrace::episode_mean_matched_response",
+            interpolation_support: "mapped nearest coarse cell followed by that coarse cell's neighbors",
+            interpolation_weight: "1 / (angular_distance_radians^2 + epsilon)",
+            interpolation_epsilon: 1.0e-8,
+            baseline_reinterpolation_max_abs_error,
+            work_matching_measure: "area-integrated positive collision response on the coarse tessellation",
+            nearest_source_work_scale: trace.nearest_source_work_scale,
+            episode_mean_work_scale: trace.episode_mean_work_scale,
+            erosion_policy: "erosion is run once for baseline Stage 4 only; neither compiler counterfactual is eroded",
+        },
+        cameras: views.iter().map(|view| view.sidecar.clone()).collect(),
+        layers: records,
+        montage_filename: "montage.png",
+    };
+    let file = std::fs::File::create(opts.out_dir.join("roof-compiler-counterfactual.json"))
+        .expect("create roof-compiler-counterfactual.json");
+    serde_json::to_writer_pretty(BufWriter::new(file), &sidecar)
+        .expect("write roof-compiler-counterfactual.json");
+    println!(
+        "Done: roof compiler counterfactual packet -> {}",
+        opts.out_dir.display()
+    );
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -4303,6 +4589,15 @@ pub fn run_sweep(opts: SweepOptions) {
     if opts.stack.as_deref() == Some("range-ancestry") {
         run_range_ancestry(&opts);
         return;
+    }
+    if opts.stack.as_deref() == Some("roof-compiler-counterfactual") {
+        #[cfg(feature = "research-landscape")]
+        {
+            run_roof_compiler_counterfactual(&opts);
+            return;
+        }
+        #[cfg(not(feature = "research-landscape"))]
+        panic!("roof-compiler-counterfactual requires --features research-landscape");
     }
     if opts.stack.as_deref() == Some("water-geography") {
         run_water_geography_packet(&opts);

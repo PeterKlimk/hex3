@@ -398,7 +398,9 @@ struct Cli {
 
     /// Cumulative-stack preset (o3a, p1, v3, o0, meso), or the special
     /// `range-ancestry` diagnostic packet (requires exactly three explicit
-    /// --sweep-target values and stage 4), `water-geography` (automatically
+    /// --sweep-target values and stage 4), `roof-compiler-counterfactual`
+    /// (research-only; requires exactly two explicit --sweep-target values and
+    /// Legacy stage 4), `water-geography` (automatically
     /// selects a coast complex and overflowing lake; stage 4), or
     /// `living-surface-preview` (global fractional-physiognomy evidence; stage 4),
     /// or `consequential-geography` (matched aggregate-site probe, ablations and
@@ -703,6 +705,27 @@ fn main() {
     };
 
     if cli.sweep.is_some() || cli.sweep_stack.is_some() {
+        let sweep_target_stage = cli.stage.unwrap_or(4);
+        if cli.sweep_stack.as_deref() == Some("roof-compiler-counterfactual") {
+            assert!(
+                cfg!(feature = "research-landscape"),
+                "roof-compiler-counterfactual requires --features research-landscape"
+            );
+            assert_eq!(
+                sweep_target_stage, 4,
+                "roof-compiler-counterfactual requires --stage 4"
+            );
+            assert_eq!(
+                cli.sweep_target.len(),
+                2,
+                "roof-compiler-counterfactual requires exactly two explicit --sweep-target dossier cameras"
+            );
+            assert_eq!(
+                orogen_model,
+                OrogenModel::Legacy,
+                "roof-compiler-counterfactual requires --orogen-model legacy"
+            );
+        }
         let river_mode = match cli.sweep_rivers.as_str() {
             "off" => app::RiverMode::Off,
             "major" => app::RiverMode::Major,
@@ -724,7 +747,7 @@ fn main() {
             fine_scale: cli.fine_scale,
             fine_max: cli.fine_max,
             // Sweeps are about erosion, so default to the erosion stage.
-            target_stage: cli.stage.unwrap_or(4),
+            target_stage: sweep_target_stage,
             voronoi_backend: backend,
             orogen_model,
             fine_cache,
