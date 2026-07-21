@@ -101,6 +101,11 @@ struct Cli {
     /// Myr units. This is coarse-only and exits before atmosphere/fine generation.
     #[arg(long, default_value_t = false)]
     tectonic_history_audit: bool,
+    /// Write the tectonic-history audit's compact deterministic source-
+    /// viability JSON record. Research only.
+    #[cfg(feature = "research-landscape")]
+    #[arg(long, requires = "tectonic_history_audit")]
+    tectonic_history_audit_out: Option<PathBuf>,
     /// Run the RIVER NETWORK audit and exit: the rendered river network's
     /// Strahler/Horton structure, drainage density, mouths, and per-trunk
     /// length/sinuosity/profile table with Earth references.
@@ -355,6 +360,13 @@ fn main() {
     if cli.tectonic_history_audit {
         eprintln!("provenance: {}", world.manifest().summary());
         run_tectonic_history_audit(&world, cli.seed, cli.top);
+        #[cfg(feature = "research-landscape")]
+        run_source_viability_audit(
+            &world,
+            cli.seed,
+            cli.cells,
+            cli.tectonic_history_audit_out.as_deref(),
+        );
         return;
     }
     world.generate_atmosphere();
@@ -1534,6 +1546,544 @@ fn main() {
 }
 
 // ===================== TECTONIC-HISTORY AUDIT =====================
+
+#[cfg(feature = "research-landscape")]
+#[derive(Debug, serde::Serialize)]
+struct SourceViabilityCapability {
+    measure: &'static str,
+    status: &'static str,
+    reason: &'static str,
+}
+
+#[cfg(feature = "research-landscape")]
+#[derive(Debug, serde::Serialize)]
+struct PresentConvergentComponent {
+    episode_id: usize,
+    plate_pair: [usize; 2],
+    support_edges: usize,
+    length_km: f64,
+    duration_myr: f32,
+    mean_convergence_km_per_myr: f32,
+    shortening_area_opportunity_km2: f64,
+    length_weighted_centroid_unit_xyz: Option<[f32; 3]>,
+    continental_continental_length_km: f64,
+    continental_oceanic_length_km: f64,
+    oceanic_oceanic_length_km: f64,
+    episode_majority_subducting_plate: Option<usize>,
+    uniform_receiving_plate: Option<usize>,
+}
+
+#[cfg(feature = "research-landscape")]
+#[derive(Debug, serde::Serialize)]
+struct StaticOnsetFrame {
+    age_lo_myr: f32,
+    age_hi_myr: f32,
+    active_episode_ids: Vec<usize>,
+    opportunity_support_edges: usize,
+    exact_arc_support_length_km: f64,
+    shortening_area_rate_km2_per_myr: f64,
+    collision_rate_km2_per_myr: f64,
+    subduction_rate_km2_per_myr: f64,
+    continental_continental_rate_km2_per_myr: f64,
+    continental_oceanic_rate_km2_per_myr: f64,
+    oceanic_oceanic_rate_km2_per_myr: f64,
+    opportunity_weighted_centroid_unit_xyz: Option<[f32; 3]>,
+    support_length_jaccard_vs_younger: Option<f64>,
+    opportunity_cosine_vs_younger: Option<f64>,
+    normalized_opportunity_l1_vs_younger: Option<f64>,
+    composition_centroid_shift_vs_younger_km: Option<f64>,
+    rank_one_relative_residual_vs_present: Option<f64>,
+}
+
+#[cfg(feature = "research-landscape")]
+#[derive(Debug, serde::Serialize)]
+struct SourceViabilityReport {
+    schema: &'static str,
+    seed: u64,
+    provenance: String,
+    requested_coarse_cells: usize,
+    actual_coarse_cells: usize,
+    history_model: String,
+    classification: &'static str,
+    static_onset_transient_prerequisite_satisfied: bool,
+    moving_or_reversing_support_prerequisite_satisfied: bool,
+    within_component_temporal_spatial_rank_one: bool,
+    retained_temporal_opportunity_frames: usize,
+    derived_frozen_support_onset_frames: usize,
+    history_semantics: &'static str,
+    length_method: &'static str,
+    substantial_composition_threshold_normalized_l1: f64,
+    max_adjacent_normalized_opportunity_l1: Option<f64>,
+    max_rank_one_relative_residual: Option<f64>,
+    max_composition_centroid_shift_km: Option<f64>,
+    total_present_shortening_area_opportunity_km2: f64,
+    largest_present_component_opportunity_fraction: Option<f64>,
+    capabilities: Vec<SourceViabilityCapability>,
+    present_convergent_components: Vec<PresentConvergentComponent>,
+    static_onset_frames: Vec<StaticOnsetFrame>,
+}
+
+#[cfg(all(test, feature = "research-landscape"))]
+mod source_viability_tests {
+    use super::{normalized_l1, rank_one_residual};
+
+    #[test]
+    fn distribution_metrics_separate_scaling_from_support_redistribution() {
+        let present = [1.0, 2.0, 3.0];
+        let scaled = [2.0, 4.0, 6.0];
+        assert!(normalized_l1(&present, &scaled).unwrap() < 1.0e-12);
+        assert!(rank_one_residual(&scaled, &present).unwrap() < 1.0e-12);
+
+        let nested = [0.0, 2.0, 3.0];
+        assert!(normalized_l1(&present, &nested).unwrap() > 0.1);
+        assert!(rank_one_residual(&nested, &present).unwrap() > 0.1);
+    }
+}
+
+#[cfg(feature = "research-landscape")]
+fn normalized_l1(left: &[f64], right: &[f64]) -> Option<f64> {
+    let left_sum = left.iter().sum::<f64>();
+    let right_sum = right.iter().sum::<f64>();
+    if left_sum <= 0.0 || right_sum <= 0.0 {
+        return None;
+    }
+    Some(
+        left.iter()
+            .zip(right)
+            .map(|(&a, &b)| (a / left_sum - b / right_sum).abs())
+            .sum(),
+    )
+}
+
+#[cfg(feature = "research-landscape")]
+fn cosine_similarity(left: &[f64], right: &[f64]) -> Option<f64> {
+    let dot = left.iter().zip(right).map(|(&a, &b)| a * b).sum::<f64>();
+    let left_norm = left.iter().map(|value| value * value).sum::<f64>().sqrt();
+    let right_norm = right.iter().map(|value| value * value).sum::<f64>().sqrt();
+    (left_norm > 0.0 && right_norm > 0.0).then_some(dot / (left_norm * right_norm))
+}
+
+#[cfg(feature = "research-landscape")]
+fn rank_one_residual(field: &[f64], reference: &[f64]) -> Option<f64> {
+    let field_norm2 = field.iter().map(|value| value * value).sum::<f64>();
+    let reference_norm2 = reference.iter().map(|value| value * value).sum::<f64>();
+    if field_norm2 <= 0.0 || reference_norm2 <= 0.0 {
+        return None;
+    }
+    let scale = field
+        .iter()
+        .zip(reference)
+        .map(|(&a, &b)| a * b)
+        .sum::<f64>()
+        / reference_norm2;
+    let residual2 = field
+        .iter()
+        .zip(reference)
+        .map(|(&value, &basis)| {
+            let residual = value - scale * basis;
+            residual * residual
+        })
+        .sum::<f64>();
+    Some((residual2 / field_norm2).sqrt())
+}
+
+#[cfg(feature = "research-landscape")]
+fn weighted_support_jaccard(left: &[f64], right: &[f64], lengths: &[f64]) -> Option<f64> {
+    let mut intersection = 0.0;
+    let mut union = 0.0;
+    for ((&a, &b), &length) in left.iter().zip(right).zip(lengths) {
+        if a > 0.0 || b > 0.0 {
+            union += length;
+            if a > 0.0 && b > 0.0 {
+                intersection += length;
+            }
+        }
+    }
+    (union > 0.0).then_some(intersection / union)
+}
+
+#[cfg(feature = "research-landscape")]
+fn weighted_centroid(
+    weights: &[f64],
+    fronts: &[hex3::world::ConvergentFrontEdge],
+) -> Option<glam::Vec3> {
+    let sum = weights
+        .iter()
+        .zip(fronts)
+        .fold(glam::DVec3::ZERO, |sum, (&weight, front)| {
+            sum + front.midpoint.as_dvec3() * weight
+        });
+    (sum.length_squared() > 1.0e-24).then(|| sum.normalize().as_vec3())
+}
+
+#[cfg(feature = "research-landscape")]
+fn composition_shift_km(left: Option<glam::Vec3>, right: Option<glam::Vec3>) -> Option<f64> {
+    let (Some(left), Some(right)) = (left, right) else {
+        return None;
+    };
+    Some(f64::from(left.dot(right).clamp(-1.0, 1.0).acos()) * f64::from(EARTH_RADIUS_KM))
+}
+
+#[cfg(feature = "research-landscape")]
+fn run_source_viability_audit(
+    world: &World,
+    seed: u64,
+    requested_cells: usize,
+    out: Option<&Path>,
+) {
+    use std::collections::BTreeMap;
+
+    use hex3::world::{
+        collect_convergent_fronts, collect_plate_boundaries, BoundaryKind, CrustType,
+        StructuralRegime,
+    };
+
+    let history = world
+        .tectonic_history
+        .as_ref()
+        .expect("tectonic history generated with features");
+    let plates = world.plates.as_ref().expect("plates generated");
+    let crust = world.crust.as_ref().expect("crust generated");
+    let dynamics = world.dynamics.as_ref().expect("dynamics generated");
+    let boundaries = collect_plate_boundaries(&world.tessellation, plates, crust, dynamics);
+    let fronts = match collect_convergent_fronts(&world.tessellation, &boundaries, history) {
+        Ok(fronts) => fronts,
+        Err(error) => {
+            eprintln!("source viability could not collect exact convergent fronts: {error}");
+            std::process::exit(2);
+        }
+    };
+    let mut edges_by_episode = BTreeMap::<usize, Vec<_>>::new();
+    for edge in &fronts.edges {
+        edges_by_episode
+            .entry(edge.episode_id)
+            .or_default()
+            .push(edge);
+    }
+
+    let mut components = Vec::new();
+    for episode in history
+        .episodes
+        .iter()
+        .filter(|episode| episode.kind == BoundaryKind::Convergent)
+    {
+        let edges = edges_by_episode
+            .get(&episode.id)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        let mut centroid = glam::DVec3::ZERO;
+        let mut length_km = 0.0f64;
+        let mut opportunity_km2 = 0.0f64;
+        let mut cc_km = 0.0f64;
+        let mut co_km = 0.0f64;
+        let mut oo_km = 0.0f64;
+        let mut convergence_length_sum = 0.0f64;
+        for edge in edges {
+            let edge_km = f64::from(edge.length_km);
+            length_km += edge_km;
+            convergence_length_sum += edge_km * f64::from(edge.convergence_km_per_myr);
+            centroid += edge.midpoint.as_dvec3() * edge_km;
+            opportunity_km2 += edge.shortening_area_opportunity_km2;
+            match (edge.crust[0], edge.crust[1]) {
+                (CrustType::Continental, CrustType::Continental) => cc_km += edge_km,
+                (CrustType::Oceanic, CrustType::Oceanic) => oo_km += edge_km,
+                _ => co_km += edge_km,
+            }
+        }
+        let centroid_xyz = (centroid.length_squared() > 1.0e-24).then(|| {
+            let value = centroid.normalize();
+            [value.x as f32, value.y as f32, value.z as f32]
+        });
+        let receiving_plates: std::collections::BTreeSet<_> = edges
+            .iter()
+            .filter_map(|edge| edge.receiving_plate)
+            .collect();
+        let uniform_receiving_plate = (edges.iter().all(|edge| edge.receiving_plate.is_some())
+            && receiving_plates.len() == 1)
+            .then(|| *receiving_plates.first().unwrap());
+        components.push(PresentConvergentComponent {
+            episode_id: episode.id,
+            plate_pair: [episode.plate_a, episode.plate_b],
+            support_edges: edges.len(),
+            length_km,
+            duration_myr: episode.duration_myr,
+            mean_convergence_km_per_myr: if length_km > 0.0 {
+                (convergence_length_sum / length_km) as f32
+            } else {
+                0.0
+            },
+            shortening_area_opportunity_km2: opportunity_km2,
+            length_weighted_centroid_unit_xyz: centroid_xyz,
+            continental_continental_length_km: cc_km,
+            continental_oceanic_length_km: co_km,
+            oceanic_oceanic_length_km: oo_km,
+            episode_majority_subducting_plate: episode.subducting_plate,
+            uniform_receiving_plate,
+        });
+    }
+    components.sort_by_key(|component| component.episode_id);
+    let total_opportunity = components
+        .iter()
+        .map(|component| component.shortening_area_opportunity_km2)
+        .sum::<f64>();
+    let largest_fraction = (total_opportunity > 0.0).then(|| {
+        components
+            .iter()
+            .map(|component| component.shortening_area_opportunity_km2)
+            .fold(0.0f64, f64::max)
+            / total_opportunity
+    });
+
+    // The current model does not retain reconstructed boundary geometry, but
+    // its duration breakpoints do define the exact frozen-support onset frames
+    // consumed by `solve_history_thin_sheet`: a present front is active at age
+    // `t` iff `t <= episode.duration_myr`. These frames can diagnose changing
+    // composition, but never migration, reversal, or local kinematic change.
+    let mut ages = vec![0.0f32];
+    ages.extend(
+        history
+            .episodes
+            .iter()
+            .filter(|episode| {
+                episode.kind == BoundaryKind::Convergent && episode.duration_myr > 0.0
+            })
+            .map(|episode| episode.duration_myr),
+    );
+    ages.sort_by(f32::total_cmp);
+    ages.dedup_by(|left, right| (*left - *right).abs() < 1.0e-6);
+    let edge_lengths: Vec<f64> = fronts
+        .edges
+        .iter()
+        .map(|edge| f64::from(edge.length_km))
+        .collect();
+    let mut onset_frames = Vec::new();
+    let mut younger_weights: Option<Vec<f64>> = None;
+    let mut younger_centroid = None;
+    let mut present_weights: Option<Vec<f64>> = None;
+    for interval in ages.windows(2) {
+        let age_lo = interval[0];
+        let age_hi = interval[1];
+        let age_mid = 0.5 * (age_lo + age_hi);
+        let weights: Vec<f64> = fronts
+            .edges
+            .iter()
+            .map(|edge| {
+                if edge.episode_duration_myr >= age_mid {
+                    f64::from(edge.length_km) * f64::from(edge.convergence_km_per_myr.max(0.0))
+                } else {
+                    0.0
+                }
+            })
+            .collect();
+        if present_weights.is_none() {
+            present_weights = Some(weights.clone());
+        }
+        let active_episode_ids = fronts
+            .edges
+            .iter()
+            .zip(&weights)
+            .filter_map(|(edge, &weight)| (weight > 0.0).then_some(edge.episode_id))
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        let support_edges = weights.iter().filter(|&&weight| weight > 0.0).count();
+        let support_length = weights
+            .iter()
+            .zip(&edge_lengths)
+            .filter(|&(&weight, _)| weight > 0.0)
+            .map(|(_, &length)| length)
+            .sum();
+        let rate = weights.iter().sum::<f64>();
+        let sum_rate = |predicate: &dyn Fn(&hex3::world::ConvergentFrontEdge) -> bool| {
+            fronts
+                .edges
+                .iter()
+                .zip(&weights)
+                .filter(|(edge, _)| predicate(edge))
+                .map(|(_, &weight)| weight)
+                .sum::<f64>()
+        };
+        let centroid = weighted_centroid(&weights, &fronts.edges);
+        let centroid_xyz = centroid.map(|value| [value.x, value.y, value.z]);
+        let rank_residual = present_weights
+            .as_ref()
+            .and_then(|present| rank_one_residual(&weights, present));
+        onset_frames.push(StaticOnsetFrame {
+            age_lo_myr: age_lo,
+            age_hi_myr: age_hi,
+            active_episode_ids,
+            opportunity_support_edges: support_edges,
+            exact_arc_support_length_km: support_length,
+            shortening_area_rate_km2_per_myr: rate,
+            collision_rate_km2_per_myr: sum_rate(&|edge| {
+                edge.regime == StructuralRegime::Collision
+            }),
+            subduction_rate_km2_per_myr: sum_rate(&|edge| {
+                edge.regime == StructuralRegime::Subduction
+            }),
+            continental_continental_rate_km2_per_myr: sum_rate(&|edge| {
+                edge.crust == [CrustType::Continental, CrustType::Continental]
+            }),
+            continental_oceanic_rate_km2_per_myr: sum_rate(&|edge| edge.crust[0] != edge.crust[1]),
+            oceanic_oceanic_rate_km2_per_myr: sum_rate(&|edge| {
+                edge.crust == [CrustType::Oceanic, CrustType::Oceanic]
+            }),
+            opportunity_weighted_centroid_unit_xyz: centroid_xyz,
+            support_length_jaccard_vs_younger: younger_weights
+                .as_ref()
+                .and_then(|younger| weighted_support_jaccard(&weights, younger, &edge_lengths)),
+            opportunity_cosine_vs_younger: younger_weights
+                .as_ref()
+                .and_then(|younger| cosine_similarity(&weights, younger)),
+            normalized_opportunity_l1_vs_younger: younger_weights
+                .as_ref()
+                .and_then(|younger| normalized_l1(&weights, younger)),
+            composition_centroid_shift_vs_younger_km: composition_shift_km(
+                centroid,
+                younger_centroid,
+            ),
+            rank_one_relative_residual_vs_present: rank_residual,
+        });
+        younger_centroid = centroid;
+        younger_weights = Some(weights);
+    }
+    let max_adjacent_l1 = onset_frames
+        .iter()
+        .filter_map(|frame| frame.normalized_opportunity_l1_vs_younger)
+        .reduce(f64::max);
+    let max_rank_residual = onset_frames
+        .iter()
+        .filter_map(|frame| frame.rank_one_relative_residual_vs_present)
+        .reduce(f64::max);
+    let max_centroid_shift = onset_frames
+        .iter()
+        .filter_map(|frame| frame.composition_centroid_shift_vs_younger_km)
+        .reduce(f64::max);
+    const SUBSTANTIAL_COMPOSITION_L1_THRESHOLD: f64 = 0.10;
+    let static_onset_viable =
+        max_adjacent_l1.is_some_and(|value| value >= SUBSTANTIAL_COMPOSITION_L1_THRESHOLD);
+    let classification = if onset_frames.is_empty() {
+        "unsupported_no_positive_duration_convergent_frames"
+    } else if max_rank_residual.unwrap_or(0.0) <= 1.0e-9 {
+        "amplitude_only_rank_one_frozen_support"
+    } else if static_onset_viable {
+        "nested_static_support_substantial_composition_change"
+    } else {
+        "nested_static_support_minor_redistribution"
+    };
+    let capabilities = vec![
+        SourceViabilityCapability {
+            measure: "episode support size, length, and shortening-area opportunity",
+            status: "supported_present_components_only",
+            reason: "BoundaryEpisode partitions connected components of the present boundary; it is not a retained time episode",
+        },
+        SourceViabilityCapability {
+            measure: "spatial support overlap and Jaccard through time",
+            status: "supported_derived_frozen_present_support_only",
+            reason: "duration breakpoints define nested onset frames over exact present front arcs; this cannot measure support migration",
+        },
+        SourceViabilityCapability {
+            measure: "opportunity-distribution similarity and rank-one residual",
+            status: "supported_derived_frozen_present_support_only",
+            reason: "local present length*convergence rates can be compared across nested episode-onset frames",
+        },
+        SourceViabilityCapability {
+            measure: "support centroid migration",
+            status: "composition_shift_only_not_migration",
+            reason: "onset frames can move an opportunity-weighted centroid by changing active components, but every front arc remains fixed at its present location",
+        },
+        SourceViabilityCapability {
+            measure: "activation and deactivation",
+            status: "supported_static_episode_onset_only",
+            reason: "episodes switch on once when integrating from their inferred contact age toward present; no front deactivation is represented",
+        },
+        SourceViabilityCapability {
+            measure: "regime and receiving-side changes",
+            status: "composition_change_only_not_edge_change",
+            reason: "onset frames change the mix of fixed present collision/subduction sides; no edge can change regime, polarity, or receiver",
+        },
+        SourceViabilityCapability {
+            measure: "material and crust transitions",
+            status: "static_composition_only",
+            reason: "onset frames change the fixed present crust-regime mix, but no material state transitions are retained",
+        },
+    ];
+    let history_model = history
+        .episodes
+        .first()
+        .map(|episode| format!("{:?}", episode.model).to_lowercase())
+        .unwrap_or_else(|| "none".to_string());
+    let report = SourceViabilityReport {
+        schema: "hex3.tectonic-source-viability.v1",
+        seed,
+        provenance: world.manifest().summary(),
+        requested_coarse_cells: requested_cells,
+        actual_coarse_cells: world.tessellation.num_cells(),
+        history_model,
+        classification,
+        static_onset_transient_prerequisite_satisfied: static_onset_viable,
+        moving_or_reversing_support_prerequisite_satisfied: false,
+        within_component_temporal_spatial_rank_one: true,
+        retained_temporal_opportunity_frames: 0,
+        derived_frozen_support_onset_frames: onset_frames.len(),
+        history_semantics: "BoundaryEpisode is a present connected plate-pair/kind component whose duration is capped by inferred contact age; it does not retain boundary geometry at multiple times",
+        length_method: "exact Voronoi front great-circle arc; opportunity is length_km * positive local convergence_km_per_myr * duration_myr",
+        substantial_composition_threshold_normalized_l1:
+            SUBSTANTIAL_COMPOSITION_L1_THRESHOLD,
+        max_adjacent_normalized_opportunity_l1: max_adjacent_l1,
+        max_rank_one_relative_residual: max_rank_residual,
+        max_composition_centroid_shift_km: max_centroid_shift,
+        total_present_shortening_area_opportunity_km2: total_opportunity,
+        largest_present_component_opportunity_fraction: largest_fraction,
+        capabilities,
+        present_convergent_components: components,
+        static_onset_frames: onset_frames,
+    };
+
+    println!("\n================ SOURCE VIABILITY seed={seed} ================");
+    println!(
+        "  classification: {} | static-onset transient gate: {} | moving/reversing-support gate: NO",
+        report.classification,
+        if report.static_onset_transient_prerequisite_satisfied { "YES" } else { "NO" },
+    );
+    println!(
+        "  temporal source: 0 retained moving-support frames; {} derived nested-onset frames over frozen exact present fronts",
+        report.derived_frozen_support_onset_frames,
+    );
+    println!(
+        "  within each connected component: temporal spatial forcing is exactly rank-one (fixed geometry/rate; onset scalar only)"
+    );
+    println!(
+        "  present-only convergent components: {} | shortening-area opportunity {:.3e} km² | largest share {}",
+        report.present_convergent_components.len(),
+        report.total_present_shortening_area_opportunity_km2,
+        report
+            .largest_present_component_opportunity_fraction
+            .map(|value| format!("{:.1}%", 100.0 * value))
+            .unwrap_or_else(|| "unsupported".to_string()),
+    );
+    println!(
+        "  derived composition: max adjacent normalized L1 {} | max rank-one residual {} | max centroid shift {} km",
+        report.max_adjacent_normalized_opportunity_l1.map(|value| format!("{value:.3}")).unwrap_or_else(|| "unsupported".to_string()),
+        report.max_rank_one_relative_residual.map(|value| format!("{value:.3}")).unwrap_or_else(|| "unsupported".to_string()),
+        report.max_composition_centroid_shift_km.map(|value| format!("{value:.0}")).unwrap_or_else(|| "unsupported".to_string()),
+    );
+    println!("  interpretation: composition changes are episode onset on static present fronts, not migration, reversal, polarity change, or material transition");
+    println!(
+        "  temporal polarity, receiving-side and material transitions: unsupported by Legacy history"
+    );
+    if let Some(path) = out {
+        let json = serde_json::to_string_pretty(&report).expect("source viability serializes");
+        if let Err(error) = std::fs::write(path, format!("{json}\n")) {
+            eprintln!(
+                "failed to write source viability {}: {error}",
+                path.display()
+            );
+            std::process::exit(2);
+        }
+        eprintln!("wrote source viability {}", path.display());
+    }
+}
 
 fn run_tectonic_history_audit(world: &World, seed: u64, top: usize) {
     let history = world
