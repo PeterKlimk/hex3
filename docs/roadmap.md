@@ -144,13 +144,20 @@ the inactive cap, fine interpolation or presentation. Exact evidence and limits
 are in the [terrain causal-attribution audit](audits/terrain-causal-attribution-2026-07-21.md).
 
 The [terrain architecture design space](terrain-architecture.md) now defines the
-replacement boundary and two bounded discriminators. Candidate architectures
+replacement boundary and two bounded discriminators. Its
+[source-viability gate](audits/tectonic-source-viability-2026-07-21.md) passes
+narrowly: current history supplies differently aged but spatially frozen
+present-front components. It can test unequal belt maturity, but not migration,
+deactivation, polarity reversal or material transition. Candidate architectures
 may divide responsibility among explicit cooperating systems, but together
 they must consume finite deformation/material opportunity where available and
 connect uplift opportunity to drainage/divide organization and nonlinear
-hillslope response. Epochal coupled landscape evolution is first; a causal
-dual drainage/divide construction is the conditional authentic-hack upper
-bound. Neither requires deeper physics without visible or downstream payoff.
+hillslope response. Finite-age coupled landscape evolution on those fixed
+supports is first; a causal dual drainage/divide construction is the conditional
+authentic-hack upper bound. If responsive drainage still leaves each component
+as one uniform roof, revisit the upstream deformation-history owner instead of
+tuning the response indefinitely. Neither path requires deeper physics without
+visible or downstream payoff.
 Keep Legacy as the usable control, but stop tuning or further interrogating it
 as a candidate architecture. Paleorifts, transfers, seed selection, relief
 tuning and crest noise are not substitutes.

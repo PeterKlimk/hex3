@@ -1,14 +1,15 @@
 # Terrain architecture design space
 
-Status: **current design-space decision; no replacement selected or promoted**,
-2026-07-21.
+Status: **current design-space decision; source gate passed narrowly; no
+replacement selected or promoted**, 2026-07-21.
 
 This document defines the terrain ownership boundary and the smallest credible
 alternatives to Legacy. It does not change product behavior. Legacy remains the
 usable control until a replacement earns promotion.
 
 See the [landscape strategy](landscape-strategy.md),
-[terrain causal-attribution audit](audits/terrain-causal-attribution-2026-07-21.md)
+[terrain causal-attribution audit](audits/terrain-causal-attribution-2026-07-21.md),
+[tectonic source-viability audit](audits/tectonic-source-viability-2026-07-21.md)
 and historical
 [mountain-system design basis](research/mountain-system-design-basis-2026-07-13.md).
 
@@ -38,7 +39,8 @@ range hierarchy absent from both.
 
 Evaluate two architecture families, not another parameter ladder:
 
-- **A — epochal coupled landscape evolution**, the reduced physical candidate;
+- **A — finite-age coupled landscape evolution**, initially using static
+  present-front supports, the reduced physical candidate;
 - **B — causal dual drainage/divide construction**, a cheap authentic-hack
   upper bound and fallback.
 
@@ -101,7 +103,7 @@ landscape model without continuum geodynamics
 | Consequence | Minimum representation | Not required initially |
 |---|---|---|
 | Finite and heterogeneous mountain support | Two-dimensional rock-uplift opportunity with honest ends, local variation and overlap | Explicit faults, folds or crustal rheology |
-| Transience | Relative episode age, activation/deactivation and incomplete adjustment | Calibrated geological chronology |
+| Transience | Relative component age, activation and incomplete adjustment; deactivation only when retained by a future source | Calibrated geological chronology |
 | Branching relief | Recomputed drainage area and base level while terrain evolves | Event hydrology or hydraulic flow depth |
 | Mobile divides | Basin ownership may change; capture is possible rather than scripted | A complete persistent landform ontology |
 | Bounded steep terrain | Low-slope transport plus material-aware nonlinear transport/relaxation near a threshold, never a hard slope clip | Explicit landslide bodies |
@@ -165,13 +167,47 @@ Names are illustrative, not a request to build a framework first. Adapt existing
 operators directly into the first vertical slice; generalize an interface only
 after the slice demonstrates value.
 
+## Source-viability result
+
+Legacy history is adequate for a deliberately narrow first slice, not for the
+full causal reference above. `BoundaryEpisode` describes a connected component
+of the **present** boundary and attaches one inferred contact age to it. It does
+not retain past boundary geometry, rate changes, deactivation, polarity or
+receiving-side changes, or material transitions. Replaying it honestly therefore
+means that fixed present-day components switch on at different ages; it does not
+mean that a front migrates or reorganizes.
+
+The fixed 100k-cell worlds nevertheless contain enough between-component age
+variation to test unequal belt maturity:
+
+| Seed | Convergent components | Derived onset intervals | Largest opportunity share | Max adjacent normalized composition L1 |
+|---:|---:|---:|---:|---:|
+| 12345 | 17 | 12 | 27.7% | 1.074 |
+| 8675309 | 14 | 10 | 31.1% | 0.528 |
+| 9001 | 12 | 8 | 33.5% | 0.989 |
+
+These are planet-wide composition changes as different fixed belts activate.
+Within every connected component, temporal spatial forcing is exactly rank-one:
+the geometry, local rate and regime are constant and only an onset scalar
+changes. The large composition-centroid shifts are consequently **not** front
+migration. The `0.10` L1 screen is a useful discrimination heuristic, not a
+physical threshold.
+
+Proceed with A as a static-support, finite-age test of landscape response. It
+can answer whether evolving drainage and hillslopes turn differently aged belts
+into coherent, variably dissected terrain. It cannot answer whether migrating,
+abandoned or reversing deformation would solve the roof grammar. If A produces
+only different amplitudes or the same internal roof on each belt, treat missing
+deformation history as an upstream causal limitation; do not compensate with an
+erosion tuning ladder.
+
 ## Architecture options
 
 | Family | What it preserves | Cost and principal risk | Disposition |
 |---|---|---|---|
 | Legacy height/rebuild variants | Broad tectonic location and cheap usable relief | Generic distance-band grammar; tuning and unsmoothing already discriminated | **Control only** |
 | Finite deformation organizer alone | Honest ends, source provenance and bounded opportunity | Current source may be genuinely continuous; prior finite parents remained smooth massifs | **Input component, not terrain owner** |
-| Epochal coupled landscape evolution | Uplift–drainage–divide–hillslope feedback and transience | Repeated routing can be expensive; weak source state may still limit regional variety | **Slice A** |
+| Finite-age coupled landscape evolution | Uplift–drainage–divide–hillslope feedback and unequal belt maturity | Present supports are frozen; repeated routing can be expensive | **Slice A, narrow source gate passed** |
 | Dual drainage/divide construction | Sparse range hierarchy and hydrologically compatible valleys at low cost | Can paint the answer, repeat a grammar or reconstruct amoebas/steps | **Conditional Slice B** |
 | Multiscale erosion, adaptive cells or sub-grid synthesis | Buys tributaries and local texture after regional structure exists | Patch/LOD drainage seams and self-similar grooves; cannot repair macro grammar | **Later representation strategy** |
 | Thin-sheet/lifecycle/geodynamic depth | Richer deformation and material history | Existing experiments cost heavily and have not earned visible organization | **Reference or source research, not next** |
@@ -189,18 +225,19 @@ limited by global drainage continuity and whole-surface cost
 precedents and authentic-hack controls, not evidence that authored graph rules
 are geology.
 
-## Slice A — epochal coupled landscape evolution
+## Slice A — finite-age coupled landscape evolution
 
-Hypothesis: an honestly finite, time-aware rock-uplift program combined with
-mobile drainage and nonlinear hillslopes can produce coherent regional
-organization without an authored ridge skeleton.
+Hypothesis: an honestly finite-age rock-uplift program on fixed present-front
+supports, combined with mobile drainage and nonlinear hillslopes, can produce
+coherent regional organization without an authored ridge skeleton.
 
 The minimum slice:
 
-1. derives a few relative forcing frames from actual convergent fronts,
-   supported history episodes and material transitions;
-2. reports constant or unsupported source state honestly rather than inventing
-   segmentation or motion;
+1. derives a few relative onset frames from exact present convergent fronts and
+   their supported episode ages;
+2. keeps each component's geometry, local rate, regime and material setting
+   fixed, and reports unsupported migration, deactivation or transitions rather
+   than inventing them;
 3. starts from the same non-orogenic base, climate/runoff and sea-level policy
    as Legacy;
 4. applies uplift incrementally while recomputing routing, drainage area,
@@ -221,6 +258,12 @@ visually promising prototype may be unoptimized. Before promotion it must
 retire overlapping buffers/operators, fit the ordinary Stage-4 memory envelope
 and state an accepted runtime budget; any remaining cost increase must buy a
 material visible or downstream consequence.
+
+This kill result distinguishes two failures. If drainage and divides barely
+move under valid age/onset counterfactuals, the coupled response has not earned
+itself. If they respond but each fixed component still becomes one internally
+uniform roof, the next missing owner is time-varying deformation support (or the
+explicit topology upper bound B), not more response calibration.
 
 ## Slice B — causal dual drainage/divide construction
 

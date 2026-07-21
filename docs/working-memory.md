@@ -34,11 +34,23 @@ See the [causal-attribution audit](audits/terrain-causal-attribution-2026-07-21.
 
 That design pass is now captured in the
 [terrain architecture decision](terrain-architecture.md). It separates forcing,
-landscape response and representation, selects epochal coupled evolution as the
-first slice, and retains a dual drainage/divide construction only as a
+landscape response and representation, selects finite-age coupled evolution as
+the first slice, and retains a dual drainage/divide construction only as a
 conditional low-cost authentic-hack upper bound. Do not begin with multiscale
 detail, adaptive remeshing or a new general framework; first establish regional
 organization on the ordinary roughly 250k-cell surface.
+
+The retained tectonic-history source passes that first slice only narrowly.
+Across seeds `12345`, `8675309` and `9001`, 8--12 derived onset intervals change
+the planet-wide mix of active opportunity substantially, so unequal belt age is
+real usable input. But there are zero retained historical spatial frames, and
+every connected component is temporally rank-one: its present geometry, rate,
+regime and receiving side remain fixed. Run Slice A as a frozen-support test of
+finite age plus mobile drainage/hillslopes. Do not describe global composition
+centroid changes as migration. If response is active but each component remains
+one roof, missing deformation history is the next causal question; if response
+itself is inert, kill A rather than tune it indefinitely. See the
+[source-viability audit](audits/tectonic-source-viability-2026-07-21.md).
 
 Preserve the integrated World Readability V0 recipe while doing this. The packet
 confirms that Hex3 already generates more coherent geography than its former
