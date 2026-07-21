@@ -10,6 +10,12 @@ documentation reading path.
 
 Current bounded evidence:
 
+- [`structural-mountain-seed-8675309-organization-audit-v2.json`](structural-mountain-seed-8675309-organization-audit-v2.json)
+  retains the clean source-only boundary-scale audit for finite-age episode `9`:
+  exact-midpoint and continuous-normal controls, signed/clipped flux ledgers,
+  inherited-scale scalar aggregation and cadence summaries. Its manifest records
+  clean revision `d2c7035`.
+
 - [`finite-age-within-episode-seed-8675309-episode-9-v0.json`](finite-age-within-episode-seed-8675309-episode-9-v0.json)
   retains the ordinary capped-surface 50 km station trace from exact owner-edge
   convergence through scheduled uplift, demoted substrate, final crest/response

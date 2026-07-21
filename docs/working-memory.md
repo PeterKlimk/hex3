@@ -149,6 +149,8 @@ existing 127 km collision width as the minimum physical-support candidate and
 edge-phase cadence while retaining persistent regional bends/rate gradients and
 closing the signed ledger exactly. The transverse-trunk proxy remains too sparse
 to attribute the later local sharpening among incision, hillslopes and capture.
+The clean source-only record is retained in
+[`docs/generated`](generated/structural-mountain-seed-8675309-organization-audit-v2.json).
 
 One cache-disabled WSL pair per seed shows `27.78/27.56`, `21.96/23.62` and
 `27.82/27.96` seconds wall for Legacy/candidate at roughly 256k cells. Candidate
