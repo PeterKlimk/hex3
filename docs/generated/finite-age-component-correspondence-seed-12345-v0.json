@@ -3,8 +3,8 @@
   "seed": 12345,
   "manifest": {
     "build": {
-      "git_revision": "e77cc13afaa44ae52fedd0056e84f0143094a495",
-      "git_dirty": true
+      "git_revision": "623ad32ff4b53fd0faffb03c4943d5a7f49d415f",
+      "git_dirty": false
     },
     "units": {
       "contract_version": 1,
