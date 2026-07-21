@@ -162,6 +162,16 @@ Keep Legacy as the usable control, but stop tuning or further interrogating it
 as a candidate architecture. Paleorifts, transfers, seed selection, relief
 tuning and crest noise are not substitutes.
 
+The first quarantined Slice A checkpoint is now implemented at `6010d3c` and
+passes the full research test suite. Its three-world coarse pilot changes range
+structure coherently, so coupled response is not inert, but it also removes
+roughly half or more of mountain-land coverage and may underbuild one world.
+Next is matched human visual discrimination of those existing images—not a
+parameter sweep, higher-resolution campaign or move to Slice B. The decision is
+whether the candidate reveals credible maturity/dissection differences while
+repairing the roof grammar, or merely trades broad plateaus for sparse or
+repetitive relief.
+
 ## Completed bounded decisions
 
 ### [Consequential Geography V0](consequential-geography.md) — bounded decision complete

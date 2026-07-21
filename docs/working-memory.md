@@ -1,6 +1,6 @@
 # Hex3 working memory
 
-Status: **active, non-authoritative scratchpad**. Last consolidated 2026-07-21.
+Status: **active, non-authoritative scratchpad**. Last consolidated 2026-07-22.
 
 This document preserves medium-term context across evaluation passes so the
 active investigation does not erase other important findings. It is a queue of
@@ -51,6 +51,28 @@ centroid changes as migration. If response is active but each component remains
 one roof, missing deformation history is the next causal question; if response
 itself is inert, kill A rather than tune it indefinitely. See the
 [source-viability audit](audits/tectonic-source-viability-2026-07-21.md).
+
+Slice A now exists behind `research-landscape` and `--finite-age-uplift` at
+checkpoint `6010d3c`. It fully removes Legacy's convergent height contribution,
+assigns each fine source cell one exact present-front owner, uses positive local
+convergence as uplift opportunity, and activates that source only for its
+retained episode age. The ordinary coupled erosion, rerouting, nonlinear
+hillslope and final hydrology path remains authoritative. Source rates are
+calibrated against the removed all-old Legacy opportunity, but the candidate
+does **not** amplify shorter-lived belts to restore the counterfactual all-old
+integral; age therefore has a real material consequence.
+
+The first three-world 100k-cell pilot is discriminating but unresolved. Relative
+to Legacy, the candidate repeatedly produces steeper summit descent, closer
+crest spacing and more transverse trunk flow, so the response is not inert.
+Mountain-land coverage falls from `6.8/10.8/5.6%` to `3.3/5.8/1.9%` in seeds
+`12345/8675309/9001`. Preliminary visual review finds materially better internal
+range structure in several matched views, while seed `9001` may be an honestly
+young/dissected world or simply underbuilt; some rounded or repetitive tooth
+grammar also remains. Treat the local packet under
+`artifacts/captures/finite-age-slice-a-v0/` as human-review evidence, not a
+promotion packet. Do not tune coverage or run a broad resolution campaign until
+that visual distinction is made.
 
 Preserve the integrated World Readability V0 recipe while doing this. The packet
 confirms that Hex3 already generates more coherent geography than its former

@@ -265,6 +265,25 @@ itself. If they respond but each fixed component still becomes one internally
 uniform roof, the next missing owner is time-varying deformation support (or the
 explicit topology upper bound B), not more response calibration.
 
+### Current checkpoint
+
+The first quarantined vertical slice is implemented at `6010d3c`. It demotes the
+entire Legacy convergent height contribution, gives each fine source cell one
+nearest exact present-front owner, and derives its uplift rate and finite active
+suffix from positive local convergence and retained episode age. It then uses
+the ordinary Stage-4 rerouting, incision, nonlinear hillslope, deposition and
+final hydrology path. Present supports remain frozen; this is deliberately not
+a migration model. A separate diagnostic can match the counterfactual all-old
+integral, but the candidate does not: finite age changes integrated work.
+
+A provisional three-world 100k-cell pilot shows recurring structural change
+rather than mere texture: summits descend more steeply, crests are generally
+closer and trunk flow is more often transverse. It also roughly halves
+mountain-land coverage in all three worlds, and one world may be underbuilt.
+Matched human visual review is therefore the next gate. This is neither a
+promotion nor authority to calibrate mountain coverage, add source complexity,
+start Slice B or spend the ordinary-resolution budget.
+
 ## Slice B — causal dual drainage/divide construction
 
 Hypothesis: a sparse topology conditioned by tectonic opportunity, base level,
