@@ -1,3 +1,5 @@
+#[cfg(feature = "research-landscape")]
+use hex3::world::frozen_support_uplift;
 use hex3::world::{
     BiomeKind, EcologySemantics, ErosionParams, FineCacheMode, FineCacheOutcome, FineDensityParams,
     FineStructureParams, FineWorld, LivingSurfaceSemantics, OrogenFronts, RiverNetwork,
@@ -174,6 +176,93 @@ fn fine_mesh_pipeline_smoke() {
             assert_eq!(state.fractions.terrestrial_sum(), 0.0);
         } else {
             assert!((state.fractions.terrestrial_sum() - 1.0).abs() <= 2e-6);
+        }
+    }
+}
+
+#[cfg(feature = "research-landscape")]
+#[test]
+fn finite_age_source_retains_front_and_episode_provenance() {
+    let world = coarse_world();
+    let fronts = OrogenFronts::build(
+        &world.tessellation,
+        world.plates.as_ref().unwrap(),
+        world.crust.as_ref().unwrap(),
+        world.dynamics.as_ref().unwrap(),
+        world.tectonic_history.as_ref().unwrap(),
+    );
+    let fine = generate_pre(&world);
+    let source = frozen_support_uplift(&fine.base, &fronts);
+
+    let front_count = fronts.points.len();
+    for len in [
+        fronts.seg_a.len(),
+        fronts.seg_b.len(),
+        fronts.accept_plate.len(),
+        fronts.arc_u.len(),
+        fronts.chain_id.len(),
+        fronts.u_lin.len(),
+        fronts.u_dir.len(),
+        fronts.episode_duration_myr.len(),
+        fronts.episode_id.len(),
+        fronts.edge_id.len(),
+        fronts.convergence_km_per_myr.len(),
+    ] {
+        assert_eq!(len, front_count, "front provenance vector misalignment");
+    }
+    for ((&episode_id, &duration), edge_id) in fronts
+        .episode_id
+        .iter()
+        .zip(&fronts.episode_duration_myr)
+        .zip(&fronts.edge_id)
+    {
+        let history = world.tectonic_history.as_ref().unwrap();
+        assert!(episode_id < history.episodes.len());
+        assert_eq!(
+            history
+                .episode_for_edge(edge_id.cell_a, edge_id.cell_b)
+                .unwrap()
+                .id,
+            episode_id
+        );
+        assert_eq!(
+            duration.to_bits(),
+            history.episodes[episode_id].duration_myr.to_bits()
+        );
+    }
+
+    let fine_count = fine.base.tessellation.num_cells();
+    assert_eq!(source.shape.len(), fine_count);
+    assert_eq!(source.duration_myr.len(), fine_count);
+    assert_eq!(source.owner_front.len(), fine_count);
+    assert!(source.owned_cells > 0);
+    assert!(source.shape.contains(&0.0));
+    assert_eq!(
+        source.owned_cells,
+        source.shape.iter().filter(|&&rate| rate > 0.0).count()
+    );
+    for ((&rate, &duration), &owner) in source
+        .shape
+        .iter()
+        .zip(&source.duration_myr)
+        .zip(&source.owner_front)
+    {
+        if rate > 0.0 {
+            let owner = owner as usize;
+            assert!(owner < front_count, "positive source has invalid owner");
+            assert_eq!(
+                duration.to_bits(),
+                fronts.episode_duration_myr[owner].to_bits()
+            );
+            assert_eq!(
+                duration.to_bits(),
+                world.tectonic_history.as_ref().unwrap().episodes[fronts.episode_id[owner]]
+                    .duration_myr
+                    .to_bits()
+            );
+        } else {
+            assert_eq!(owner, u32::MAX, "zero source retained a front owner");
+            assert_eq!(duration.to_bits(), 0.0f32.to_bits());
         }
     }
 }

@@ -10,6 +10,13 @@ documentation reading path.
 
 Current bounded evidence:
 
+- [`finite-age-component-correspondence-seed-12345-v0.json`](finite-age-component-correspondence-seed-12345-v0.json),
+  [`seed-8675309`](finite-age-component-correspondence-seed-8675309-v0.json) and
+  [`seed-9001`](finite-age-component-correspondence-seed-9001-v0.json) retain the
+  ordinary-resolution exact-front → fine opportunity → target-land scheduled
+  builder → coupled response decomposition for Slice A. Their full manifests,
+  footprint semantics and exploratory maturity sample counts are embedded.
+
 - [`structural-mountain-seed-12345-attribution-v0.json`](structural-mountain-seed-12345-attribution-v0.json)
   freezes the complete anchor-recovered core, receiving catchments and legacy
   front ancestry used by the Structural Mountain V0 inadmissibility verdict.

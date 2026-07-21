@@ -18,12 +18,12 @@ use super::erosion::ErosionParams;
 use super::features::build_cell_pair_edge_endpoints;
 use super::fine_cache::{self, FineCacheMode};
 use super::water::connected_ocean_cells;
-#[cfg(feature = "research-landscape")]
-use super::TectonicHistory;
 use super::{
     Atmosphere, CellWaterState, Crust, Elevation, FeatureFields, FineCacheOutcome, FineCacheRecord,
     Hydrology, Plates, Tessellation,
 };
+#[cfg(feature = "research-landscape")]
+use super::{CellEdgeId, TectonicHistory};
 
 type CoarseTree = ImmutableKdTree<f32, 3>;
 
@@ -164,6 +164,14 @@ pub struct OrogenFronts {
     /// it does not imply that the front moved through time.
     #[cfg(feature = "research-landscape")]
     pub episode_duration_myr: Vec<f32>,
+    /// Exact [`TectonicHistory`] episode owning each front. `usize::MAX` denotes
+    /// the defensive no-episode case and is aligned with a zero duration.
+    #[cfg(feature = "research-landscape")]
+    pub episode_id: Vec<usize>,
+    /// Canonical coarse boundary edge represented by each front. This lets
+    /// research diagnostics cross-check fallback geometry against exact arcs.
+    #[cfg(feature = "research-landscape")]
+    pub edge_id: Vec<CellEdgeId>,
     /// Positive local closing rate on each exact front arc. Slice A uses this as
     /// relative rock-uplift opportunity before one global budget calibration.
     #[cfg(feature = "research-landscape")]
@@ -190,6 +198,10 @@ impl OrogenFronts {
         let mut accept_plate = Vec::new();
         #[cfg(feature = "research-landscape")]
         let mut episode_duration_myr = Vec::new();
+        #[cfg(feature = "research-landscape")]
+        let mut episode_id = Vec::new();
+        #[cfg(feature = "research-landscape")]
+        let mut edge_id = Vec::new();
         #[cfg(feature = "research-landscape")]
         let mut convergence_km_per_myr = Vec::new();
         // Voronoi-vertex endpoint IDs per front (for chaining into polylines).
@@ -230,11 +242,10 @@ impl OrogenFronts {
             accept_plate.push(accept);
             #[cfg(feature = "research-landscape")]
             {
-                episode_duration_myr.push(
-                    history
-                        .episode_for_edge(e.cell_a, e.cell_b)
-                        .map_or(0.0, |episode| episode.duration_myr),
-                );
+                let episode = history.episode_for_edge(e.cell_a, e.cell_b);
+                episode_duration_myr.push(episode.map_or(0.0, |episode| episode.duration_myr));
+                episode_id.push(episode.map_or(usize::MAX, |episode| episode.id));
+                edge_id.push(CellEdgeId::new(e.cell_a, e.cell_b));
                 convergence_km_per_myr.push(e.convergence_km_per_myr().max(0.0));
             }
             vids.push((va, vb));
@@ -252,6 +263,10 @@ impl OrogenFronts {
             u_dir,
             #[cfg(feature = "research-landscape")]
             episode_duration_myr,
+            #[cfg(feature = "research-landscape")]
+            episode_id,
+            #[cfg(feature = "research-landscape")]
+            edge_id,
             #[cfg(feature = "research-landscape")]
             convergence_km_per_myr,
         }
@@ -1794,34 +1809,38 @@ fn nearest_meso_front_frame(
 /// the spatial source: its removed volume calibrates the hypothetical all-old
 /// source rate, while actual ages determine the candidate's integrated work.
 #[cfg(feature = "research-landscape")]
-pub(crate) struct FrozenSupportUplift {
+pub struct FrozenSupportUplift {
     pub shape: Vec<f32>,
     pub duration_myr: Vec<f32>,
+    /// Per-fine-cell index into [`OrogenFronts`], or `u32::MAX` when the cell has
+    /// no positive finite-age source.
+    pub owner_front: Vec<u32>,
     pub owned_cells: usize,
     pub distinct_durations: usize,
 }
 
 #[cfg(feature = "research-landscape")]
-pub(crate) fn frozen_support_uplift(base: &FineBase, fronts: &OrogenFronts) -> FrozenSupportUplift {
+pub fn frozen_support_uplift(base: &FineBase, fronts: &OrogenFronts) -> FrozenSupportUplift {
     let n = base.tessellation.num_cells();
     let Some(tree) = meso_front_tree(fronts) else {
         return FrozenSupportUplift {
             shape: vec![0.0; n],
             duration_myr: vec![0.0; n],
+            owner_front: vec![u32::MAX; n],
             owned_cells: 0,
             distinct_durations: 0,
         };
     };
     let gather_r2 = meso_front_gather_r2();
-    let sample = |i: usize| -> (f32, f32) {
+    let sample = |i: usize| -> (f32, f32, u32) {
         let center = base.tessellation.cell_center(i);
         let plate = fronts.coarse_cell_plate[base.coarse_cell[i]];
         let Some(front) = nearest_meso_front_frame(center, plate, fronts, &tree, gather_r2) else {
-            return (0.0, 0.0);
+            return (0.0, 0.0, u32::MAX);
         };
         let owner = front.front_index;
         if fronts.accept_plate[owner].is_some_and(|receiver| receiver != plate) {
-            return (0.0, 0.0);
+            return (0.0, 0.0, u32::MAX);
         }
         let profile = if front.v < 0.0 {
             super::features::smoothstep(-FINE_OROGEN_FORELAND_WIDTH, 0.0, front.v)
@@ -1831,17 +1850,22 @@ pub(crate) fn frozen_support_uplift(base: &FineBase, fronts: &OrogenFronts) -> F
         let rate = fronts.convergence_km_per_myr[owner] * profile;
         let duration = fronts.episode_duration_myr[owner];
         if rate > 0.0 && duration > 0.0 {
-            (rate, duration)
+            (
+                rate,
+                duration,
+                u32::try_from(owner).expect("orogen front index exceeds u32 provenance capacity"),
+            )
         } else {
-            (0.0, 0.0)
+            (0.0, 0.0, u32::MAX)
         }
     };
     #[cfg(not(feature = "single-threaded"))]
-    let samples: Vec<(f32, f32)> = (0..n).into_par_iter().map(sample).collect();
+    let samples: Vec<(f32, f32, u32)> = (0..n).into_par_iter().map(sample).collect();
     #[cfg(feature = "single-threaded")]
-    let samples: Vec<(f32, f32)> = (0..n).map(sample).collect();
-    let shape: Vec<f32> = samples.iter().map(|&(rate, _)| rate).collect();
-    let duration_myr: Vec<f32> = samples.iter().map(|&(_, duration)| duration).collect();
+    let samples: Vec<(f32, f32, u32)> = (0..n).map(sample).collect();
+    let shape: Vec<f32> = samples.iter().map(|&(rate, _, _)| rate).collect();
+    let duration_myr: Vec<f32> = samples.iter().map(|&(_, duration, _)| duration).collect();
+    let owner_front: Vec<u32> = samples.iter().map(|&(_, _, owner)| owner).collect();
     let owned_cells = shape.iter().filter(|&&rate| rate > 0.0).count();
     let distinct_durations = duration_myr
         .iter()
@@ -1852,6 +1876,7 @@ pub(crate) fn frozen_support_uplift(base: &FineBase, fronts: &OrogenFronts) -> F
     FrozenSupportUplift {
         shape,
         duration_myr,
+        owner_front,
         owned_cells,
         distinct_durations,
     }

@@ -290,12 +290,32 @@ of merely deleting amplitude or adding global noise. Wall time and peak memory
 are at practical parity in one cache-disabled pair per world; exact-front
 ownership still adds aggregate CPU work and should be reused before promotion.
 
-The remaining defect is specific: seed `8675309` retains some repeated tooth
-grammar, while seed `9001` loses half its p95 elevation and becomes low dissected
-upland despite preserving its maximum peak. Test whether integrated convergence
-opportunity and episode age actually predict component relief and maturity.
-This is neither a promotion nor authority to restore a global height target,
-add source complexity, tune coverage or start Slice B.
+The component correspondence pass localizes the remaining uncertainty. It
+cross-checks exact edge/episode identity, reconstructs the unsmoothed target-land
+builder and finite-age schedule, and measures final response only on the supplied
+target-land footprint. The three ordinary worlds give:
+
+| Seed | Static builder budget (million km³) | Present-support share | Finite-age share of supported | Scheduled→positive-response share L1 / Spearman |
+|---|---:|---:|---:|---:|
+| `12345` | 45.9 | 91.2% | 55.0% | 0.212 / 0.904 |
+| `8675309` | 37.2 | 96.1% | 67.6% | 0.230 / 0.917 |
+| `9001` | 25.4 | 91.4% | 52.3% | 0.180 / 0.881 |
+
+Seed `9001` is therefore not an anomalous downstream under-response. Its source
+model supplies about half the scheduled volume of the other worlds, its largest
+exact-opportunity component has no target-land source cells, and the coupled
+response expresses the work it is actually given about as consistently as the
+other worlds. This validates source-to-response correspondence, not the physical
+adequacy of frozen present supports or the land gate.
+
+The unresolved defect is now morphological and within-component. Land-only
+age-to-relief, summit-grade and trunk-orientation correlations are exploratory,
+use only 5--13 components and are not stable across worlds; they do not establish
+credible unequal belt maturity. For the repeated-tooth belt in seed `8675309`,
+test whether crest spacing, summit caps and drainage/divides inherit organization
+from the supplied front field or create it during landscape response. This is
+neither a promotion nor authority to restore a global height target, add source
+complexity, tune coverage or start Slice B.
 
 ## Slice B — causal dual drainage/divide construction
 

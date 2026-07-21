@@ -97,6 +97,8 @@ pub use erosion::{roughness_counters, ErosionParams, RoughnessCounters};
 #[cfg(feature = "research-landscape")]
 pub use features::LegacyCollisionTrace;
 pub use features::{EpisodeCrustWork, FeatureFields, MaterialEpisodeWork};
+#[cfg(feature = "research-landscape")]
+pub use fine::{frozen_support_uplift, FrozenSupportUplift};
 pub use fine::{
     FineBase, FineDensityParams, FineFields, FineStructureParams, FineSurface, FineWorld,
     OrogenFronts,

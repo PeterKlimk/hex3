@@ -76,9 +76,32 @@ height changes by only `-1.2/+4.2/+0.4%`, while 25 km relief p90 rises by
 checkerboard rates remain flat or improve, so this is concentrated regional
 relief rather than generic numerical noise. Seed `9001` nevertheless loses half
 its p95 elevation and becomes low dissected upland; seed `8675309` retains some
-regular tooth grammar. The next causal check is whether component-integrated
-convergence times age explains those outcomes. Do not repair them by restoring a
-planet-wide height budget or beginning a parameter sweep.
+regular tooth grammar.
+
+The component correspondence check exonerates the downstream amplitude chain,
+not the source model. Exact edge, episode and endpoint identity cross-checks
+pass. Across seeds `12345/8675309/9001`, current present-front support retains
+`91.2/96.1/91.4%` of the counterfactual static builder budget; finite ages retain
+`55.0/67.6/52.3%` of that supported budget. In-footprint positive-response to
+scheduled-uplift ratios are `68.9/77.5/67.2%` (not conservation ledgers).
+Scheduled component uplift predicts positive response with Spearman
+`0.904/0.917/0.881` and normalized share L1 `0.212/0.230/0.180`. Seed `9001`
+therefore does not show an anomalous response dropout. It begins with the
+smallest static budget (`25.4` versus `45.9/37.2` million km³), its largest
+exact-opportunity component has no target-land source cells, and one 12.5 Myr
+land-capable component accounts for most of its age-driven budget reduction. Its
+low upland is an honest consequence of the declared frozen-source model, which
+is not the same as evidence that the model is geologically adequate.
+
+Age does not yet robustly explain morphological maturity. Land-only
+cross-component age-to-relief correlations are `-0.089/+0.659/+0.447`, but use
+only `13/8/5` components; summit-grade evidence is similarly world-dependent and
+trunk-orientation correlation is near zero. These unweighted observations remain
+confounded by component size, rate, material and setting. The
+remaining `8675309` tooth grammar is therefore a within-component organization
+question: determine whether crest spacing, summit caps and drainage/divides
+inherit periodicity from the supplied front field or create it during response.
+Do not repair it with a global height budget or a parameter sweep.
 
 One cache-disabled WSL pair per seed shows `27.78/27.56`, `21.96/23.62` and
 `27.82/27.96` seconds wall for Legacy/candidate at roughly 256k cells. Candidate

@@ -88,6 +88,15 @@ struct Cli {
     #[cfg(feature = "research-landscape")]
     #[arg(long, requires = "roof_causal_trace")]
     roof_causal_trace_out: Option<PathBuf>,
+    /// Audit finite-age source components against the terrain and drainage they
+    /// actually own. Implies the coherent frozen-support Slice A preset.
+    #[cfg(feature = "research-landscape")]
+    #[arg(long, default_value_t = false)]
+    finite_age_component_audit: bool,
+    /// Write the finite-age component correspondence as deterministic JSON.
+    #[cfg(feature = "research-landscape")]
+    #[arg(long, requires = "finite_age_component_audit")]
+    finite_age_component_audit_out: Option<PathBuf>,
     /// Audit the emergent builder per connected orogen: coarse target versus
     /// final peak, plus whether the planet-wide shape normalizer subsidizes or
     /// taxes each component. This is the standing coarse→fine rebuild gate.
@@ -376,7 +385,7 @@ fn main() {
     }
     world.generate_atmosphere();
     #[cfg(feature = "research-landscape")]
-    if cli.finite_age_uplift {
+    if cli.finite_age_uplift || cli.finite_age_component_audit {
         world.erosion_params.finite_age_uplift = true;
         world.fine_structure_params.emergent_lambda = 1.0;
         world.fine_structure_params.emergent_structured = 0.0;
@@ -595,6 +604,17 @@ fn main() {
             cli.seed,
             cli.cells,
             cli.roof_causal_trace_out.as_deref(),
+        );
+        audited = true;
+    }
+    #[cfg(feature = "research-landscape")]
+    if cli.finite_age_component_audit {
+        run_finite_age_component_audit(
+            &world,
+            cli.seed,
+            cli.cells,
+            cli.top,
+            cli.finite_age_component_audit_out.as_deref(),
         );
         audited = true;
     }
@@ -1647,7 +1667,9 @@ struct SourceViabilityReport {
 
 #[cfg(all(test, feature = "research-landscape"))]
 mod source_viability_tests {
-    use super::{normalized_l1, rank_one_residual};
+    use super::{
+        area_weighted_quantile, normalized_l1, rank_one_residual, spearman_rank_correlation,
+    };
 
     #[test]
     fn distribution_metrics_separate_scaling_from_support_redistribution() {
@@ -1659,6 +1681,18 @@ mod source_viability_tests {
         let nested = [0.0, 2.0, 3.0];
         assert!(normalized_l1(&present, &nested).unwrap() > 0.1);
         assert!(rank_one_residual(&nested, &present).unwrap() > 0.1);
+    }
+
+    #[test]
+    fn component_statistics_respect_area_and_rank_ties() {
+        let samples = vec![(1.0, 9.0), (5.0, 1.0)];
+        assert_eq!(area_weighted_quantile(samples.clone(), 0.5), Some(1.0));
+        assert_eq!(area_weighted_quantile(samples, 0.95), Some(5.0));
+
+        let increasing = [(1.0, 4.0), (2.0, 5.0), (2.0, 5.0), (3.0, 9.0)];
+        let decreasing = [(1.0, 9.0), (2.0, 5.0), (2.0, 5.0), (3.0, 4.0)];
+        assert!((spearman_rank_correlation(increasing).unwrap() - 1.0).abs() < 1.0e-12);
+        assert!((spearman_rank_correlation(decreasing).unwrap() + 1.0).abs() < 1.0e-12);
     }
 }
 
@@ -2104,6 +2138,861 @@ fn run_source_viability_audit(
             std::process::exit(2);
         }
         eprintln!("wrote source viability {}", path.display());
+    }
+}
+
+// ================= FINITE-AGE COMPONENT CORRESPONDENCE =================
+
+#[cfg(feature = "research-landscape")]
+const FINITE_AGE_VISIBLE_RESPONSE_KM: f32 = 0.1;
+
+#[cfg(feature = "research-landscape")]
+#[derive(Debug, serde::Serialize)]
+struct FiniteAgeComponentRecord {
+    episode_id: usize,
+    duration_myr: f32,
+    exact_front_edges: usize,
+    exact_front_length_km: f64,
+    exact_shortening_area_opportunity_km2: f64,
+    exact_opportunity_share: f64,
+    source_cells: usize,
+    source_support_area_km2: f64,
+    raw_fine_integrated_opportunity_km3: f64,
+    fine_opportunity_share: f64,
+    target_land_source_cells: usize,
+    target_land_source_area_km2: f64,
+    full_age_builder_uplift_volume_km3: f64,
+    full_age_builder_uplift_share: f64,
+    finite_age_scheduled_uplift_volume_km3: f64,
+    finite_age_scheduled_uplift_share: f64,
+    removed_legacy_volume_km3: f64,
+    signed_net_response_volume_km3: f64,
+    positive_net_response_volume_km3: f64,
+    positive_response_share: f64,
+    positive_response_to_removed_legacy: Option<f64>,
+    effective_positive_response_area_km2: f64,
+    effective_area_fraction_of_support: Option<f64>,
+    visible_response_threshold_km: f32,
+    visible_response_fragments: usize,
+    visible_response_area_km2: f64,
+    largest_visible_length_km: f32,
+    largest_visible_width_km: f32,
+    final_land_fraction_of_support: Option<f64>,
+    final_peak_km: Option<f32>,
+    final_elevation_p90_km: Option<f64>,
+    local_relief_25km_p90_km: Option<f64>,
+    summit_downhill_grade_p50: Option<f64>,
+    summit_downhill_grade_p90: Option<f64>,
+    trunk_cells: usize,
+    trunk_longitudinal_fraction: Option<f64>,
+    trunk_oblique_fraction: Option<f64>,
+    trunk_transverse_fraction: Option<f64>,
+}
+
+#[cfg(feature = "research-landscape")]
+#[derive(Debug, serde::Serialize)]
+struct FiniteAgeCorrespondenceSummary {
+    exact_components: usize,
+    fine_supported_components: usize,
+    target_land_builder_supported_components: usize,
+    exact_vs_fine_opportunity_share_l1: Option<f64>,
+    fine_opportunity_vs_scheduled_uplift_share_l1: Option<f64>,
+    static_builder_budget_km3: f64,
+    attributed_full_age_builder_budget_km3: f64,
+    present_support_retained_fraction: Option<f64>,
+    finite_age_scheduled_builder_budget_km3: f64,
+    finite_age_retained_fraction_of_attributed_full_age: Option<f64>,
+    signed_response_volume_km3: f64,
+    signed_response_fraction_of_scheduled_uplift: Option<f64>,
+    positive_response_volume_km3: f64,
+    positive_response_fraction_of_scheduled_uplift: Option<f64>,
+    scheduled_uplift_vs_positive_response_share_l1: Option<f64>,
+    exact_opportunity_vs_positive_response_spearman: Option<f64>,
+    scheduled_uplift_vs_positive_response_spearman: Option<f64>,
+    duration_vs_local_relief_spearman: Option<f64>,
+    duration_vs_local_relief_pairs: usize,
+    duration_vs_summit_grade_spearman: Option<f64>,
+    duration_vs_summit_grade_pairs: usize,
+    duration_vs_trunk_transverse_spearman: Option<f64>,
+    duration_vs_trunk_transverse_pairs: usize,
+}
+
+#[cfg(feature = "research-landscape")]
+#[derive(Debug, serde::Serialize)]
+struct FiniteAgeComponentReport {
+    schema: &'static str,
+    seed: u64,
+    manifest: hex3::world::RunManifest,
+    requested_coarse_cells: usize,
+    actual_coarse_cells: usize,
+    fine_cells: usize,
+    source_semantics: &'static str,
+    builder_budget_semantics: &'static str,
+    response_semantics: &'static str,
+    drainage_semantics: &'static str,
+    maturity_correlation_semantics: &'static str,
+    visible_response_threshold_km: f32,
+    exact_front_identity_crosscheck: &'static str,
+    summary: FiniteAgeCorrespondenceSummary,
+    components: Vec<FiniteAgeComponentRecord>,
+}
+
+#[cfg(feature = "research-landscape")]
+#[derive(Default)]
+struct ExactFiniteAgeComponent {
+    duration_myr: f32,
+    front_edges: usize,
+    length_km: f64,
+    opportunity_km2: f64,
+}
+
+#[cfg(feature = "research-landscape")]
+fn area_weighted_quantile(mut samples: Vec<(f64, f64)>, probability: f64) -> Option<f64> {
+    samples.retain(|(value, weight)| value.is_finite() && weight.is_finite() && *weight > 0.0);
+    if samples.is_empty() {
+        return None;
+    }
+    samples.sort_by(|left, right| left.0.total_cmp(&right.0));
+    let total = samples.iter().map(|(_, weight)| weight).sum::<f64>();
+    if total <= 0.0 {
+        return None;
+    }
+    let target = probability.clamp(0.0, 1.0) * total;
+    let mut cumulative = 0.0;
+    for (value, weight) in &samples {
+        cumulative += weight;
+        if cumulative >= target {
+            return Some(*value);
+        }
+    }
+    samples.last().map(|(value, _)| *value)
+}
+
+#[cfg(feature = "research-landscape")]
+fn average_ranks(values: &[f64]) -> Option<Vec<f64>> {
+    if values.len() < 3 || values.iter().any(|value| !value.is_finite()) {
+        return None;
+    }
+    let mut order: Vec<usize> = (0..values.len()).collect();
+    order.sort_by(|&left, &right| values[left].total_cmp(&values[right]));
+    let mut ranks = vec![0.0; values.len()];
+    let mut start = 0usize;
+    while start < order.len() {
+        let mut end = start + 1;
+        while end < order.len()
+            && values[order[start]].total_cmp(&values[order[end]]) == std::cmp::Ordering::Equal
+        {
+            end += 1;
+        }
+        let average = 0.5 * ((start + 1) as f64 + end as f64);
+        for &index in &order[start..end] {
+            ranks[index] = average;
+        }
+        start = end;
+    }
+    Some(ranks)
+}
+
+#[cfg(feature = "research-landscape")]
+fn spearman_rank_correlation(pairs: impl IntoIterator<Item = (f64, f64)>) -> Option<f64> {
+    let pairs: Vec<_> = pairs
+        .into_iter()
+        .filter(|(left, right)| left.is_finite() && right.is_finite())
+        .collect();
+    let left: Vec<_> = pairs.iter().map(|pair| pair.0).collect();
+    let right: Vec<_> = pairs.iter().map(|pair| pair.1).collect();
+    let left = average_ranks(&left)?;
+    let right = average_ranks(&right)?;
+    let left_mean = left.iter().sum::<f64>() / left.len() as f64;
+    let right_mean = right.iter().sum::<f64>() / right.len() as f64;
+    let covariance = left
+        .iter()
+        .zip(&right)
+        .map(|(&a, &b)| (a - left_mean) * (b - right_mean))
+        .sum::<f64>();
+    let left_ss = left
+        .iter()
+        .map(|value| (value - left_mean).powi(2))
+        .sum::<f64>();
+    let right_ss = right
+        .iter()
+        .map(|value| (value - right_mean).powi(2))
+        .sum::<f64>();
+    (left_ss > 0.0 && right_ss > 0.0).then_some(covariance / (left_ss * right_ss).sqrt())
+}
+
+#[cfg(feature = "research-landscape")]
+fn exact_fronts_match(
+    fronts: &hex3::world::OrogenFronts,
+    exact: &std::collections::BTreeMap<hex3::world::CellEdgeId, &hex3::world::ConvergentFrontEdge>,
+) -> bool {
+    if fronts.points.len() != exact.len()
+        || fronts.edge_id.len() != fronts.points.len()
+        || fronts.episode_id.len() != fronts.points.len()
+    {
+        return false;
+    }
+    fronts.edge_id.iter().enumerate().all(|(index, id)| {
+        let Some(edge) = exact.get(id) else {
+            return false;
+        };
+        if edge.episode_id != fronts.episode_id[index] {
+            return false;
+        }
+        let [ea, eb] = edge.endpoints;
+        let (fa, fb) = (fronts.seg_a[index], fronts.seg_b[index]);
+        let direct = fa.dot(ea) > 1.0 - 1.0e-5 && fb.dot(eb) > 1.0 - 1.0e-5;
+        let reversed = fa.dot(eb) > 1.0 - 1.0e-5 && fb.dot(ea) > 1.0 - 1.0e-5;
+        direct || reversed
+    })
+}
+
+#[cfg(feature = "research-landscape")]
+fn run_finite_age_component_audit(
+    world: &World,
+    seed: u64,
+    requested_cells: usize,
+    top: usize,
+    out: Option<&Path>,
+) {
+    use std::collections::BTreeMap;
+
+    use hex3::world::{
+        collect_convergent_fronts, collect_plate_boundaries, frozen_support_uplift, OrogenFronts,
+    };
+
+    let fine = world
+        .fine
+        .as_ref()
+        .expect("finite-age component audit requires a fine world");
+    assert!(
+        world.erosion_params.finite_age_uplift,
+        "finite-age component audit requires Slice A"
+    );
+    assert_eq!(
+        world.orogen_model,
+        OrogenModel::Legacy,
+        "finite-age component audit requires the Legacy coarse target"
+    );
+    assert!(
+        (fine.base.emergent_lambda - 1.0).abs() <= f32::EPSILON,
+        "finite-age component audit requires full Legacy relief demotion"
+    );
+    assert!(
+        world.erosion_params.uplift_smooth_km == 0.0,
+        "finite-age component attribution requires zero uplift smoothing"
+    );
+    let final_surface = fine
+        .eroded
+        .as_ref()
+        .expect("finite-age component audit requires Stage 4");
+    let plates = world.plates.as_ref().expect("plates generated");
+    let crust = world.crust.as_ref().expect("crust generated");
+    let dynamics = world.dynamics.as_ref().expect("dynamics generated");
+    let history = world
+        .tectonic_history
+        .as_ref()
+        .expect("tectonic history generated");
+    let boundaries = collect_plate_boundaries(&world.tessellation, plates, crust, dynamics);
+    let exact_fronts = collect_convergent_fronts(&world.tessellation, &boundaries, history)
+        .unwrap_or_else(|error| panic!("finite-age exact front collection failed: {error}"));
+    let exact_by_id: BTreeMap<_, _> = exact_fronts
+        .edges
+        .iter()
+        .map(|edge| (edge.id, edge))
+        .collect();
+    let fronts = OrogenFronts::build(&world.tessellation, plates, crust, dynamics, history);
+    assert!(
+        exact_fronts_match(&fronts, &exact_by_id),
+        "finite-age owner fronts do not match the exact convergent-front set"
+    );
+    let source = frozen_support_uplift(&fine.base, &fronts);
+    let tess = fine.tessellation();
+    let n = tess.num_cells();
+    assert_eq!(source.shape.len(), n);
+    assert_eq!(source.duration_myr.len(), n);
+    assert_eq!(source.owner_front.len(), n);
+
+    let mut exact = BTreeMap::<usize, ExactFiniteAgeComponent>::new();
+    for edge in &exact_fronts.edges {
+        let component = exact.entry(edge.episode_id).or_default();
+        if component.front_edges == 0 {
+            component.duration_myr = edge.episode_duration_myr;
+        } else {
+            assert_eq!(
+                component.duration_myr.to_bits(),
+                edge.episode_duration_myr.to_bits(),
+                "episode duration must be uniform within a source component"
+            );
+        }
+        component.front_edges += 1;
+        component.length_km += f64::from(edge.length_km);
+        component.opportunity_km2 += edge.shortening_area_opportunity_km2;
+    }
+    let mut cells_by_episode = BTreeMap::<usize, Vec<usize>>::new();
+    for (cell, &owner) in source.owner_front.iter().enumerate() {
+        if owner == u32::MAX {
+            continue;
+        }
+        let owner = owner as usize;
+        assert!(
+            owner < fronts.points.len(),
+            "source owner index is in range"
+        );
+        cells_by_episode
+            .entry(fronts.episode_id[owner])
+            .or_default()
+            .push(cell);
+    }
+    assert!(
+        cells_by_episode
+            .keys()
+            .all(|episode| exact.contains_key(episode)),
+        "every fine source owner maps to an exact component"
+    );
+
+    let entries: Vec<[f32; 3]> = (0..n)
+        .map(|cell| tess.cell_center(cell).to_array())
+        .collect();
+    let mut tree = KdTree::<f32, 3>::with_capacity(n);
+    for (cell, point) in entries.iter().enumerate() {
+        tree.add(point, cell as u64);
+    }
+    let radius = 25.0f32 / EARTH_RADIUS_KM;
+    let relief_radius_sq = (2.0 * (0.5 * radius).sin()).powi(2);
+    let areas = tess.cell_areas_ref();
+    let area_scale = f64::from(EARTH_RADIUS_KM).powi(2);
+    let height_scale = f64::from(ELEVATION_UNIT_KM);
+    let final_elevation = &final_surface.elevation.values;
+    let final_hydrology = &final_surface.hydrology;
+
+    // Reconstruct the current structured builder exactly in surface-elevation
+    // units. The finite-age scheduler multiplies this nominal full-epoch height
+    // by ceil(age/lookback * steps)/steps. Only positive-source cells have a
+    // retained duration, so this also exposes the separate present-support gate.
+    let target = &fine.base.coarse_base_elevation;
+    let substrate = &fine.base.base_elevation;
+    let mut demoted_volume = 0.0f64;
+    let mut shaped_volume = 0.0f64;
+    let mut floor_volume = 0.0f64;
+    for cell in 0..n {
+        if target[cell] < 0.0 {
+            continue;
+        }
+        let area = f64::from(areas[cell]);
+        demoted_volume += f64::from((target[cell] - substrate[cell]).max(0.0)) * area;
+        shaped_volume += f64::from(source.shape[cell].max(0.0)) * area;
+        floor_volume +=
+            f64::from((hex3::world::EMERGENT_LAND_FLOOR_MARGIN - substrate[cell]).max(0.0)) * area;
+    }
+    let excess_volume =
+        (f64::from(world.erosion_params.rebuild_gain) * demoted_volume - floor_volume).max(0.0);
+    let builder_shape_scale = if shaped_volume > 0.0 {
+        (excess_volume / shaped_volume) as f32
+    } else {
+        0.0f32
+    };
+    let static_builder_budget_km3 =
+        f64::from(world.erosion_params.rebuild_gain) * demoted_volume * area_scale * height_scale;
+    let active_fraction = |duration_myr: f32| {
+        let steps = world.erosion_params.steps;
+        if duration_myr <= 0.0 || steps == 0 {
+            0.0
+        } else {
+            ((((f64::from(duration_myr) / f64::from(history.lookback_myr)) * steps as f64).ceil()
+                as usize)
+                .clamp(1, steps) as f64)
+                / steps as f64
+        }
+    };
+
+    let total_exact = exact
+        .values()
+        .map(|component| component.opportunity_km2)
+        .sum::<f64>();
+    let mut records = Vec::with_capacity(exact.len());
+    for (&episode_id, exact_component) in &exact {
+        let cells = cells_by_episode
+            .get(&episode_id)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        let mut support_area_km2 = 0.0f64;
+        let mut fine_opportunity_km3 = 0.0f64;
+        let mut target_land_source_cells = 0usize;
+        let mut target_land_source_area_km2 = 0.0f64;
+        let mut full_age_builder_uplift_km3 = 0.0f64;
+        let mut finite_age_scheduled_uplift_km3 = 0.0f64;
+        let mut removed_legacy_km3 = 0.0f64;
+        let mut signed_response_km3 = 0.0f64;
+        let mut positive_response_km3 = 0.0f64;
+        let mut response_height2_area_km4 = 0.0f64;
+        let mut land_area_km2 = 0.0f64;
+        let mut final_peak_km = f32::NEG_INFINITY;
+        let mut final_samples = Vec::with_capacity(cells.len());
+        let mut relief_samples = Vec::with_capacity(cells.len());
+        for &cell in cells {
+            let area_km2 = f64::from(areas[cell]) * area_scale;
+            let duration = f64::from(source.duration_myr[cell]);
+            support_area_km2 += area_km2;
+            fine_opportunity_km3 += f64::from(source.shape[cell]) * duration * area_km2;
+            if target[cell] < 0.0 {
+                continue;
+            }
+            target_land_source_cells += 1;
+            target_land_source_area_km2 += area_km2;
+            let floor =
+                f64::from((hex3::world::EMERGENT_LAND_FLOOR_MARGIN - substrate[cell]).max(0.0));
+            let nominal_height =
+                floor + f64::from(builder_shape_scale * source.shape[cell].max(0.0));
+            let full_age_volume = nominal_height * height_scale * area_km2;
+            full_age_builder_uplift_km3 += full_age_volume;
+            finite_age_scheduled_uplift_km3 +=
+                full_age_volume * active_fraction(source.duration_myr[cell]);
+            let removed_height_km = f64::from(
+                (fine.base.coarse_base_elevation[cell] - fine.base.base_elevation[cell]).max(0.0),
+            ) * height_scale;
+            removed_legacy_km3 += removed_height_km * area_km2;
+            let final_height_km = f64::from(final_elevation[cell]) * height_scale;
+            let response_height_km =
+                f64::from(final_elevation[cell] - fine.base.base_elevation[cell]) * height_scale;
+            signed_response_km3 += response_height_km * area_km2;
+            let positive_height_km = response_height_km.max(0.0);
+            positive_response_km3 += positive_height_km * area_km2;
+            response_height2_area_km4 += positive_height_km.powi(2) * area_km2;
+            if final_elevation[cell] < 0.0 {
+                continue;
+            }
+            land_area_km2 += area_km2;
+            final_peak_km = final_peak_km.max(final_height_km as f32);
+            final_samples.push((final_height_km, area_km2));
+
+            let mut low = f32::INFINITY;
+            let mut high = f32::NEG_INFINITY;
+            for neighbor in
+                tree.within_unsorted::<SquaredEuclidean>(&entries[cell], relief_radius_sq)
+            {
+                let elevation = final_elevation[neighbor.item as usize];
+                if elevation < 0.0 {
+                    continue;
+                }
+                low = low.min(elevation);
+                high = high.max(elevation);
+            }
+            if low.is_finite() && high.is_finite() {
+                relief_samples.push((f64::from((high - low).max(0.0)) * height_scale, area_km2));
+            }
+        }
+
+        let summit_threshold = area_weighted_quantile(final_samples.clone(), 0.9);
+        let mut summit_grade_samples = Vec::new();
+        if let Some(threshold) = summit_threshold {
+            for &cell in cells {
+                if target[cell] < 0.0 || final_elevation[cell] < 0.0 {
+                    continue;
+                }
+                let height_km = f64::from(final_elevation[cell]) * height_scale;
+                if height_km < threshold {
+                    continue;
+                }
+                let center = tess.cell_center(cell);
+                let mut max_grade = 0.0f64;
+                for &neighbor in tess.neighbors(cell) {
+                    if final_elevation[neighbor] < 0.0 {
+                        continue;
+                    }
+                    let drop_km =
+                        f64::from((final_elevation[cell] - final_elevation[neighbor]).max(0.0))
+                            * height_scale;
+                    let distance_km = f64::from(
+                        center
+                            .dot(tess.cell_center(neighbor))
+                            .clamp(-1.0, 1.0)
+                            .acos()
+                            * EARTH_RADIUS_KM,
+                    );
+                    if distance_km > 0.0 {
+                        max_grade = max_grade.max(drop_km / distance_km);
+                    }
+                }
+                summit_grade_samples.push((max_grade, f64::from(areas[cell]) * area_scale));
+            }
+        }
+
+        let accumulation_samples: Vec<_> = cells
+            .iter()
+            .filter(|&&cell| target[cell] >= 0.0 && final_elevation[cell] >= 0.0)
+            .map(|&cell| {
+                (
+                    f64::from(final_hydrology.flow_accumulation[cell]),
+                    f64::from(areas[cell]) * area_scale,
+                )
+            })
+            .collect();
+        let trunk_threshold = area_weighted_quantile(accumulation_samples, 0.9);
+        let (mut trunk_cells, mut trunk_longitudinal, mut trunk_oblique, mut trunk_transverse) =
+            (0usize, 0.0f64, 0.0f64, 0.0f64);
+        if let Some(threshold) = trunk_threshold.filter(|threshold| *threshold > 0.0) {
+            for &cell in cells {
+                if target[cell] < 0.0 || final_elevation[cell] < 0.0 {
+                    continue;
+                }
+                if f64::from(final_hydrology.flow_accumulation[cell]) < threshold {
+                    continue;
+                }
+                let Some(receiver) = final_hydrology.drainage_dir[cell] else {
+                    continue;
+                };
+                let owner = source.owner_front[cell] as usize;
+                let center = tess.cell_center(cell);
+                let receiver_center = tess.cell_center(receiver);
+                let flow =
+                    (receiver_center - center * center.dot(receiver_center)).normalize_or_zero();
+                let front_normal = fronts.seg_a[owner]
+                    .cross(fronts.seg_b[owner])
+                    .normalize_or_zero();
+                let strike = front_normal.cross(center).normalize_or_zero();
+                if flow.length_squared() == 0.0 || strike.length_squared() == 0.0 {
+                    continue;
+                }
+                let angle = flow.dot(strike).abs().clamp(0.0, 1.0).acos().to_degrees();
+                let weight = f64::from(areas[cell]) * area_scale;
+                trunk_cells += 1;
+                if angle < 30.0 {
+                    trunk_longitudinal += weight;
+                } else if angle > 60.0 {
+                    trunk_transverse += weight;
+                } else {
+                    trunk_oblique += weight;
+                }
+            }
+        }
+        let trunk_total = trunk_longitudinal + trunk_oblique + trunk_transverse;
+
+        let mut visible_mask = vec![false; n];
+        for &cell in cells {
+            if target[cell] < 0.0 || final_elevation[cell] < 0.0 {
+                continue;
+            }
+            let response_km =
+                (final_elevation[cell] - fine.base.base_elevation[cell]) * ELEVATION_UNIT_KM;
+            visible_mask[cell] = response_km >= FINITE_AGE_VISIBLE_RESPONSE_KM;
+        }
+        let visible_components = measure_components(tess, &visible_mask);
+        let visible_area_km2 = visible_components
+            .iter()
+            .map(|component| f64::from(component.area_km2))
+            .sum::<f64>();
+        let largest_visible = visible_components.first();
+        let effective_area_km2 = if response_height2_area_km4 > 0.0 {
+            positive_response_km3.powi(2) / response_height2_area_km4
+        } else {
+            0.0
+        };
+        records.push(FiniteAgeComponentRecord {
+            episode_id,
+            duration_myr: exact_component.duration_myr,
+            exact_front_edges: exact_component.front_edges,
+            exact_front_length_km: exact_component.length_km,
+            exact_shortening_area_opportunity_km2: exact_component.opportunity_km2,
+            exact_opportunity_share: if total_exact > 0.0 {
+                exact_component.opportunity_km2 / total_exact
+            } else {
+                0.0
+            },
+            source_cells: cells.len(),
+            source_support_area_km2: support_area_km2,
+            raw_fine_integrated_opportunity_km3: fine_opportunity_km3,
+            fine_opportunity_share: 0.0,
+            target_land_source_cells,
+            target_land_source_area_km2,
+            full_age_builder_uplift_volume_km3: full_age_builder_uplift_km3,
+            full_age_builder_uplift_share: 0.0,
+            finite_age_scheduled_uplift_volume_km3: finite_age_scheduled_uplift_km3,
+            finite_age_scheduled_uplift_share: 0.0,
+            removed_legacy_volume_km3: removed_legacy_km3,
+            signed_net_response_volume_km3: signed_response_km3,
+            positive_net_response_volume_km3: positive_response_km3,
+            positive_response_share: 0.0,
+            positive_response_to_removed_legacy: (removed_legacy_km3 > 0.0)
+                .then_some(positive_response_km3 / removed_legacy_km3),
+            effective_positive_response_area_km2: effective_area_km2,
+            effective_area_fraction_of_support: (target_land_source_area_km2 > 0.0)
+                .then_some(effective_area_km2 / target_land_source_area_km2),
+            visible_response_threshold_km: FINITE_AGE_VISIBLE_RESPONSE_KM,
+            visible_response_fragments: visible_components.len(),
+            visible_response_area_km2: visible_area_km2,
+            largest_visible_length_km: largest_visible.map_or(0.0, |component| component.length_km),
+            largest_visible_width_km: largest_visible.map_or(0.0, |component| component.width_km),
+            final_land_fraction_of_support: (target_land_source_area_km2 > 0.0)
+                .then_some(land_area_km2 / target_land_source_area_km2),
+            final_peak_km: final_peak_km.is_finite().then_some(final_peak_km),
+            final_elevation_p90_km: area_weighted_quantile(final_samples, 0.9),
+            local_relief_25km_p90_km: area_weighted_quantile(relief_samples, 0.9),
+            summit_downhill_grade_p50: area_weighted_quantile(summit_grade_samples.clone(), 0.5),
+            summit_downhill_grade_p90: area_weighted_quantile(summit_grade_samples, 0.9),
+            trunk_cells,
+            trunk_longitudinal_fraction: (trunk_total > 0.0)
+                .then_some(trunk_longitudinal / trunk_total),
+            trunk_oblique_fraction: (trunk_total > 0.0).then_some(trunk_oblique / trunk_total),
+            trunk_transverse_fraction: (trunk_total > 0.0)
+                .then_some(trunk_transverse / trunk_total),
+        });
+    }
+
+    let total_fine = records
+        .iter()
+        .map(|record| record.raw_fine_integrated_opportunity_km3)
+        .sum::<f64>();
+    let total_response = records
+        .iter()
+        .map(|record| record.positive_net_response_volume_km3)
+        .sum::<f64>();
+    let total_signed_response = records
+        .iter()
+        .map(|record| record.signed_net_response_volume_km3)
+        .sum::<f64>();
+    let total_full_age_builder = records
+        .iter()
+        .map(|record| record.full_age_builder_uplift_volume_km3)
+        .sum::<f64>();
+    let total_scheduled_builder = records
+        .iter()
+        .map(|record| record.finite_age_scheduled_uplift_volume_km3)
+        .sum::<f64>();
+    for record in &mut records {
+        record.fine_opportunity_share = if total_fine > 0.0 {
+            record.raw_fine_integrated_opportunity_km3 / total_fine
+        } else {
+            0.0
+        };
+        record.positive_response_share = if total_response > 0.0 {
+            record.positive_net_response_volume_km3 / total_response
+        } else {
+            0.0
+        };
+        record.full_age_builder_uplift_share = if total_full_age_builder > 0.0 {
+            record.full_age_builder_uplift_volume_km3 / total_full_age_builder
+        } else {
+            0.0
+        };
+        record.finite_age_scheduled_uplift_share = if total_scheduled_builder > 0.0 {
+            record.finite_age_scheduled_uplift_volume_km3 / total_scheduled_builder
+        } else {
+            0.0
+        };
+    }
+    let exact_weights: Vec<_> = records
+        .iter()
+        .map(|record| record.exact_shortening_area_opportunity_km2)
+        .collect();
+    let fine_weights: Vec<_> = records
+        .iter()
+        .map(|record| record.raw_fine_integrated_opportunity_km3)
+        .collect();
+    let scheduled_weights: Vec<_> = records
+        .iter()
+        .map(|record| record.finite_age_scheduled_uplift_volume_km3)
+        .collect();
+    let response_weights: Vec<_> = records
+        .iter()
+        .map(|record| record.positive_net_response_volume_km3)
+        .collect();
+    let summary = FiniteAgeCorrespondenceSummary {
+        exact_components: records.len(),
+        fine_supported_components: records
+            .iter()
+            .filter(|record| record.source_cells > 0)
+            .count(),
+        target_land_builder_supported_components: records
+            .iter()
+            .filter(|record| record.finite_age_scheduled_uplift_volume_km3 > 0.0)
+            .count(),
+        exact_vs_fine_opportunity_share_l1: normalized_l1(&exact_weights, &fine_weights),
+        fine_opportunity_vs_scheduled_uplift_share_l1: normalized_l1(
+            &fine_weights,
+            &scheduled_weights,
+        ),
+        static_builder_budget_km3,
+        attributed_full_age_builder_budget_km3: total_full_age_builder,
+        present_support_retained_fraction: (static_builder_budget_km3 > 0.0)
+            .then_some(total_full_age_builder / static_builder_budget_km3),
+        finite_age_scheduled_builder_budget_km3: total_scheduled_builder,
+        finite_age_retained_fraction_of_attributed_full_age: (total_full_age_builder > 0.0)
+            .then_some(total_scheduled_builder / total_full_age_builder),
+        signed_response_volume_km3: total_signed_response,
+        signed_response_fraction_of_scheduled_uplift: (total_scheduled_builder > 0.0)
+            .then_some(total_signed_response / total_scheduled_builder),
+        positive_response_volume_km3: total_response,
+        positive_response_fraction_of_scheduled_uplift: (total_scheduled_builder > 0.0)
+            .then_some(total_response / total_scheduled_builder),
+        scheduled_uplift_vs_positive_response_share_l1: normalized_l1(
+            &scheduled_weights,
+            &response_weights,
+        ),
+        exact_opportunity_vs_positive_response_spearman: spearman_rank_correlation(
+            records.iter().map(|record| {
+                (
+                    record.exact_shortening_area_opportunity_km2,
+                    record.positive_net_response_volume_km3,
+                )
+            }),
+        ),
+        scheduled_uplift_vs_positive_response_spearman: spearman_rank_correlation(
+            records
+                .iter()
+                .filter(|record| record.finite_age_scheduled_uplift_volume_km3 > 0.0)
+                .map(|record| {
+                    (
+                        record.finite_age_scheduled_uplift_volume_km3,
+                        record.positive_net_response_volume_km3,
+                    )
+                }),
+        ),
+        duration_vs_local_relief_spearman: spearman_rank_correlation(records.iter().filter_map(
+            |record| {
+                record
+                    .local_relief_25km_p90_km
+                    .map(|relief| (f64::from(record.duration_myr), relief))
+            },
+        )),
+        duration_vs_local_relief_pairs: records
+            .iter()
+            .filter(|record| record.local_relief_25km_p90_km.is_some())
+            .count(),
+        duration_vs_summit_grade_spearman: spearman_rank_correlation(records.iter().filter_map(
+            |record| {
+                record
+                    .summit_downhill_grade_p50
+                    .map(|grade| (f64::from(record.duration_myr), grade))
+            },
+        )),
+        duration_vs_summit_grade_pairs: records
+            .iter()
+            .filter(|record| record.summit_downhill_grade_p50.is_some())
+            .count(),
+        duration_vs_trunk_transverse_spearman: spearman_rank_correlation(
+            records.iter().filter_map(|record| {
+                record
+                    .trunk_transverse_fraction
+                    .map(|fraction| (f64::from(record.duration_myr), fraction))
+            }),
+        ),
+        duration_vs_trunk_transverse_pairs: records
+            .iter()
+            .filter(|record| record.trunk_transverse_fraction.is_some())
+            .count(),
+    };
+    let report = FiniteAgeComponentReport {
+        schema: "hex3.finite-age-component-correspondence.v0",
+        seed,
+        manifest: world.manifest(),
+        requested_coarse_cells: requested_cells,
+        actual_coarse_cells: world.tessellation.num_cells(),
+        fine_cells: n,
+        source_semantics: "one nearest exact present-front owner per positive finite-age source cell; episode identity is the present connected BoundaryEpisode; no migration",
+        builder_budget_semantics: "surface-equivalent uplift reconstructed from the current unsmoothed land-gated structured-builder floor+shape equation (including its f32 scale) and the exact ceil(age/lookback*steps) suffix schedule; present-support retention compares all-old owned target-land support with the globally calibrated static rebuild budget",
+        response_semantics: "net coupled response is final Stage-4 elevation minus the fully demoted non-orogenic FineBase substrate over owned target-land source cells; morphology samples and relief/grade neighbors additionally require final land so bathymetric coastal drops are excluded; response mixes uplift, incision, hillslope transport, deposition and final hydrology integration and is not an incision ledger",
+        drainage_semantics: "trunk orientation uses the final authoritative drainage receiver for the area-weighted top accumulation decile on final-land cells within each target-land source footprint, measured against that cell's exact owner-front strike",
+        maturity_correlation_semantics: "exploratory unweighted cross-component Spearman correlations over components with final-land support; pair counts are reported, component size/rate/material/setting remain confounders, and these are not age-causal estimates",
+        visible_response_threshold_km: FINITE_AGE_VISIBLE_RESPONSE_KM,
+        exact_front_identity_crosscheck: "every OrogenFronts owner arc matched collect_convergent_fronts by canonical CellEdgeId, episode id and exact endpoint pair",
+        summary,
+        components: records,
+    };
+
+    println!("\n========== FINITE-AGE COMPONENT CORRESPONDENCE seed={seed} ==========");
+    println!(
+        "  components {} | share L1 exact→fine {} →scheduled {} →response {}",
+        report.components.len(),
+        report
+            .summary
+            .exact_vs_fine_opportunity_share_l1
+            .map(|value| format!("{value:.3}"))
+            .unwrap_or_else(|| "unsupported".to_string()),
+        report
+            .summary
+            .fine_opportunity_vs_scheduled_uplift_share_l1
+            .map(|value| format!("{value:.3}"))
+            .unwrap_or_else(|| "unsupported".to_string()),
+        report
+            .summary
+            .scheduled_uplift_vs_positive_response_share_l1
+            .map(|value| format!("{value:.3}"))
+            .unwrap_or_else(|| "unsupported".to_string()),
+    );
+    println!(
+        "  fine source reaches {}/{} exact components; target-land builder reaches {}",
+        report.summary.fine_supported_components,
+        report.summary.exact_components,
+        report.summary.target_land_builder_supported_components,
+    );
+    println!(
+        "  builder budget: static {:.3e} km³ → present-support {:.1}% → finite-age {:.1}% of supported; in-footprint signed/positive response {:.1}/{:.1}% of scheduled",
+        report.summary.static_builder_budget_km3,
+        100.0 * report.summary.present_support_retained_fraction.unwrap_or(0.0),
+        100.0
+            * report
+                .summary
+                .finite_age_retained_fraction_of_attributed_full_age
+                .unwrap_or(0.0),
+        100.0
+            * report
+                .summary
+                .signed_response_fraction_of_scheduled_uplift
+                .unwrap_or(0.0),
+        100.0
+            * report
+                .summary
+                .positive_response_fraction_of_scheduled_uplift
+                .unwrap_or(0.0),
+    );
+    println!(
+        "  Spearman exact opportunity/scheduled uplift→positive response: {}/{} | age→relief/summit-grade/trunk-transverse: {}/{}/{}",
+        report.summary.exact_opportunity_vs_positive_response_spearman.map(|value| format!("{value:+.3}")).unwrap_or_else(|| "unsupported".to_string()),
+        report.summary.scheduled_uplift_vs_positive_response_spearman.map(|value| format!("{value:+.3}")).unwrap_or_else(|| "unsupported".to_string()),
+        report.summary.duration_vs_local_relief_spearman.map(|value| format!("{value:+.3}(n={})", report.summary.duration_vs_local_relief_pairs)).unwrap_or_else(|| "unsupported".to_string()),
+        report.summary.duration_vs_summit_grade_spearman.map(|value| format!("{value:+.3}(n={})", report.summary.duration_vs_summit_grade_pairs)).unwrap_or_else(|| "unsupported".to_string()),
+        report.summary.duration_vs_trunk_transverse_spearman.map(|value| format!("{value:+.3}(n={})", report.summary.duration_vs_trunk_transverse_pairs)).unwrap_or_else(|| "unsupported".to_string()),
+    );
+    println!("  top exact-opportunity components:");
+    println!("    ep   age  exact%  fine% sched%  resp% land-src support-km² visible-width  peak  R25p90 summit-g50 trunk-X");
+    let mut order: Vec<_> = report.components.iter().collect();
+    order.sort_by(|left, right| {
+        right
+            .exact_shortening_area_opportunity_km2
+            .total_cmp(&left.exact_shortening_area_opportunity_km2)
+    });
+    for record in order.into_iter().take(top.max(1)) {
+        println!(
+            "    {:>2} {:>5.1} {:>6.1} {:>6.1} {:>6.1} {:>6.1} {:>8} {:>11.0} {:>13.0} {:>5.2} {:>7} {:>10} {:>7}",
+            record.episode_id,
+            record.duration_myr,
+            100.0 * record.exact_opportunity_share,
+            100.0 * record.fine_opportunity_share,
+            100.0 * record.finite_age_scheduled_uplift_share,
+            100.0 * record.positive_response_share,
+            record.target_land_source_cells,
+            record.source_support_area_km2,
+            record.largest_visible_width_km,
+            record.final_peak_km.unwrap_or(0.0),
+            record.local_relief_25km_p90_km.map(|value| format!("{value:.2}")).unwrap_or_else(|| "-".to_string()),
+            record.summit_downhill_grade_p50.map(|value| format!("{value:.4}")).unwrap_or_else(|| "-".to_string()),
+            record.trunk_transverse_fraction.map(|value| format!("{:.0}%", 100.0 * value)).unwrap_or_else(|| "-".to_string()),
+        );
+    }
+    println!("  interpretation: opportunity correlations test source→response correspondence; age correlations are descriptive maturity evidence, not monotonic physical pass thresholds");
+    println!("  net response is not incision; exact component denudation remains unretained");
+
+    if let Some(path) = out {
+        let json = serde_json::to_string_pretty(&report).expect("component report serializes");
+        if let Err(error) = std::fs::write(path, format!("{json}\n")) {
+            eprintln!(
+                "failed to write finite-age component audit {}: {error}",
+                path.display()
+            );
+            std::process::exit(2);
+        }
+        eprintln!("wrote finite-age component audit {}", path.display());
     }
 }
 

@@ -169,12 +169,22 @@ substantially increasing 10--25 km relief and summit descent. Wall time and peak
 memory are at practical parity with Legacy; front ownership adds parallel CPU
 work but is not a performance blocker.
 
-The architecture therefore advances past its initial visual and cost gates,
-without promotion. Next, directly relate each component's integrated
-convergence-times-age opportunity to final relief, breadth and drainage maturity.
-This discriminates credible unequal belt maturity from seed `9001` underbuilding
-and the residual repeated-tooth grammar. Do not begin a parameter sweep,
-planet-wide height correction, source-complexity ladder or Slice B first.
+The architecture therefore advances past its initial visual, cost and
+source-to-response correspondence gates, without promotion. Component audit
+shows that scheduled uplift predicts in-footprint positive response strongly in
+all three worlds (Spearman `0.881--0.917`); seed `9001` is not an anomalous
+downstream dropout. Its low upland follows from a smaller static budget, a major
+component outside target-land support and finite-age retention of only 52.3% of
+its supported all-old budget. This validates the implementation chain, not the
+geological source assumptions.
+
+Next, localize seed `8675309`'s repeated-tooth morphology *within* its dominant
+supplied components. Compare source-field spacing and smoothness with crest/summit
+spacing, cap geometry and final drainage/divide organization. Decide whether the
+grammar is inherited from frozen present-front forcing or produced by coupled
+response. Age-to-maturity correlations are too sparse and confounded to settle
+that branch. Do not begin a parameter sweep, planet-wide height correction,
+source-complexity ladder or Slice B first.
 
 ## Completed bounded decisions
 
