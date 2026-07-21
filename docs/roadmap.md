@@ -185,13 +185,22 @@ their adjacent-station changes at `rho=0.688`. The demoted substrate carries far
 fewer detected peaks. The coupled response therefore inherits and sharpens the
 repeated grammar rather than generating it from a smooth source.
 
-Next, audit the scale meaning of that upstream rate field. Separate physically
-meaningful convergence variation from local coarse-Voronoi boundary orientation
-and ownership effects by comparing the current exact-edge normal projection to
-a continuous, scale-appropriate plate-pair boundary/kinematic envelope. Preserve
-real bends, transfers and gradients; do not substitute cosmetic smoothing,
-random source complexity, a parameter sweep, planet-wide height correction or
-Slice B.
+The boundary-scale audit is complete. Exact-midpoint evaluation is neutral, and
+direct continuous-normal replacement is rejected because it changes signed work
+by 26--33%. The defect is clipping local face rates before they have been
+aggregated: episode `9` gains 22% positive opportunity from rectification.
+Signed aggregation at the inherited 127/382 km brackets preserves signed flux
+within 0.15% while removing 66--71% of that excess and collapsing the edge-scale
+maxima from roughly 130 to 22/5.
+
+Next, implement one source-only conservative signed-flux arm. Retain exact
+Voronoi topology and causal segment boundaries; redistribute signed flux along
+each segment with exact ledger closure, then classify compression and compile
+uplift. Use 127 km as the minimum physical-support candidate and 382 km only as
+a sensitivity. Do not run coupled terrain until the source arm proves that
+edge-phase cadence falls while persistent regional structure survives. This is
+an operation-order correction, not cosmetic smoothing, random source complexity,
+a parameter sweep, a height correction or Slice B.
 
 ## Completed bounded decisions
 

@@ -169,6 +169,26 @@ whether that input variation is meaningful curved-boundary kinematics or a
 coarse boundary-orientation alias. A global smoother would erase both and cannot
 answer it.
 
+The follow-up identifies a narrower numerical/physical prior. A signed normal
+velocity on one Voronoi face is legitimate as a control-volume flux; mapping
+`max(face_flux, 0)` directly into terrain is not. Orientation errors which would
+cancel in a finite-volume balance are rectified into positive uplift first.
+Hex3 episode `9` shows exactly that signature: positive-per-edge opportunity is
+22% above the signed chain total, while signed aggregation over the declared
+collision support removes most of the excess without changing the signed
+ledger. Exact edges should therefore continue to own topology and ledgers, but
+compression should be classified after conservative physical-scale aggregation.
+
+This matches continuum treatments of diffuse plate-boundary deformation, which
+estimate velocity gradients over finite zones rather than interpreting every
+polygon face as a separate uplift element
+([Kreemer et al. 2003](https://geodesy.unr.edu/publications/Kreemer_et_al_GSRM_2003.pdf)).
+It also leaves trench/strike-parallel motion distinct from normal thickening;
+oblique convergence is commonly partitioned between thrusting and strike-slip
+motion ([McCaffrey 1992](https://doi.org/10.1029/92JB00483)). A physical support
+must be selected by mesh/phase stability and deformation width, not by which
+render looks smoother.
+
 ## Consequence for the next terrain rung
 
 The current Structural Mountain pause remains correct. Its source compiler is

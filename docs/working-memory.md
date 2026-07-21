@@ -120,16 +120,35 @@ from a smooth source.
 The clean station record is retained under
 [`docs/generated`](generated/finite-age-within-episode-seed-8675309-episode-9-v0.json).
 
-That finding moves the active question one seam upstream. Local normal
-convergence can physically vary with boundary curvature and obliquity, so do
-not smooth or randomize the source as a cosmetic repair. Determine how much of
-episode `9`'s edge-scale rate variation follows meaningful plate-pair geometry
-and how much follows the coarse Voronoi boundary's local orientation/ownership
-discretization. The next discriminator should compare the current per-edge
-normal projection with a scale-appropriate continuous boundary/kinematic
-envelope while preserving genuine bends, transfers and rate gradients. The
-transverse-trunk proxy is too sparse here to attribute the remaining local
-sharpening among incision, hillslopes and drainage capture.
+The boundary-scale audit resolves that upstream branch more precisely. Changing
+only the Euler-velocity evaluation point from generator midpoint to exact arc
+midpoint is immaterial (`r=0.999998--0.999999`). Regional spherical normals at
+the already declared ±127/±382 km collision-support scales differ from exact
+edge normals by 32--35° on average and correlate with their rates only
+`0.630/0.589`, so edge orientation is materially scale-sensitive. Directly
+substituting those normals is nevertheless rejected: it changes shared-interior
+signed flux by `+26.5/+33.2%`, inventing work even though it reduces about 130
+positive local maxima to 65/53.
+
+The actual coupling defect is operation order. The exact chain carries
+`411,625 km²/Myr` signed normal flux but `502,096 km²/Myr` after each edge is
+independently clipped positive: a 22.0% rectification excess. Length-weighted
+Gaussian aggregation of the **signed** rates at 127/382 km preserves signed
+flux within `0.15/0.08%`, reduces clipping excess from `90,471` to
+`30,965/26,407 km²/Myr`, and leaves 22/5 positive maxima instead of the
+edge-scale train. These are diagnostic brackets, not promoted scales or a
+terrain result. The failed 50k comparison selected a different world/source, so
+it is not resolution evidence.
+
+Do not smooth plate identity, exact topology or a final terrain field. The next
+bounded source arm should retain exact chains and ledgers, conservatively
+redistribute **signed** normal flux within each uninterrupted causal segment,
+and only then classify compression and compile finite-width uplift. Use the
+existing 127 km collision width as the minimum physical-support candidate and
+382 km only as sensitivity. Advance it to coupled terrain only if it removes
+edge-phase cadence while retaining persistent regional bends/rate gradients and
+closing the signed ledger exactly. The transverse-trunk proxy remains too sparse
+to attribute the later local sharpening among incision, hillslopes and capture.
 
 One cache-disabled WSL pair per seed shows `27.78/27.56`, `21.96/23.62` and
 `27.82/27.96` seconds wall for Legacy/candidate at roughly 256k cells. Candidate

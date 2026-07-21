@@ -318,14 +318,24 @@ weaker `rho=0.404`. The thresholds are diagnostic rather than calibrated
 landform semantics, but the source-to-final spatial correspondence is enough:
 the coupled landscape is not creating this cadence from smooth forcing.
 
-Slice A therefore remains useful but exposes a source-representation question.
-Before attributing the teeth to erosion or adding response complexity, determine
-whether per-edge normal convergence represents meaningful plate-pair curvature
-and obliquity at product scale or aliases the coarse Voronoi boundary's local
-orientation into an uplift train. Compare it with a continuous, scale-aware
-boundary/kinematic envelope that retains genuine bends, transfers and gradients.
-This is not authority to smooth a disliked picture, restore a height target,
-add stochastic source complexity, tune coverage or begin Slice B.
+Slice A therefore remains useful but exposes a source-flux coupling error. The
+exact episode carries `411,625 km²/Myr` signed normal flux and `502,096 km²/Myr`
+after per-edge positive clipping. Exact-midpoint reevaluation is bit-near
+equivalent to the stored rate, so location is not the cause. Continuous normals
+at ±127/±382 km materially change orientation and reduce local maxima, but also
+increase signed flux by 26.5/33.2%; direct normal replacement is not
+conservative and is rejected.
+
+Signed-rate aggregation before clipping is the principled next arm. The current
+diagnostic Gaussian versions preserve total signed flux within 0.15/0.08%, cut
+rectification excess by 66--71%, and reduce the edge-scale positive maxima to
+22/5 while retaining broad regional variation. They establish the operation,
+not a promoted kernel. Build an exactly conservative along-chain redistribution
+within uninterrupted causal segments, use the declared 127 km collision width
+as the minimum candidate and 382 km only as a sensitivity, then compile positive
+finite-width uplift. Exact Voronoi topology, plate/material ownership and signed
+ledgers remain unchanged. Do not smooth a disliked final picture, restore a
+height target, add stochastic source complexity, tune coverage or begin Slice B.
 
 ## Slice B — causal dual drainage/divide construction
 

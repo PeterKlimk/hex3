@@ -10,9 +10,9 @@ use glam::Vec3;
 use hex3::world::{
     catalog_structural_source_belts, collect_convergent_fronts, collect_plate_boundaries,
     compile_structural_mountain, select_primary_structural_source_belt, BoundaryEdgeId,
-    ConvergentFrontEdge, RunManifest, StructuralMountainGraph, StructuralRegime, StructuralSegment,
-    VoronoiBackend, World, COLLISION_WIDTH, MAX_PLATE_SPEED_KM_PER_MYR, NUM_PLATES_DEFAULT,
-    PLANET_RADIUS_KM, TRANSFORM_NORMAL_THRESHOLD,
+    ConvergentFrontEdge, Dynamics, RunManifest, StructuralMountainGraph, StructuralRegime,
+    StructuralSegment, Tessellation, VoronoiBackend, World, COLLISION_WIDTH,
+    MAX_PLATE_SPEED_KM_PER_MYR, NUM_PLATES_DEFAULT, PLANET_RADIUS_KM, TRANSFORM_NORMAL_THRESHOLD,
 };
 use serde::Serialize;
 
@@ -25,12 +25,12 @@ struct Cli {
     cells: usize,
     #[arg(
         long,
-        default_value = "docs/generated/structural-mountain-seed-12345-organization-audit-v1.json"
+        default_value = "docs/generated/structural-mountain-seed-12345-organization-audit-v2.json"
     )]
     output: PathBuf,
     #[arg(
         long,
-        default_value = "docs/generated/structural-mountain-seed-12345-organization-audit-v1.svg"
+        default_value = "docs/generated/structural-mountain-seed-12345-organization-audit-v2.svg"
     )]
     svg_output: PathBuf,
 }
@@ -55,7 +55,76 @@ struct Report {
     persistent_obliquity_extrema: Vec<ExtremumReport>,
     broad_bend_candidates: Vec<BendReport>,
     inherited_material: InheritedMaterialReport,
+    boundary_normal_diagnostic: BoundaryNormalDiagnosticReport,
     samples: Vec<SampleReport>,
+}
+
+#[derive(Serialize)]
+struct BoundaryNormalDiagnosticReport {
+    location_control_note: &'static str,
+    scalar_smoothing_note: &'static str,
+    tangent_reprojection_note: &'static str,
+    raw_full_chain_flux: FluxIntegralReport,
+    gaussian_scalar_one_collision_width: ScalarAggregationReport,
+    gaussian_scalar_three_collision_widths: ScalarAggregationReport,
+    one_collision_width: Option<ReprojectionScaleReport>,
+    three_collision_widths: Option<ReprojectionScaleReport>,
+}
+
+#[derive(Serialize)]
+struct ReprojectionScaleReport {
+    half_window_km: f32,
+    eligible_edge_count: usize,
+    eligible_length_km: f32,
+    stored_rate_km_per_myr: ScalarSummary,
+    exact_midpoint_site_normal_rate_km_per_myr: ScalarSummary,
+    continuous_normal_rate_km_per_myr: ScalarSummary,
+    raw_to_continuous_normal_deviation_deg: ScalarSummary,
+    stored_flux: FluxIntegralReport,
+    exact_midpoint_site_normal_flux: FluxIntegralReport,
+    continuous_normal_flux: FluxIntegralReport,
+    signed_flux_ratio_to_stored: Option<f64>,
+    correlations: ReprojectionCorrelationReport,
+    cadence: ReprojectionCadenceReport,
+}
+
+#[derive(Serialize)]
+struct ScalarAggregationReport {
+    gaussian_sigma_km: f32,
+    full_chain_rate_km_per_myr: ScalarSummary,
+    full_chain_flux: FluxIntegralReport,
+    positive_local_maxima: usize,
+    maximum_spacing_km: Option<SpacingReport>,
+}
+
+#[derive(Serialize)]
+struct ReprojectionCadenceReport {
+    stored_positive_local_maxima: usize,
+    exact_midpoint_site_normal_positive_local_maxima: usize,
+    continuous_normal_positive_local_maxima: usize,
+    continuous_normal_maximum_spacing_km: Option<SpacingReport>,
+}
+
+#[derive(Serialize)]
+struct SpacingReport {
+    count: usize,
+    mean_km: f32,
+    coefficient_of_variation: f32,
+}
+
+#[derive(Serialize)]
+struct ReprojectionCorrelationReport {
+    stored_to_exact_midpoint_site_normal: Option<f32>,
+    stored_to_continuous_normal: Option<f32>,
+    exact_midpoint_site_normal_to_continuous_normal: Option<f32>,
+}
+
+#[derive(Serialize)]
+struct FluxIntegralReport {
+    signed_km2_per_myr: f64,
+    positive_clipped_km2_per_myr: f64,
+    rectification_excess_km2_per_myr: f64,
+    positive_to_signed_ratio: Option<f64>,
 }
 
 #[derive(Serialize)]
@@ -186,6 +255,20 @@ struct SampleReport {
     plate_margin_distance_km: [f32; 2],
     nearer_ocean_margin_km: f32,
     nearer_ocean_margin_three_width_km: f32,
+    exact_midpoint_site_normal_rate_km_per_myr: Option<f32>,
+    continuous_normal_rate_one_width_km_per_myr: Option<f32>,
+    continuous_normal_rate_three_widths_km_per_myr: Option<f32>,
+    raw_to_continuous_normal_deviation_one_width_deg: Option<f32>,
+    raw_to_continuous_normal_deviation_three_widths_deg: Option<f32>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct BoundaryProjectionSample {
+    exact_midpoint_site_normal_rate: Option<f32>,
+    one_width_rate: Option<f32>,
+    three_widths_rate: Option<f32>,
+    one_width_deviation_deg: Option<f32>,
+    three_widths_deviation_deg: Option<f32>,
 }
 
 struct Profile {
@@ -227,6 +310,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let one_width = COLLISION_WIDTH * PLANET_RADIUS_KM;
     let three_widths = 3.0 * one_width;
+    let boundary_projection_samples = boundary_projection_samples(
+        &profile,
+        &world.tessellation,
+        world.dynamics.as_ref().expect("dynamics generated"),
+        parent.plate_pair,
+        one_width,
+        three_widths,
+    );
+    let one_width_reprojection = reprojection_scale_report(
+        &profile,
+        &boundary_projection_samples,
+        one_width,
+        |sample| sample.one_width_rate,
+        |sample| sample.one_width_deviation_deg,
+    );
+    let three_widths_reprojection = reprojection_scale_report(
+        &profile,
+        &boundary_projection_samples,
+        three_widths,
+        |sample| sample.three_widths_rate,
+        |sample| sample.three_widths_deviation_deg,
+    );
     let convergence_one = smooth(&profile, &profile.convergence, one_width);
     let convergence_broad = smooth(&profile, &profile.convergence, three_widths);
     // Edge shear sign belongs to the canonical cell-pair frame, not the
@@ -290,7 +395,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mean_edge_length = profile.lengths.iter().sum::<f32>() / profile.lengths.len() as f32;
 
     let report = Report {
-        schema: "hex3-structural-mountain-organization-audit-v1",
+        schema: "hex3-structural-mountain-organization-audit-v2",
         seed: cli.seed,
         requested_coarse_cells: cli.cells,
         elapsed_seconds: started.elapsed().as_secs_f32(),
@@ -368,6 +473,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 three_widths,
             ),
         },
+        boundary_normal_diagnostic: BoundaryNormalDiagnosticReport {
+            location_control_note: "The exact-midpoint control reevaluates the same relative Euler motion at the exact Voronoi-arc midpoint and projects it onto the canonical low-plate-to-high-plate cross-site normal. It changes location, not boundary geometry scale.",
+            scalar_smoothing_note: "The one- and three-width scalar comparators length-weight Gaussian-average the signed stored rates before any positive clipping. They do not change edge normals and approximately preserve full-chain signed flux; they are diagnostics, not promoted terrain behavior.",
+            tangent_reprojection_note: "Continuous-normal rates use an ordered spherical-chain tangent spanning plus/minus the declared half-window, then align its cross-normal to the low-plate-to-high-plate site normal before projecting unclipped exact-midpoint relative Euler velocity. Missing endpoint support and degenerate frames remain null.",
+            raw_full_chain_flux: flux_integral(&profile.convergence, &profile.lengths),
+            gaussian_scalar_one_collision_width: scalar_aggregation_report(
+                &profile,
+                &convergence_one,
+                one_width,
+            ),
+            gaussian_scalar_three_collision_widths: scalar_aggregation_report(
+                &profile,
+                &convergence_broad,
+                three_widths,
+            ),
+            one_collision_width: one_width_reprojection,
+            three_collision_widths: three_widths_reprojection,
+        },
         samples: profile
             .edges
             .iter()
@@ -392,6 +515,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 plate_margin_distance_km: plate_margin_distances_km[index],
                 nearer_ocean_margin_km: nearer_ocean_margin_km[index],
                 nearer_ocean_margin_three_width_km: nearer_ocean_margin_broad[index],
+                exact_midpoint_site_normal_rate_km_per_myr: boundary_projection_samples[index]
+                    .exact_midpoint_site_normal_rate,
+                continuous_normal_rate_one_width_km_per_myr: boundary_projection_samples[index]
+                    .one_width_rate,
+                continuous_normal_rate_three_widths_km_per_myr:
+                    boundary_projection_samples[index].three_widths_rate,
+                raw_to_continuous_normal_deviation_one_width_deg:
+                    boundary_projection_samples[index].one_width_deviation_deg,
+                raw_to_continuous_normal_deviation_three_widths_deg:
+                    boundary_projection_samples[index].three_widths_deviation_deg,
             })
             .collect(),
     };
@@ -570,6 +703,338 @@ fn build_profile(
         shear,
         obliquity,
     })
+}
+
+fn boundary_projection_samples(
+    profile: &Profile,
+    tessellation: &Tessellation,
+    dynamics: &Dynamics,
+    plate_pair: [usize; 2],
+    one_width_km: f32,
+    three_widths_km: f32,
+) -> Vec<BoundaryProjectionSample> {
+    profile
+        .edges
+        .iter()
+        .enumerate()
+        .map(|(index, edge)| {
+            let midpoint = edge.midpoint;
+            let Some((site_normal, relative_velocity)) =
+                canonical_site_frame(edge, midpoint, tessellation, dynamics, plate_pair)
+            else {
+                return BoundaryProjectionSample {
+                    exact_midpoint_site_normal_rate: None,
+                    one_width_rate: None,
+                    three_widths_rate: None,
+                    one_width_deviation_deg: None,
+                    three_widths_deviation_deg: None,
+                };
+            };
+            let exact_midpoint_site_normal_rate = Some(relative_velocity.dot(site_normal));
+            let at_scale = |half_window_km| {
+                continuous_chain_normal(
+                    &profile.vertices,
+                    &profile.starts,
+                    &profile.lengths,
+                    &profile.ends,
+                    profile.midpoints[index],
+                    half_window_km,
+                    site_normal,
+                )
+                .map(|normal| {
+                    (
+                        relative_velocity.dot(normal),
+                        site_normal.dot(normal).clamp(-1.0, 1.0).acos().to_degrees(),
+                    )
+                })
+            };
+            let one = at_scale(one_width_km);
+            let three = at_scale(three_widths_km);
+            BoundaryProjectionSample {
+                exact_midpoint_site_normal_rate,
+                one_width_rate: one.map(|value| value.0),
+                three_widths_rate: three.map(|value| value.0),
+                one_width_deviation_deg: one.map(|value| value.1),
+                three_widths_deviation_deg: three.map(|value| value.1),
+            }
+        })
+        .collect()
+}
+
+fn canonical_site_frame(
+    edge: &ConvergentFrontEdge,
+    midpoint: Vec3,
+    tessellation: &Tessellation,
+    dynamics: &Dynamics,
+    plate_pair: [usize; 2],
+) -> Option<(Vec3, Vec3)> {
+    if !midpoint.is_finite() || midpoint.length_squared() <= 1e-12 {
+        return None;
+    }
+    let midpoint = midpoint.normalize();
+    let low_side = edge
+        .plates
+        .iter()
+        .position(|&plate| plate == plate_pair[0])?;
+    let high_side = edge
+        .plates
+        .iter()
+        .position(|&plate| plate == plate_pair[1])?;
+    let low_site = tessellation.cell_center(edge.cells[low_side]);
+    let high_site = tessellation.cell_center(edge.cells[high_side]);
+    let site_normal = tangent_direction(midpoint, high_site - low_site)?;
+    let relative_velocity = dynamics
+        .euler_pole(plate_pair[0])
+        .velocity_km_per_myr_at(midpoint)
+        - dynamics
+            .euler_pole(plate_pair[1])
+            .velocity_km_per_myr_at(midpoint);
+    relative_velocity
+        .is_finite()
+        .then_some((site_normal, relative_velocity))
+}
+
+fn continuous_chain_normal(
+    vertices: &[Vec3],
+    starts: &[f32],
+    lengths: &[f32],
+    ends: &[f32],
+    midpoint_km: f32,
+    half_window_km: f32,
+    alignment_normal: Vec3,
+) -> Option<Vec3> {
+    let total_length = ends.last().copied()?;
+    if !midpoint_km.is_finite()
+        || !half_window_km.is_finite()
+        || half_window_km <= 0.0
+        || midpoint_km < half_window_km
+        || midpoint_km + half_window_km > total_length
+    {
+        return None;
+    }
+    let midpoint = point_at_chain(vertices, starts, lengths, ends, midpoint_km)?;
+    let before = point_at_chain(
+        vertices,
+        starts,
+        lengths,
+        ends,
+        midpoint_km - half_window_km,
+    )?;
+    let after = point_at_chain(
+        vertices,
+        starts,
+        lengths,
+        ends,
+        midpoint_km + half_window_km,
+    )?;
+    let ordered_tangent = tangent_direction(midpoint, after - before)?;
+    let mut normal = tangent_direction(midpoint, midpoint.cross(ordered_tangent))?;
+    let alignment_normal = tangent_direction(midpoint, alignment_normal)?;
+    if normal.dot(alignment_normal) < 0.0 {
+        normal = -normal;
+    }
+    Some(normal)
+}
+
+fn tangent_direction(midpoint: Vec3, direction: Vec3) -> Option<Vec3> {
+    let tangent = direction - midpoint * direction.dot(midpoint);
+    (tangent.is_finite() && tangent.length_squared() > 1e-12).then(|| tangent.normalize())
+}
+
+fn reprojection_scale_report(
+    profile: &Profile,
+    samples: &[BoundaryProjectionSample],
+    half_window_km: f32,
+    projected_rate: impl Fn(&BoundaryProjectionSample) -> Option<f32>,
+    deviation: impl Fn(&BoundaryProjectionSample) -> Option<f32>,
+) -> Option<ReprojectionScaleReport> {
+    let eligible: Vec<_> = samples
+        .iter()
+        .enumerate()
+        .filter_map(|(index, sample)| {
+            Some((
+                index,
+                profile.convergence[index],
+                sample.exact_midpoint_site_normal_rate?,
+                projected_rate(sample)?,
+                deviation(sample)?,
+                profile.lengths[index],
+            ))
+        })
+        .collect();
+    if eligible.is_empty() {
+        return None;
+    }
+    let original_indices: Vec<_> = eligible.iter().map(|value| value.0).collect();
+    let stored: Vec<_> = eligible.iter().map(|value| value.1).collect();
+    let exact: Vec<_> = eligible.iter().map(|value| value.2).collect();
+    let projected: Vec<_> = eligible.iter().map(|value| value.3).collect();
+    let deviations: Vec<_> = eligible.iter().map(|value| value.4).collect();
+    let lengths: Vec<_> = eligible.iter().map(|value| value.5).collect();
+    let stored_maxima = contiguous_positive_maxima(&stored, &original_indices);
+    let exact_maxima = contiguous_positive_maxima(&exact, &original_indices);
+    let projected_maxima = contiguous_positive_maxima(&projected, &original_indices);
+    let stored_flux = flux_integral(&stored, &lengths);
+    let continuous_normal_flux = flux_integral(&projected, &lengths);
+    let signed_flux_ratio_to_stored = positive_denominator_ratio(
+        continuous_normal_flux.signed_km2_per_myr,
+        stored_flux.signed_km2_per_myr,
+    );
+    Some(ReprojectionScaleReport {
+        half_window_km,
+        eligible_edge_count: eligible.len(),
+        eligible_length_km: lengths.iter().sum(),
+        stored_rate_km_per_myr: scalar_summary(&stored, &lengths),
+        exact_midpoint_site_normal_rate_km_per_myr: scalar_summary(&exact, &lengths),
+        continuous_normal_rate_km_per_myr: scalar_summary(&projected, &lengths),
+        raw_to_continuous_normal_deviation_deg: scalar_summary(&deviations, &lengths),
+        stored_flux,
+        exact_midpoint_site_normal_flux: flux_integral(&exact, &lengths),
+        continuous_normal_flux,
+        signed_flux_ratio_to_stored,
+        correlations: ReprojectionCorrelationReport {
+            stored_to_exact_midpoint_site_normal: weighted_pearson(&stored, &exact, &lengths),
+            stored_to_continuous_normal: weighted_pearson(&stored, &projected, &lengths),
+            exact_midpoint_site_normal_to_continuous_normal: weighted_pearson(
+                &exact, &projected, &lengths,
+            ),
+        },
+        cadence: ReprojectionCadenceReport {
+            stored_positive_local_maxima: stored_maxima.len(),
+            exact_midpoint_site_normal_positive_local_maxima: exact_maxima.len(),
+            continuous_normal_positive_local_maxima: projected_maxima.len(),
+            continuous_normal_maximum_spacing_km: contiguous_spacing_report(
+                profile,
+                &projected_maxima,
+                &original_indices,
+            ),
+        },
+    })
+}
+
+fn scalar_aggregation_report(
+    profile: &Profile,
+    values: &[f32],
+    gaussian_sigma_km: f32,
+) -> ScalarAggregationReport {
+    let original_indices: Vec<_> = (0..values.len()).collect();
+    let maxima = contiguous_positive_maxima(values, &original_indices);
+    ScalarAggregationReport {
+        gaussian_sigma_km,
+        full_chain_rate_km_per_myr: scalar_summary(values, &profile.lengths),
+        full_chain_flux: flux_integral(values, &profile.lengths),
+        positive_local_maxima: maxima.len(),
+        maximum_spacing_km: contiguous_spacing_report(profile, &maxima, &original_indices),
+    }
+}
+
+fn positive_denominator_ratio(numerator: f64, denominator: f64) -> Option<f64> {
+    (denominator > 1e-12).then_some(numerator / denominator)
+}
+
+fn contiguous_positive_maxima(values: &[f32], original_indices: &[usize]) -> Vec<usize> {
+    (1..values.len().saturating_sub(1))
+        .filter(|&index| {
+            original_indices[index - 1] + 1 == original_indices[index]
+                && original_indices[index] + 1 == original_indices[index + 1]
+                && values[index] > 0.0
+                && values[index] > values[index - 1]
+                && values[index] >= values[index + 1]
+        })
+        .collect()
+}
+
+fn contiguous_spacing_report(
+    profile: &Profile,
+    maxima: &[usize],
+    original_indices: &[usize],
+) -> Option<SpacingReport> {
+    let spacings: Vec<_> = maxima
+        .windows(2)
+        .filter(|pair| {
+            original_indices[pair[0]..=pair[1]]
+                .windows(2)
+                .all(|indices| indices[0] + 1 == indices[1])
+        })
+        .map(|pair| {
+            profile.midpoints[original_indices[pair[1]]]
+                - profile.midpoints[original_indices[pair[0]]]
+        })
+        .collect();
+    if spacings.is_empty() {
+        return None;
+    }
+    let mean = spacings.iter().sum::<f32>() / spacings.len() as f32;
+    let variance = spacings
+        .iter()
+        .map(|spacing| (spacing - mean).powi(2))
+        .sum::<f32>()
+        / spacings.len() as f32;
+    Some(SpacingReport {
+        count: spacings.len(),
+        mean_km: mean,
+        coefficient_of_variation: variance.sqrt() / mean.abs().max(1e-6),
+    })
+}
+
+fn flux_integral(values: &[f32], lengths: &[f32]) -> FluxIntegralReport {
+    let signed = values
+        .iter()
+        .zip(lengths)
+        .map(|(&value, &length)| f64::from(value) * f64::from(length))
+        .sum::<f64>();
+    let positive = values
+        .iter()
+        .zip(lengths)
+        .map(|(&value, &length)| f64::from(value.max(0.0)) * f64::from(length))
+        .sum::<f64>();
+    FluxIntegralReport {
+        signed_km2_per_myr: signed,
+        positive_clipped_km2_per_myr: positive,
+        rectification_excess_km2_per_myr: positive - signed,
+        positive_to_signed_ratio: positive_denominator_ratio(positive, signed),
+    }
+}
+
+fn weighted_pearson(left: &[f32], right: &[f32], weights: &[f32]) -> Option<f32> {
+    if left.len() != right.len() || left.len() != weights.len() || left.is_empty() {
+        return None;
+    }
+    let weight = weights.iter().sum::<f32>();
+    if !weight.is_finite() || weight <= 0.0 {
+        return None;
+    }
+    let left_mean = left
+        .iter()
+        .zip(weights)
+        .map(|(&value, &weight)| value * weight)
+        .sum::<f32>()
+        / weight;
+    let right_mean = right
+        .iter()
+        .zip(weights)
+        .map(|(&value, &weight)| value * weight)
+        .sum::<f32>()
+        / weight;
+    let covariance = left
+        .iter()
+        .zip(right)
+        .zip(weights)
+        .map(|((&left, &right), &weight)| (left - left_mean) * (right - right_mean) * weight)
+        .sum::<f32>();
+    let left_variance = left
+        .iter()
+        .zip(weights)
+        .map(|(&value, &weight)| (value - left_mean).powi(2) * weight)
+        .sum::<f32>();
+    let right_variance = right
+        .iter()
+        .zip(weights)
+        .map(|(&value, &weight)| (value - right_mean).powi(2) * weight)
+        .sum::<f32>();
+    let denominator = (left_variance * right_variance).sqrt();
+    (denominator.is_finite() && denominator > 1e-12)
+        .then_some((covariance / denominator).clamp(-1.0, 1.0))
 }
 
 fn smooth(profile: &Profile, values: &[f32], sigma_km: f32) -> Vec<f32> {
@@ -761,13 +1226,40 @@ fn bend_profile(profile: &Profile, half_window_km: f32) -> Vec<Option<f32>> {
 }
 
 fn point_at(profile: &Profile, distance_km: f32) -> Vec3 {
-    let distance = distance_km.clamp(0.0, profile.ends.last().copied().unwrap_or(0.0));
-    let edge = profile
-        .ends
+    point_at_chain(
+        &profile.vertices,
+        &profile.starts,
+        &profile.lengths,
+        &profile.ends,
+        distance_km,
+    )
+    .expect("validated non-empty profile")
+}
+
+fn point_at_chain(
+    vertices: &[Vec3],
+    starts: &[f32],
+    lengths: &[f32],
+    ends: &[f32],
+    distance_km: f32,
+) -> Option<Vec3> {
+    if vertices.len() != lengths.len() + 1
+        || starts.len() != lengths.len()
+        || ends.len() != lengths.len()
+        || lengths.is_empty()
+        || lengths
+            .iter()
+            .any(|length| !length.is_finite() || *length <= 0.0)
+    {
+        return None;
+    }
+    let distance = distance_km.clamp(0.0, ends.last().copied()?);
+    let edge = ends
         .partition_point(|&end| end < distance)
-        .min(profile.lengths.len() - 1);
-    let t = ((distance - profile.starts[edge]) / profile.lengths[edge]).clamp(0.0, 1.0);
-    slerp(profile.vertices[edge], profile.vertices[edge + 1], t)
+        .min(lengths.len() - 1);
+    let t = ((distance - starts[edge]) / lengths[edge]).clamp(0.0, 1.0);
+    let point = slerp(vertices[edge], vertices[edge + 1], t);
+    (point.is_finite() && point.length_squared() > 1e-12).then_some(point)
 }
 
 fn slerp(left: Vec3, right: Vec3, t: f32) -> Vec3 {
@@ -1024,4 +1516,99 @@ fn render_svg(
         right - 55.0,
     ));
     svg
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn equatorial_chain(longitudes: &[f32]) -> (Vec<Vec3>, Vec<f32>, Vec<f32>, Vec<f32>) {
+        let vertices: Vec<_> = longitudes
+            .iter()
+            .map(|&angle| Vec3::new(angle.cos(), 0.0, angle.sin()))
+            .collect();
+        let lengths: Vec<_> = vertices
+            .windows(2)
+            .map(|pair| pair[0].dot(pair[1]).clamp(-1.0, 1.0).acos() * PLANET_RADIUS_KM)
+            .collect();
+        let mut starts = Vec::with_capacity(lengths.len());
+        let mut ends = Vec::with_capacity(lengths.len());
+        let mut distance = 0.0;
+        for &length in &lengths {
+            starts.push(distance);
+            distance += length;
+            ends.push(distance);
+        }
+        (vertices, starts, lengths, ends)
+    }
+
+    fn normal_for(chain: &(Vec<Vec3>, Vec<f32>, Vec<f32>, Vec<f32>), alignment: Vec3) -> Vec3 {
+        let center = 0.5 * chain.3.last().copied().unwrap();
+        continuous_chain_normal(
+            &chain.0, &chain.1, &chain.2, &chain.3, center, 100.0, alignment,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn continuous_normal_is_geodesic_subdivision_invariant() {
+        let coarse = equatorial_chain(&[-0.2, 0.2]);
+        let subdivided = equatorial_chain(&[-0.2, -0.1, 0.0, 0.1, 0.2]);
+        let coarse_normal = normal_for(&coarse, -Vec3::Y);
+        let subdivided_normal = normal_for(&subdivided, -Vec3::Y);
+        assert!(coarse_normal.dot(subdivided_normal) > 0.999_999);
+    }
+
+    #[test]
+    fn continuous_projection_is_path_reversal_and_plate_order_invariant() {
+        let forward = equatorial_chain(&[-0.2, 0.0, 0.2]);
+        let reverse = equatorial_chain(&[0.2, 0.0, -0.2]);
+        let forward_normal = normal_for(&forward, -Vec3::Y);
+        let reverse_normal = normal_for(&reverse, -Vec3::Y);
+        assert!(forward_normal.dot(reverse_normal) > 0.999_999);
+
+        let relative_low_to_high = -Vec3::Y * 12.0;
+        let low_to_high_rate = relative_low_to_high.dot(forward_normal);
+        let swapped_normal = normal_for(&forward, Vec3::Y);
+        let swapped_rate = (-relative_low_to_high).dot(swapped_normal);
+        assert!((low_to_high_rate - swapped_rate).abs() < 1e-5);
+    }
+
+    #[test]
+    fn continuous_normal_requires_full_endpoint_support() {
+        let chain = equatorial_chain(&[-0.2, 0.0, 0.2]);
+        assert!(continuous_chain_normal(
+            &chain.0,
+            &chain.1,
+            &chain.2,
+            &chain.3,
+            50.0,
+            100.0,
+            -Vec3::Y,
+        )
+        .is_none());
+        let total = chain.3.last().copied().unwrap();
+        assert!(continuous_chain_normal(
+            &chain.0,
+            &chain.1,
+            &chain.2,
+            &chain.3,
+            total - 50.0,
+            100.0,
+            -Vec3::Y,
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn continuous_normal_rejects_degenerate_chain_geometry() {
+        let vertices = vec![Vec3::X, Vec3::X, Vec3::X];
+        let starts = vec![0.0, 100.0];
+        let lengths = vec![100.0, 100.0];
+        let ends = vec![100.0, 200.0];
+        assert!(
+            continuous_chain_normal(&vertices, &starts, &lengths, &ends, 100.0, 50.0, Vec3::Y,)
+                .is_none()
+        );
+    }
 }
