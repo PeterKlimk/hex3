@@ -117,6 +117,8 @@ but the spatial correspondence is decisive: the repeated cadence is primarily
 present in the supplied edge-rate forcing. Coupled response preserves and
 sharpens it; this case is not evidence that erosion invented a regular train
 from a smooth source.
+The clean station record is retained under
+[`docs/generated`](generated/finite-age-within-episode-seed-8675309-episode-9-v0.json).
 
 That finding moves the active question one seam upstream. Local normal
 convergence can physically vary with boundary curvature and obliquity, so do

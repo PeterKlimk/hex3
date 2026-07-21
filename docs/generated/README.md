@@ -10,6 +10,12 @@ documentation reading path.
 
 Current bounded evidence:
 
+- [`finite-age-within-episode-seed-8675309-episode-9-v0.json`](finite-age-within-episode-seed-8675309-episode-9-v0.json)
+  retains the ordinary capped-surface 50 km station trace from exact owner-edge
+  convergence through scheduled uplift, demoted substrate, final crest/response
+  and a limited transverse-trunk proxy. Empty stations remain explicit and its
+  manifest records clean revision `888942c`.
+
 - [`finite-age-component-correspondence-seed-12345-v0.json`](finite-age-component-correspondence-seed-12345-v0.json),
   [`seed-8675309`](finite-age-component-correspondence-seed-8675309-v0.json) and
   [`seed-9001`](finite-age-component-correspondence-seed-9001-v0.json) retain the
