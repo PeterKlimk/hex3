@@ -10,7 +10,9 @@ research evidence rather than active policy.
 
 See the [project thesis](thesis.md), [model strategy](model-strategy.md),
 [current architecture](architecture.md) and
-[mountain-system design basis](research/mountain-system-design-basis-2026-07-13.md).
+[terrain architecture design space](terrain-architecture.md). The older
+[mountain-system design basis](research/mountain-system-design-basis-2026-07-13.md)
+remains research evidence.
 
 ## Decision
 
@@ -154,16 +156,19 @@ strong mitigator, not the missing owner. See the
 [terrain causal-attribution audit](audits/terrain-causal-attribution-2026-07-21.md).
 
 Broader terrain ownership is therefore reopened, but the Legacy path is closed
-to further morphology tuning. The next design pass must define a coherent
-ownership boundary that replaces scalar final-height plus repeated-uplift
-ownership, while allowing explicit cooperating systems for deformation/material
-opportunity, structural organization, drainage/divides and nonlinear hillslope
-response. It should compare a small design space before selecting one or two
-minimal discriminating slices. This is not a demand for deeper physics: an
-authentic structural hack is admissible if it preserves the relevant causal
-consequences. A candidate may not select a convenient seed, tune relief, add
-independent crest texture or fabricate internal segmentation where the source
-is genuinely continuous.
+to further morphology tuning. The replacement boundary must remove scalar
+final-height plus repeated-uplift ownership while allowing explicit cooperating
+systems for deformation/material opportunity, structural organization,
+drainage/divides and nonlinear hillslope response. This is not a demand for
+deeper physics: an authentic structural hack is admissible if it preserves the
+relevant causal consequences. A candidate may not select a convenient seed,
+tune relief, add independent crest texture or fabricate internal segmentation
+where the source is genuinely continuous.
+
+The current [terrain architecture decision](terrain-architecture.md) separates
+forcing, landscape response and multiscale representation. It selects epochal
+coupled landscape evolution as the first slice and a causal dual
+drainage/divide construction as a conditional authentic-hack upper bound.
 
 ## Pareto-important capabilities alongside terrain replacement
 

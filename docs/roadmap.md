@@ -143,17 +143,17 @@ long-front-to-distance-band height representation, not explained by one source,
 the inactive cap, fine interpolation or presentation. Exact evidence and limits
 are in the [terrain causal-attribution audit](audits/terrain-causal-attribution-2026-07-21.md).
 
-The next terrain task is to define the replacement ownership boundary and a
-small causal design space. Candidate architectures may divide responsibility
-among explicit cooperating systems, but together they must consume finite
-deformation/material opportunity where available and connect uplift opportunity
-to drainage/divide organization and nonlinear hillslope response. Select one or
-two minimal discriminating slices only after that comparison. A slice may use a
-reduced causal model or an authentic structural hack; it need not simulate
-deeper physics that has no visible or downstream payoff. Keep Legacy as the
-usable control, but stop tuning or further interrogating it as a candidate
-architecture. Paleorifts, transfers, seed selection, relief tuning and crest
-noise are not substitutes.
+The [terrain architecture design space](terrain-architecture.md) now defines the
+replacement boundary and two bounded discriminators. Candidate architectures
+may divide responsibility among explicit cooperating systems, but together
+they must consume finite deformation/material opportunity where available and
+connect uplift opportunity to drainage/divide organization and nonlinear
+hillslope response. Epochal coupled landscape evolution is first; a causal
+dual drainage/divide construction is the conditional authentic-hack upper
+bound. Neither requires deeper physics without visible or downstream payoff.
+Keep Legacy as the usable control, but stop tuning or further interrogating it
+as a candidate architecture. Paleorifts, transfers, seed selection, relief
+tuning and crest noise are not substitutes.
 
 ## Completed bounded decisions
 

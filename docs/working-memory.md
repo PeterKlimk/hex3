@@ -32,6 +32,14 @@ geodynamics model. Do not fabricate segmentation for a genuinely continuous
 source; broad plateaus remain valid outcomes, just not the universal grammar.
 See the [causal-attribution audit](audits/terrain-causal-attribution-2026-07-21.md).
 
+That design pass is now captured in the
+[terrain architecture decision](terrain-architecture.md). It separates forcing,
+landscape response and representation, selects epochal coupled evolution as the
+first slice, and retains a dual drainage/divide construction only as a
+conditional low-cost authentic-hack upper bound. Do not begin with multiscale
+detail, adaptive remeshing or a new general framework; first establish regional
+organization on the ordinary roughly 250k-cell surface.
+
 Preserve the integrated World Readability V0 recipe while doing this. The packet
 confirms that Hex3 already generates more coherent geography than its former
 ordinary view communicated. Do not reopen the accepted composition without a

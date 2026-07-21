@@ -1,14 +1,15 @@
 # Structural Mountain V0 contract
 
-Status: **bounded source decision complete; current organization rejected as
-insufficient; inheritance follow-up does not subdivide the reviewed parent;
-terrain replacement paused behind the ordinary-world escalation gate**,
+Status: **historical bounded source decision complete; current organization
+rejected as insufficient; inheritance follow-up does not subdivide the reviewed
+parent; superseded as active terrain direction by the design-space decision**,
 2026-07-18.
 
 This document records the completed product-native mountain source comparison.
 It replaced the old H/C/G campaign; neither it nor those planar experiments is
 an active queue of unfinished promotion work. The current decision lives in the
-[roadmap](roadmap.md#3-terrain-escalation-gate).
+[terrain architecture design space](terrain-architecture.md) and
+[roadmap](roadmap.md#2-terrain-escalation-gate).
 
 ## Product outcome and precise defect
 
@@ -19,8 +20,9 @@ saddles/lows, valleys and drainage basins that later systems can consume.
 
 The defect is not that plateaus exist. Broad high surfaces are legitimate under
 distributed shortening, strong material, aridity or internal drainage. The
-defect is that the current smooth, capped distance-band response is the generic
-grammar of convergence. Erosion adds strong local relief but mostly carves the
+defect is that the current smooth distance-band response is the generic grammar
+of convergence. Its available hard cap was later shown inactive in the fixed
+six-range causal corpus. Erosion adds strong local relief but mostly carves the
 inherited roof. Relief exaggeration makes its margins attractive while making
 the missing internal hierarchy harder to notice.
 
@@ -28,7 +30,7 @@ The earlier apparent pillar is a separate presentation warning. It was a broad,
 supported structure made implausible by roughly hundredfold relief
 exaggeration, not proof that the physical terrain needed to be flattened.
 
-## Selected architecture
+## Tested source architecture
 
 Build one **finite-segment uplift organizer with drainage-conditioned terrain
 response**. It is an authentic reduction of linked fault/fold-system envelopes,

@@ -1,6 +1,6 @@
 # Hex3 model strategy
 
-Status: **current project decision**, 2026-07-19.
+Status: **current project decision**, 2026-07-21.
 
 Hex3 is an **authentic systemic world generator** built from reduced causal
 models. It uses different fidelity levels by domain, but one common rule:
@@ -35,13 +35,14 @@ accepted a product-native source compiler but found that current crust/history
 state cannot support honest internal organization. The subsequent
 [Lithosphere Inheritance V0](lithosphere-inheritance.md) audit retained a cheap
 experimental assembly/suture seam but did not subdivide the reviewed collision
-parent or establish an interior-rift consumer. The current [roadmap](roadmap.md)
-therefore drops continuity alone as a rejection criterion for the reviewed
-parent and selects **World Readability V0**: make current product-control relief,
-water hierarchy, rivers and living cover cohere across scales before adding
-another physical stage. This is not
-acceptance of the legacy smooth-roof owner or a commitment to deepen every
-retained system.
+parent or establish an interior-rift consumer. **World Readability V0** is now
+accepted and integrated. A fixed ordinary-world causal corpus subsequently
+passed the terrain reopening gate and located the generic defect in Legacy's
+long-front-to-distance-band direct-height representation. The current
+[terrain architecture decision](terrain-architecture.md) therefore compares a
+reduced coupled landscape slice with a conditional dual drainage/divide
+authentic-hack upper bound. This is not a commitment to deepen every retained
+system.
 
 ## Alternatives considered
 
@@ -197,12 +198,10 @@ fidelity direction. Water Geography, Living Surface and Consequential Geography
 have completed their bounded decisions. The selected sequence is now:
 
 1. preserve the contracted product/research boundary;
-2. build one bounded, scale-aware Authentic cartographic scene from current
-   product-control relief, land/water identity, river hierarchy and Living
-   Surface state;
-3. reopen broader terrain ownership only if a fixed ordinary-world
-   Physical/Diagnostic corpus shows recurrent smooth-roof morphology and the
-   cartographic A/B separately shows material product harm; and
+2. preserve the accepted scale-aware Authentic composition and its separation
+   from physical validation;
+3. evaluate the bounded terrain design slices at ordinary resolution, beginning
+   with epochal coupled landscape evolution; and
 4. keep sediment, seasonal hydroecology, richer vegetation, ocean structure and
    cryosphere behind their explicit consumer and ownership gates.
 
