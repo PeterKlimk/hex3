@@ -308,14 +308,24 @@ response expresses the work it is actually given about as consistently as the
 other worlds. This validates source-to-response correspondence, not the physical
 adequacy of frozen present supports or the land gate.
 
-The unresolved defect is now morphological and within-component. Land-only
-age-to-relief, summit-grade and trunk-orientation correlations are exploratory,
-use only 5--13 components and are not stable across worlds; they do not establish
-credible unequal belt maturity. For the repeated-tooth belt in seed `8675309`,
-test whether crest spacing, summit caps and drainage/divides inherit organization
-from the supplied front field or create it during landscape response. This is
-neither a promotion nor authority to restore a global height target, add source
-complexity, tune coverage or start Slice B.
+The repeated-tooth discriminator now localizes the defect upstream. At the
+ordinary capped surface, seed `8675309` episode `9` has 73 owner-convergence
+peaks, 80 scheduled-uplift peaks and 75 final-crest peaks along one actual chain;
+their mean contiguous spacings are 162, 155 and 173 km. Owner convergence
+predicts final crest strongly (`rho=0.871`), including adjacent-station changes
+(`rho=0.688`), whereas the demoted substrate has only 15 detected peaks and a
+weaker `rho=0.404`. The thresholds are diagnostic rather than calibrated
+landform semantics, but the source-to-final spatial correspondence is enough:
+the coupled landscape is not creating this cadence from smooth forcing.
+
+Slice A therefore remains useful but exposes a source-representation question.
+Before attributing the teeth to erosion or adding response complexity, determine
+whether per-edge normal convergence represents meaningful plate-pair curvature
+and obliquity at product scale or aliases the coarse Voronoi boundary's local
+orientation into an uplift train. Compare it with a continuous, scale-aware
+boundary/kinematic envelope that retains genuine bends, transfers and gradients.
+This is not authority to smooth a disliked picture, restore a height target,
+add stochastic source complexity, tune coverage or begin Slice B.
 
 ## Slice B — causal dual drainage/divide construction
 

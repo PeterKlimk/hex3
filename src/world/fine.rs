@@ -1719,6 +1719,31 @@ struct MesoFrontFrame {
     chain_id: u32,
 }
 
+/// Exact-arc coordinates recovered from a retained finite-age source owner.
+///
+/// This is a research-only provenance seam, not additional terrain state. It lets
+/// diagnostics map a fine-cell source sample back onto the same continuous
+/// along-strike coordinate and great-circle arc used by the terrain constructor.
+#[cfg(feature = "research-landscape")]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct OwnedFrontProjection {
+    /// Index into the aligned vectors in [`OrogenFronts`].
+    pub front_index: u32,
+    /// Ordered convergent-front chain containing `front_index`.
+    pub chain_id: u32,
+    /// Continuous endpoint-ordered coordinate along that chain, in radians.
+    pub u_lin_radians: f32,
+    /// Unsigned great-circle distance to the owned front arc, in radians.
+    pub arc_distance_radians: f32,
+}
+
+#[derive(Clone, Copy)]
+struct FrontArcProjection {
+    u_lin: f32,
+    #[cfg(feature = "research-landscape")]
+    distance: f32,
+}
+
 /// Fraction [0, 1] along the great-circle arc a->b of the point closest to `c`
 /// (clamped to the endpoints; 0.5 for degenerate arcs).
 fn point_on_arc_param(c: Vec3, a: Vec3, b: Vec3) -> f32 {
@@ -1742,6 +1767,52 @@ fn point_on_arc_param(c: Vec3, a: Vec3, b: Vec3) -> f32 {
         return if ta < tb { 0.0 } else { 1.0 };
     }
     (ta / full).clamp(0.0, 1.0)
+}
+
+/// Project a point onto one exact front arc. Both ownership and the public
+/// research provenance seam below use this helper so their continuous coordinate
+/// cannot acquire independent geometry conventions.
+fn project_front_arc(c: Vec3, fronts: &OrogenFronts, front_index: usize) -> FrontArcProjection {
+    let (a, b) = (fronts.seg_a[front_index], fronts.seg_b[front_index]);
+    let t = point_on_arc_param(c, a, b);
+    let seg_len = a.dot(b).clamp(-1.0, 1.0).acos();
+    FrontArcProjection {
+        u_lin: fronts.u_lin[front_index] + fronts.u_dir[front_index] * (t - 0.5) * seg_len,
+        #[cfg(feature = "research-landscape")]
+        distance: point_to_arc_distance(c, a, b),
+    }
+}
+
+/// Recover continuous exact-front coordinates for a retained source owner.
+///
+/// `owner_front` is a value from [`FrozenSupportUplift::owner_front`]. The
+/// sentinel `u32::MAX`, or a malformed/misaligned index, returns `None`. `center`
+/// is expected to be a unit-vector fine-cell center.
+#[cfg(feature = "research-landscape")]
+pub fn project_owned_front(
+    center: Vec3,
+    owner_front: u32,
+    fronts: &OrogenFronts,
+) -> Option<OwnedFrontProjection> {
+    let front_index = usize::try_from(owner_front).ok()?;
+    if owner_front == u32::MAX
+        || front_index >= fronts.seg_a.len()
+        || front_index >= fronts.seg_b.len()
+        || front_index >= fronts.chain_id.len()
+        || front_index >= fronts.u_lin.len()
+        || front_index >= fronts.u_dir.len()
+    {
+        return None;
+    }
+    let projection = project_front_arc(center, fronts, front_index);
+    (projection.u_lin.is_finite() && projection.distance.is_finite()).then_some(
+        OwnedFrontProjection {
+            front_index: owner_front,
+            chain_id: fronts.chain_id[front_index],
+            u_lin_radians: projection.u_lin,
+            arc_distance_radians: projection.distance,
+        },
+    )
 }
 
 fn meso_front_tree(fronts: &OrogenFronts) -> Option<CoarseTree> {
@@ -1789,15 +1860,13 @@ fn nearest_meso_front_frame(
     if !best_d.is_finite() {
         return None;
     }
-    let (a, b) = (fronts.seg_a[best_front], fronts.seg_b[best_front]);
-    let t = point_on_arc_param(c, a, b);
-    let seg_len = a.dot(b).clamp(-1.0, 1.0).acos();
+    let projection = project_front_arc(c, fronts, best_front);
     Some(MesoFrontFrame {
         #[cfg(feature = "research-landscape")]
         front_index: best_front,
         u: fronts.arc_u[best_front],
         v: best_side * best_d,
-        u_lin: fronts.u_lin[best_front] + fronts.u_dir[best_front] * (t - 0.5) * seg_len,
+        u_lin: projection.u_lin,
         chain_id: fronts.chain_id[best_front],
     })
 }

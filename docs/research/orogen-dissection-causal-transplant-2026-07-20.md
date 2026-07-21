@@ -143,6 +143,32 @@ The existing pilot also shows that relief responsiveness alone poorly predicts
 channel heads and junctions, so adaptive refinement needs its own causal
 predictor or a stable sub-grid state.
 
+## Why regular drainage teeth can still be physical
+
+A repeated valley/interfluve spacing is not by itself proof of a numerical or
+visual artifact. Reduced landscape-evolution models with uniform uplift,
+stream-power incision and hillslope transport select a characteristic drainage
+wavelength through basin competition; spacing can become more regular as the
+surface approaches equilibrium
+([Perron et al. 2008](https://doi.org/10.1029/2007JF000977),
+[Perron et al. 2009](https://doi.org/10.1038/nature08174)). Reality broadens and
+interrupts that grammar through inherited drainage, heterogeneous structure and
+erodibility, rainfall gradients, capture, base-level change, sediment coupling
+and lateral channel erosion. Facet experiments in particular find that
+persistent drainage produces long, irregular multiangular forms rather than a
+universal identical triangular train
+([Hergarten 2024](https://doi.org/10.5194/esurf-12-1315-2024)).
+
+This prior changes the interpretation, not the admission bar. Smooth forcing
+followed by regular final outlets would identify a potentially authentic but
+overexposed equilibrium response, not automatically a broken solver. Cadence
+already phase-aligned with edge-rate forcing instead belongs upstream. Current
+seed-`8675309` evidence takes the latter branch: owner convergence and final
+crest covary strongly even in adjacent-station differences. The next question is
+whether that input variation is meaningful curved-boundary kinematics or a
+coarse boundary-orientation alias. A global smoother would erase both and cannot
+answer it.
+
 ## Consequence for the next terrain rung
 
 The current Structural Mountain pause remains correct. Its source compiler is

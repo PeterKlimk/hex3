@@ -103,6 +103,32 @@ question: determine whether crest spacing, summit caps and drainage/divides
 inherit periodicity from the supplied front field or create it during response.
 Do not repair it with a global height budget or a parameter sweep.
 
+The first within-episode trace resolves that branch at the ordinary capped
+surface. Episode `9` is one actual front chain with 302 occupied 50 km stations
+and 30 preserved gaps. Its owner-edge convergence already contains 73 local
+peaks (mean contiguous spacing 162 km, CV 0.46); reconstructed scheduled uplift
+contains 80 (155 km, CV 0.30), and final crest response contains 75 (173 km, CV
+0.38). More importantly, station owner convergence predicts final crest with
+Spearman `0.871`, and even adjacent occupied-station changes correlate `0.688`.
+Scheduled uplift gives `0.673/0.470`; the demoted structural substrate has only
+15 detected peaks and correlates `0.404` with final crest. These peak counts use
+declared compact prominence thresholds and are not landform classifications,
+but the spatial correspondence is decisive: the repeated cadence is primarily
+present in the supplied edge-rate forcing. Coupled response preserves and
+sharpens it; this case is not evidence that erosion invented a regular train
+from a smooth source.
+
+That finding moves the active question one seam upstream. Local normal
+convergence can physically vary with boundary curvature and obliquity, so do
+not smooth or randomize the source as a cosmetic repair. Determine how much of
+episode `9`'s edge-scale rate variation follows meaningful plate-pair geometry
+and how much follows the coarse Voronoi boundary's local orientation/ownership
+discretization. The next discriminator should compare the current per-edge
+normal projection with a scale-appropriate continuous boundary/kinematic
+envelope while preserving genuine bends, transfers and rate gradients. The
+transverse-trunk proxy is too sparse here to attribute the remaining local
+sharpening among incision, hillslopes and drainage capture.
+
 One cache-disabled WSL pair per seed shows `27.78/27.56`, `21.96/23.62` and
 `27.82/27.96` seconds wall for Legacy/candidate at roughly 256k cells. Candidate
 peak RSS is slightly lower in all three pairs. A smaller paired run showed about

@@ -178,13 +178,20 @@ component outside target-land support and finite-age retention of only 52.3% of
 its supported all-old budget. This validates the implementation chain, not the
 geological source assumptions.
 
-Next, localize seed `8675309`'s repeated-tooth morphology *within* its dominant
-supplied components. Compare source-field spacing and smoothness with crest/summit
-spacing, cap geometry and final drainage/divide organization. Decide whether the
-grammar is inherited from frozen present-front forcing or produced by coupled
-response. Age-to-maturity correlations are too sparse and confounded to settle
-that branch. Do not begin a parameter sweep, planet-wide height correction,
-source-complexity ladder or Slice B first.
+The within-component discriminator is complete. Along seed `8675309` episode
+`9`, local owner convergence, scheduled uplift and final crest all carry roughly
+the same 155--173 km cadence; owner rate predicts final crest at `rho=0.871` and
+their adjacent-station changes at `rho=0.688`. The demoted substrate carries far
+fewer detected peaks. The coupled response therefore inherits and sharpens the
+repeated grammar rather than generating it from a smooth source.
+
+Next, audit the scale meaning of that upstream rate field. Separate physically
+meaningful convergence variation from local coarse-Voronoi boundary orientation
+and ownership effects by comparing the current exact-edge normal projection to
+a continuous, scale-appropriate plate-pair boundary/kinematic envelope. Preserve
+real bends, transfers and gradients; do not substitute cosmetic smoothing,
+random source complexity, a parameter sweep, planet-wide height correction or
+Slice B.
 
 ## Completed bounded decisions
 

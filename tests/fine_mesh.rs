@@ -1,5 +1,7 @@
 #[cfg(feature = "research-landscape")]
-use hex3::world::frozen_support_uplift;
+use glam::Vec3;
+#[cfg(feature = "research-landscape")]
+use hex3::world::{frozen_support_uplift, project_owned_front};
 use hex3::world::{
     BiomeKind, EcologySemantics, ErosionParams, FineCacheMode, FineCacheOutcome, FineDensityParams,
     FineStructureParams, FineWorld, LivingSurfaceSemantics, OrogenFronts, RiverNetwork,
@@ -182,6 +184,41 @@ fn fine_mesh_pipeline_smoke() {
 
 #[cfg(feature = "research-landscape")]
 #[test]
+fn owned_front_projection_uses_continuous_exact_arc_coordinates() {
+    let mut fronts = OrogenFronts::default();
+    fronts.seg_a.push(Vec3::X);
+    fronts.seg_b.push(Vec3::Y);
+    fronts.chain_id.push(17);
+    fronts.u_lin.push(2.0);
+    fronts.u_dir.push(1.0);
+
+    let angle = std::f32::consts::FRAC_PI_8;
+    let on_arc = Vec3::new(angle.cos(), angle.sin(), 0.0);
+    let first = project_owned_front(on_arc, 0, &fronts).unwrap();
+    let second = project_owned_front(on_arc, 0, &fronts).unwrap();
+
+    assert_eq!(first, second, "projection must be deterministic");
+    assert_eq!(first.front_index, 0);
+    assert_eq!(first.chain_id, 17);
+    assert!((first.u_lin_radians - (2.0 - std::f32::consts::FRAC_PI_8)).abs() < 1e-6);
+    assert!(first.arc_distance_radians.abs() < 1e-6);
+
+    let latitude = 0.3f32;
+    let off_arc = Vec3::new(
+        angle.cos() * latitude.cos(),
+        angle.sin() * latitude.cos(),
+        latitude.sin(),
+    );
+    let offset = project_owned_front(off_arc, 0, &fronts).unwrap();
+    assert!((offset.u_lin_radians - first.u_lin_radians).abs() < 1e-6);
+    assert!((offset.arc_distance_radians - latitude).abs() < 1e-6);
+
+    assert!(project_owned_front(on_arc, u32::MAX, &fronts).is_none());
+    assert!(project_owned_front(on_arc, 1, &fronts).is_none());
+}
+
+#[cfg(feature = "research-landscape")]
+#[test]
 fn finite_age_source_retains_front_and_episode_provenance() {
     let world = coarse_world();
     let fronts = OrogenFronts::build(
@@ -264,6 +301,28 @@ fn finite_age_source_retains_front_and_episode_provenance() {
             assert_eq!(owner, u32::MAX, "zero source retained a front owner");
             assert_eq!(duration.to_bits(), 0.0f32.to_bits());
         }
+    }
+    for (cell, &owner) in source.owner_front.iter().enumerate() {
+        let projection =
+            project_owned_front(fine.base.tessellation.cell_center(cell), owner, &fronts);
+        if owner == u32::MAX {
+            assert!(projection.is_none());
+            continue;
+        }
+        let projection = projection.expect("retained owner must project onto its exact arc");
+        let owner = owner as usize;
+        assert_eq!(projection.front_index as usize, owner);
+        assert_eq!(projection.chain_id, fronts.chain_id[owner]);
+        assert!(projection.u_lin_radians.is_finite());
+        assert!((0.0..=std::f32::consts::PI).contains(&projection.arc_distance_radians));
+        let segment_length = fronts.seg_a[owner]
+            .dot(fronts.seg_b[owner])
+            .clamp(-1.0, 1.0)
+            .acos();
+        assert!(
+            (projection.u_lin_radians - fronts.u_lin[owner]).abs() <= 0.5 * segment_length + 1e-6,
+            "continuous coordinate escaped its retained owner segment"
+        );
     }
 }
 

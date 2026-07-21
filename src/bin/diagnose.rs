@@ -97,6 +97,16 @@ struct Cli {
     #[cfg(feature = "research-landscape")]
     #[arg(long, requires = "finite_age_component_audit")]
     finite_age_component_audit_out: Option<PathBuf>,
+    /// Trace one finite-age episode along its actual ordered front chains. The
+    /// trace is a bounded source-to-final diagnostic, not another terrain knob.
+    /// Implies the coherent frozen-support Slice A preset.
+    #[cfg(feature = "research-landscape")]
+    #[arg(long)]
+    finite_age_spatial_episode: Option<usize>,
+    /// Write the selected episode's along-strike station record as JSON.
+    #[cfg(feature = "research-landscape")]
+    #[arg(long, requires = "finite_age_spatial_episode")]
+    finite_age_spatial_trace_out: Option<PathBuf>,
     /// Audit the emergent builder per connected orogen: coarse target versus
     /// final peak, plus whether the planet-wide shape normalizer subsidizes or
     /// taxes each component. This is the standing coarse→fine rebuild gate.
@@ -385,7 +395,10 @@ fn main() {
     }
     world.generate_atmosphere();
     #[cfg(feature = "research-landscape")]
-    if cli.finite_age_uplift || cli.finite_age_component_audit {
+    if cli.finite_age_uplift
+        || cli.finite_age_component_audit
+        || cli.finite_age_spatial_episode.is_some()
+    {
         world.erosion_params.finite_age_uplift = true;
         world.fine_structure_params.emergent_lambda = 1.0;
         world.fine_structure_params.emergent_structured = 0.0;
@@ -615,6 +628,17 @@ fn main() {
             cli.cells,
             cli.top,
             cli.finite_age_component_audit_out.as_deref(),
+        );
+        audited = true;
+    }
+    #[cfg(feature = "research-landscape")]
+    if let Some(episode_id) = cli.finite_age_spatial_episode {
+        run_finite_age_spatial_trace(
+            &world,
+            cli.seed,
+            cli.cells,
+            episode_id,
+            cli.finite_age_spatial_trace_out.as_deref(),
         );
         audited = true;
     }
@@ -1668,7 +1692,8 @@ struct SourceViabilityReport {
 #[cfg(all(test, feature = "research-landscape"))]
 mod source_viability_tests {
     use super::{
-        area_weighted_quantile, normalized_l1, rank_one_residual, spearman_rank_correlation,
+        area_weighted_quantile, normalized_l1, rank_one_residual, spatial_cadence,
+        spearman_rank_correlation, FiniteAgeSpatialStation,
     };
 
     #[test]
@@ -1693,6 +1718,37 @@ mod source_viability_tests {
         let decreasing = [(1.0, 9.0), (2.0, 5.0), (2.0, 5.0), (3.0, 4.0)];
         assert!((spearman_rank_correlation(increasing).unwrap() - 1.0).abs() < 1.0e-12);
         assert!((spearman_rank_correlation(decreasing).unwrap() + 1.0).abs() < 1.0e-12);
+    }
+
+    #[test]
+    fn spatial_cadence_never_bridges_an_empty_station() {
+        let station = |bin: i64, value: Option<f64>| FiniteAgeSpatialStation {
+            chain_id: 1,
+            bin,
+            along_strike_km: bin as f64 * 50.0,
+            source_cells: usize::from(value.is_some()),
+            source_area_km2: 1.0,
+            owner_convergence_mean_km_per_myr: value,
+            scheduled_uplift_mean_km: value,
+            substrate_elevation_p95_km: value,
+            final_crest_p95_km: value,
+            positive_response_p95_km: value,
+            transverse_trunk_cells: 0,
+            transverse_trunk_max_accumulation: None,
+        };
+        let stations = [
+            station(0, Some(1.0)),
+            station(1, Some(3.0)),
+            station(2, Some(1.0)),
+            station(3, None),
+            station(4, Some(1.0)),
+            station(5, Some(3.0)),
+            station(6, Some(1.0)),
+        ];
+        let cadence = spatial_cadence(&stations, |item| item.final_crest_p95_km, 0.5);
+        assert_eq!(cadence.peaks, 2);
+        assert_eq!(cadence.spacing_samples, 0);
+        assert!(cadence.spacing_mean_km.is_none());
     }
 }
 
@@ -2993,6 +3049,526 @@ fn run_finite_age_component_audit(
             std::process::exit(2);
         }
         eprintln!("wrote finite-age component audit {}", path.display());
+    }
+}
+
+// ================= FINITE-AGE WITHIN-EPISODE TRACE =================
+
+#[cfg(feature = "research-landscape")]
+const FINITE_AGE_SPATIAL_BIN_KM: f64 = 50.0;
+
+#[cfg(feature = "research-landscape")]
+#[derive(Debug, serde::Serialize)]
+struct FiniteAgeSpatialStation {
+    chain_id: u32,
+    bin: i64,
+    along_strike_km: f64,
+    source_cells: usize,
+    source_area_km2: f64,
+    owner_convergence_mean_km_per_myr: Option<f64>,
+    scheduled_uplift_mean_km: Option<f64>,
+    substrate_elevation_p95_km: Option<f64>,
+    final_crest_p95_km: Option<f64>,
+    positive_response_p95_km: Option<f64>,
+    transverse_trunk_cells: usize,
+    transverse_trunk_max_accumulation: Option<f64>,
+}
+
+#[cfg(feature = "research-landscape")]
+#[derive(Debug, serde::Serialize)]
+struct FiniteAgeSpatialCadence {
+    peaks: usize,
+    spacing_samples: usize,
+    spacing_mean_km: Option<f64>,
+    spacing_cv: Option<f64>,
+}
+
+#[cfg(feature = "research-landscape")]
+#[derive(Debug, serde::Serialize)]
+struct FiniteAgeSpatialChain {
+    chain_id: u32,
+    scheduled_uplift_volume_km3: f64,
+    occupied_span_km: f64,
+    occupied_stations: usize,
+    gap_stations: usize,
+    owner_convergence_cadence: FiniteAgeSpatialCadence,
+    scheduled_uplift_cadence: FiniteAgeSpatialCadence,
+    substrate_crest_cadence: FiniteAgeSpatialCadence,
+    final_crest_cadence: FiniteAgeSpatialCadence,
+    positive_response_cadence: FiniteAgeSpatialCadence,
+    transverse_trunk_cadence: FiniteAgeSpatialCadence,
+    owner_convergence_vs_scheduled_uplift_spearman: Option<f64>,
+    owner_convergence_vs_final_crest_spearman: Option<f64>,
+    scheduled_uplift_vs_final_crest_spearman: Option<f64>,
+    substrate_vs_final_crest_spearman: Option<f64>,
+    owner_convergence_delta_vs_final_crest_delta_spearman: Option<f64>,
+    scheduled_uplift_delta_vs_final_crest_delta_spearman: Option<f64>,
+    stations: Vec<FiniteAgeSpatialStation>,
+}
+
+#[cfg(feature = "research-landscape")]
+#[derive(Debug, serde::Serialize)]
+struct FiniteAgeSpatialReport {
+    schema: &'static str,
+    seed: u64,
+    manifest: hex3::world::RunManifest,
+    requested_coarse_cells: usize,
+    actual_coarse_cells: usize,
+    fine_cells: usize,
+    episode_id: usize,
+    duration_myr: f32,
+    station_width_km: f64,
+    trunk_threshold_quantile: f64,
+    cadence_semantics: &'static str,
+    source_semantics: &'static str,
+    substrate_semantics: &'static str,
+    response_semantics: &'static str,
+    drainage_semantics: &'static str,
+    dominant_chain_id: Option<u32>,
+    chains: Vec<FiniteAgeSpatialChain>,
+}
+
+#[cfg(feature = "research-landscape")]
+#[derive(Default)]
+struct FiniteAgeSpatialBin {
+    owner_convergence: Vec<(f64, f64)>,
+    scheduled: Vec<(f64, f64)>,
+    substrate: Vec<(f64, f64)>,
+    final_elevation: Vec<(f64, f64)>,
+    positive_response: Vec<(f64, f64)>,
+    source_cells: usize,
+    source_area_km2: f64,
+    scheduled_volume_km3: f64,
+    transverse_trunk_cells: usize,
+    transverse_trunk_max_accumulation: Option<f64>,
+}
+
+#[cfg(feature = "research-landscape")]
+fn spatial_cadence(
+    stations: &[FiniteAgeSpatialStation],
+    value: impl Fn(&FiniteAgeSpatialStation) -> Option<f64>,
+    minimum_prominence: f64,
+) -> FiniteAgeSpatialCadence {
+    let mut peak_indices = Vec::new();
+    for index in 1..stations.len().saturating_sub(1) {
+        let (Some(left), Some(center), Some(right)) = (
+            value(&stations[index - 1]),
+            value(&stations[index]),
+            value(&stations[index + 1]),
+        ) else {
+            continue;
+        };
+        if center > left && center >= right && center - left.min(right) >= minimum_prominence {
+            peak_indices.push(index);
+        }
+    }
+    let mut spacings = Vec::new();
+    for pair in peak_indices.windows(2) {
+        if stations[pair[0]..=pair[1]]
+            .iter()
+            .all(|station| station.source_cells > 0)
+        {
+            spacings.push(stations[pair[1]].along_strike_km - stations[pair[0]].along_strike_km);
+        }
+    }
+    let mean = (!spacings.is_empty()).then(|| spacings.iter().sum::<f64>() / spacings.len() as f64);
+    let cv = mean.filter(|mean| *mean > 0.0).map(|mean| {
+        let variance = spacings
+            .iter()
+            .map(|spacing| (spacing - mean).powi(2))
+            .sum::<f64>()
+            / spacings.len() as f64;
+        variance.sqrt() / mean
+    });
+    FiniteAgeSpatialCadence {
+        peaks: peak_indices.len(),
+        spacing_samples: spacings.len(),
+        spacing_mean_km: mean,
+        spacing_cv: cv,
+    }
+}
+
+#[cfg(feature = "research-landscape")]
+fn run_finite_age_spatial_trace(
+    world: &World,
+    seed: u64,
+    requested_cells: usize,
+    episode_id: usize,
+    out: Option<&Path>,
+) {
+    use std::collections::BTreeMap;
+
+    use hex3::world::{
+        frozen_support_uplift, project_owned_front, OrogenFronts, EMERGENT_LAND_FLOOR_MARGIN,
+    };
+
+    let fine = world
+        .fine
+        .as_ref()
+        .expect("finite-age spatial trace requires a fine world");
+    let final_surface = fine
+        .eroded
+        .as_ref()
+        .expect("finite-age spatial trace requires Stage 4");
+    assert!(world.erosion_params.finite_age_uplift);
+    assert_eq!(world.orogen_model, OrogenModel::Legacy);
+    assert!((fine.base.emergent_lambda - 1.0).abs() <= f32::EPSILON);
+    assert_eq!(
+        world.erosion_params.uplift_smooth_km.to_bits(),
+        0.0f32.to_bits()
+    );
+
+    let plates = world.plates.as_ref().expect("plates generated");
+    let crust = world.crust.as_ref().expect("crust generated");
+    let dynamics = world.dynamics.as_ref().expect("dynamics generated");
+    let history = world
+        .tectonic_history
+        .as_ref()
+        .expect("tectonic history generated");
+    let fronts = OrogenFronts::build(&world.tessellation, plates, crust, dynamics, history);
+    let source = frozen_support_uplift(&fine.base, &fronts);
+    let tess = fine.tessellation();
+    let areas = tess.cell_areas_ref();
+    let area_scale = f64::from(EARTH_RADIUS_KM).powi(2);
+    let height_scale = f64::from(ELEVATION_UNIT_KM);
+    let target = &fine.base.coarse_base_elevation;
+    let substrate = &fine.base.base_elevation;
+    let final_elevation = &final_surface.elevation.values;
+    let hydrology = &final_surface.hydrology;
+
+    let mut demoted_volume = 0.0f64;
+    let mut shaped_volume = 0.0f64;
+    let mut floor_volume = 0.0f64;
+    for cell in 0..tess.num_cells() {
+        if target[cell] < 0.0 {
+            continue;
+        }
+        let area = f64::from(areas[cell]);
+        demoted_volume += f64::from((target[cell] - substrate[cell]).max(0.0)) * area;
+        shaped_volume += f64::from(source.shape[cell].max(0.0)) * area;
+        floor_volume += f64::from((EMERGENT_LAND_FLOOR_MARGIN - substrate[cell]).max(0.0)) * area;
+    }
+    let excess_volume =
+        (f64::from(world.erosion_params.rebuild_gain) * demoted_volume - floor_volume).max(0.0);
+    let builder_shape_scale = if shaped_volume > 0.0 {
+        (excess_volume / shaped_volume) as f32
+    } else {
+        0.0
+    };
+    let active_fraction = |duration_myr: f32| {
+        let steps = world.erosion_params.steps;
+        if duration_myr <= 0.0 || steps == 0 {
+            0.0
+        } else {
+            ((((f64::from(duration_myr) / f64::from(history.lookback_myr)) * steps as f64).ceil()
+                as usize)
+                .clamp(1, steps) as f64)
+                / steps as f64
+        }
+    };
+
+    let mut selected = Vec::new();
+    for cell in 0..tess.num_cells() {
+        let owner = source.owner_front[cell];
+        let Some(projection) = project_owned_front(tess.cell_center(cell), owner, &fronts) else {
+            continue;
+        };
+        if fronts.episode_id[projection.front_index as usize] != episode_id || target[cell] < 0.0 {
+            continue;
+        }
+        selected.push((cell, projection));
+    }
+    assert!(
+        !selected.is_empty(),
+        "episode {episode_id} has no owned target-land fine source cells"
+    );
+    let duration_myr = source.duration_myr[selected[0].0];
+    assert!(selected
+        .iter()
+        .all(|(cell, _)| source.duration_myr[*cell].to_bits() == duration_myr.to_bits()));
+
+    let accumulation_samples = selected
+        .iter()
+        .filter(|(cell, _)| final_elevation[*cell] >= 0.0)
+        .map(|(cell, _)| {
+            (
+                f64::from(hydrology.flow_accumulation[*cell]),
+                f64::from(areas[*cell]) * area_scale,
+            )
+        })
+        .collect();
+    let trunk_threshold =
+        area_weighted_quantile(accumulation_samples, 0.9).filter(|threshold| *threshold > 0.0);
+
+    let mut u_min_by_chain = BTreeMap::<u32, f64>::new();
+    for (_, projection) in &selected {
+        let u_km = f64::from(projection.u_lin_radians) * f64::from(EARTH_RADIUS_KM);
+        u_min_by_chain
+            .entry(projection.chain_id)
+            .and_modify(|minimum| *minimum = minimum.min(u_km))
+            .or_insert(u_km);
+    }
+    let mut bins = BTreeMap::<(u32, i64), FiniteAgeSpatialBin>::new();
+    for (cell, projection) in selected {
+        let chain_id = projection.chain_id;
+        let u_km = f64::from(projection.u_lin_radians) * f64::from(EARTH_RADIUS_KM);
+        let bin_index =
+            ((u_km - u_min_by_chain[&chain_id]) / FINITE_AGE_SPATIAL_BIN_KM).floor() as i64;
+        let bin = bins.entry((chain_id, bin_index)).or_default();
+        let area_km2 = f64::from(areas[cell]) * area_scale;
+        let floor = (EMERGENT_LAND_FLOOR_MARGIN - substrate[cell]).max(0.0);
+        let nominal = floor + builder_shape_scale * source.shape[cell].max(0.0);
+        let scheduled_km =
+            f64::from(nominal) * active_fraction(source.duration_myr[cell]) * height_scale;
+        let substrate_km = f64::from(substrate[cell]) * height_scale;
+        bin.source_cells += 1;
+        bin.source_area_km2 += area_km2;
+        bin.owner_convergence.push((
+            f64::from(fronts.convergence_km_per_myr[projection.front_index as usize]),
+            area_km2,
+        ));
+        bin.scheduled_volume_km3 += scheduled_km * area_km2;
+        bin.scheduled.push((scheduled_km, area_km2));
+        bin.substrate.push((substrate_km, area_km2));
+        if final_elevation[cell] < 0.0 {
+            continue;
+        }
+        let final_km = f64::from(final_elevation[cell]) * height_scale;
+        let response_km = (final_km - substrate_km).max(0.0);
+        bin.final_elevation.push((final_km, area_km2));
+        bin.positive_response.push((response_km, area_km2));
+
+        let Some(threshold) = trunk_threshold else {
+            continue;
+        };
+        let accumulation = f64::from(hydrology.flow_accumulation[cell]);
+        if accumulation < threshold {
+            continue;
+        }
+        let Some(receiver) = hydrology.drainage_dir[cell] else {
+            continue;
+        };
+        let center = tess.cell_center(cell);
+        let receiver_center = tess.cell_center(receiver);
+        let flow = (receiver_center - center * center.dot(receiver_center)).normalize_or_zero();
+        let owner = projection.front_index as usize;
+        let front_normal = fronts.seg_a[owner]
+            .cross(fronts.seg_b[owner])
+            .normalize_or_zero();
+        let strike = front_normal.cross(center).normalize_or_zero();
+        if flow.length_squared() == 0.0 || strike.length_squared() == 0.0 {
+            continue;
+        }
+        let angle = flow.dot(strike).abs().clamp(0.0, 1.0).acos().to_degrees();
+        if angle > 60.0 {
+            bin.transverse_trunk_cells += 1;
+            bin.transverse_trunk_max_accumulation = Some(
+                bin.transverse_trunk_max_accumulation
+                    .map_or(accumulation, |current| current.max(accumulation)),
+            );
+        }
+    }
+
+    let mut chains = Vec::new();
+    for (&chain_id, &u_min) in &u_min_by_chain {
+        let max_bin = bins
+            .keys()
+            .filter_map(|(candidate, bin)| (*candidate == chain_id).then_some(*bin))
+            .max()
+            .unwrap_or(0);
+        let mut stations = Vec::with_capacity(max_bin as usize + 1);
+        let mut scheduled_volume_km3 = 0.0;
+        for bin_index in 0..=max_bin {
+            let bin = bins.remove(&(chain_id, bin_index)).unwrap_or_default();
+            scheduled_volume_km3 += bin.scheduled_volume_km3;
+            let scheduled_uplift_mean_km = (bin.source_area_km2 > 0.0)
+                .then_some(bin.scheduled_volume_km3 / bin.source_area_km2);
+            stations.push(FiniteAgeSpatialStation {
+                chain_id,
+                bin: bin_index,
+                along_strike_km: u_min + (bin_index as f64 + 0.5) * FINITE_AGE_SPATIAL_BIN_KM,
+                source_cells: bin.source_cells,
+                source_area_km2: bin.source_area_km2,
+                owner_convergence_mean_km_per_myr: (bin.source_area_km2 > 0.0).then(|| {
+                    bin.owner_convergence
+                        .iter()
+                        .map(|(value, weight)| value * weight)
+                        .sum::<f64>()
+                        / bin.source_area_km2
+                }),
+                scheduled_uplift_mean_km,
+                substrate_elevation_p95_km: area_weighted_quantile(bin.substrate, 0.95),
+                final_crest_p95_km: area_weighted_quantile(bin.final_elevation, 0.95),
+                positive_response_p95_km: area_weighted_quantile(bin.positive_response, 0.95),
+                transverse_trunk_cells: bin.transverse_trunk_cells,
+                transverse_trunk_max_accumulation: bin.transverse_trunk_max_accumulation,
+            });
+        }
+        let occupied_stations = stations
+            .iter()
+            .filter(|station| station.source_cells > 0)
+            .count();
+        let shared_source_final = stations.iter().filter_map(|station| {
+            Some((
+                station.scheduled_uplift_mean_km?,
+                station.final_crest_p95_km?,
+            ))
+        });
+        let shared_convergence_scheduled = stations.iter().filter_map(|station| {
+            Some((
+                station.owner_convergence_mean_km_per_myr?,
+                station.scheduled_uplift_mean_km?,
+            ))
+        });
+        let shared_convergence_final = stations.iter().filter_map(|station| {
+            Some((
+                station.owner_convergence_mean_km_per_myr?,
+                station.final_crest_p95_km?,
+            ))
+        });
+        let shared_substrate_final = stations.iter().filter_map(|station| {
+            Some((
+                station.substrate_elevation_p95_km?,
+                station.final_crest_p95_km?,
+            ))
+        });
+        let convergence_final_deltas = stations.windows(2).filter_map(|pair| {
+            if pair.iter().any(|station| station.source_cells == 0) {
+                return None;
+            }
+            Some((
+                pair[1].owner_convergence_mean_km_per_myr?
+                    - pair[0].owner_convergence_mean_km_per_myr?,
+                pair[1].final_crest_p95_km? - pair[0].final_crest_p95_km?,
+            ))
+        });
+        let scheduled_final_deltas = stations.windows(2).filter_map(|pair| {
+            if pair.iter().any(|station| station.source_cells == 0) {
+                return None;
+            }
+            Some((
+                pair[1].scheduled_uplift_mean_km? - pair[0].scheduled_uplift_mean_km?,
+                pair[1].final_crest_p95_km? - pair[0].final_crest_p95_km?,
+            ))
+        });
+        chains.push(FiniteAgeSpatialChain {
+            chain_id,
+            scheduled_uplift_volume_km3: scheduled_volume_km3,
+            occupied_span_km: max_bin as f64 * FINITE_AGE_SPATIAL_BIN_KM
+                + FINITE_AGE_SPATIAL_BIN_KM,
+            occupied_stations,
+            gap_stations: stations.len() - occupied_stations,
+            owner_convergence_cadence: spatial_cadence(
+                &stations,
+                |station| station.owner_convergence_mean_km_per_myr,
+                1.0,
+            ),
+            scheduled_uplift_cadence: spatial_cadence(
+                &stations,
+                |station| station.scheduled_uplift_mean_km,
+                0.025,
+            ),
+            substrate_crest_cadence: spatial_cadence(
+                &stations,
+                |station| station.substrate_elevation_p95_km,
+                0.05,
+            ),
+            final_crest_cadence: spatial_cadence(
+                &stations,
+                |station| station.final_crest_p95_km,
+                0.10,
+            ),
+            positive_response_cadence: spatial_cadence(
+                &stations,
+                |station| station.positive_response_p95_km,
+                0.10,
+            ),
+            transverse_trunk_cadence: spatial_cadence(
+                &stations,
+                |station| station.transverse_trunk_max_accumulation,
+                0.0,
+            ),
+            owner_convergence_vs_scheduled_uplift_spearman: spearman_rank_correlation(
+                shared_convergence_scheduled,
+            ),
+            owner_convergence_vs_final_crest_spearman: spearman_rank_correlation(
+                shared_convergence_final,
+            ),
+            scheduled_uplift_vs_final_crest_spearman: spearman_rank_correlation(
+                shared_source_final,
+            ),
+            substrate_vs_final_crest_spearman: spearman_rank_correlation(shared_substrate_final),
+            owner_convergence_delta_vs_final_crest_delta_spearman: spearman_rank_correlation(
+                convergence_final_deltas,
+            ),
+            scheduled_uplift_delta_vs_final_crest_delta_spearman: spearman_rank_correlation(
+                scheduled_final_deltas,
+            ),
+            stations,
+        });
+    }
+    chains.sort_by(|left, right| {
+        right
+            .scheduled_uplift_volume_km3
+            .total_cmp(&left.scheduled_uplift_volume_km3)
+    });
+    let report = FiniteAgeSpatialReport {
+        schema: "hex3.finite-age-within-episode-trace.v0",
+        seed,
+        manifest: world.manifest(),
+        requested_coarse_cells: requested_cells,
+        actual_coarse_cells: world.tessellation.num_cells(),
+        fine_cells: tess.num_cells(),
+        episode_id,
+        duration_myr,
+        station_width_km: FINITE_AGE_SPATIAL_BIN_KM,
+        trunk_threshold_quantile: 0.9,
+        cadence_semantics: "neighbor peaks on contiguous occupied 50 km stations; 1 km/Myr owner-rate, 25 m source, 50 m substrate and 100 m final/response minimum prominence; spacings never bridge empty stations; compact discriminator, not calibrated landform classification",
+        source_semantics: "exact retained present-front owner projected onto its actual ordered chain coordinate; scheduled uplift reconstructs the unsmoothed target-land floor+shape builder and ceil(age/lookback*steps) suffix",
+        substrate_semantics: "fully demoted pre-erosion FineBase elevation: inherited structural substrate, not an uplift-only or pre-response retained state",
+        response_semantics: "final Stage-4 elevation and positive final-minus-substrate response on final land; response mixes uplift, incision, hillslopes, deposition and hydrology integration",
+        drainage_semantics: "top area-weighted accumulation decile within this episode, final authoritative receiver, >60 degree flow-to-strike cells; these are transverse-trunk cell proxies, not independent outlets, divides or basins",
+        dominant_chain_id: chains.first().map(|chain| chain.chain_id),
+        chains,
+    };
+
+    println!("\n========== FINITE-AGE SPATIAL TRACE seed={seed} episode={episode_id} ==========");
+    println!(
+        "  age {:.1} Myr | {} actual chains | dominant chain {:?}",
+        report.duration_myr,
+        report.chains.len(),
+        report.dominant_chain_id
+    );
+    for chain in report.chains.iter().take(8) {
+        println!(
+            "  chain {:>3}: uplift {:>9.0} km³, span {:>5.0} km, stations {}/{}; peaks rate/source/substrate/final/response/trunk {}/{}/{}/{}/{}/{}; final spacing {} km CV {}",
+            chain.chain_id,
+            chain.scheduled_uplift_volume_km3,
+            chain.occupied_span_km,
+            chain.occupied_stations,
+            chain.stations.len(),
+            chain.owner_convergence_cadence.peaks,
+            chain.scheduled_uplift_cadence.peaks,
+            chain.substrate_crest_cadence.peaks,
+            chain.final_crest_cadence.peaks,
+            chain.positive_response_cadence.peaks,
+            chain.transverse_trunk_cadence.peaks,
+            chain.final_crest_cadence.spacing_mean_km.map(|value| format!("{value:.0}")).unwrap_or_else(|| "-".to_string()),
+            chain.final_crest_cadence.spacing_cv.map(|value| format!("{value:.2}")).unwrap_or_else(|| "-".to_string()),
+        );
+    }
+    println!("  limits: source→final correspondence cannot alone identify which coupled response process created a cadence");
+
+    if let Some(path) = out {
+        let json = serde_json::to_string_pretty(&report).expect("spatial trace serializes");
+        if let Err(error) = std::fs::write(path, format!("{json}\n")) {
+            eprintln!(
+                "failed to write finite-age spatial trace {}: {error}",
+                path.display()
+            );
+            std::process::exit(2);
+        }
+        eprintln!("wrote finite-age spatial trace {}", path.display());
     }
 }
 
