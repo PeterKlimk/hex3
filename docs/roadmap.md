@@ -162,15 +162,19 @@ Keep Legacy as the usable control, but stop tuning or further interrogating it
 as a candidate architecture. Paleorifts, transfers, seed selection, relief
 tuning and crest noise are not substitutes.
 
-The first quarantined Slice A checkpoint is now implemented at `6010d3c` and
-passes the full research test suite. Its three-world coarse pilot changes range
-structure coherently, so coupled response is not inert, but it also removes
-roughly half or more of mountain-land coverage and may underbuild one world.
-Next is matched human visual discrimination of those existing images—not a
-parameter sweep, higher-resolution campaign or move to Slice B. The decision is
-whether the candidate reveals credible maturity/dissection differences while
-repairing the roof grammar, or merely trades broad plateaus for sparse or
-repetitive relief.
+The first quarantined Slice A checkpoint is implemented at `6010d3c` and passes
+the full research test suite. Human review finds its matched visuals much better,
+and the ordinary-resolution three-world confirmation preserves peak height while
+substantially increasing 10--25 km relief and summit descent. Wall time and peak
+memory are at practical parity with Legacy; front ownership adds parallel CPU
+work but is not a performance blocker.
+
+The architecture therefore advances past its initial visual and cost gates,
+without promotion. Next, directly relate each component's integrated
+convergence-times-age opportunity to final relief, breadth and drainage maturity.
+This discriminates credible unequal belt maturity from seed `9001` underbuilding
+and the residual repeated-tooth grammar. Do not begin a parameter sweep,
+planet-wide height correction, source-complexity ladder or Slice B first.
 
 ## Completed bounded decisions
 

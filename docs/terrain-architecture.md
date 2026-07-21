@@ -276,13 +276,26 @@ final hydrology path. Present supports remain frozen; this is deliberately not
 a migration model. A separate diagnostic can match the counterfactual all-old
 integral, but the candidate does not: finite age changes integrated work.
 
-A provisional three-world 100k-cell pilot shows recurring structural change
-rather than mere texture: summits descend more steeply, crests are generally
-closer and trunk flow is more often transverse. It also roughly halves
-mountain-land coverage in all three worlds, and one world may be underbuilt.
-Matched human visual review is therefore the next gate. This is neither a
-promotion nor authority to calibrate mountain coverage, add source complexity,
-start Slice B or spend the ordinary-resolution budget.
+The three-world pilot shows recurring structural change rather than mere
+texture: summits descend more steeply, crests are generally closer and trunk
+flow is more often transverse. It also roughly halves mountain-land coverage,
+but human review finds the matched visuals much better and clears the
+architectural direction.
+
+At the ordinary roughly 256k-cell surface, maximum height remains within 5% of
+Legacy in every world while 25 km relief p90 rises 34--126% and median summit
+descent rises 153--665%. Global pit and checkerboard rates do not worsen. The
+candidate therefore concentrates relief into narrower organized ranges instead
+of merely deleting amplitude or adding global noise. Wall time and peak memory
+are at practical parity in one cache-disabled pair per world; exact-front
+ownership still adds aggregate CPU work and should be reused before promotion.
+
+The remaining defect is specific: seed `8675309` retains some repeated tooth
+grammar, while seed `9001` loses half its p95 elevation and becomes low dissected
+upland despite preserving its maximum peak. Test whether integrated convergence
+opportunity and episode age actually predict component relief and maturity.
+This is neither a promotion nor authority to restore a global height target,
+add source complexity, tune coverage or start Slice B.
 
 ## Slice B — causal dual drainage/divide construction
 
