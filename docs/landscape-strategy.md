@@ -37,8 +37,8 @@ target architecture.
 The replacement candidate must replace rather than stack over the legacy
 convergent height and repeated uplift owners. It should treat
 finite uplift forcing, drainage/divide organization and nonlinear hillslope
-response as one coupled ownership problem. A new source-segmentation ladder is
-not the current task.
+response as one coherent ownership boundary with explicit cooperating systems.
+A new source-segmentation ladder is not the current task.
 
 ## Precise defect
 
@@ -154,15 +154,16 @@ strong mitigator, not the missing owner. See the
 [terrain causal-attribution audit](audits/terrain-causal-attribution-2026-07-21.md).
 
 Broader terrain ownership is therefore reopened, but the Legacy path is closed
-to further morphology tuning. The next bounded comparison must replace scalar
-final-height plus repeated-uplift ownership with one coupled owner that consumes
-finite deformation/material opportunity where the current state honestly
-supplies it, then lets drainage/divide organization and nonlinear hillslope
-response allocate the resulting relief. This is not a demand for deeper physics:
-an authentic structural hack is admissible if it preserves those causal
-consequences. It may not select a convenient seed, tune relief, add independent
-crest texture or fabricate internal segmentation where the source is genuinely
-continuous.
+to further morphology tuning. The next design pass must define a coherent
+ownership boundary that replaces scalar final-height plus repeated-uplift
+ownership, while allowing explicit cooperating systems for deformation/material
+opportunity, structural organization, drainage/divides and nonlinear hillslope
+response. It should compare a small design space before selecting one or two
+minimal discriminating slices. This is not a demand for deeper physics: an
+authentic structural hack is admissible if it preserves the relevant causal
+consequences. A candidate may not select a convenient seed, tune relief, add
+independent crest texture or fabricate internal segmentation where the source
+is genuinely continuous.
 
 ## Pareto-important capabilities alongside terrain replacement
 
@@ -194,7 +195,8 @@ continuous.
 - building a universal landform ontology or artifact bureaucracy; or
 - optimizing an undecided landscape composition.
 
-The near-term goal is bounded: define one replacement-owner contract and compare
-it with the unchanged Legacy control on ordinary worlds. The comparison must
-test range-scale organization and a drainage/divide consequence, not reward a
-new scalar score or attractive rendering in isolation.
+The near-term goal is bounded: define the replacement ownership boundary and a
+small causal design space, then compare one or two minimal slices with the
+unchanged Legacy control on ordinary worlds. The comparison must test
+range-scale organization and a drainage/divide consequence, not reward a new
+scalar score or attractive rendering in isolation.

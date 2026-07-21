@@ -64,7 +64,7 @@ automatically the best product move.
 |---|---|---|
 | The product is lean enough to reason about and iterate | Separate product code/API/CLI from the experimental laboratory; remove unconditional rendering allocations | **Completed enabling work; preserve the boundary** |
 | Geography has visible consequences | Traversability, water/coast access, named relative opportunities, aggregate sites and least-cost routes | **Bounded discriminator complete; retain useful operators without vertical expansion** |
-| Terrain is morphologically convincing | Replace scalar final-height ownership with one coupled structural forcing–drainage/divide–hillslope owner or disclosed authentic range hack | **Reopening gate passed; replacement is the next bounded architecture slice, not another Legacy tuning campaign** |
+| Terrain is morphologically convincing | Replace scalar final-height ownership with a coherent boundary across structural forcing, drainage/divides and hillslope response | **Reopening gate passed; causal design space and bounded replacement slices are next, not another Legacy tuning campaign** |
 | The planet is readable and explainable | Scale-aware relief, land/water hierarchy, rivers and living cover in one coherent cartographic scene | **V0 accepted, integrated and Windows-validated; preserve** |
 | Landscapes connect source to sink | Persistent mobile/deposited material, floodplains, terminal fill and deltas | **Research/design gate; not next by default** |
 | The world feels more visibly alive | Forest structure, vegetation assets, seasons or disturbance | **Gated; accepted Living Surface does not authorize vertical expansion** |
@@ -143,14 +143,17 @@ long-front-to-distance-band height representation, not explained by one source,
 the inactive cap, fine interpolation or presentation. Exact evidence and limits
 are in the [terrain causal-attribution audit](audits/terrain-causal-attribution-2026-07-21.md).
 
-The next terrain task is one bounded replacement-owner design and comparison.
-It must consume finite deformation/material opportunity where available and
-couple uplift opportunity to drainage/divide organization and nonlinear
-hillslope response. It may be a reduced causal model or an authentic structural
-hack; it need not simulate deeper physics that has no visible or downstream
-payoff. Keep Legacy as the usable control, but stop tuning or further
-interrogating it as a candidate architecture. Paleorifts, transfers, seed
-selection, relief tuning and crest noise are not substitutes.
+The next terrain task is to define the replacement ownership boundary and a
+small causal design space. Candidate architectures may divide responsibility
+among explicit cooperating systems, but together they must consume finite
+deformation/material opportunity where available and connect uplift opportunity
+to drainage/divide organization and nonlinear hillslope response. Select one or
+two minimal discriminating slices only after that comparison. A slice may use a
+reduced causal model or an authentic structural hack; it need not simulate
+deeper physics that has no visible or downstream payoff. Keep Legacy as the
+usable control, but stop tuning or further interrogating it as a candidate
+architecture. Paleorifts, transfers, seed selection, relief tuning and crest
+noise are not substitutes.
 
 ## Completed bounded decisions
 

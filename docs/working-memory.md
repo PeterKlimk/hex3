@@ -14,8 +14,9 @@ it become a chronological activity log.
 
 ## Active focus
 
-**Define one bounded replacement for Legacy's long-front-to-direct-height
-terrain owner.** The three-world causal trace passes the terrain reopening gate.
+**Define the ownership boundary and causal design space that can replace
+Legacy's long-front-to-direct-height terrain path.** The three-world causal
+trace passes the terrain reopening gate.
 Collision response blankets the selected ranges; its hard cap is inactive; and
 fine synthesis is neutral. Normalization, smoothing and square-root response do
 erase real forcing variation, but the work-matched nearest-source compiler still
@@ -58,9 +59,9 @@ The mountain disposition is deliberately two-part. Drop continuity alone as a
 rejection criterion for the reviewed causally continuous parent, and stop
 expanding inheritance merely to split it. The fixed corpus nevertheless shows
 that smooth roofs recur as the generic Legacy response, so broader terrain
-ownership is reopened. Compare one coupled
-uplift-opportunity–drainage/divide–hillslope owner, not another segmentation
-ladder or a Legacy parameter variant.
+ownership is reopened. Compare a small set of architectures whose cooperating
+systems connect uplift opportunity, drainage/divides and hillslope response;
+do not begin another segmentation ladder or Legacy parameter variant.
 
 ## Active resolution and cost branch
 
@@ -874,11 +875,12 @@ The defect is not the existence of broad plateaus; those are valid outcomes for
 some tectonic, erosional and climatic histories. It is the smooth,
 approximately equal-width response acting as the generic collision grammar.
 
-The old O1/O2/O3 architecture sequence is closed. The next comparison defines
-one replacement owner that consumes finite deformation/material opportunity and
-couples it to drainage/divide and hillslope response. Keep Legacy as control;
-do not tune its uplift, smoother or cross-section, and do not add undirected
-noise.
+The old O1/O2/O3 architecture sequence is closed. The next pass defines a
+coherent replacement boundary and compares a small causal design space. Its
+systems must collectively consume finite deformation/material opportunity and
+connect it to drainage/divide and hillslope response. Only then select one or
+two minimal slices. Keep Legacy as control; do not tune its uplift, smoother or
+cross-section, and do not add undirected noise.
 
 ### O1 first result
 

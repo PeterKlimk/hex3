@@ -95,13 +95,15 @@ Stop tuning or further decomposing Legacy. Keep it as the usable control. Do not
 send the nearest-source counterfactual through another terrain stage: it fails
 the preregistered test of exposing coherent organization in two of three worlds.
 
-The next bounded comparison should replace direct finished-height ownership.
-It should consume finite deformation/material opportunity where current state
-honestly supplies it, then couple that opportunity to drainage/divide
-organization and nonlinear hillslope response. A reduced causal model or
-authentic structural hack is acceptable; deeper physics is justified only when
-it preserves a visible or downstream consequence more cheaply approximated
-models cannot.
+The next pass should define a coherent boundary that replaces direct
+finished-height ownership and compare a small causal design space before
+selecting one or two minimal slices. Candidate architectures may contain
+multiple cooperating systems; collectively they should consume finite
+deformation/material opportunity where current state honestly supplies it, then
+connect that opportunity to drainage/divide organization and nonlinear
+hillslope response. A reduced causal model or authentic structural hack is
+acceptable; deeper physics is justified only when it preserves a visible or
+downstream consequence more cheaply approximated models cannot.
 
 ## Reproduction and limits
 
