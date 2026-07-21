@@ -276,6 +276,11 @@ struct Cli {
     /// etc.) — the `--sweep-stack v3` preset does this for a clean A/B. Regenerates base.
     #[arg(long, default_value_t = -1.0)]
     emergent_lambda: f32,
+    /// Slice A: rebuild the fully demoted Legacy convergent budget from finite-age,
+    /// frozen exact present-front supports while drainage and hillslopes evolve.
+    #[cfg(feature = "research-landscape")]
+    #[arg(long, default_value_t = false)]
+    finite_age_uplift: bool,
     /// O0 structured emergent uplift (orogen-structure): blend of asymmetric+segmented
     /// uplift shape vs uniform rebuild. <0 = default (0=off); 1 = fully structured.
     /// Needs --emergent-lambda >0 and (for the decisive test) --erosion-n ~2.
@@ -370,6 +375,23 @@ fn main() {
         return;
     }
     world.generate_atmosphere();
+    #[cfg(feature = "research-landscape")]
+    if cli.finite_age_uplift {
+        world.erosion_params.finite_age_uplift = true;
+        world.fine_structure_params.emergent_lambda = 1.0;
+        world.fine_structure_params.emergent_structured = 0.0;
+        world.fine_structure_params.interior_relief = 0.0;
+        world.fine_structure_params.front_strike_weight = 0.0;
+        world.fine_structure_params.margin_contrast = 0.0;
+        world.fine_structure_params.meso_relief = 0.0;
+        world.fine_structure_params.meso_base_relief = 0.0;
+        world.fine_structure_params.fault_scarp_height = 0.0;
+        world.erosion_params.litho_sigma = 0.0;
+        world.erosion_params.litho_grain_strength = 0.0;
+        world.erosion_params.drainage_pulse = 0.0;
+        world.erosion_params.glacial_k = 0.0;
+        world.erosion_params.hillslope_critical_slope = 200.0;
+    }
     if cli.erosion_k >= 0.0 {
         world.erosion_params.k = cli.erosion_k;
     }

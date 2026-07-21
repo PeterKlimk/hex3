@@ -484,7 +484,19 @@ impl World {
             .expect("Dynamics must be generated first");
         // Convergent-front primitives for the strike-aware structural relief (P1b);
         // built on the coarse mesh where plates/dynamics live.
-        let fronts = OrogenFronts::build(&self.tessellation, plates, crust, dynamics);
+        #[cfg(feature = "research-landscape")]
+        let history = self
+            .tectonic_history
+            .as_ref()
+            .expect("Tectonic history must be generated first");
+        let fronts = OrogenFronts::build(
+            &self.tessellation,
+            plates,
+            crust,
+            dynamics,
+            #[cfg(feature = "research-landscape")]
+            history,
+        );
         let fine = FineWorld::generate_pre_with_model(
             self.seed,
             self.orogen_model,
@@ -508,6 +520,11 @@ impl World {
     pub fn generate_fine_eroded(&mut self) {
         let seed = self.seed;
         let params = self.erosion_params;
+        #[cfg(feature = "research-landscape")]
+        if params.finite_age_uplift {
+            self.generate_fine_eroded_finite_age(seed, params);
+            return;
+        }
         if let Some(fine) = self.fine.as_mut() {
             fine.compute_eroded(seed, params);
         }
@@ -518,9 +535,51 @@ impl World {
     pub fn rerun_fine_eroded(&mut self) {
         let seed = self.seed;
         let params = self.erosion_params;
+        #[cfg(feature = "research-landscape")]
+        if params.finite_age_uplift {
+            self.generate_fine_eroded_finite_age(seed, params);
+            return;
+        }
         if let Some(fine) = self.fine.as_mut() {
             fine.rerun_eroded(seed, params);
         }
+    }
+
+    #[cfg(feature = "research-landscape")]
+    fn generate_fine_eroded_finite_age(&mut self, seed: u64, params: ErosionParams) {
+        let fine = self
+            .fine
+            .as_ref()
+            .expect("finite-age uplift requires the Stage-3 fine base");
+        assert!(
+            (fine.base.emergent_lambda - 1.0).abs() <= f32::EPSILON,
+            "finite-age uplift requires full Legacy convergent demotion"
+        );
+        let plates = self.plates.as_ref().expect("plates generated");
+        let crust = self.crust.as_ref().expect("crust generated");
+        let dynamics = self.dynamics.as_ref().expect("dynamics generated");
+        let history = self
+            .tectonic_history
+            .as_ref()
+            .expect("tectonic history generated");
+        let fronts = OrogenFronts::build(&self.tessellation, plates, crust, dynamics, history);
+        let source = fine::frozen_support_uplift(&fine.base, &fronts);
+        assert!(
+            source.owned_cells > 0,
+            "finite-age uplift found no source cells"
+        );
+        log::info!(
+            "finite-age frozen support: {} exact arcs -> {} fine source cells across {} retained ages",
+            fronts.points.len(),
+            source.owned_cells,
+            source.distinct_durations,
+        );
+        self.fine.as_mut().unwrap().rerun_eroded_finite_age(
+            seed,
+            params,
+            &source,
+            history.lookback_myr,
+        );
     }
 
     /// Get the number of cells in this world.

@@ -277,6 +277,8 @@ pub struct ErosionOverrides {
     pub front_strike_weight: Option<f32>,
     pub margin_contrast: Option<f32>,
     pub emergent_lambda: Option<f32>,
+    /// Coherent research preset for finite-age frozen-support Slice A.
+    pub finite_age_uplift: bool,
     pub emergent_structured: Option<f32>,
     pub meso_relief: Option<f32>,
     pub meso_irregularity: Option<f32>,
@@ -287,6 +289,27 @@ pub struct ErosionOverrides {
 
 impl ErosionOverrides {
     pub fn apply(&self, world: &mut World) {
+        if self.finite_age_uplift {
+            world.erosion_params.finite_age_uplift = true;
+            // Remove the full Legacy convergent height from the starting surface.
+            // The candidate supplies exact-front uplift instead; keep independent
+            // authored relief/material/glacial additions out of this first slice.
+            world.fine_structure_params.emergent_lambda = 1.0;
+            world.fine_structure_params.emergent_structured = 0.0;
+            world.fine_structure_params.interior_relief = 0.0;
+            world.fine_structure_params.front_strike_weight = 0.0;
+            world.fine_structure_params.margin_contrast = 0.0;
+            world.fine_structure_params.meso_relief = 0.0;
+            world.fine_structure_params.meso_base_relief = 0.0;
+            world.fine_structure_params.fault_scarp_height = 0.0;
+            world.erosion_params.litho_sigma = 0.0;
+            world.erosion_params.litho_grain_strength = 0.0;
+            world.erosion_params.drainage_pulse = 0.0;
+            world.erosion_params.glacial_k = 0.0;
+            // Δelevation/radian ≈ 0.31 grade on the project sphere: a named
+            // threshold response, not an unconstrained hard slope clip.
+            world.erosion_params.hillslope_critical_slope = 200.0;
+        }
         if let Some(p) = self.mfd_exponent {
             world.erosion_params.mfd_exponent = p;
         }

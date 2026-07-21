@@ -351,6 +351,12 @@ struct Cli {
     #[arg(long, default_value_t = -1.0, hide = HIDE_RESEARCH_CLI)]
     emergent_lambda: f32,
 
+    /// Slice A research candidate: remove the Legacy convergent height owner and
+    /// rebuild it as finite-age uplift on frozen exact present-front supports
+    /// while drainage and hillslopes evolve.
+    #[arg(long, default_value_t = false, hide = HIDE_RESEARCH_CLI)]
+    finite_age_uplift: bool,
+
     /// O0 structured emergent uplift (asymmetric+segmented vs uniform rebuild).
     /// <0 = default (0=off); 1 = fully structured. Needs --emergent-lambda + --erosion-n~2.
     #[arg(long, default_value_t = -1.0, hide = HIDE_RESEARCH_CLI)]
@@ -632,6 +638,10 @@ fn main() {
 
     let backend = VoronoiBackend::from(cli.voronoi_backend);
     let orogen_model = OrogenModel::from(cli.orogen_model);
+    assert!(
+        !cli.finite_age_uplift || cfg!(feature = "research-landscape"),
+        "finite-age-uplift requires --features research-landscape"
+    );
     let named_relief = app::ReliefPreset::from(cli.relief_preset);
     let relief_scale = if cli.relief_scale >= 0.0 {
         cli.relief_scale
@@ -689,6 +699,7 @@ fn main() {
         front_strike_weight: (cli.front_strike_weight >= 0.0).then_some(cli.front_strike_weight),
         margin_contrast: (cli.margin_contrast >= 0.0).then_some(cli.margin_contrast),
         emergent_lambda: (cli.emergent_lambda >= 0.0).then_some(cli.emergent_lambda),
+        finite_age_uplift: cli.finite_age_uplift,
         emergent_structured: (cli.emergent_structured >= 0.0).then_some(cli.emergent_structured),
         meso_relief: (cli.meso_relief >= 0.0).then_some(cli.meso_relief),
         meso_irregularity: (cli.meso_irregularity >= 0.0).then_some(cli.meso_irregularity),

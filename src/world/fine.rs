@@ -18,6 +18,8 @@ use super::erosion::ErosionParams;
 use super::features::build_cell_pair_edge_endpoints;
 use super::fine_cache::{self, FineCacheMode};
 use super::water::connected_ocean_cells;
+#[cfg(feature = "research-landscape")]
+use super::TectonicHistory;
 use super::{
     Atmosphere, CellWaterState, Crust, Elevation, FeatureFields, FineCacheOutcome, FineCacheRecord,
     Hydrology, Plates, Tessellation,
@@ -157,6 +159,15 @@ pub struct OrogenFronts {
     /// so a query point can be PROJECTED within its segment (arc_u/u_lin are midpoint
     /// values; without projection u is quantized at coarse-segment ~70 km blocks).
     pub u_dir: Vec<f32>,
+    /// Retained age of the present boundary component owning each front. This is
+    /// source provenance for the research-only finite-age landscape candidate;
+    /// it does not imply that the front moved through time.
+    #[cfg(feature = "research-landscape")]
+    pub episode_duration_myr: Vec<f32>,
+    /// Positive local closing rate on each exact front arc. Slice A uses this as
+    /// relative rock-uplift opportunity before one global budget calibration.
+    #[cfg(feature = "research-landscape")]
+    pub convergence_km_per_myr: Vec<f32>,
 }
 
 impl OrogenFronts {
@@ -169,6 +180,7 @@ impl OrogenFronts {
         plates: &Plates,
         crust: &Crust,
         dynamics: &Dynamics,
+        #[cfg(feature = "research-landscape")] history: &TectonicHistory,
     ) -> Self {
         let boundaries = collect_plate_boundaries(coarse, plates, crust, dynamics);
         let endpoints = build_cell_pair_edge_endpoints(coarse);
@@ -176,6 +188,10 @@ impl OrogenFronts {
         let mut seg_a = Vec::new();
         let mut seg_b = Vec::new();
         let mut accept_plate = Vec::new();
+        #[cfg(feature = "research-landscape")]
+        let mut episode_duration_myr = Vec::new();
+        #[cfg(feature = "research-landscape")]
+        let mut convergence_km_per_myr = Vec::new();
         // Voronoi-vertex endpoint IDs per front (for chaining into polylines).
         let mut vids: Vec<(u32, u32)> = Vec::new();
         for e in &boundaries {
@@ -212,6 +228,15 @@ impl OrogenFronts {
             seg_a.push(a);
             seg_b.push(b);
             accept_plate.push(accept);
+            #[cfg(feature = "research-landscape")]
+            {
+                episode_duration_myr.push(
+                    history
+                        .episode_for_edge(e.cell_a, e.cell_b)
+                        .map_or(0.0, |episode| episode.duration_myr),
+                );
+                convergence_km_per_myr.push(e.convergence_km_per_myr().max(0.0));
+            }
             vids.push((va, vb));
         }
         let (arc_u, chain_id, u_lin, u_dir) = chain_fronts(&seg_a, &seg_b, &vids);
@@ -225,6 +250,10 @@ impl OrogenFronts {
             chain_id,
             u_lin,
             u_dir,
+            #[cfg(feature = "research-landscape")]
+            episode_duration_myr,
+            #[cfg(feature = "research-landscape")]
+            convergence_km_per_myr,
         }
     }
 }
@@ -544,6 +573,24 @@ impl FineWorld {
             &self.base,
             &self.pre.hydrology,
             params,
+        ));
+    }
+
+    #[cfg(feature = "research-landscape")]
+    pub(crate) fn rerun_eroded_finite_age(
+        &mut self,
+        seed: u64,
+        params: ErosionParams,
+        source: &FrozenSupportUplift,
+        lookback_myr: f32,
+    ) {
+        self.eroded = Some(FineSurface::generate_finite_age(
+            seed,
+            &self.base,
+            &self.pre.hydrology,
+            params,
+            source,
+            lookback_myr,
         ));
     }
 
@@ -930,6 +977,43 @@ impl FineSurface {
         pre_hydrology: &Hydrology,
         params: ErosionParams,
     ) -> Self {
+        Self::generate_impl(
+            seed,
+            base,
+            pre_hydrology,
+            params,
+            #[cfg(feature = "research-landscape")]
+            None,
+        )
+    }
+
+    /// Research-only finite-age candidate over the same mesh, climate supply
+    /// and final hydrology contract as the ordinary erosion surface.
+    #[cfg(feature = "research-landscape")]
+    pub(crate) fn generate_finite_age(
+        seed: u64,
+        base: &FineBase,
+        pre_hydrology: &Hydrology,
+        params: ErosionParams,
+        source: &FrozenSupportUplift,
+        lookback_myr: f32,
+    ) -> Self {
+        Self::generate_impl(
+            seed,
+            base,
+            pre_hydrology,
+            params,
+            Some((source, lookback_myr)),
+        )
+    }
+
+    fn generate_impl(
+        seed: u64,
+        base: &FineBase,
+        pre_hydrology: &Hydrology,
+        params: ErosionParams,
+        #[cfg(feature = "research-landscape")] finite_age: Option<(&FrozenSupportUplift, f32)>,
+    ) -> Self {
         // Fluvial erosion: carve the interpolated base into real river valleys by
         // evolving crust thickness (isostasy responds). Runs on the fine mesh
         // before final hydrology; sea level is the fixed datum inherited via
@@ -1038,18 +1122,70 @@ impl FineSurface {
         let uplift_shape = pulsed_shape.as_deref().or(uplift_shape);
         for outer in 0..iters {
             let t0 = Instant::now();
-            eroded = super::erosion::erode(
-                &base.tessellation,
-                &base.fields.elevation_fields,
-                structured_base,
-                &precip,
-                &erodibility,
-                &lake_base,
-                &geom,
-                params,
-                coarse_target,
-                uplift_shape,
-            );
+            #[cfg(feature = "research-landscape")]
+            {
+                if let Some((source, lookback_myr)) = finite_age {
+                    let program = super::erosion::FiniteAgeUpliftProgram {
+                        duration_myr: &source.duration_myr,
+                        lookback_myr,
+                        match_static_total: false,
+                    };
+                    let (candidate, audit) = super::erosion::erode_finite_age(
+                        &base.tessellation,
+                        &base.fields.elevation_fields,
+                        structured_base,
+                        &precip,
+                        &erodibility,
+                        &lake_base,
+                        &geom,
+                        params,
+                        coarse_target,
+                        Some(&source.shape),
+                        program,
+                    )
+                    .expect("validated frozen-support finite-age uplift program");
+                    log::info!(
+                        "finite-age uplift: {} source cells, {} ages, active steps {}..{}, rate scale {:.3}, scheduled/target {:.6}/{:.6}, actual {:.6}",
+                        source.owned_cells,
+                        source.distinct_durations,
+                        audit.min_active_steps,
+                        audit.max_active_steps,
+                        audit.rate_scale,
+                        audit.expected_scheduled_uplift_volume,
+                        audit.target_static_uplift_volume,
+                        audit.actual_injected_uplift_volume,
+                    );
+                    eroded = candidate;
+                } else {
+                    eroded = super::erosion::erode(
+                        &base.tessellation,
+                        &base.fields.elevation_fields,
+                        structured_base,
+                        &precip,
+                        &erodibility,
+                        &lake_base,
+                        &geom,
+                        params,
+                        coarse_target,
+                        uplift_shape,
+                    );
+                }
+            }
+            #[cfg(not(feature = "research-landscape"))]
+            {
+                eroded = super::erosion::erode(
+                    &base.tessellation,
+                    &base.fields.elevation_fields,
+                    structured_base,
+                    &precip,
+                    &erodibility,
+                    &lake_base,
+                    &geom,
+                    params,
+                    coarse_target,
+                    uplift_shape,
+                );
+            }
             let t_erode = t0.elapsed();
             let t1 = Instant::now();
             precip = fine_precipitation(
@@ -1557,6 +1693,8 @@ impl MesoSampler {
 
 #[derive(Clone, Copy)]
 struct MesoFrontFrame {
+    #[cfg(feature = "research-landscape")]
+    front_index: usize,
     u: f32,
     v: f32,
     /// Continuous along-strike coordinate (endpoint-ordered chain walk + within-
@@ -1640,11 +1778,83 @@ fn nearest_meso_front_frame(
     let t = point_on_arc_param(c, a, b);
     let seg_len = a.dot(b).clamp(-1.0, 1.0).acos();
     Some(MesoFrontFrame {
+        #[cfg(feature = "research-landscape")]
+        front_index: best_front,
         u: fronts.arc_u[best_front],
         v: best_side * best_d,
         u_lin: fronts.u_lin[best_front] + fronts.u_dir[best_front] * (t - 0.5) * seg_len,
         chain_id: fronts.chain_id[best_front],
     })
+}
+
+/// Frozen present-front source for the first finite-age coupled-landscape slice.
+/// Each cell has one nearest exact-arc owner. Relative uplift opportunity is the
+/// owner's positive local convergence times a declared cross-front profile;
+/// duration is the owner's retained component age. Legacy relief is not used as
+/// the spatial source: its removed volume calibrates the hypothetical all-old
+/// source rate, while actual ages determine the candidate's integrated work.
+#[cfg(feature = "research-landscape")]
+pub(crate) struct FrozenSupportUplift {
+    pub shape: Vec<f32>,
+    pub duration_myr: Vec<f32>,
+    pub owned_cells: usize,
+    pub distinct_durations: usize,
+}
+
+#[cfg(feature = "research-landscape")]
+pub(crate) fn frozen_support_uplift(base: &FineBase, fronts: &OrogenFronts) -> FrozenSupportUplift {
+    let n = base.tessellation.num_cells();
+    let Some(tree) = meso_front_tree(fronts) else {
+        return FrozenSupportUplift {
+            shape: vec![0.0; n],
+            duration_myr: vec![0.0; n],
+            owned_cells: 0,
+            distinct_durations: 0,
+        };
+    };
+    let gather_r2 = meso_front_gather_r2();
+    let sample = |i: usize| -> (f32, f32) {
+        let center = base.tessellation.cell_center(i);
+        let plate = fronts.coarse_cell_plate[base.coarse_cell[i]];
+        let Some(front) = nearest_meso_front_frame(center, plate, fronts, &tree, gather_r2) else {
+            return (0.0, 0.0);
+        };
+        let owner = front.front_index;
+        if fronts.accept_plate[owner].is_some_and(|receiver| receiver != plate) {
+            return (0.0, 0.0);
+        }
+        let profile = if front.v < 0.0 {
+            super::features::smoothstep(-FINE_OROGEN_FORELAND_WIDTH, 0.0, front.v)
+        } else {
+            1.0 - super::features::smoothstep(0.0, FINE_OROGEN_HINTERLAND_WIDTH, front.v)
+        };
+        let rate = fronts.convergence_km_per_myr[owner] * profile;
+        let duration = fronts.episode_duration_myr[owner];
+        if rate > 0.0 && duration > 0.0 {
+            (rate, duration)
+        } else {
+            (0.0, 0.0)
+        }
+    };
+    #[cfg(not(feature = "single-threaded"))]
+    let samples: Vec<(f32, f32)> = (0..n).into_par_iter().map(sample).collect();
+    #[cfg(feature = "single-threaded")]
+    let samples: Vec<(f32, f32)> = (0..n).map(sample).collect();
+    let shape: Vec<f32> = samples.iter().map(|&(rate, _)| rate).collect();
+    let duration_myr: Vec<f32> = samples.iter().map(|&(_, duration)| duration).collect();
+    let owned_cells = shape.iter().filter(|&&rate| rate > 0.0).count();
+    let distinct_durations = duration_myr
+        .iter()
+        .filter(|&&duration| duration > 0.0)
+        .map(|duration| duration.to_bits())
+        .collect::<std::collections::BTreeSet<_>>()
+        .len();
+    FrozenSupportUplift {
+        shape,
+        duration_myr,
+        owned_cells,
+        distinct_durations,
+    }
 }
 
 /// Candidate A' base-elevation meso relief: the same front-coordinate meso field used

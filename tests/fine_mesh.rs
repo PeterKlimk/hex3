@@ -23,6 +23,8 @@ fn generate_pre(world: &World) -> FineWorld {
         world.plates.as_ref().unwrap(),
         world.crust.as_ref().unwrap(),
         world.dynamics.as_ref().unwrap(),
+        #[cfg(feature = "research-landscape")]
+        world.tectonic_history.as_ref().unwrap(),
     );
     FineWorld::generate_pre(
         world.seed,
@@ -174,6 +176,47 @@ fn fine_mesh_pipeline_smoke() {
             assert!((state.fractions.terrestrial_sum() - 1.0).abs() <= 2e-6);
         }
     }
+}
+
+#[cfg(feature = "research-landscape")]
+#[test]
+fn finite_age_frozen_support_candidate_reaches_authoritative_hydrology() {
+    let mut world = coarse_world();
+    world.fine_cache = FineCacheMode::Disabled;
+    world.fine_structure_params.emergent_lambda = 1.0;
+    world.fine_structure_params.emergent_structured = 0.0;
+    world.fine_structure_params.interior_relief = 0.0;
+    world.fine_structure_params.fault_scarp_height = 0.0;
+    world.erosion_params.finite_age_uplift = true;
+    world.erosion_params.steps = 12;
+    world.erosion_params.precip_outer_iters = 1;
+    world.erosion_params.hillslope_critical_slope = 200.0;
+
+    world.generate_fine_pre_with_cap(4000);
+    let pre = world.fine.as_ref().unwrap().pre.elevation.values.clone();
+    world.generate_fine_eroded();
+
+    let fine = world.fine.as_ref().unwrap();
+    let candidate = fine.eroded.as_ref().expect("finite-age stage-4 surface");
+    assert_eq!(
+        candidate.elevation.values.len(),
+        fine.base.tessellation.num_cells()
+    );
+    assert_eq!(
+        candidate.hydrology.drainage_dir.len(),
+        fine.base.tessellation.num_cells()
+    );
+    assert!(candidate
+        .elevation
+        .values
+        .iter()
+        .all(|value| value.is_finite()));
+    assert!(candidate
+        .elevation
+        .values
+        .iter()
+        .zip(pre)
+        .any(|(&after, before)| after.to_bits() != before.to_bits()));
 }
 
 /// Stage 4 exercises the whole erosion path: fluvial incision + transport-aware

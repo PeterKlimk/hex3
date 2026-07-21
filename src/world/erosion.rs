@@ -89,6 +89,10 @@ pub struct ErosionParams {
     /// default EMERGENT path (self-calibrating builder); live only in the
     /// painted path.
     pub uplift_scale: f32,
+    /// Research candidate: schedule emergent uplift from finite per-cell source
+    /// ages. The ordinary erosion entry ignores this flag; World uses it only to
+    /// select `erode_finite_age` in research builds.
+    pub finite_age_uplift: bool,
     /// Emergent builder over-rebuild gain (see `EMERGENT_REBUILD_GAIN`). >1
     /// builds more volume than the coarse target so erosion carves the excess
     /// into relief; the joint high-relief regime dial (relief-spectrum spec,
@@ -166,6 +170,7 @@ impl Default for ErosionParams {
             mfd_exponent: EROSION_MFD_EXPONENT,
             confinement_slope: EROSION_CONFINEMENT_SLOPE,
             uplift_scale: EROSION_UPLIFT_SCALE,
+            finite_age_uplift: false,
             rebuild_gain: EMERGENT_REBUILD_GAIN,
             uplift_smooth_km: EROSION_UPLIFT_SMOOTH_KM,
             deposit_fill_fraction: EROSION_DEPOSIT_FILL_FRACTION,
@@ -229,6 +234,159 @@ pub(crate) fn erode(
     let final_elev = state.elevation();
     roughness_report(tess, &final_elev, "eroded");
     final_elev
+}
+
+/// Borrowed finite-age forcing for the research landscape candidate. Durations
+/// are geological ages in Myr on the fine mesh. A positive duration activates
+/// that cell only during the corresponding suffix of the erosion run; zero
+/// means that the cell receives no uplift in this candidate.
+#[cfg(feature = "research-landscape")]
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct FiniteAgeUpliftProgram<'a> {
+    pub duration_myr: &'a [f32],
+    pub lookback_myr: f32,
+    /// Diagnostic counterfactual: amplify active suffixes until they recover the
+    /// all-cells-active integral. The coupled candidate leaves this false so age
+    /// changes integrated work instead of subsidizing old components.
+    pub match_static_total: bool,
+}
+
+#[cfg(feature = "research-landscape")]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct FiniteAgeUpliftAudit {
+    pub rate_scale: f32,
+    pub positive_duration_cells: usize,
+    pub min_active_steps: usize,
+    pub max_active_steps: usize,
+    pub target_static_uplift_volume: f64,
+    pub expected_scheduled_uplift_volume: f64,
+    pub actual_injected_uplift_volume: f64,
+    pub completed_steps: usize,
+}
+
+#[cfg(feature = "research-landscape")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FiniteAgeUpliftError {
+    RequiresEmergentTarget,
+    DurationLength { expected: usize, actual: usize },
+    InvalidLookback,
+    InvalidDuration { cell: usize },
+    NoActiveUplift,
+    NonFiniteRateScale,
+}
+
+#[cfg(feature = "research-landscape")]
+impl std::fmt::Display for FiniteAgeUpliftError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::RequiresEmergentTarget => {
+                write!(
+                    formatter,
+                    "finite-age uplift requires an emergent coarse target"
+                )
+            }
+            Self::DurationLength { expected, actual } => write!(
+                formatter,
+                "finite-age duration length {actual} does not match fine cells {expected}"
+            ),
+            Self::InvalidLookback => {
+                write!(formatter, "finite-age lookback must be finite and positive")
+            }
+            Self::InvalidDuration { cell } => write!(
+                formatter,
+                "finite-age duration at cell {cell} must be finite and non-negative"
+            ),
+            Self::NoActiveUplift => write!(
+                formatter,
+                "positive static emergent uplift has no positive-duration support"
+            ),
+            Self::NonFiniteRateScale => {
+                write!(formatter, "finite-age uplift rate scale is not finite")
+            }
+        }
+    }
+}
+
+#[cfg(feature = "research-landscape")]
+impl std::error::Error for FiniteAgeUpliftError {}
+
+/// Research-only erosion entry using the ordinary emergent uplift field with a
+/// finite-age schedule. The ordinary candidate keeps the calibrated rates and
+/// lets finite age change total integrated work. An explicit diagnostic can
+/// instead request a globally work-matched schedule.
+#[cfg(feature = "research-landscape")]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn erode_finite_age(
+    tess: &Tessellation,
+    fields: &ElevationFields,
+    base: &[f32],
+    precipitation: &[f32],
+    erodibility: &[f32],
+    lake_base: &[f32],
+    geom: &NeighborGeometry,
+    params: ErosionParams,
+    coarse_target: Option<&[f32]>,
+    uplift_shape: Option<&[f32]>,
+    program: FiniteAgeUpliftProgram<'_>,
+) -> Result<(Vec<f32>, FiniteAgeUpliftAudit), FiniteAgeUpliftError> {
+    if coarse_target.is_none() {
+        return Err(FiniteAgeUpliftError::RequiresEmergentTarget);
+    }
+    validate_finite_age_program(tess.num_cells(), program)?;
+
+    roughness_report(tess, base, "base ");
+    let mut state = ErosionState::new(
+        tess,
+        fields,
+        base,
+        precipitation,
+        erodibility,
+        lake_base,
+        geom,
+        params,
+        coarse_target,
+        uplift_shape,
+    );
+    state.install_finite_age_uplift(program)?;
+    state.step(params.steps);
+    state.log_summary();
+    let audit = state.finite_age_uplift_audit();
+    let final_elev = state.elevation();
+    roughness_report(tess, &final_elev, "eroded");
+    log::info!(
+        "finite-age uplift: scale {:.4}, active steps {}..{}, target {:.3e}, expected {:.3e}, actual {:.3e}",
+        audit.rate_scale,
+        audit.min_active_steps,
+        audit.max_active_steps,
+        audit.target_static_uplift_volume,
+        audit.expected_scheduled_uplift_volume,
+        audit.actual_injected_uplift_volume,
+    );
+    Ok((final_elev, audit))
+}
+
+#[cfg(feature = "research-landscape")]
+fn validate_finite_age_program(
+    cells: usize,
+    program: FiniteAgeUpliftProgram<'_>,
+) -> Result<(), FiniteAgeUpliftError> {
+    if program.duration_myr.len() != cells {
+        return Err(FiniteAgeUpliftError::DurationLength {
+            expected: cells,
+            actual: program.duration_myr.len(),
+        });
+    }
+    if !program.lookback_myr.is_finite() || program.lookback_myr <= 0.0 {
+        return Err(FiniteAgeUpliftError::InvalidLookback);
+    }
+    if let Some(cell) = program
+        .duration_myr
+        .iter()
+        .position(|duration| !duration.is_finite() || *duration < 0.0)
+    {
+        return Err(FiniteAgeUpliftError::InvalidDuration { cell });
+    }
+    Ok(())
 }
 
 /// Glacial erosion pass (v1). A snowline-driven ice over-deepening applied on top
@@ -579,6 +737,18 @@ pub(crate) fn drainage_pulse_modifier(
 /// routing + drainage area, step counter) plus the once-built geometry/uplift, so
 /// stepping needs no `Tessellation` borrow — only construction does. The owned
 /// input copies keep the state self-contained across frames.
+#[cfg(feature = "research-landscape")]
+struct FiniteAgeSchedule {
+    start_step: Vec<usize>,
+    rate_scale: f32,
+    positive_duration_cells: usize,
+    min_active_steps: usize,
+    max_active_steps: usize,
+    target_static_uplift_volume: f64,
+    expected_scheduled_uplift_volume: f64,
+    actual_injected_uplift_volume: f64,
+}
+
 pub(crate) struct ErosionState {
     n: usize,
     slope: f32,
@@ -598,6 +768,8 @@ pub(crate) struct ErosionState {
     precipitation: Vec<f32>,
     /// Tectonic uplift source in THICKNESS units per step (see `new`).
     u_thick: Vec<f32>,
+    #[cfg(feature = "research-landscape")]
+    finite_age_schedule: Option<FiniteAgeSchedule>,
     /// Terminal (endorheic) lake surface per cell (finite => lake sink), or
     /// NEG_INFINITY. Frozen from the pre-erosion hydrology; defines extra sinks
     /// and the per-cell base level the routing grades to.
@@ -652,6 +824,85 @@ pub(crate) struct ErosionState {
     t_diffuse: f64,
     t_deposit: f64,
     t_misc: f64,
+}
+
+#[cfg(feature = "research-landscape")]
+fn build_finite_age_schedule(
+    rates: &[f32],
+    areas: &[f32],
+    steps: usize,
+    dt: f32,
+    program: FiniteAgeUpliftProgram<'_>,
+) -> Result<FiniteAgeSchedule, FiniteAgeUpliftError> {
+    validate_finite_age_program(rates.len(), program)?;
+    debug_assert_eq!(rates.len(), areas.len());
+
+    let mut start_step = Vec::with_capacity(rates.len());
+    let mut positive_duration_cells = 0usize;
+    let mut min_active_steps = usize::MAX;
+    let mut max_active_steps = 0usize;
+    for &duration in program.duration_myr {
+        let active_steps = if duration > 0.0 && steps > 0 {
+            (((duration as f64 / program.lookback_myr as f64) * steps as f64).ceil() as usize)
+                .clamp(1, steps)
+        } else {
+            0
+        };
+        if duration > 0.0 {
+            positive_duration_cells += 1;
+            min_active_steps = min_active_steps.min(active_steps);
+            max_active_steps = max_active_steps.max(active_steps);
+        }
+        start_step.push(steps - active_steps);
+    }
+    if positive_duration_cells == 0 {
+        min_active_steps = 0;
+    }
+
+    let per_step_static: f64 = rates
+        .iter()
+        .zip(areas)
+        .map(|(&rate, &area)| (rate * area) as f64)
+        .sum();
+    let target_static_uplift_volume = steps as f64 * dt as f64 * per_step_static;
+    let unscaled_scheduled_uplift: f64 = rates
+        .iter()
+        .zip(areas)
+        .zip(&start_step)
+        .map(|((&rate, &area), &start)| {
+            let active_steps = steps - start;
+            (rate * area) as f64 * active_steps as f64 * dt as f64
+        })
+        .sum();
+    let every_source_step_active = rates
+        .iter()
+        .zip(&start_step)
+        .all(|(&rate, &start)| rate == 0.0 || start == 0);
+    let rate_scale = if !program.match_static_total || target_static_uplift_volume == 0.0 {
+        1.0
+    } else if unscaled_scheduled_uplift <= 0.0 {
+        return Err(FiniteAgeUpliftError::NoActiveUplift);
+    } else if every_source_step_active {
+        // Preserve the ordinary static source exactly, not merely within a
+        // floating-point conservation tolerance.
+        1.0
+    } else {
+        (target_static_uplift_volume / unscaled_scheduled_uplift) as f32
+    };
+    if !rate_scale.is_finite() {
+        return Err(FiniteAgeUpliftError::NonFiniteRateScale);
+    }
+
+    Ok(FiniteAgeSchedule {
+        start_step,
+        rate_scale,
+        positive_duration_cells,
+        min_active_steps,
+        max_active_steps,
+        target_static_uplift_volume,
+        expected_scheduled_uplift_volume: 0.0,
+        actual_injected_uplift_volume: 0.0,
+    })
 }
 
 impl ErosionState {
@@ -854,6 +1105,8 @@ impl ErosionState {
             thick_init,
             precipitation: precipitation.to_vec(),
             u_thick,
+            #[cfg(feature = "research-landscape")]
+            finite_age_schedule: None,
             lake_base: lake_base.to_vec(),
             areas,
             geom,
@@ -879,6 +1132,53 @@ impl ErosionState {
             t_diffuse: 0.0,
             t_deposit: 0.0,
             t_misc: 0.0,
+        }
+    }
+
+    #[cfg(feature = "research-landscape")]
+    fn install_finite_age_uplift(
+        &mut self,
+        program: FiniteAgeUpliftProgram<'_>,
+    ) -> Result<(), FiniteAgeUpliftError> {
+        let mut schedule = build_finite_age_schedule(
+            &self.u_thick,
+            &self.areas,
+            self.params.steps,
+            self.params.dt,
+            program,
+        )?;
+        for rate in &mut self.u_thick {
+            *rate *= schedule.rate_scale;
+        }
+        schedule.expected_scheduled_uplift_volume = self
+            .u_thick
+            .iter()
+            .zip(&self.areas)
+            .zip(&schedule.start_step)
+            .map(|((&rate, &area), &start)| {
+                let active_steps = self.params.steps.saturating_sub(start);
+                (rate * area) as f64 * active_steps as f64 * self.params.dt as f64
+            })
+            .sum();
+        self.finite_age_schedule = Some(schedule);
+        Ok(())
+    }
+
+    #[cfg(feature = "research-landscape")]
+    fn finite_age_uplift_audit(&self) -> FiniteAgeUpliftAudit {
+        let schedule = self
+            .finite_age_schedule
+            .as_ref()
+            .expect("finite-age audit requires installed schedule");
+        FiniteAgeUpliftAudit {
+            rate_scale: schedule.rate_scale,
+            positive_duration_cells: schedule.positive_duration_cells,
+            min_active_steps: schedule.min_active_steps,
+            max_active_steps: schedule.max_active_steps,
+            target_static_uplift_volume: schedule.target_static_uplift_volume,
+            expected_scheduled_uplift_volume: schedule.expected_scheduled_uplift_volume,
+            actual_injected_uplift_volume: schedule.actual_injected_uplift_volume,
+            completed_steps: self.step,
         }
     }
 
@@ -1068,6 +1368,21 @@ impl ErosionState {
             self.thick[i] = self.thick_init[i] + (elev[i] - self.base[i]) * self.inv_slope;
         }
         // 6. Uplift source (thickness).
+        #[cfg(feature = "research-landscape")]
+        if let Some(schedule) = &mut self.finite_age_schedule {
+            for i in 0..n {
+                if self.step >= schedule.start_step[i] {
+                    let injected = self.u_thick[i] * self.params.dt;
+                    self.thick[i] += injected;
+                    schedule.actual_injected_uplift_volume += (injected * self.areas[i]) as f64;
+                }
+            }
+        } else {
+            for i in 0..n {
+                self.thick[i] += self.u_thick[i] * self.params.dt;
+            }
+        }
+        #[cfg(not(feature = "research-landscape"))]
         for i in 0..n {
             self.thick[i] += self.u_thick[i] * self.params.dt;
         }
@@ -1111,6 +1426,13 @@ impl ErosionState {
         let per_step_uplift: f64 = (0..self.n)
             .map(|i| (self.u_thick[i] * self.areas[i]) as f64)
             .sum();
+        #[cfg(feature = "research-landscape")]
+        let uplift_in = self
+            .finite_age_schedule
+            .as_ref()
+            .map(|schedule| schedule.actual_injected_uplift_volume)
+            .unwrap_or(self.step as f64 * self.params.dt as f64 * per_step_uplift);
+        #[cfg(not(feature = "research-landscape"))]
         let uplift_in = self.step as f64 * self.params.dt as f64 * per_step_uplift;
         log::info!(
             "erosion: {} steps, uplift-in {:.3e} | eroded {:.3e} deposited {:.3e} lost-to-ocean {:.3e} diffused-net {:.3e} (volume = thickness x steradian)",
@@ -2580,6 +2902,117 @@ impl NeighborGeometry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "research-landscape")]
+    #[test]
+    fn finite_age_full_lookback_is_static_source_identity() {
+        let rates = [0.25f32, 0.5, 0.0];
+        let areas = [1.0f32, 2.0, 3.0];
+        let durations = [100.0f32; 3];
+        let steps = 8usize;
+        let schedule = build_finite_age_schedule(
+            &rates,
+            &areas,
+            steps,
+            0.5,
+            FiniteAgeUpliftProgram {
+                duration_myr: &durations,
+                lookback_myr: 100.0,
+                match_static_total: true,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(schedule.rate_scale, 1.0);
+        assert_eq!(schedule.start_step, vec![0; rates.len()]);
+        for step in 0..steps {
+            let ordinary: Vec<f32> = rates.iter().map(|rate| rate * 0.5).collect();
+            let scheduled: Vec<f32> = rates
+                .iter()
+                .zip(&schedule.start_step)
+                .map(|(&rate, &start)| {
+                    if step >= start {
+                        rate * schedule.rate_scale * 0.5
+                    } else {
+                        0.0
+                    }
+                })
+                .collect();
+            assert_eq!(scheduled, ordinary);
+        }
+    }
+
+    #[cfg(feature = "research-landscape")]
+    #[test]
+    fn finite_age_uses_suffixes_and_matches_static_integral() {
+        let rates = [1.0f32, 1.0];
+        let areas = [1.0f32, 1.0];
+        let durations = [10.0f32, 100.0];
+        let steps = 10usize;
+        let schedule = build_finite_age_schedule(
+            &rates,
+            &areas,
+            steps,
+            1.0,
+            FiniteAgeUpliftProgram {
+                duration_myr: &durations,
+                lookback_myr: 100.0,
+                match_static_total: true,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(schedule.start_step, vec![9, 0]);
+        assert_eq!(schedule.min_active_steps, 1);
+        assert_eq!(schedule.max_active_steps, 10);
+        assert!(0 < schedule.start_step[0]);
+        assert_eq!(schedule.start_step[1], 0);
+
+        let scheduled_total: f64 = rates
+            .iter()
+            .zip(&areas)
+            .zip(&schedule.start_step)
+            .map(|((&rate, &area), &start)| {
+                (rate * schedule.rate_scale * area) as f64 * (steps - start) as f64
+            })
+            .sum();
+        let static_total: f64 = rates
+            .iter()
+            .zip(&areas)
+            .map(|(&rate, &area)| (rate * area) as f64 * steps as f64)
+            .sum();
+        assert!((scheduled_total - static_total).abs() < 1.0e-5);
+    }
+
+    #[cfg(feature = "research-landscape")]
+    #[test]
+    fn finite_age_candidate_keeps_rates_and_age_changes_total_work() {
+        let rates = [1.0f32, 1.0];
+        let areas = [1.0f32, 1.0];
+        let durations = [10.0f32, 100.0];
+        let schedule = build_finite_age_schedule(
+            &rates,
+            &areas,
+            10,
+            1.0,
+            FiniteAgeUpliftProgram {
+                duration_myr: &durations,
+                lookback_myr: 100.0,
+                match_static_total: false,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(schedule.rate_scale, 1.0);
+        assert_eq!(schedule.start_step, vec![9, 0]);
+        let scheduled: f64 = rates
+            .iter()
+            .zip(&areas)
+            .zip(&schedule.start_step)
+            .map(|((&rate, &area), &start)| (rate * area) as f64 * (10 - start) as f64)
+            .sum();
+        assert!(scheduled < schedule.target_static_uplift_volume);
+    }
 
     /// A 1-D chain neighbour geometry (cell i adjacent to i±1) with unit edge
     /// lengths and distances, for testing the conservative source smoothing.
