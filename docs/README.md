@@ -24,7 +24,8 @@ audits and archived material are evidence, not current policy.
   replacement boundary, candidate families and bounded discriminators.
 - [Regional deformation support](regional-deformation-support.md) — selected
   research-only seam between corrected boundary work and landscape response;
-  coarse source-representation gate implemented, terrain gate still open.
+  coarse source gate and one fixed process-mesh terrain discriminator
+  implemented; provisional narrow pass awaiting human visual judgment.
 - [Lithosphere Inheritance V0](lithosphere-inheritance.md)
 - [Structural Mountain V0](structural-mountain.md)
 - [Living Surface V0](living-surface.md)

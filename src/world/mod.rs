@@ -97,6 +97,11 @@ pub use ecology::{BiomeKind, EcologicalCell, EcologicalPotentials, EcologySemant
 pub use elevation::{Elevation, NoiseLayerData, OrogenModel};
 pub use erosion::{roughness_counters, ErosionParams, FiniteAgeFluxModel, RoughnessCounters};
 #[cfg(feature = "research-landscape")]
+pub use erosion::{
+    LegacyBudgetOpportunityAdapterV0, LegacyBudgetOpportunityAuditV0,
+    LegacyBudgetOpportunityErrorV0, LegacyBudgetOpportunityFrameAuditV0,
+};
+#[cfg(feature = "research-landscape")]
 pub use features::LegacyCollisionTrace;
 pub use features::{EpisodeCrustWork, FeatureFields, MaterialEpisodeWork};
 #[cfg(feature = "research-landscape")]
@@ -119,8 +124,8 @@ pub use hydrology::{
 pub use lithosphere_inheritance::{
     assess_plate_boundary_inheritance_v0, generate_lithosphere_inheritance_v0,
     generate_lithosphere_inheritance_with_history_seed_v0, query_boundary_inheritance_v0,
-    structure_relationship_components_v0, validate_structure_relationships_v0,
-    BasementProvinceV0, BoundaryInheritanceApplicationV0, BoundaryInheritanceAssessmentV0,
+    structure_relationship_components_v0, validate_structure_relationships_v0, BasementProvinceV0,
+    BoundaryInheritanceApplicationV0, BoundaryInheritanceAssessmentV0,
     BoundaryInheritanceContactKindV0, BoundaryInheritanceGeologyV0,
     BoundaryInheritanceRelationshipV0, InheritedStructureEdgeV0, InheritedStructureGraphV0,
     InheritedStructureIncidenceKindV0, InheritedStructureIncidenceV0, InheritedStructureKindV0,
@@ -141,16 +146,20 @@ pub use provenance::{
 };
 #[cfg(feature = "research-landscape")]
 pub use regional_deformation::{
-    build_regional_deformation_rds0_v0, evaluate_regional_deformation_frame_v0,
-    evaluate_regional_deformation_static_control_v0, RegionalDeformationBuildErrorV0,
+    build_regional_deformation_overlap_map_v0, build_regional_deformation_rds0_v0,
+    evaluate_regional_deformation_frame_v0, evaluate_regional_deformation_static_control_v0,
+    transfer_regional_deformation_raster_to_fine_v0,
+    transfer_regional_deformation_raster_with_overlap_v0, RegionalDeformationBuildErrorV0,
     RegionalDeformationCellContributionV0, RegionalDeformationCorrectedRateV0,
     RegionalDeformationElementFrameV0, RegionalDeformationElementIdV0,
     RegionalDeformationElementKindV0, RegionalDeformationElementStateV0,
     RegionalDeformationFrameLedgerV0, RegionalDeformationFrameV0, RegionalDeformationMaterialV0,
     RegionalDeformationOmissionReasonV0, RegionalDeformationOmissionV0,
+    RegionalDeformationOverlapDonorAuditV0, RegionalDeformationOverlapMapV0,
     RegionalDeformationProgramV0, RegionalDeformationRasterErrorV0,
     RegionalDeformationRasterLedgerV0, RegionalDeformationRasterV0, RegionalDeformationRegimeV0,
-    RegionalDeformationSideV0, RegionalDeformationSourceAllocationV0, RDS0_FRAME_COUNT,
+    RegionalDeformationSideV0, RegionalDeformationSourceAllocationV0,
+    RegionalDeformationTransferErrorV0, RDS0_FRAME_COUNT,
 };
 pub use semantics::{
     RiverMouth, RiverNetwork, RiverReach, RiverSelection, RiverThresholdPolicy, SemanticWaterBody,

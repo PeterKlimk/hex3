@@ -1,8 +1,8 @@
 # Regional deformation support
 
-Status: **current proposed architecture; coarse source-representation gate
-implemented and passed narrowly; process-mesh/terrain slice not implemented or
-promoted**, 2026-07-23.
+Status: **current proposed architecture; coarse source and one process-mesh
+terrain discriminator implemented; provisional narrow pass, not promoted**,
+2026-07-23.
 
 This document defines the missing seam between corrected plate-boundary work and
 the coupled landscape response. It refines the
@@ -294,11 +294,57 @@ The five matched source panels show a real representation change: finite lobes
 grow, overlap, link and move across the receiving material without periodic
 ribs or an edge-rate comb. This is a **narrow pass of the source-representation
 gate**, not evidence that the prior is geologically sufficient or improves a
-mountain. The coarse raster cannot yet prove process-mesh resampling, final
-relief, drainage organization or human visual value. The next task is therefore
-one conservative coarse-to-process adapter and the already specified terrain
-pair—not another source width, epoch count, seed campaign or generated-history
-framework.
+mountain.
+
+## RDS0b process transfer and terrain result
+
+The first terrain attempt correctly rejected the obvious transfer shortcut.
+The ordinary 255,376-cell adaptive process mesh has a center-owned child for
+only 30,823 of 100,000 coarse cells. The static control happened to lose no
+active donor, while frames 0–3 would lose `5 / 15 / 31 / 22` active donors and
+`1,168.59 / 2,290.70 / 3,194.21 / 4,857.11 km²/Myr` under categorical
+center-owner transfer. Global or per-element renormalization would relocate
+that missing work and bias the comparison, so the failed preflight is retained
+as evidence rather than hidden.
+
+RDS0b instead builds one sparse exact finite-volume overlap map for the union of
+active donors. Each piecewise-constant coarse contribution is distributed by
+the spherical area of `coarse Voronoi cell ∩ fine Voronoi cell`; full element
+and side provenance remains additive on a straddling fine cell. The fixed run
+uses 2,877 donors and 83,559 overlap pairs. Maximum raw donor-coverage error is
+`1.21e-7`, below the declared `2e-5` stored-area/geometry tolerance. All five
+fine work ledgers close within `5.8e-9 km²/Myr`.
+
+Both terrain arms use one continuous 200-step erosion state and the same global
+demoted-Legacy budget. The control repeats its static opportunity for four
+blocks; the candidate consumes frames 0–3 in order. Actual injected volumes are
+`0.1298224611` and `0.1298224606`, with residuals near `2e-15`. The shared
+land-recovery floor is 9.8% of injected volume, not the dominant source in this
+run. Candidate target-land retention is 99.30–99.86%; the rejected offshore
+fraction is explicitly reported before survivor renormalization.
+
+The response does not erase the source: within union support, final elevation
+RMSE is `0.305` and 56.6% of drainage receivers change. Median maximum-downhill
+slope rises `8.36 -> 9.63` elevation/radian, while elevation standard deviation
+falls `0.331 -> 0.238` and maximum elevation falls `1.526 -> 1.067`. These are
+redistribution signatures, not evidence by themselves of good landforms or
+coherent drainage.
+
+Matched physical and Authentic views give RDS0b a **provisional narrow terrain
+pass, not promotion**. The q33 view changes isolated smooth roofs into a linked,
+forked multi-lobe system; q67 gains an irregular finite arc, supported lows and
+a terminal differentiated chain. No repeated comb or coarse-owner seam is
+apparent. The ambiguity is material: q33 also reads partly as a perforated
+amoeba with round holes or crater-like rims, and q67 retains a broad lower roof.
+Major trunks, catchments and divides are not legible enough to decide whether
+those lows are causal relay/intermontane organization or synthetic beads.
+
+Human visual judgment remains required. If it agrees that the relationships
+are promising, the next bounded evidence is on this exact run: overlay source
+provenance with highland components/ends/saddles, catchments/divides and major
+trunk crossings. Only coherent relationships earn the other fixed worlds and a
+generated-history prior. Failure kills RDS0 as sufficient terrain ownership;
+it does not license a width, epoch or erosion tuning pass.
 
 ## Deliberate omissions and later representation
 

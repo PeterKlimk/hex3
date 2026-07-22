@@ -39,6 +39,17 @@ use hex3::{
     },
 };
 
+#[cfg(feature = "research-landscape")]
+use hex3::world::{
+    build_regional_deformation_overlap_map_v0, build_regional_deformation_rds0_v0,
+    collect_convergent_fronts, collect_plate_boundaries, evaluate_regional_deformation_frame_v0,
+    evaluate_regional_deformation_static_control_v0,
+    transfer_regional_deformation_raster_with_overlap_v0, FineSurface,
+    LegacyBudgetOpportunityAuditV0, RegionalDeformationProgramV0,
+    RegionalDeformationRasterLedgerV0, RegionalDeformationRasterV0, PHYSICAL_RELIEF_SCALE,
+    RDS0_FRAME_COUNT,
+};
+
 use super::coloring::{
     cell_color_terrain, cell_material, living_surface_blended_color, LIVING_HERBACEOUS_COLOR,
     LIVING_WETLAND_COLOR, LIVING_WOODY_COLOR,
@@ -4570,6 +4581,891 @@ fn run_world_readability_packet(opts: &SweepOptions) {
     );
 }
 
+#[cfg(feature = "research-landscape")]
+const RDS0_TERRAIN_SEED: u64 = 8_675_309;
+#[cfg(feature = "research-landscape")]
+const RDS0_TERRAIN_COARSE_CELLS: usize = 100_000;
+#[cfg(feature = "research-landscape")]
+const RDS0_TERRAIN_FINE_CAP: usize = 250_000;
+#[cfg(feature = "research-landscape")]
+const RDS0_TERRAIN_EPISODE: usize = 9;
+
+#[cfg(feature = "research-landscape")]
+#[derive(Debug, Serialize)]
+struct Rds0SurfaceSummary {
+    supplied_elevation_fnv1a64: String,
+    hydrology_elevation_fnv1a64: String,
+    drainage_fnv1a64: String,
+    minimum_elevation: f32,
+    median_elevation: f32,
+    p95_elevation: f32,
+    maximum_elevation: f32,
+    positive_elevation_cell_fraction: f64,
+    ocean_cell_fraction: f64,
+    lake_count: usize,
+}
+
+#[cfg(feature = "research-landscape")]
+#[derive(Debug, Serialize)]
+struct Rds0SurfaceDelta {
+    mean_absolute_elevation_delta: f64,
+    root_mean_square_elevation_delta: f64,
+    maximum_absolute_elevation_delta: f32,
+    positive_delta_cell_fraction: f64,
+    support_mean_absolute_elevation_delta: f64,
+    support_root_mean_square_elevation_delta: f64,
+    support_maximum_absolute_elevation_delta: f32,
+    support_drainage_receiver_changed_fraction: f64,
+}
+
+#[cfg(feature = "research-landscape")]
+#[derive(Debug, Serialize)]
+struct Rds0LocalSurfaceSummary {
+    cell_count: usize,
+    cell_fraction: f64,
+    spherical_area_fraction: f64,
+    area_weighted_mean_elevation: f64,
+    area_weighted_elevation_std_dev: f64,
+    maximum_elevation: f32,
+    median_max_downhill_slope: f32,
+    p95_max_downhill_slope: f32,
+}
+
+#[cfg(feature = "research-landscape")]
+#[derive(Debug, Serialize)]
+struct Rds0RenderRecord {
+    arm: &'static str,
+    presentation: &'static str,
+    relief_scale: f32,
+    image_filenames: Vec<String>,
+}
+
+#[cfg(feature = "research-landscape")]
+#[derive(Debug, Serialize)]
+struct Rds0UnrepresentedRasterReport {
+    field: &'static str,
+    active_unrepresented_owner_count: usize,
+    requested_unrepresented_opportunity_km2_per_myr: f64,
+    owner_id_sample: Vec<usize>,
+    owner_id_sample_truncated: bool,
+}
+
+#[cfg(feature = "research-landscape")]
+#[derive(Debug, Serialize)]
+struct Rds0TransferPreflight {
+    schema: &'static str,
+    coarse_owner_count: usize,
+    represented_coarse_owner_count: usize,
+    unrepresented_coarse_owner_count: usize,
+    active_owner_sample_limit: usize,
+    rasters: Vec<Rds0UnrepresentedRasterReport>,
+    center_owner_transfer_feasible: bool,
+}
+
+#[cfg(feature = "research-landscape")]
+fn rds0_transfer_preflight(
+    coarse: &Tessellation,
+    fine_coarse_owner: &[usize],
+    control: &RegionalDeformationRasterV0,
+    frames: &[RegionalDeformationRasterV0],
+) -> Rds0TransferPreflight {
+    const SAMPLE_LIMIT: usize = 32;
+    let mut represented = vec![false; coarse.num_cells()];
+    for &owner in fine_coarse_owner {
+        assert!(
+            owner < represented.len(),
+            "fine owner outside coarse domain"
+        );
+        represented[owner] = true;
+    }
+    let areas = coarse.cell_areas_ref();
+    let physical_area_scale = f64::from(PLANET_RADIUS_KM).powi(2);
+    let report = |field: &'static str, raster: &RegionalDeformationRasterV0| {
+        assert_eq!(raster.rate_density_per_myr.len(), coarse.num_cells());
+        let active_ids: Vec<usize> = (0..coarse.num_cells())
+            .filter(|&cell| !represented[cell] && raster.rate_density_per_myr[cell] > 0.0)
+            .collect();
+        let requested = active_ids
+            .iter()
+            .map(|&cell| {
+                raster.rate_density_per_myr[cell] * f64::from(areas[cell]) * physical_area_scale
+            })
+            .sum();
+        Rds0UnrepresentedRasterReport {
+            field,
+            active_unrepresented_owner_count: active_ids.len(),
+            requested_unrepresented_opportunity_km2_per_myr: requested,
+            owner_id_sample: active_ids.iter().take(SAMPLE_LIMIT).copied().collect(),
+            owner_id_sample_truncated: active_ids.len() > SAMPLE_LIMIT,
+        }
+    };
+    let mut rasters = Vec::with_capacity(1 + frames.len());
+    rasters.push(report("static-control", control));
+    for (index, frame) in frames.iter().enumerate() {
+        rasters.push(report(
+            ["frame-0", "frame-1", "frame-2", "frame-3"][index],
+            frame,
+        ));
+    }
+    let represented_count = represented.iter().filter(|&&owner| owner).count();
+    let center_owner_transfer_feasible = rasters
+        .iter()
+        .all(|raster| raster.active_unrepresented_owner_count == 0);
+    Rds0TransferPreflight {
+        schema: "hex3.rds0-transfer-preflight.v0",
+        coarse_owner_count: coarse.num_cells(),
+        represented_coarse_owner_count: represented_count,
+        unrepresented_coarse_owner_count: coarse.num_cells() - represented_count,
+        active_owner_sample_limit: SAMPLE_LIMIT,
+        rasters,
+        center_owner_transfer_feasible,
+    }
+}
+
+#[cfg(feature = "research-landscape")]
+fn rds0_fnv1a64(chunks: impl IntoIterator<Item = u64>) -> String {
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    for value in chunks {
+        for byte in value.to_le_bytes() {
+            hash ^= u64::from(byte);
+            hash = hash.wrapping_mul(0x100_0000_01b3);
+        }
+    }
+    format!("{hash:016x}")
+}
+
+#[cfg(feature = "research-landscape")]
+fn rds0_surface_summary(surface: &FineSurface) -> Rds0SurfaceSummary {
+    let values = &surface.elevation.values;
+    let mut finite: Vec<f32> = values.iter().copied().filter(|v| v.is_finite()).collect();
+    assert_eq!(
+        finite.len(),
+        values.len(),
+        "RDS0 terrain emitted non-finite elevation"
+    );
+    finite.sort_unstable_by(f32::total_cmp);
+    let at = |fraction: f64| finite[((finite.len() - 1) as f64 * fraction).round() as usize];
+    let drainage_words = surface
+        .hydrology
+        .drainage_dir
+        .iter()
+        .map(|next| next.map_or(u64::MAX, |cell| cell as u64));
+    Rds0SurfaceSummary {
+        supplied_elevation_fnv1a64: rds0_fnv1a64(
+            values.iter().map(|value| u64::from(value.to_bits())),
+        ),
+        hydrology_elevation_fnv1a64: rds0_fnv1a64(
+            surface
+                .hydrology
+                .elevation
+                .iter()
+                .map(|value| u64::from(value.to_bits())),
+        ),
+        drainage_fnv1a64: rds0_fnv1a64(drainage_words),
+        minimum_elevation: finite[0],
+        median_elevation: at(0.5),
+        p95_elevation: at(0.95),
+        maximum_elevation: *finite.last().unwrap(),
+        positive_elevation_cell_fraction: values.iter().filter(|&&value| value > 0.0).count()
+            as f64
+            / values.len() as f64,
+        ocean_cell_fraction: surface
+            .hydrology
+            .is_ocean
+            .iter()
+            .filter(|&&ocean| ocean)
+            .count() as f64
+            / values.len() as f64,
+        lake_count: surface.hydrology.water_bodies.len(),
+    }
+}
+
+#[cfg(feature = "research-landscape")]
+fn rds0_surface_delta(
+    control: &[f32],
+    candidate: &[f32],
+    support: &[bool],
+    control_drainage: &[Option<usize>],
+    candidate_drainage: &[Option<usize>],
+) -> Rds0SurfaceDelta {
+    assert_eq!(control.len(), candidate.len());
+    let mut absolute_sum = 0.0_f64;
+    let mut square_sum = 0.0_f64;
+    let mut maximum = 0.0_f32;
+    let mut positive = 0_usize;
+    let mut support_cells = 0_usize;
+    let mut changed_receivers = 0_usize;
+    let mut support_absolute_sum = 0.0_f64;
+    let mut support_square_sum = 0.0_f64;
+    let mut support_maximum = 0.0_f32;
+    for (cell, (&a, &b)) in control.iter().zip(candidate).enumerate() {
+        let delta = b - a;
+        let absolute = delta.abs();
+        absolute_sum += f64::from(absolute);
+        square_sum += f64::from(delta) * f64::from(delta);
+        maximum = maximum.max(absolute);
+        positive += usize::from(delta > 0.0);
+        if support[cell] {
+            support_cells += 1;
+            changed_receivers += usize::from(control_drainage[cell] != candidate_drainage[cell]);
+            support_absolute_sum += f64::from(absolute);
+            support_square_sum += f64::from(delta) * f64::from(delta);
+            support_maximum = support_maximum.max(absolute);
+        }
+    }
+    Rds0SurfaceDelta {
+        mean_absolute_elevation_delta: absolute_sum / control.len() as f64,
+        root_mean_square_elevation_delta: (square_sum / control.len() as f64).sqrt(),
+        maximum_absolute_elevation_delta: maximum,
+        positive_delta_cell_fraction: positive as f64 / control.len() as f64,
+        support_mean_absolute_elevation_delta: support_absolute_sum / support_cells.max(1) as f64,
+        support_root_mean_square_elevation_delta: (support_square_sum
+            / support_cells.max(1) as f64)
+            .sqrt(),
+        support_maximum_absolute_elevation_delta: support_maximum,
+        support_drainage_receiver_changed_fraction: changed_receivers as f64
+            / support_cells.max(1) as f64,
+    }
+}
+
+#[cfg(feature = "research-landscape")]
+fn rds0_local_surface_summary(
+    tessellation: &Tessellation,
+    support: &[bool],
+    surface: &FineSurface,
+) -> Rds0LocalSurfaceSummary {
+    let areas = tessellation.cell_areas_ref();
+    let elevation = &surface.elevation.values;
+    let support_area: f64 = support
+        .iter()
+        .zip(areas)
+        .filter_map(|(&active, &area)| active.then_some(f64::from(area)))
+        .sum();
+    let weighted_sum: f64 = support
+        .iter()
+        .zip(areas)
+        .zip(elevation)
+        .filter_map(|((&active, &area), &z)| active.then_some(f64::from(area) * f64::from(z)))
+        .sum();
+    let mean = weighted_sum / support_area.max(f64::EPSILON);
+    let variance: f64 = support
+        .iter()
+        .zip(areas)
+        .zip(elevation)
+        .filter_map(|((&active, &area), &z)| {
+            active.then_some(f64::from(area) * (f64::from(z) - mean).powi(2))
+        })
+        .sum::<f64>()
+        / support_area.max(f64::EPSILON);
+    let mut slopes = Vec::new();
+    let mut maximum = f32::NEG_INFINITY;
+    for cell in 0..tessellation.num_cells() {
+        if !support[cell] {
+            continue;
+        }
+        maximum = maximum.max(elevation[cell]);
+        let center = tessellation.cell_center(cell);
+        let downhill = tessellation
+            .neighbors(cell)
+            .iter()
+            .map(|&neighbor| {
+                let distance = center
+                    .dot(tessellation.cell_center(neighbor))
+                    .clamp(-1.0, 1.0)
+                    .acos()
+                    .max(f32::EPSILON);
+                ((elevation[cell] - elevation[neighbor]) / distance).max(0.0)
+            })
+            .fold(0.0_f32, f32::max);
+        slopes.push(downhill);
+    }
+    assert!(
+        !slopes.is_empty(),
+        "RDS0 target-land union support is empty"
+    );
+    slopes.sort_unstable_by(f32::total_cmp);
+    let slope_at = |fraction: f64| slopes[((slopes.len() - 1) as f64 * fraction).round() as usize];
+    let cell_count = slopes.len();
+    Rds0LocalSurfaceSummary {
+        cell_count,
+        cell_fraction: cell_count as f64 / tessellation.num_cells() as f64,
+        spherical_area_fraction: support_area / (4.0 * std::f64::consts::PI),
+        area_weighted_mean_elevation: mean,
+        area_weighted_elevation_std_dev: variance.sqrt(),
+        maximum_elevation: maximum,
+        median_max_downhill_slope: slope_at(0.5),
+        p95_max_downhill_slope: slope_at(0.95),
+    }
+}
+
+#[cfg(feature = "research-landscape")]
+fn rds0_capture_views(opts: &SweepOptions, parent_centers: [Vec3; 2]) -> Vec<CaptureView> {
+    let aspect = opts.width as f32 / opts.height as f32;
+    let mut camera = OrbitCamera::new();
+    camera.yaw = opts.yaw_deg.to_radians();
+    camera.pitch = opts.pitch_deg.to_radians();
+    camera.distance = opts.distance;
+    camera.aspect = aspect;
+    let overview_eye = camera.eye_position();
+    let mut views = vec![CaptureView {
+        view_proj: camera.view_projection(),
+        eye: overview_eye,
+        label: "globe".to_string(),
+        sidecar: ViewRecord {
+            id: "globe".to_string(),
+            kind: "overview",
+            target: None,
+            camera: CameraRecord {
+                eye_xyz: vec3_array(overview_eye),
+                aim_xyz: [0.0; 3],
+                up_xyz: [0.0, 1.0, 0.0],
+                vertical_fov_deg: 45.0,
+                aspect,
+                near: 0.01,
+                far: 10.0,
+                target_altitude: None,
+                orbit_yaw_deg: Some(opts.yaw_deg),
+                orbit_pitch_deg: Some(opts.pitch_deg),
+                orbit_distance: Some(opts.distance),
+            },
+        },
+    }];
+    for (index, parent_center) in parent_centers.into_iter().enumerate() {
+        let center = parent_center.normalize();
+        let target = SweepTarget {
+            id: format!("selected-parent-q{}", [33, 67][index]),
+            latitude_deg: center.y.clamp(-1.0, 1.0).asin().to_degrees(),
+            longitude_deg: center.z.atan2(center.x).to_degrees(),
+        };
+        let (regional_vp, regional_eye) = target_camera(center, aspect, opts.zoom_alt);
+        views.push(CaptureView {
+            view_proj: regional_vp,
+            eye: regional_eye,
+            label: target.id.clone(),
+            sidecar: ViewRecord {
+                id: target.id.clone(),
+                kind: "selected-parent-length-quantile",
+                target: Some(target),
+                camera: CameraRecord {
+                    eye_xyz: vec3_array(regional_eye),
+                    aim_xyz: vec3_array(center * 1.08),
+                    up_xyz: vec3_array(center),
+                    vertical_fov_deg: 45.0,
+                    aspect,
+                    near: 0.01,
+                    far: 10.0,
+                    target_altitude: Some(opts.zoom_alt),
+                    orbit_yaw_deg: None,
+                    orbit_pitch_deg: None,
+                    orbit_distance: None,
+                },
+            },
+        });
+    }
+    views
+}
+
+#[cfg(feature = "research-landscape")]
+#[allow(clippy::too_many_arguments)]
+fn render_rds0_surface(
+    opts: &SweepOptions,
+    gpu: &GpuContext,
+    renderer: &mut Renderer,
+    color_texture: &wgpu::Texture,
+    color_view: &wgpu::TextureView,
+    views: &[CaptureView],
+    montage: &mut [u8],
+    montage_width: u32,
+    world: &mut World,
+    surface: FineSurface,
+    arm: &'static str,
+    arm_index: usize,
+    retain_surface: bool,
+) -> Vec<Rds0RenderRecord> {
+    world.fine.as_mut().expect("RDS0 fine world").eroded = Some(surface);
+    world.set_view_stage(4);
+    let buffers = generate_world_buffers(&gpu.device, &gpu.queue, world);
+    let presentations = [
+        ("physical", PHYSICAL_RELIEF_SCALE),
+        ("authentic", RELIEF_SCALE),
+    ];
+    let mut records = Vec::with_capacity(presentations.len());
+    for (presentation_index, (presentation, relief_scale)) in presentations.into_iter().enumerate()
+    {
+        let montage_row = presentation_index * 2 + arm_index;
+        let mut filenames = Vec::with_capacity(views.len());
+        for (view_index, view) in views.iter().enumerate() {
+            render_relief(
+                gpu,
+                renderer,
+                color_view,
+                &buffers,
+                view.view_proj,
+                view.eye,
+                RiverMode::Major,
+                relief_scale,
+                1.0,
+            );
+            let rgba = read_back_rgba(gpu, color_texture, opts.width, opts.height);
+            let filename = format!("{arm}_{presentation}_{}.png", view.label);
+            write_png(
+                &opts.out_dir.join(&filename),
+                &rgba,
+                opts.width,
+                opts.height,
+            );
+            blit_tile(
+                montage,
+                montage_width,
+                &rgba,
+                opts.width,
+                opts.height,
+                view_index as u32,
+                montage_row as u32,
+            );
+            filenames.push(filename);
+        }
+        records.push(Rds0RenderRecord {
+            arm,
+            presentation,
+            relief_scale,
+            image_filenames: filenames,
+        });
+    }
+    drop(buffers);
+    if !retain_surface {
+        world.fine.as_mut().unwrap().eroded.take();
+    }
+    records
+}
+
+/// Fixed RDS0 terrain packet: the source-only four-frame program is transferred
+/// conservatively to one ordinary fine process mesh, then compared against its
+/// static nearest-source control under the same Legacy builder budget.
+#[cfg(feature = "research-landscape")]
+fn run_rds0_terrain_packet(opts: &SweepOptions) {
+    assert_eq!(opts.seed, RDS0_TERRAIN_SEED);
+    assert_eq!(opts.cells, RDS0_TERRAIN_COARSE_CELLS);
+    assert_eq!(opts.fine_scale, 1.0);
+    assert_eq!(opts.fine_max, RDS0_TERRAIN_FINE_CAP);
+    assert_eq!(opts.target_stage, 4);
+    assert_eq!(opts.voronoi_backend, VoronoiBackend::ConvexHull);
+    assert_eq!(opts.orogen_model, OrogenModel::Legacy);
+    assert_eq!(opts.fine_cache, FineCacheMode::Disabled);
+    assert!(opts.targets.is_empty(), "RDS0 cameras are source-derived");
+    assert_eq!(opts.display_subdivision_levels, 0);
+
+    let started = Instant::now();
+    let mut world = create_world_with_orogen_model(
+        opts.seed,
+        opts.cells,
+        VoronoiBackend::ConvexHull,
+        FineCacheMode::Disabled,
+        OrogenModel::Legacy,
+    );
+    let neutral = ErosionOverrides {
+        finite_age_uplift: true,
+        ..ErosionOverrides::default()
+    };
+    neutral.apply(&mut world);
+    advance_to_stage_2(&mut world);
+    advance_to_stage_3_with_cap(&mut world, RDS0_TERRAIN_FINE_CAP);
+
+    let boundaries = collect_plate_boundaries(
+        &world.tessellation,
+        world.plates.as_ref().expect("plates generated"),
+        world.crust.as_ref().expect("crust generated"),
+        world.dynamics.as_ref().expect("dynamics generated"),
+    );
+    let fronts = collect_convergent_fronts(
+        &world.tessellation,
+        &boundaries,
+        world.tectonic_history.as_ref().expect("history generated"),
+    )
+    .expect("RDS0 exact fronts");
+    let program: RegionalDeformationProgramV0 =
+        build_regional_deformation_rds0_v0(&fronts, RDS0_TERRAIN_EPISODE)
+            .expect("RDS0 source program");
+    assert_eq!(program.frames.len(), RDS0_FRAME_COUNT);
+    assert!(
+        program.omissions.is_empty(),
+        "RDS0 program omissions are a hard gate"
+    );
+    let parent_source_edges: Vec<_> = program
+        .parent_source_edges
+        .iter()
+        .map(|id| {
+            fronts
+                .edges
+                .iter()
+                .find(|edge| edge.id == *id)
+                .expect("selected parent source edge retained in exact fronts")
+        })
+        .collect();
+    let parent_total_length: f64 = parent_source_edges
+        .iter()
+        .map(|edge| f64::from(edge.length_km))
+        .sum();
+    let parent_center_at = |fraction: f64| {
+        let target = parent_total_length * fraction;
+        let mut cumulative = 0.0;
+        for edge in &parent_source_edges {
+            cumulative += f64::from(edge.length_km);
+            if cumulative >= target {
+                return edge.midpoint;
+            }
+        }
+        parent_source_edges.last().unwrap().midpoint
+    };
+    let parent_centers = [parent_center_at(1.0 / 3.0), parent_center_at(2.0 / 3.0)];
+    let source_control = evaluate_regional_deformation_static_control_v0(
+        &program,
+        &fronts,
+        &world.tessellation,
+        world.plates.as_ref().unwrap(),
+        world.crust.as_ref().unwrap(),
+    )
+    .expect("RDS0 static source control");
+    let source_frames: Vec<RegionalDeformationRasterV0> = (0..RDS0_FRAME_COUNT)
+        .map(|frame| {
+            evaluate_regional_deformation_frame_v0(
+                &program,
+                frame,
+                &fronts,
+                &world.tessellation,
+                world.plates.as_ref().unwrap(),
+                world.crust.as_ref().unwrap(),
+            )
+            .expect("RDS0 source frame")
+        })
+        .collect();
+    assert!(source_control.omissions.is_empty());
+    assert!(source_frames.iter().all(|frame| frame.omissions.is_empty()));
+
+    let transfer_preflight = rds0_transfer_preflight(
+        &world.tessellation,
+        &world
+            .fine
+            .as_ref()
+            .expect("RDS0 Stage-3 fine base")
+            .base
+            .coarse_cell,
+        &source_control,
+        &source_frames,
+    );
+    println!(
+        "RDS0 transfer preflight: {}/{} coarse owners represented ({} absent)",
+        transfer_preflight.represented_coarse_owner_count,
+        transfer_preflight.coarse_owner_count,
+        transfer_preflight.unrepresented_coarse_owner_count,
+    );
+    for raster in &transfer_preflight.rasters {
+        println!(
+            "  {}: {} active absent owners, {:.9} km²/Myr unrepresented, sample {:?}",
+            raster.field,
+            raster.active_unrepresented_owner_count,
+            raster.requested_unrepresented_opportunity_km2_per_myr,
+            raster.owner_id_sample,
+        );
+    }
+    std::fs::create_dir_all(&opts.out_dir)
+        .unwrap_or_else(|error| panic!("create {}: {error}", opts.out_dir.display()));
+    let file = std::fs::File::create(opts.out_dir.join("rds0-transfer-preflight.json"))
+        .expect("create rds0-transfer-preflight.json");
+    serde_json::to_writer_pretty(BufWriter::new(file), &transfer_preflight)
+        .expect("write rds0-transfer-preflight.json");
+    if !transfer_preflight.center_owner_transfer_feasible {
+        println!(
+            "  center-owner transfer is underresolved; continuing with strict exact polygon overlap"
+        );
+    }
+
+    let (mut fine_control, mut fine_frames, overlap_map_audit, shared_input_hashes) = {
+        let fine = world.fine.as_ref().expect("RDS0 Stage-3 fine base");
+        let union_rasters: Vec<&RegionalDeformationRasterV0> = std::iter::once(&source_control)
+            .chain(source_frames.iter())
+            .collect();
+        let overlap_map = build_regional_deformation_overlap_map_v0(
+            &world.tessellation,
+            &fine.base,
+            &union_rasters,
+        )
+        .expect("RDS0 union exact-overlap map");
+        let control = transfer_regional_deformation_raster_with_overlap_v0(
+            &world.tessellation,
+            &fine.base,
+            &overlap_map,
+            &source_control,
+        )
+        .expect("RDS0 exact-overlap control transfer");
+        let frames: Vec<RegionalDeformationRasterV0> = source_frames
+            .iter()
+            .map(|frame| {
+                transfer_regional_deformation_raster_with_overlap_v0(
+                    &world.tessellation,
+                    &fine.base,
+                    &overlap_map,
+                    frame,
+                )
+                .expect("RDS0 exact-overlap frame transfer")
+            })
+            .collect();
+        let overlap_audit = serde_json::json!({
+            "coarse_cell_count": overlap_map.coarse_cell_count,
+            "fine_cell_count": overlap_map.fine_cell_count,
+            "donor_count": overlap_map.donor_count,
+            "pair_count": overlap_map.pair_count,
+            "maximum_geometric_coverage_relative_error": overlap_map.maximum_geometric_coverage_relative_error,
+            "minimum_recipient_fraction": overlap_map.minimum_recipient_fraction,
+            "donor_audits": overlap_map.donor_audits,
+        });
+        let tessellation = &fine.base.tessellation;
+        let hashes = serde_json::json!({
+            "fine_centers_fnv1a64": rds0_fnv1a64(
+                tessellation.voronoi.generators.iter().flat_map(|center| [
+                    u64::from(center.x.to_bits()), u64::from(center.y.to_bits()),
+                    u64::from(center.z.to_bits()),
+                ])
+            ),
+            "fine_neighbor_topology_fnv1a64": rds0_fnv1a64(
+                (0..tessellation.num_cells()).flat_map(|cell| {
+                    std::iter::once(cell as u64)
+                        .chain(tessellation.neighbors(cell).iter().map(|&neighbor| neighbor as u64))
+                        .chain(std::iter::once(u64::MAX))
+                })
+            ),
+            "fine_to_coarse_owner_fnv1a64": rds0_fnv1a64(
+                fine.base.coarse_cell.iter().map(|&cell| cell as u64)
+            ),
+            "demoted_base_elevation_fnv1a64": rds0_fnv1a64(
+                fine.base.base_elevation.iter().map(|value| u64::from(value.to_bits()))
+            ),
+            "coarse_target_elevation_fnv1a64": rds0_fnv1a64(
+                fine.base.coarse_base_elevation.iter().map(|value| u64::from(value.to_bits()))
+            ),
+            "initial_precipitation_fnv1a64": rds0_fnv1a64(
+                fine.base.fields.precipitation.iter().map(|value| u64::from(value.to_bits()))
+            ),
+            "initial_temperature_fnv1a64": rds0_fnv1a64(
+                fine.base.fields.temperature.iter().map(|value| u64::from(value.to_bits()))
+            ),
+        });
+        (control, frames, overlap_audit, hashes)
+    };
+    assert!(fine_control.omissions.is_empty());
+    assert!(fine_frames.iter().all(|frame| frame.omissions.is_empty()));
+    let target_land_union_support: Vec<bool> = world
+        .fine
+        .as_ref()
+        .unwrap()
+        .base
+        .coarse_base_elevation
+        .iter()
+        .enumerate()
+        .map(|(cell, &target)| {
+            target > 0.0
+                && (fine_control.rate_density_per_myr[cell] > 0.0
+                    || fine_frames
+                        .iter()
+                        .any(|frame| frame.rate_density_per_myr[cell] > 0.0))
+        })
+        .collect();
+    let source_ledgers: Vec<RegionalDeformationRasterLedgerV0> =
+        std::iter::once(source_control.ledger.clone())
+            .chain(source_frames.iter().map(|frame| frame.ledger.clone()))
+            .collect();
+    let transfer_ledgers: Vec<RegionalDeformationRasterLedgerV0> =
+        std::iter::once(fine_control.ledger.clone())
+            .chain(fine_frames.iter().map(|frame| frame.ledger.clone()))
+            .collect();
+    // Erosion consumes density only. Release source meshes and fine transfer
+    // provenance before either long Stage-4 arm so this diagnostic does not
+    // recreate the high peak-RAM behavior it is meant to replace.
+    drop(source_control);
+    drop(source_frames);
+    for raster in std::iter::once(&mut fine_control).chain(fine_frames.iter_mut()) {
+        raster.active_support_fraction.clear();
+        raster.axial_fabric.clear();
+        raster.provenance.clear();
+        raster.omissions.clear();
+    }
+
+    let params = world.erosion_params;
+    let lookback_myr = f64::from(
+        world
+            .tectonic_history
+            .as_ref()
+            .expect("history generated")
+            .lookback_myr,
+    );
+    let control_schedule = [&fine_control; RDS0_FRAME_COUNT];
+    let candidate_schedule: [&RegionalDeformationRasterV0; RDS0_FRAME_COUNT] =
+        std::array::from_fn(|frame| &fine_frames[frame]);
+    let (control_surface, control_audit): (FineSurface, LegacyBudgetOpportunityAuditV0) = {
+        let fine = world.fine.as_ref().unwrap();
+        FineSurface::generate_regional_deformation_v0(
+            opts.seed,
+            &fine.base,
+            &fine.pre.hydrology,
+            params,
+            control_schedule,
+            program.parent_duration_myr,
+            lookback_myr,
+        )
+        .expect("RDS0 control terrain")
+    };
+    let control_summary = rds0_surface_summary(&control_surface);
+    let control_local_summary = rds0_local_surface_summary(
+        &world.fine.as_ref().unwrap().base.tessellation,
+        &target_land_union_support,
+        &control_surface,
+    );
+    let control_elevation = control_surface.elevation.values.clone();
+    let control_drainage = control_surface.hydrology.drainage_dir.clone();
+
+    std::fs::create_dir_all(&opts.out_dir)
+        .unwrap_or_else(|error| panic!("create {}: {error}", opts.out_dir.display()));
+    let gpu = pollster::block_on(GpuContext::new_headless(opts.width, opts.height));
+    let mut renderer = Renderer::new(&gpu, &Uniforms::new(Mat4::IDENTITY, Vec3::ZERO, Vec3::Y));
+    let color_texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("rds0_terrain_color"),
+        size: wgpu::Extent3d {
+            width: opts.width,
+            height: opts.height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: gpu.format,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let color_view = color_texture.create_view(&Default::default());
+    let views = rds0_capture_views(opts, parent_centers);
+    let montage_width = opts.width * views.len() as u32;
+    let montage_height = opts.height * 4;
+    let mut montage = vec![0; (montage_width * montage_height * 4) as usize];
+    let mut render_records = render_rds0_surface(
+        opts,
+        &gpu,
+        &mut renderer,
+        &color_texture,
+        &color_view,
+        &views,
+        &mut montage,
+        montage_width,
+        &mut world,
+        control_surface,
+        "control",
+        0,
+        false,
+    );
+
+    let (candidate_surface, candidate_audit): (FineSurface, LegacyBudgetOpportunityAuditV0) = {
+        let fine = world.fine.as_ref().unwrap();
+        FineSurface::generate_regional_deformation_v0(
+            opts.seed,
+            &fine.base,
+            &fine.pre.hydrology,
+            params,
+            candidate_schedule,
+            program.parent_duration_myr,
+            lookback_myr,
+        )
+        .expect("RDS0 candidate terrain")
+    };
+    let candidate_summary = rds0_surface_summary(&candidate_surface);
+    let candidate_local_summary = rds0_local_surface_summary(
+        &world.fine.as_ref().unwrap().base.tessellation,
+        &target_land_union_support,
+        &candidate_surface,
+    );
+    let surface_delta = rds0_surface_delta(
+        &control_elevation,
+        &candidate_surface.elevation.values,
+        &target_land_union_support,
+        &control_drainage,
+        &candidate_surface.hydrology.drainage_dir,
+    );
+    render_records.extend(render_rds0_surface(
+        opts,
+        &gpu,
+        &mut renderer,
+        &color_texture,
+        &color_view,
+        &views,
+        &mut montage,
+        montage_width,
+        &mut world,
+        candidate_surface,
+        "candidate",
+        1,
+        true,
+    ));
+    write_png(
+        &opts.out_dir.join("montage.png"),
+        &montage,
+        montage_width,
+        montage_height,
+    );
+
+    let sidecar = serde_json::json!({
+        "schema": "hex3.rds0-terrain.v0",
+        "status": "research-only fixed-budget causal morphology discriminator; not promoted product terrain",
+        "elapsed_seconds": started.elapsed().as_secs_f64(),
+        "config": {
+            "seed": RDS0_TERRAIN_SEED,
+            "requested_coarse_cells": RDS0_TERRAIN_COARSE_CELLS,
+            "fine_cell_cap": RDS0_TERRAIN_FINE_CAP,
+            "episode_id": RDS0_TERRAIN_EPISODE,
+            "stage": 4,
+            "voronoi_backend": "convex-hull",
+            "orogen_model": "legacy",
+            "fine_cache": "disabled",
+            "scientific_cli_controls_consumed": 0,
+        },
+        "world_manifest": world.manifest(),
+        "transfer_preflight": transfer_preflight,
+        "overlap_map_audit": overlap_map_audit,
+        "shared_input_hashes": shared_input_hashes,
+        "source_program": program,
+        "source_mesh_ledgers": source_ledgers,
+        "fine_transfer_ledgers": transfer_ledgers,
+        "adapter_ledgers": {
+            "control": control_audit,
+            "candidate": candidate_audit,
+        },
+        "surfaces": {
+            "control": { "global": control_summary, "target_land_union_support": control_local_summary },
+            "candidate": { "global": candidate_summary, "target_land_union_support": candidate_local_summary },
+            "candidate_minus_control": surface_delta,
+        },
+        "cameras": views.iter().map(|view| &view.sidecar).collect::<Vec<_>>(),
+        "render": {
+            "rows": render_records,
+            "montage_filename": "montage.png",
+            "montage_row_order": ["physical control", "physical candidate", "authentic control", "authentic candidate"],
+            "palette": "ordinary Terrain palette",
+            "rivers": "major, identical physical catchment selection and width scale 1.0",
+        },
+        "declared_confounds": [
+            "the full global demoted-Legacy builder budget is concentrated onto one selected parent in both arms; this is an intentional fixed-budget morphology subsidy, not a physical amplitude calibration",
+            "the shared minimum builder floor can dominate the shaped excess and is not RDS uplift",
+            "the adapter rejects opportunity outside the fixed target-land gate and renormalizes surviving opportunity; the adapter ledgers report the resulting budget",
+            "the moving four-frame source does not advect previously uplifted material horizontally",
+            "RDS0 consumes no lithospheric inheritance relationships by construction",
+            "the ordinary center-owner map omits some active coarse donors and is retained only as preflight evidence; terrain forcing uses one strict exact polygon-overlap map shared by control and all four frames",
+            "physical and Authentic rows change renderer displacement only; both show identical semantic terrain state",
+        ],
+        "consumed_inheritance_relationship_ids": [],
+    });
+    let file = std::fs::File::create(opts.out_dir.join("rds0-terrain.json"))
+        .expect("create rds0-terrain.json");
+    serde_json::to_writer_pretty(BufWriter::new(file), &sidecar).expect("write rds0-terrain.json");
+    println!("Done: RDS0 terrain packet -> {}", opts.out_dir.display());
+}
+
 /// Run the sweep: generate + render every knob combination to PNG tiles and a
 /// stitched montage in `opts.out_dir`.
 pub fn run_sweep(opts: SweepOptions) {
@@ -4585,6 +5481,15 @@ pub fn run_sweep(opts: SweepOptions) {
         if !target_ids.insert(target.id.as_str()) {
             panic!("duplicate --sweep-target id '{}'", target.id);
         }
+    }
+    if opts.stack.as_deref() == Some("rds0-terrain") {
+        #[cfg(feature = "research-landscape")]
+        {
+            run_rds0_terrain_packet(&opts);
+            return;
+        }
+        #[cfg(not(feature = "research-landscape"))]
+        panic!("rds0-terrain requires --features research-landscape");
     }
     if opts.stack.as_deref() == Some("range-ancestry") {
         run_range_ancestry(&opts);
@@ -4764,7 +5669,7 @@ pub fn run_sweep(opts: SweepOptions) {
             .expect("sweep world");
 
         if views.is_empty() {
-            views = build_views(&world, &opts);
+            views = build_views(world, &opts);
             montage_w = opts.width * views.len() as u32;
             let montage_h = opts.height * n_tiles as u32;
             montage = vec![0u8; (montage_w * montage_h * 4) as usize];
@@ -4795,7 +5700,7 @@ pub fn run_sweep(opts: SweepOptions) {
                 &gpu,
                 &mut renderer,
                 &color_view,
-                &buffers,
+                buffers,
                 view.view_proj,
                 view.eye,
                 opts.river_mode,

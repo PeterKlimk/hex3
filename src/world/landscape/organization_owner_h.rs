@@ -207,11 +207,7 @@ pub fn derive_thin_h_experimental_forcing_binding_4km_v0(
         .map_err(|error| fail(format!("linked input validation failed: {error}")))?;
     let input = accepted_4km_input_v0(bundle)?;
     validate_target_displacement_v0(input.mesh.cell_count(), cumulative_rock_displacement_km)?;
-    derived_experimental_binding_v0(
-        bundle,
-        input,
-        cumulative_rock_displacement_km,
-    )
+    derived_experimental_binding_v0(bundle, input, cumulative_rock_displacement_km)
 }
 
 #[derive(Debug, Clone, Copy)]

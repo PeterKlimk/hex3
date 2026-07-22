@@ -16,7 +16,9 @@ use super::dynamics::Dynamics;
 use super::elevation::{coarse_elevation_fields, isostasy_slope, ElevationFields, OrogenModel};
 use super::erosion::ErosionParams;
 #[cfg(feature = "research-landscape")]
-use super::erosion::FiniteAgeFluxModel;
+use super::erosion::{
+    FiniteAgeFluxModel, LegacyBudgetOpportunityAuditV0, LegacyBudgetOpportunityErrorV0,
+};
 use super::features::build_cell_pair_edge_endpoints;
 use super::fine_cache::{self, FineCacheMode};
 #[cfg(feature = "research-landscape")]
@@ -30,7 +32,7 @@ use super::{
     Hydrology, Plates, Tessellation,
 };
 #[cfg(feature = "research-landscape")]
-use super::{CellEdgeId, TectonicHistory};
+use super::{CellEdgeId, RegionalDeformationRasterV0, TectonicHistory, RDS0_FRAME_COUNT};
 
 type CoarseTree = ImmutableKdTree<f32, 3>;
 
@@ -1151,6 +1153,99 @@ impl FineSurface {
             params,
             Some((source, lookback_myr)),
         )
+    }
+
+    /// Research-only terrain discriminator for four process-mesh opportunity
+    /// rasters. Supplying the same raster four times is the control; supplying
+    /// RDS frames 0..3 is the counterfactual. Both therefore traverse this exact
+    /// continuous erosion path and differ only in normalized spatial weights.
+    #[cfg(feature = "research-landscape")]
+    pub fn generate_regional_deformation_v0(
+        seed: u64,
+        base: &FineBase,
+        _pre_hydrology: &Hydrology,
+        params: ErosionParams,
+        opportunity_frames: [&RegionalDeformationRasterV0; RDS0_FRAME_COUNT],
+        parent_duration_myr: f64,
+        lookback_myr: f64,
+    ) -> Result<(Self, LegacyBudgetOpportunityAuditV0), LegacyBudgetOpportunityErrorV0> {
+        let erodibility = lithology_erodibility(
+            &base.tessellation,
+            &base.fields.elevation_fields,
+            seed,
+            params.litho_sigma,
+            EROSION_LITHO_GEO_STRENGTH,
+            params.litho_grain_strength,
+        );
+        if base.emergent_lambda <= 0.0 {
+            return Err(LegacyBudgetOpportunityErrorV0::RequiresEmergentTarget);
+        }
+        let lake_base = vec![f32::NEG_INFINITY; base.tessellation.num_cells()];
+        let structured_base = &base.base_elevation;
+        let geom = super::erosion::NeighborGeometry::build(&base.tessellation);
+        let opportunity_weights: [&[f64]; RDS0_FRAME_COUNT] =
+            std::array::from_fn(|index| opportunity_frames[index].rate_density_per_myr.as_slice());
+
+        let iters = params.precip_outer_iters.max(1);
+        let mut precip = normalize_fine_precipitation(
+            &base.tessellation,
+            structured_base,
+            &base.fields.elevation_fields.continentality,
+            &base.fields.precipitation,
+        );
+        let mut eroded = structured_base.clone();
+        let mut final_audit = None;
+        for outer in 0..iters {
+            let t0 = Instant::now();
+            let (candidate, audit) = super::erosion::erode_regional_deformation_v0(
+                &base.tessellation,
+                &base.fields.elevation_fields,
+                structured_base,
+                &precip,
+                &erodibility,
+                &lake_base,
+                &geom,
+                params,
+                Some(&base.coarse_base_elevation),
+                opportunity_weights,
+                parent_duration_myr,
+                lookback_myr,
+            )?;
+            eroded = candidate;
+            final_audit = Some(audit);
+            let t_erode = t0.elapsed();
+            let t1 = Instant::now();
+            precip = fine_precipitation(
+                &base.tessellation,
+                &eroded,
+                &base.fields.wind,
+                &base.fields.precipitation,
+                params.orographic_precip_strength,
+                params.downwind_shadow_strength,
+            );
+            precip = normalize_fine_precipitation(
+                &base.tessellation,
+                &eroded,
+                &base.fields.elevation_fields.continentality,
+                &precip,
+            );
+            log::info!(
+                "fine mesh: RDS erode+precip pass {}/{} (erode {:.2?}, precip {:.2?})",
+                outer + 1,
+                iters,
+                t_erode,
+                t1.elapsed(),
+            );
+        }
+
+        let t0 = Instant::now();
+        super::erosion::glacial_erode(&base.tessellation, &mut eroded, &lake_base, &geom, params);
+        log::info!("fine mesh: RDS glacial pass {:.2?}", t0.elapsed());
+        let surface = Self::from_eroded(base, &eroded, &precip, params.lake_evap_strength);
+        Ok((
+            surface,
+            final_audit.expect("at least one RDS erosion/precip pass"),
+        ))
     }
 
     fn generate_impl(

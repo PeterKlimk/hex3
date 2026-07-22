@@ -6,13 +6,14 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use glam::Vec3;
+use glam::{DVec2, DVec3, Vec3};
+use kiddo::{ImmutableKdTree, SquaredEuclidean};
 
 use super::features::smoothstep;
 use super::{
     compile_structural_mountain, conservative_signed_flux_front_rates_v0, BoundaryEdgeId,
     ConservativeSignedFluxFrontErrorV0, ConvergentFrontEdge, ConvergentFrontSet, Crust, CrustType,
-    Plates, StructuralMountainError, StructuralRegime, StructuralSegment, Tessellation,
+    FineBase, Plates, StructuralMountainError, StructuralRegime, StructuralSegment, Tessellation,
     COLLISION_WIDTH, FINE_OROGEN_HINTERLAND_WIDTH, PLANET_RADIUS_KM,
 };
 
@@ -243,6 +244,78 @@ impl std::fmt::Display for RegionalDeformationRasterErrorV0 {
 }
 
 impl std::error::Error for RegionalDeformationRasterErrorV0 {}
+
+/// Failure to conservatively transfer an authoritative coarse RDS raster onto
+/// the ordinary fine process mesh.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RegionalDeformationTransferErrorV0 {
+    SourceLengthMismatch,
+    FineMapLengthMismatch,
+    CoarseCellOutOfRange {
+        fine_cell: usize,
+        coarse_cell: usize,
+    },
+    InvalidCoarseCellArea(usize),
+    InvalidFineCellArea(usize),
+    InvalidSourceValue(usize),
+    InconsistentProvenance(usize),
+    UnderresolvedActiveCoarseCell {
+        coarse_cell: usize,
+    },
+    InvalidCoarsePolygon(usize),
+    InvalidFinePolygon(usize),
+    GnomonicProjectionFailure {
+        coarse_cell: usize,
+        fine_cell: usize,
+    },
+    GeometricCoverageFailure {
+        coarse_cell: usize,
+    },
+    OverlapMapMismatch,
+    NumericalFailure,
+}
+
+impl std::fmt::Display for RegionalDeformationTransferErrorV0 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{self:?}")
+    }
+}
+
+impl std::error::Error for RegionalDeformationTransferErrorV0 {}
+
+/// Geometry audit for one authoritative coarse donor in an RDS overlap map.
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+pub struct RegionalDeformationOverlapDonorAuditV0 {
+    pub coarse_cell: usize,
+    pub recipient_count: usize,
+    pub geometric_overlap_steradians: f64,
+    pub coarse_polygon_steradians: f64,
+    pub geometric_coverage_relative_error: f64,
+    pub minimum_recipient_fraction: f64,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+struct RegionalDeformationOverlapRecipientV0 {
+    fine_cell: usize,
+    overlap_steradians: f64,
+    donor_fraction: f64,
+}
+
+/// Reusable sparse exact-overlap map for the union of active cells in a fixed
+/// set of authoritative coarse RDS rasters.
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+pub struct RegionalDeformationOverlapMapV0 {
+    pub coarse_cell_count: usize,
+    pub fine_cell_count: usize,
+    pub donor_count: usize,
+    pub pair_count: usize,
+    pub maximum_geometric_coverage_relative_error: f64,
+    pub minimum_recipient_fraction: f64,
+    pub donor_audits: Vec<RegionalDeformationOverlapDonorAuditV0>,
+    donor_cells: Vec<usize>,
+    donor_offsets: Vec<usize>,
+    recipients: Vec<RegionalDeformationOverlapRecipientV0>,
+}
 
 #[derive(Clone, Copy)]
 struct ElementTemplate {
@@ -866,6 +939,582 @@ fn normalize_contribution(raw: &[f64], areas: &[f64], target: f64) -> Option<Vec
     Some(normalized)
 }
 
+fn transfer_cell_areas(
+    tessellation: &Tessellation,
+    coarse: bool,
+) -> Result<Vec<f64>, RegionalDeformationTransferErrorV0> {
+    tessellation
+        .cell_areas_ref()
+        .iter()
+        .enumerate()
+        .map(|(cell, &steradians)| {
+            let area = f64::from(steradians) * f64::from(PLANET_RADIUS_KM).powi(2);
+            if area.is_finite() && area > 0.0 {
+                Ok(area)
+            } else if coarse {
+                Err(RegionalDeformationTransferErrorV0::InvalidCoarseCellArea(
+                    cell,
+                ))
+            } else {
+                Err(RegionalDeformationTransferErrorV0::InvalidFineCellArea(
+                    cell,
+                ))
+            }
+        })
+        .collect()
+}
+
+fn finite_vec3(value: Vec3) -> bool {
+    value.x.is_finite() && value.y.is_finite() && value.z.is_finite()
+}
+
+const OVERLAP_COVERAGE_RELATIVE_TOLERANCE: f64 = 2.0e-5;
+const OVERLAP_AREA_EPSILON: f64 = 1.0e-20;
+type FineTree = ImmutableKdTree<f32, 3>;
+
+#[derive(Clone, Copy)]
+struct GnomonicFrame {
+    normal: DVec3,
+    u: DVec3,
+    v: DVec3,
+}
+
+impl GnomonicFrame {
+    fn new(center: Vec3) -> Self {
+        let normal = DVec3::new(center.x as f64, center.y as f64, center.z as f64).normalize();
+        let axis = if normal.x.abs() < 0.8 {
+            DVec3::X
+        } else {
+            DVec3::Y
+        };
+        let u = normal.cross(axis).normalize();
+        let v = normal.cross(u);
+        Self { normal, u, v }
+    }
+
+    fn project(self, point: Vec3) -> Option<DVec2> {
+        let point = DVec3::new(point.x as f64, point.y as f64, point.z as f64).normalize();
+        let denominator = self.normal.dot(point);
+        (denominator > 1.0e-8).then(|| {
+            DVec2::new(
+                self.u.dot(point) / denominator,
+                self.v.dot(point) / denominator,
+            )
+        })
+    }
+
+    fn unproject(self, point: DVec2) -> DVec3 {
+        (self.normal + self.u * point.x + self.v * point.y).normalize()
+    }
+}
+
+fn polygon_vertices(tessellation: &Tessellation, cell: usize) -> Vec<Vec3> {
+    tessellation
+        .voronoi
+        .cell(cell)
+        .vertex_indices
+        .iter()
+        .map(|&vertex| tessellation.voronoi.vertices[vertex as usize])
+        .collect()
+}
+
+fn signed_planar_area(polygon: &[DVec2]) -> f64 {
+    (0..polygon.len())
+        .map(|index| polygon[index].perp_dot(polygon[(index + 1) % polygon.len()]))
+        .sum::<f64>()
+        * 0.5
+}
+
+fn projected_polygon(frame: GnomonicFrame, vertices: &[Vec3]) -> Option<Vec<DVec2>> {
+    let mut polygon: Vec<_> = vertices
+        .iter()
+        .map(|&point| frame.project(point))
+        .collect::<Option<_>>()?;
+    if polygon.len() < 3 || !signed_planar_area(&polygon).is_finite() {
+        return None;
+    }
+    if signed_planar_area(&polygon) < 0.0 {
+        polygon.reverse();
+    }
+    Some(polygon)
+}
+
+fn clip_convex_polygon(subject: &[DVec2], clip: &[DVec2]) -> Vec<DVec2> {
+    let mut current = subject.to_vec();
+    for edge_index in 0..clip.len() {
+        if current.len() < 3 {
+            return Vec::new();
+        }
+        let a = clip[edge_index];
+        let b = clip[(edge_index + 1) % clip.len()];
+        let edge = b - a;
+        let input = std::mem::take(&mut current);
+        let mut previous = *input.last().unwrap();
+        let mut previous_side = edge.perp_dot(previous - a);
+        for &point in &input {
+            let side = edge.perp_dot(point - a);
+            let previous_inside = previous_side >= -1.0e-13;
+            let inside = side >= -1.0e-13;
+            if previous_inside != inside {
+                let denominator = previous_side - side;
+                if denominator.abs() > f64::EPSILON {
+                    let t = (previous_side / denominator).clamp(0.0, 1.0);
+                    current.push(previous + (point - previous) * t);
+                }
+            }
+            if inside {
+                current.push(point);
+            }
+            previous = point;
+            previous_side = side;
+        }
+        current.dedup_by(|left, right| left.distance_squared(*right) <= 1.0e-28);
+    }
+    current
+}
+
+fn spherical_polygon_area_f64(vertices: &[DVec3]) -> f64 {
+    if vertices.len() < 3 {
+        return 0.0;
+    }
+    let origin = vertices[0];
+    (1..vertices.len() - 1)
+        .map(|index| {
+            let b = vertices[index];
+            let c = vertices[index + 1];
+            let triple = origin.dot(b.cross(c));
+            let denominator = 1.0 + origin.dot(b) + b.dot(c) + c.dot(origin);
+            2.0 * triple.atan2(denominator)
+        })
+        .sum::<f64>()
+        .abs()
+}
+
+fn overlap_area_steradians(
+    fine_tessellation: &Tessellation,
+    coarse_cell: usize,
+    fine_cell: usize,
+    frame: GnomonicFrame,
+    coarse_polygon: &[DVec2],
+) -> Result<f64, RegionalDeformationTransferErrorV0> {
+    let fine_vertices = polygon_vertices(fine_tessellation, fine_cell);
+    if fine_vertices.len() < 3 {
+        return Err(RegionalDeformationTransferErrorV0::InvalidFinePolygon(
+            fine_cell,
+        ));
+    }
+    let fine_polygon = projected_polygon(frame, &fine_vertices).ok_or(
+        RegionalDeformationTransferErrorV0::GnomonicProjectionFailure {
+            coarse_cell,
+            fine_cell,
+        },
+    )?;
+    let intersection = clip_convex_polygon(&fine_polygon, coarse_polygon);
+    let area = spherical_polygon_area_f64(
+        &intersection
+            .into_iter()
+            .map(|point| frame.unproject(point))
+            .collect::<Vec<_>>(),
+    );
+    if area.is_finite() {
+        Ok(area)
+    } else {
+        Err(RegionalDeformationTransferErrorV0::NumericalFailure)
+    }
+}
+
+fn validate_transfer_source(
+    coarse_count: usize,
+    source: &RegionalDeformationRasterV0,
+) -> Result<(), RegionalDeformationTransferErrorV0> {
+    if source.rate_density_per_myr.len() != coarse_count
+        || source.active_support_fraction.len() != coarse_count
+        || source.axial_fabric.len() != coarse_count
+        || source.provenance.len() != coarse_count
+    {
+        return Err(RegionalDeformationTransferErrorV0::SourceLengthMismatch);
+    }
+    for cell in 0..coarse_count {
+        let density = source.rate_density_per_myr[cell];
+        let support = source.active_support_fraction[cell];
+        if !density.is_finite()
+            || density < 0.0
+            || !support.is_finite()
+            || !(0.0..=1.0).contains(&support)
+            || !finite_vec3(source.axial_fabric[cell])
+            || source.provenance[cell].iter().any(|entry| {
+                !entry.rate_density_per_myr.is_finite() || entry.rate_density_per_myr <= 0.0
+            })
+        {
+            return Err(RegionalDeformationTransferErrorV0::InvalidSourceValue(cell));
+        }
+        let provenance_density = source.provenance[cell]
+            .iter()
+            .map(|entry| entry.rate_density_per_myr)
+            .sum::<f64>();
+        if (density - provenance_density).abs()
+            > CLOSURE_RELATIVE_TOLERANCE * density.abs().max(provenance_density.abs()).max(1.0)
+        {
+            return Err(RegionalDeformationTransferErrorV0::InconsistentProvenance(
+                cell,
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn build_regional_deformation_overlap_map_with_mapping_v0(
+    coarse_tessellation: &Tessellation,
+    fine_tessellation: &Tessellation,
+    fine_coarse_cell: &[usize],
+    rasters: &[&RegionalDeformationRasterV0],
+) -> Result<RegionalDeformationOverlapMapV0, RegionalDeformationTransferErrorV0> {
+    let coarse_count = coarse_tessellation.num_cells();
+    let fine_count = fine_tessellation.num_cells();
+    if fine_coarse_cell.len() != fine_count {
+        return Err(RegionalDeformationTransferErrorV0::FineMapLengthMismatch);
+    }
+    for (fine_cell, &coarse_cell) in fine_coarse_cell.iter().enumerate() {
+        if coarse_cell >= coarse_count {
+            return Err(RegionalDeformationTransferErrorV0::CoarseCellOutOfRange {
+                fine_cell,
+                coarse_cell,
+            });
+        }
+    }
+    let mut donor_set = BTreeSet::new();
+    for raster in rasters {
+        validate_transfer_source(coarse_count, raster)?;
+        donor_set.extend(
+            raster
+                .provenance
+                .iter()
+                .enumerate()
+                .filter(|(_, entries)| !entries.is_empty())
+                .map(|(cell, _)| cell),
+        );
+    }
+    let donor_cells: Vec<_> = donor_set.into_iter().collect();
+    let mut first_owned = vec![None; coarse_count];
+    for (fine_cell, &coarse_cell) in fine_coarse_cell.iter().enumerate() {
+        first_owned[coarse_cell].get_or_insert(fine_cell);
+    }
+    let fine_entries: Vec<[f32; 3]> = (0..fine_count)
+        .map(|cell| fine_tessellation.cell_center(cell).to_array())
+        .collect();
+    let fine_tree = FineTree::new_from_slice(&fine_entries);
+    let mut visit_stamp = vec![0u32; fine_count];
+    let mut recipients = Vec::new();
+    let mut donor_offsets = Vec::with_capacity(donor_cells.len() + 1);
+    let mut audits = Vec::with_capacity(donor_cells.len());
+    donor_offsets.push(0);
+
+    for (donor_ordinal, &coarse_cell) in donor_cells.iter().enumerate() {
+        let coarse_vertices = polygon_vertices(coarse_tessellation, coarse_cell);
+        if coarse_vertices.len() < 3 {
+            return Err(RegionalDeformationTransferErrorV0::InvalidCoarsePolygon(
+                coarse_cell,
+            ));
+        }
+        let frame = GnomonicFrame::new(coarse_tessellation.cell_center(coarse_cell));
+        let coarse_polygon = projected_polygon(frame, &coarse_vertices).ok_or(
+            RegionalDeformationTransferErrorV0::InvalidCoarsePolygon(coarse_cell),
+        )?;
+        let coarse_polygon_steradians = spherical_polygon_area_f64(
+            &coarse_vertices
+                .iter()
+                .map(|point| DVec3::new(point.x as f64, point.y as f64, point.z as f64))
+                .collect::<Vec<_>>(),
+        );
+        let seed = first_owned[coarse_cell].unwrap_or_else(|| {
+            let center = coarse_tessellation.cell_center(coarse_cell);
+            fine_tree
+                .nearest_one::<SquaredEuclidean>(&center.to_array())
+                .item as usize
+        });
+        let stamp = u32::try_from(donor_ordinal + 1)
+            .map_err(|_| RegionalDeformationTransferErrorV0::NumericalFailure)?;
+        let mut queue = std::collections::VecDeque::from([seed]);
+        visit_stamp[seed] = stamp;
+        let donor_start = recipients.len();
+        while let Some(fine_cell) = queue.pop_front() {
+            let area = overlap_area_steradians(
+                fine_tessellation,
+                coarse_cell,
+                fine_cell,
+                frame,
+                &coarse_polygon,
+            )?;
+            if area <= OVERLAP_AREA_EPSILON {
+                continue;
+            }
+            recipients.push(RegionalDeformationOverlapRecipientV0 {
+                fine_cell,
+                overlap_steradians: area,
+                donor_fraction: 0.0,
+            });
+            for &neighbor in fine_tessellation.neighbors(fine_cell) {
+                if visit_stamp[neighbor] != stamp {
+                    visit_stamp[neighbor] = stamp;
+                    queue.push_back(neighbor);
+                }
+            }
+        }
+        recipients[donor_start..].sort_by_key(|recipient| recipient.fine_cell);
+        let overlap_sum = recipients[donor_start..]
+            .iter()
+            .map(|recipient| recipient.overlap_steradians)
+            .sum::<f64>();
+        if !overlap_sum.is_finite() || overlap_sum <= 0.0 || coarse_polygon_steradians <= 0.0 {
+            return Err(
+                RegionalDeformationTransferErrorV0::GeometricCoverageFailure { coarse_cell },
+            );
+        }
+        let coverage_error =
+            (overlap_sum - coarse_polygon_steradians).abs() / coarse_polygon_steradians;
+        if coverage_error > OVERLAP_COVERAGE_RELATIVE_TOLERANCE {
+            return Err(
+                RegionalDeformationTransferErrorV0::GeometricCoverageFailure { coarse_cell },
+            );
+        }
+        for recipient in &mut recipients[donor_start..] {
+            recipient.donor_fraction = recipient.overlap_steradians / overlap_sum;
+        }
+        let fraction_sum = recipients[donor_start..]
+            .iter()
+            .map(|recipient| recipient.donor_fraction)
+            .sum::<f64>();
+        let anchor = recipients[donor_start..]
+            .iter()
+            .enumerate()
+            .max_by(|(_, left), (_, right)| {
+                left.overlap_steradians.total_cmp(&right.overlap_steradians)
+            })
+            .map(|(index, _)| donor_start + index)
+            .ok_or(RegionalDeformationTransferErrorV0::GeometricCoverageFailure { coarse_cell })?;
+        recipients[anchor].donor_fraction += 1.0 - fraction_sum;
+        let minimum_fraction = recipients[donor_start..]
+            .iter()
+            .map(|recipient| recipient.donor_fraction)
+            .fold(f64::INFINITY, f64::min);
+        audits.push(RegionalDeformationOverlapDonorAuditV0 {
+            coarse_cell,
+            recipient_count: recipients.len() - donor_start,
+            geometric_overlap_steradians: overlap_sum,
+            coarse_polygon_steradians,
+            geometric_coverage_relative_error: coverage_error,
+            minimum_recipient_fraction: minimum_fraction,
+        });
+        donor_offsets.push(recipients.len());
+    }
+
+    let maximum_coverage_error = audits
+        .iter()
+        .map(|audit| audit.geometric_coverage_relative_error)
+        .fold(0.0, f64::max);
+    let minimum_recipient_fraction = audits
+        .iter()
+        .map(|audit| audit.minimum_recipient_fraction)
+        .fold(f64::INFINITY, f64::min);
+    Ok(RegionalDeformationOverlapMapV0 {
+        coarse_cell_count: coarse_count,
+        fine_cell_count: fine_count,
+        donor_count: donor_cells.len(),
+        pair_count: recipients.len(),
+        maximum_geometric_coverage_relative_error: maximum_coverage_error,
+        minimum_recipient_fraction: if recipients.is_empty() {
+            0.0
+        } else {
+            minimum_recipient_fraction
+        },
+        donor_audits: audits,
+        donor_cells,
+        donor_offsets,
+        recipients,
+    })
+}
+
+/// Build one reusable exact control-volume overlap map for the union of active
+/// coarse cells in the supplied RDS rasters.
+pub fn build_regional_deformation_overlap_map_v0(
+    coarse_tessellation: &Tessellation,
+    fine_base: &FineBase,
+    rasters: &[&RegionalDeformationRasterV0],
+) -> Result<RegionalDeformationOverlapMapV0, RegionalDeformationTransferErrorV0> {
+    build_regional_deformation_overlap_map_with_mapping_v0(
+        coarse_tessellation,
+        &fine_base.tessellation,
+        &fine_base.coarse_cell,
+        rasters,
+    )
+}
+
+fn transfer_regional_deformation_raster_with_overlap_tessellations_v0(
+    coarse_tessellation: &Tessellation,
+    fine_tessellation: &Tessellation,
+    overlap: &RegionalDeformationOverlapMapV0,
+    coarse: &RegionalDeformationRasterV0,
+) -> Result<RegionalDeformationRasterV0, RegionalDeformationTransferErrorV0> {
+    let coarse_count = coarse_tessellation.num_cells();
+    let fine_count = fine_tessellation.num_cells();
+    validate_transfer_source(coarse_count, coarse)?;
+    if overlap.coarse_cell_count != coarse_count || overlap.fine_cell_count != fine_count {
+        return Err(RegionalDeformationTransferErrorV0::OverlapMapMismatch);
+    }
+    let coarse_areas = transfer_cell_areas(coarse_tessellation, true)?;
+    let fine_areas = transfer_cell_areas(fine_tessellation, false)?;
+    let radius2 = f64::from(PLANET_RADIUS_KM).powi(2);
+    let mut work_by_fine = vec![Vec::<(RegionalDeformationElementIdV0, f64)>::new(); fine_count];
+    let mut support_numerator = vec![0.0; fine_count];
+    let mut fabric_sum = vec![DVec3::ZERO; fine_count];
+
+    for coarse_cell in 0..coarse_count {
+        if coarse.provenance[coarse_cell].is_empty() {
+            continue;
+        }
+        let donor = overlap
+            .donor_cells
+            .binary_search(&coarse_cell)
+            .map_err(|_| RegionalDeformationTransferErrorV0::OverlapMapMismatch)?;
+        for recipient in
+            &overlap.recipients[overlap.donor_offsets[donor]..overlap.donor_offsets[donor + 1]]
+        {
+            let fine_cell = recipient.fine_cell;
+            let fine_center = fine_tessellation.cell_center(fine_cell);
+            let coarse_fabric = coarse.axial_fabric[coarse_cell];
+            let projected =
+                (coarse_fabric - fine_center * fine_center.dot(coarse_fabric)).normalize_or_zero();
+            let cell_work = coarse.rate_density_per_myr[coarse_cell]
+                * coarse_areas[coarse_cell]
+                * recipient.donor_fraction;
+            fabric_sum[fine_cell] +=
+                DVec3::new(projected.x as f64, projected.y as f64, projected.z as f64) * cell_work;
+            support_numerator[fine_cell] += coarse.active_support_fraction[coarse_cell] as f64
+                * recipient.overlap_steradians
+                * radius2;
+            for entry in &coarse.provenance[coarse_cell] {
+                work_by_fine[fine_cell].push((
+                    entry.element_id,
+                    entry.rate_density_per_myr
+                        * coarse_areas[coarse_cell]
+                        * recipient.donor_fraction,
+                ));
+            }
+        }
+    }
+
+    let mut density = vec![0.0; fine_count];
+    let mut provenance = vec![Vec::<RegionalDeformationCellContributionV0>::new(); fine_count];
+    for fine_cell in 0..fine_count {
+        work_by_fine[fine_cell].sort_by_key(|(element, _)| *element);
+        for (element, work) in work_by_fine[fine_cell].drain(..) {
+            if let Some(last) = provenance[fine_cell].last_mut() {
+                if last.element_id == element {
+                    last.rate_density_per_myr += work / fine_areas[fine_cell];
+                    continue;
+                }
+            }
+            provenance[fine_cell].push(RegionalDeformationCellContributionV0 {
+                element_id: element,
+                rate_density_per_myr: work / fine_areas[fine_cell],
+            });
+        }
+        density[fine_cell] = provenance[fine_cell]
+            .iter()
+            .map(|entry| entry.rate_density_per_myr)
+            .sum();
+    }
+    let support = support_numerator
+        .iter()
+        .zip(&fine_areas)
+        .map(|(&numerator, &area)| (numerator / area).clamp(0.0, 1.0) as f32)
+        .collect();
+    let fabric = fabric_sum
+        .into_iter()
+        .map(|value| {
+            let normalized = value.normalize_or_zero();
+            Vec3::new(
+                normalized.x as f32,
+                normalized.y as f32,
+                normalized.z as f32,
+            )
+        })
+        .collect();
+    let allocated = density
+        .iter()
+        .zip(&fine_areas)
+        .map(|(&value, &area)| value * area)
+        .sum::<f64>();
+    if !allocated.is_finite()
+        || (allocated - coarse.ledger.allocated_flux_km2_per_myr).abs()
+            > CLOSURE_RELATIVE_TOLERANCE * coarse.ledger.allocated_flux_km2_per_myr.abs().max(1.0)
+    {
+        return Err(RegionalDeformationTransferErrorV0::NumericalFailure);
+    }
+    let closure = allocated + coarse.ledger.unallocated_flux_km2_per_myr
+        - coarse.ledger.requested_flux_km2_per_myr;
+    if !closure.is_finite()
+        || closure.abs()
+            > CLOSURE_RELATIVE_TOLERANCE * coarse.ledger.requested_flux_km2_per_myr.abs().max(1.0)
+    {
+        return Err(RegionalDeformationTransferErrorV0::NumericalFailure);
+    }
+    Ok(RegionalDeformationRasterV0 {
+        frame_index: coarse.frame_index,
+        rate_density_per_myr: density,
+        active_support_fraction: support,
+        axial_fabric: fabric,
+        ledger: RegionalDeformationRasterLedgerV0 {
+            frame_index: coarse.ledger.frame_index,
+            requested_flux_km2_per_myr: coarse.ledger.requested_flux_km2_per_myr,
+            allocated_flux_km2_per_myr: allocated,
+            unallocated_flux_km2_per_myr: coarse.ledger.unallocated_flux_km2_per_myr,
+            closure_residual_km2_per_myr: closure,
+            active_cell_count: provenance
+                .iter()
+                .filter(|entries| !entries.is_empty())
+                .count(),
+            additive_overlap_cell_count: provenance
+                .iter()
+                .filter(|entries| entries.len() > 1)
+                .count(),
+        },
+        provenance,
+        omissions: coarse.omissions.clone(),
+    })
+}
+
+/// Transfer one coarse RDS raster through a reusable exact overlap map.
+pub fn transfer_regional_deformation_raster_with_overlap_v0(
+    coarse_tessellation: &Tessellation,
+    fine_base: &FineBase,
+    overlap: &RegionalDeformationOverlapMapV0,
+    coarse: &RegionalDeformationRasterV0,
+) -> Result<RegionalDeformationRasterV0, RegionalDeformationTransferErrorV0> {
+    transfer_regional_deformation_raster_with_overlap_tessellations_v0(
+        coarse_tessellation,
+        &fine_base.tessellation,
+        overlap,
+        coarse,
+    )
+}
+
+/// Build and apply an exact overlap map for one authoritative coarse RDS raster.
+pub fn transfer_regional_deformation_raster_to_fine_v0(
+    coarse_tessellation: &Tessellation,
+    fine_base: &FineBase,
+    coarse: &RegionalDeformationRasterV0,
+) -> Result<RegionalDeformationRasterV0, RegionalDeformationTransferErrorV0> {
+    let overlap =
+        build_regional_deformation_overlap_map_v0(coarse_tessellation, fine_base, &[coarse])?;
+    transfer_regional_deformation_raster_with_overlap_v0(
+        coarse_tessellation,
+        fine_base,
+        &overlap,
+        coarse,
+    )
+}
+
 /// Evaluate one RDS0 frame on the source (coarse) spherical material raster.
 ///
 /// Each element-side is normalized independently to its exact source allocation;
@@ -1184,6 +1833,95 @@ mod tests {
     use super::*;
     use crate::world::{HistoryModel, World};
 
+    fn fibonacci_tessellation(count: usize, phase: f32) -> Tessellation {
+        let golden = std::f32::consts::PI * (3.0 - 5.0_f32.sqrt());
+        let points = (0..count)
+            .map(|index| {
+                let y = 1.0 - 2.0 * (index as f32 + 0.5) / count as f32;
+                let radius = (1.0 - y * y).sqrt();
+                let theta = golden * index as f32 + phase;
+                Vec3::new(radius * theta.cos(), y, radius * theta.sin())
+            })
+            .collect();
+        Tessellation::from_points_knn_clipping(points)
+    }
+
+    fn contribution(
+        lineage: u8,
+        side_ordinal: u8,
+        rate: f64,
+    ) -> RegionalDeformationCellContributionV0 {
+        RegionalDeformationCellContributionV0 {
+            element_id: RegionalDeformationElementIdV0 {
+                parent_segment_id: BoundaryEdgeId::new(2, 11),
+                lineage,
+                side_ordinal,
+            },
+            rate_density_per_myr: rate,
+        }
+    }
+
+    fn manufactured_transfer_source(coarse: &Tessellation) -> RegionalDeformationRasterV0 {
+        let n = coarse.num_cells();
+        let mut density = vec![0.0; n];
+        let mut support = vec![0.0; n];
+        let mut fabric = vec![Vec3::ZERO; n];
+        let mut provenance = vec![Vec::new(); n];
+        provenance[0] = vec![contribution(0, 0, 0.25), contribution(2, 0, 0.75)];
+        provenance[1] = vec![contribution(1, 1, 0.5)];
+        for cell in 0..2 {
+            density[cell] = provenance[cell]
+                .iter()
+                .map(|entry| entry.rate_density_per_myr)
+                .sum();
+            support[cell] = 0.25 + 0.25 * cell as f32;
+            let center = coarse.cell_center(cell);
+            fabric[cell] = center.cross(Vec3::Y).normalize_or_zero();
+            if fabric[cell] == Vec3::ZERO {
+                fabric[cell] = center.cross(Vec3::X).normalize_or_zero();
+            }
+        }
+        let areas = physical_cell_areas(coarse).unwrap();
+        let allocated = density
+            .iter()
+            .zip(areas)
+            .map(|(&rate, area)| rate * area)
+            .sum();
+        RegionalDeformationRasterV0 {
+            frame_index: Some(2),
+            rate_density_per_myr: density,
+            active_support_fraction: support,
+            axial_fabric: fabric,
+            provenance,
+            ledger: RegionalDeformationRasterLedgerV0 {
+                frame_index: Some(2),
+                requested_flux_km2_per_myr: allocated,
+                allocated_flux_km2_per_myr: allocated,
+                unallocated_flux_km2_per_myr: 0.0,
+                closure_residual_km2_per_myr: 0.0,
+                active_cell_count: 2,
+                additive_overlap_cell_count: 1,
+            },
+            omissions: Vec::new(),
+        }
+    }
+
+    fn nearest_coarse_map(coarse: &Tessellation, fine: &Tessellation) -> Vec<usize> {
+        (0..fine.num_cells())
+            .map(|fine_cell| {
+                let point = fine.cell_center(fine_cell);
+                (0..coarse.num_cells())
+                    .max_by(|&left, &right| {
+                        coarse
+                            .cell_center(left)
+                            .dot(point)
+                            .total_cmp(&coarse.cell_center(right).dot(point))
+                    })
+                    .unwrap()
+            })
+            .collect()
+    }
+
     fn edge(
         cells: [usize; 2],
         vertices: [u32; 2],
@@ -1266,6 +2004,167 @@ mod tests {
                 program.parent_positive_flux_km2_per_myr * side.parent_share,
             );
         }
+    }
+
+    #[test]
+    fn exact_overlap_transfer_conserves_elements_and_repeats() {
+        let coarse = fibonacci_tessellation(128, 0.0);
+        let fine = fibonacci_tessellation(311, 0.31);
+        let source = manufactured_transfer_source(&coarse);
+        let coarse_cell = nearest_coarse_map(&coarse, &fine);
+        let overlap = build_regional_deformation_overlap_map_with_mapping_v0(
+            &coarse,
+            &fine,
+            &coarse_cell,
+            &[&source],
+        )
+        .unwrap();
+        let repeated = build_regional_deformation_overlap_map_with_mapping_v0(
+            &coarse,
+            &fine,
+            &coarse_cell,
+            &[&source],
+        )
+        .unwrap();
+        assert_eq!(overlap, repeated);
+        assert_eq!(overlap.donor_count, 2);
+        assert!(overlap.pair_count > overlap.donor_count);
+        assert!(
+            overlap.maximum_geometric_coverage_relative_error
+                <= OVERLAP_COVERAGE_RELATIVE_TOLERANCE
+        );
+        let transferred = transfer_regional_deformation_raster_with_overlap_tessellations_v0(
+            &coarse, &fine, &overlap, &source,
+        )
+        .unwrap();
+        let repeated_transfer = transfer_regional_deformation_raster_with_overlap_tessellations_v0(
+            &coarse, &fine, &overlap, &source,
+        )
+        .unwrap();
+        assert_eq!(transferred, repeated_transfer);
+        let coarse_areas = physical_cell_areas(&coarse).unwrap();
+        let fine_areas = physical_cell_areas(&fine).unwrap();
+
+        for (coarse_cell, coarse_area) in coarse_areas.iter().copied().enumerate() {
+            for source_entry in &source.provenance[coarse_cell] {
+                let actual = transferred
+                    .provenance
+                    .iter()
+                    .enumerate()
+                    .flat_map(|(fine_cell, entries)| {
+                        let fine_area = fine_areas[fine_cell];
+                        entries.iter().filter_map(move |entry| {
+                            (entry.element_id == source_entry.element_id)
+                                .then_some(entry.rate_density_per_myr * fine_area)
+                        })
+                    })
+                    .sum::<f64>();
+                assert_close(actual, source_entry.rate_density_per_myr * coarse_area);
+            }
+        }
+        for fine_cell in 0..fine.num_cells() {
+            assert_close(
+                transferred.rate_density_per_myr[fine_cell],
+                transferred.provenance[fine_cell]
+                    .iter()
+                    .map(|entry| entry.rate_density_per_myr)
+                    .sum(),
+            );
+            let direction = transferred.axial_fabric[fine_cell];
+            assert!(finite_vec3(direction));
+            assert!(direction == Vec3::ZERO || (direction.length() - 1.0).abs() <= 2.0e-6);
+            assert!(direction.dot(fine.cell_center(fine_cell)).abs() <= 2.0e-6);
+        }
+        assert_close(
+            transferred.ledger.allocated_flux_km2_per_myr,
+            source.ledger.allocated_flux_km2_per_myr,
+        );
+        assert!(
+            transferred.ledger.closure_residual_km2_per_myr.abs()
+                <= CLOSURE_RELATIVE_TOLERANCE
+                    * transferred.ledger.requested_flux_km2_per_myr.abs().max(1.0)
+        );
+        assert!(transferred.ledger.additive_overlap_cell_count > 0);
+    }
+
+    #[test]
+    fn exact_overlap_finds_recipient_without_center_owned_child() {
+        let coarse = fibonacci_tessellation(128, 0.0);
+        let fine = fibonacci_tessellation(311, 0.17);
+        let mut source = manufactured_transfer_source(&coarse);
+        source.rate_density_per_myr[0] = 0.0;
+        source.provenance[0].clear();
+        let removed = physical_cell_areas(&coarse).unwrap()[0];
+        source.ledger.requested_flux_km2_per_myr -= removed;
+        source.ledger.allocated_flux_km2_per_myr -= removed;
+        source.ledger.active_cell_count = 1;
+        source.ledger.additive_overlap_cell_count = 0;
+        let all_first_owner = vec![0; fine.num_cells()];
+        assert!(!all_first_owner.contains(&1));
+        let overlap = build_regional_deformation_overlap_map_with_mapping_v0(
+            &coarse,
+            &fine,
+            &all_first_owner,
+            &[&source],
+        )
+        .unwrap();
+        assert_eq!(overlap.donor_audits[0].coarse_cell, 1);
+        assert!(overlap.donor_audits[0].recipient_count > 0);
+        let transferred = transfer_regional_deformation_raster_with_overlap_tessellations_v0(
+            &coarse, &fine, &overlap, &source,
+        )
+        .unwrap();
+        assert!(transferred.ledger.active_cell_count > 0);
+        assert_close(
+            transferred.ledger.allocated_flux_km2_per_myr,
+            source.ledger.allocated_flux_km2_per_myr,
+        );
+    }
+
+    #[test]
+    fn exact_overlap_preserves_constant_field_across_non_nested_meshes() {
+        let coarse = fibonacci_tessellation(128, 0.0);
+        let fine = fibonacci_tessellation(353, 0.43);
+        let coarse_areas = physical_cell_areas(&coarse).unwrap();
+        let element = contribution(4, 0, 1.0).element_id;
+        let mut source = manufactured_transfer_source(&coarse);
+        source.rate_density_per_myr.fill(1.0);
+        source.active_support_fraction.fill(1.0);
+        source.provenance = (0..coarse.num_cells())
+            .map(|_| {
+                vec![RegionalDeformationCellContributionV0 {
+                    element_id: element,
+                    rate_density_per_myr: 1.0,
+                }]
+            })
+            .collect();
+        let allocated: f64 = coarse_areas.iter().sum();
+        source.ledger.requested_flux_km2_per_myr = allocated;
+        source.ledger.allocated_flux_km2_per_myr = allocated;
+        source.ledger.active_cell_count = coarse.num_cells();
+        source.ledger.additive_overlap_cell_count = 0;
+        let coarse_cell = nearest_coarse_map(&coarse, &fine);
+        let overlap = build_regional_deformation_overlap_map_with_mapping_v0(
+            &coarse,
+            &fine,
+            &coarse_cell,
+            &[&source],
+        )
+        .unwrap();
+        let transferred = transfer_regional_deformation_raster_with_overlap_tessellations_v0(
+            &coarse, &fine, &overlap, &source,
+        )
+        .unwrap();
+        let max_error = transferred
+            .rate_density_per_myr
+            .iter()
+            .map(|density| (density - 1.0).abs())
+            .fold(0.0, f64::max);
+        assert!(max_error <= 2.0e-5, "constant-field error {max_error}");
+        assert!(transferred
+            .provenance
+            .iter()
+            .all(|entries| entries.len() == 1 && entries[0].element_id == element));
     }
 
     #[test]

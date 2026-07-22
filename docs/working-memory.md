@@ -1,6 +1,6 @@
 # Hex3 working memory
 
-Status: **active, non-authoritative scratchpad**. Last consolidated 2026-07-22.
+Status: **active, non-authoritative scratchpad**. Last consolidated 2026-07-23.
 
 This document preserves medium-term context across evaluation passes so the
 active investigation does not erase other important findings. It is a queue of
@@ -209,6 +209,27 @@ and movement without the old edge-rate comb or periodic ribs. This does not
 answer whether the ordinary process mesh, terrain response or drainage makes
 the mechanism useful. Next implement one conservative coarse-to-process
 transfer and the fixed terrain pair; do not broaden the source experiment.
+
+RDS0b has now executed that pair. The obvious categorical pullback was not a
+valid conservative process remap: only 30,823/100,000 coarse owners have a
+center-owned process child, and the moving frames would silently lose 5–31
+active donors. The retained preflight exposed this before erosion. A sparse
+exact spherical Voronoi overlap over the 2,877 active-union donors instead
+builds 83,559 pairs, covers every donor with maximum geometric error `1.21e-7`
+and closes every transferred work ledger near roundoff.
+
+The continuous terrain pair receives effectively identical global Legacy
+budgets; its shared floor is only 9.8%, and the candidate rejects at most 0.70%
+offshore before explicit survivor normalization. Candidate support elevation
+RMSE is `0.305`; 56.6% of drainage receivers change. q33 visibly becomes a
+linked/forked multi-lobe system and q67 gains finite irregular ends and lows,
+so the result is not another unchanged smooth mound. It is not a clean pass:
+round holes/crater-like rims can read as perforated amoeba or beads, q67 retains
+a broad roof, and represented major rivers do not establish coherent
+catchment/divide/trunk relationships. Treat as a provisional narrow mechanism
+pass pending human review. If retained, inspect those exact relationships on
+this run before any other seed or generated prior; if they are synthetic, kill
+RDS0 as sufficient ownership without tuning it.
 
 The transverse-trunk proxy remains too sparse to attribute later local
 sharpening among incision, hillslopes and capture.

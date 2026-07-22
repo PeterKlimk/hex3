@@ -215,12 +215,16 @@ The selected next seam is
 [regional deformation support](regional-deformation-support.md): a conservative
 two-dimensional, time-indexed deformation-opportunity program between corrected
 boundary work and the coupled surface response. Its source-only RDS0a gate is
-complete on seed `8675309`, episode `9`: the fixed growth/linkage/retirement
-sequence closes its program and coarse-raster ledgers, retains explicit 50/50
-collision sides, produces additive overlap and has no omissions. This earns one
-conservative coarse-to-process transfer and fixed terrain pair. It does not yet
-earn a generated-history prior, carrier replay, parameter ladder or product
-promotion; only a regional terrain/drainage consequence can do that.
+complete on seed `8675309`, episode `9`, and the RDS0b process-mesh terrain pair
+is now executed. Exact sparse spherical overlap replaced the rejected
+non-surjective center-owner transfer and closes all five work ledgers. The
+moving arm materially changes relief and drainage and visually creates finite
+linked lobes, lows and differentiated ends, but it also retains a broad roof
+and may introduce perforated or bead-like grammar. Record this as a provisional
+narrow pass pending human review. The next decision is one relationship readout
+on this exact run—source provenance against highland ends/saddles,
+catchments/divides and major trunks—not a generated-history prior, carrier
+replay, parameter ladder, ecology stage or product promotion.
 
 ## Completed bounded decisions
 

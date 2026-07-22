@@ -419,7 +419,8 @@ struct Cli {
     /// or `consequential-geography` (matched aggregate-site probe, ablations and
     /// same-site physical/zero-grade terrestrial routes; stage 4), or
     /// `world-readability-v0` (matched Terrain/Living Surface globe, map and
-    /// derived river-mouth relationship views over one Stage-4 world).
+    /// derived river-mouth relationship views over one Stage-4 world), or
+    /// `rds0-terrain` (fixed research-only regional-deformation terrain pair).
     /// Ignores --sweep/--sweep-values.
     #[arg(long, hide = HIDE_RESEARCH_CLI)]
     sweep_stack: Option<String>,
@@ -740,6 +741,39 @@ fn main() {
 
     if cli.sweep.is_some() || cli.sweep_stack.is_some() {
         let sweep_target_stage = cli.stage.unwrap_or(4);
+        let rds0_terrain = cli.sweep_stack.as_deref() == Some("rds0-terrain");
+        if rds0_terrain {
+            #[cfg(not(feature = "research-landscape"))]
+            panic!("rds0-terrain requires --features research-landscape");
+            assert_eq!(
+                sweep_target_stage, 4,
+                "rds0-terrain is a fixed Stage-4 packet"
+            );
+            assert!(
+                cli.seed.is_none() || cli.seed == Some(8_675_309),
+                "rds0-terrain fixes --seed 8675309"
+            );
+            assert_eq!(cli.cells, 100_000, "rds0-terrain fixes --cells 100000");
+            assert!(
+                cli.fine_max == 0 || cli.fine_max == 250_000,
+                "rds0-terrain fixes --fine-max 250000 (zero selects it automatically)"
+            );
+            assert_eq!(cli.fine_scale, 1.0, "rds0-terrain fixes --fine-scale 1");
+            assert!(matches!(cli.voronoi_backend, CliVoronoiBackend::ConvexHull));
+            assert!(matches!(cli.orogen_model, CliOrogenModel::Legacy));
+            assert!(
+                cli.sweep_target.is_empty(),
+                "rds0-terrain cameras are source-derived"
+            );
+            assert_eq!(
+                cli.sweep_display_subdivision, 0,
+                "rds0-terrain does not use display subdivision"
+            );
+            assert!(
+                !cli.rebuild_fine_cache,
+                "rds0-terrain disables the fine cache"
+            );
+        }
         if cli.sweep_stack.as_deref() == Some("roof-compiler-counterfactual") {
             assert!(
                 cfg!(feature = "research-landscape"),
@@ -776,15 +810,23 @@ fn main() {
             panic!("--sweep requires --sweep-values (e.g. --sweep-values 10,30,60)");
         }
         let opts = app::sweep::SweepOptions {
-            seed: cli.seed.unwrap_or_else(rand::random),
+            seed: if rds0_terrain {
+                8_675_309
+            } else {
+                cli.seed.unwrap_or_else(rand::random)
+            },
             cells: cli.cells,
             fine_scale: cli.fine_scale,
-            fine_max: cli.fine_max,
+            fine_max: if rds0_terrain { 250_000 } else { cli.fine_max },
             // Sweeps are about erosion, so default to the erosion stage.
             target_stage: sweep_target_stage,
             voronoi_backend: backend,
             orogen_model,
-            fine_cache,
+            fine_cache: if rds0_terrain {
+                FineCacheMode::Disabled
+            } else {
+                fine_cache
+            },
             base_erosion: erosion,
             stack: cli.sweep_stack.clone(),
             knob1: cli.sweep.clone().unwrap_or_default(),

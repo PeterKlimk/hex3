@@ -284,6 +284,109 @@ pub(crate) struct FiniteAgeUpliftAudit {
     pub completed_steps: usize,
 }
 
+/// One frame of the fixed-budget opportunity adapter audit.
+///
+/// Opportunity has no uplift units. It appears here only through its normalized
+/// area integral; the physical erosion source is calibrated independently from
+/// the demoted Legacy envelope.
+#[cfg(feature = "research-landscape")]
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+pub struct LegacyBudgetOpportunityFrameAuditV0 {
+    pub frame_index: usize,
+    /// Retained target-land weight integral in steradians per Myr. This is the
+    /// exact denominator used by the Legacy-budget normalization.
+    pub opportunity_weight_integral: f64,
+    /// Area-weighted opportunity before the terrain adapter's target-land gate.
+    pub raw_opportunity_integral_km2_per_myr: f64,
+    /// Opportunity eligible for the builder on the coarse-target land mask.
+    pub retained_target_land_opportunity_integral_km2_per_myr: f64,
+    /// Opportunity rejected because its process cell is submarine in the fixed
+    /// coarse-target mask. It is audited, never redirected onto land.
+    pub rejected_submarine_opportunity_integral_km2_per_myr: f64,
+    pub retained_target_land_opportunity_fraction: f64,
+    pub rejected_submarine_opportunity_fraction: f64,
+    pub demoted_legacy_elevation_volume: f64,
+    pub floor_elevation_volume: f64,
+    pub shaped_excess_elevation_volume: f64,
+    pub instantaneous_floor_thickness_volume_per_time: f64,
+    pub instantaneous_shaped_thickness_volume_per_time: f64,
+    pub instantaneous_budget_closure_residual: f64,
+    pub block_start_step: usize,
+    pub block_end_step: usize,
+    pub temporal_rate_scale: f64,
+    pub expected_floor_injected_volume: f64,
+    pub expected_shaped_injected_volume: f64,
+    pub actual_floor_injected_volume: f64,
+    pub actual_shaped_injected_volume: f64,
+}
+
+/// Audit for one continuous four-frame erosion run.
+#[cfg(feature = "research-landscape")]
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+pub struct LegacyBudgetOpportunityAuditV0 {
+    pub parent_duration_myr: f64,
+    pub lookback_myr: f64,
+    pub suffix_start_step: usize,
+    pub active_steps: usize,
+    pub exact_active_steps: f64,
+    pub completed_steps: usize,
+    pub frames: Vec<LegacyBudgetOpportunityFrameAuditV0>,
+    pub expected_total_injected_volume: f64,
+    pub actual_total_injected_volume: f64,
+    pub total_closure_residual: f64,
+}
+
+/// Research-only adapter from four deformation-opportunity weights to the
+/// existing demoted-Legacy builder budget.
+///
+/// Its source arrays are deliberately private: callers cannot reinterpret the
+/// normalized opportunity density as physical rock uplift.
+#[cfg(feature = "research-landscape")]
+#[derive(Clone, Debug)]
+pub struct LegacyBudgetOpportunityAdapterV0 {
+    floor_rate: Vec<f32>,
+    shaped_rate: [Vec<f32>; 4],
+    audit: LegacyBudgetOpportunityAuditV0,
+}
+
+#[cfg(feature = "research-landscape")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LegacyBudgetOpportunityErrorV0 {
+    RequiresEmergentTarget,
+    TargetLength {
+        expected: usize,
+        actual: usize,
+    },
+    FrameLength {
+        frame_index: usize,
+        expected: usize,
+        actual: usize,
+    },
+    InvalidOpportunity {
+        frame_index: usize,
+        cell: usize,
+    },
+    NoPositiveOpportunity {
+        frame_index: usize,
+    },
+    InvalidParentDuration,
+    InvalidLookback,
+    TooFewActiveSteps {
+        active_steps: usize,
+    },
+    NumericalFailure,
+}
+
+#[cfg(feature = "research-landscape")]
+impl std::fmt::Display for LegacyBudgetOpportunityErrorV0 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{self:?}")
+    }
+}
+
+#[cfg(feature = "research-landscape")]
+impl std::error::Error for LegacyBudgetOpportunityErrorV0 {}
+
 #[cfg(feature = "research-landscape")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum FiniteAgeUpliftError {
@@ -382,6 +485,61 @@ pub(crate) fn erode_finite_age(
         audit.expected_scheduled_uplift_volume,
         audit.actual_injected_uplift_volume,
     );
+    Ok((final_elev, audit))
+}
+
+/// Run the fixed four-frame opportunity program through one continuous erosion
+/// state. Every frame is independently normalized to the same instantaneous
+/// demoted-Legacy budget; only its spatial weights change between blocks.
+#[cfg(feature = "research-landscape")]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn erode_regional_deformation_v0(
+    tess: &Tessellation,
+    fields: &ElevationFields,
+    base: &[f32],
+    precipitation: &[f32],
+    erodibility: &[f32],
+    lake_base: &[f32],
+    geom: &NeighborGeometry,
+    params: ErosionParams,
+    coarse_target: Option<&[f32]>,
+    opportunity_frames: [&[f64]; 4],
+    parent_duration_myr: f64,
+    lookback_myr: f64,
+) -> Result<(Vec<f32>, LegacyBudgetOpportunityAuditV0), LegacyBudgetOpportunityErrorV0> {
+    let target = coarse_target.ok_or(LegacyBudgetOpportunityErrorV0::RequiresEmergentTarget)?;
+    roughness_report(tess, base, "base ");
+    // Construct through the ordinary builder path first. The installed adapter
+    // owns injection thereafter; this keeps all non-research construction and
+    // erosion state initialization identical.
+    let mut state = ErosionState::new(
+        tess,
+        fields,
+        base,
+        precipitation,
+        erodibility,
+        lake_base,
+        geom,
+        params,
+        coarse_target,
+        None,
+    );
+    let adapter = LegacyBudgetOpportunityAdapterV0::build(
+        tess,
+        base,
+        target,
+        geom,
+        params,
+        opportunity_frames,
+        parent_duration_myr,
+        lookback_myr,
+    )?;
+    state.install_legacy_budget_opportunity_adapter_v0(adapter);
+    state.step(params.steps);
+    state.log_summary();
+    let audit = state.legacy_budget_opportunity_audit_v0();
+    let final_elev = state.elevation();
+    roughness_report(tess, &final_elev, "eroded");
     Ok((final_elev, audit))
 }
 
@@ -769,6 +927,320 @@ struct FiniteAgeSchedule {
     actual_injected_uplift_volume: f64,
 }
 
+#[derive(Clone, Copy, Debug)]
+#[cfg_attr(not(feature = "research-landscape"), allow(dead_code))]
+struct EmergentShapeNormalization {
+    demoted_legacy_elevation_volume: f64,
+    opportunity_weight_integral: f64,
+    floor_elevation_volume: f64,
+    shaped_excess_elevation_volume: f64,
+    shape_scale: f32,
+}
+
+/// Shared normalization behind the ordinary structured-emergent builder and
+/// the research opportunity adapter. Keeping this calculation in one place is
+/// important: the adapter changes only the spatial weights, never the Legacy
+/// budget that gives those weights physical scale.
+fn emergent_shape_normalization(
+    areas: &[f32],
+    base: &[f32],
+    target: &[f32],
+    shape: &[f32],
+    rebuild_gain: f32,
+) -> EmergentShapeNormalization {
+    let (mut dvol, mut svol, mut fvol) = (0.0f64, 0.0f64, 0.0f64);
+    for i in 0..base.len() {
+        if target[i] >= 0.0 {
+            let ai = areas[i] as f64;
+            dvol += (target[i] - base[i]).max(0.0) as f64 * ai;
+            svol += shape[i].max(0.0) as f64 * ai;
+            fvol += (EMERGENT_LAND_FLOOR_MARGIN - base[i]).max(0.0) as f64 * ai;
+        }
+    }
+    let excess_vol = (rebuild_gain as f64 * dvol - fvol).max(0.0);
+    EmergentShapeNormalization {
+        demoted_legacy_elevation_volume: dvol,
+        opportunity_weight_integral: svol,
+        floor_elevation_volume: fvol,
+        shaped_excess_elevation_volume: excess_vol,
+        shape_scale: if svol > 0.0 {
+            (excess_vol / svol) as f32
+        } else {
+            0.0
+        },
+    }
+}
+
+#[cfg(feature = "research-landscape")]
+impl LegacyBudgetOpportunityAdapterV0 {
+    #[allow(clippy::too_many_arguments)]
+    fn build(
+        tess: &Tessellation,
+        base: &[f32],
+        target: &[f32],
+        geom: &NeighborGeometry,
+        params: ErosionParams,
+        opportunity_frames: [&[f64]; 4],
+        parent_duration_myr: f64,
+        lookback_myr: f64,
+    ) -> Result<Self, LegacyBudgetOpportunityErrorV0> {
+        let n = tess.num_cells();
+        if target.len() != n {
+            return Err(LegacyBudgetOpportunityErrorV0::TargetLength {
+                expected: n,
+                actual: target.len(),
+            });
+        }
+        if !parent_duration_myr.is_finite() || parent_duration_myr <= 0.0 {
+            return Err(LegacyBudgetOpportunityErrorV0::InvalidParentDuration);
+        }
+        if !lookback_myr.is_finite() || lookback_myr <= 0.0 {
+            return Err(LegacyBudgetOpportunityErrorV0::InvalidLookback);
+        }
+
+        let mut shapes: [Vec<f32>; 4] = std::array::from_fn(|_| Vec::new());
+        for frame_index in 0..4 {
+            let frame = opportunity_frames[frame_index];
+            if frame.len() != n {
+                return Err(LegacyBudgetOpportunityErrorV0::FrameLength {
+                    frame_index,
+                    expected: n,
+                    actual: frame.len(),
+                });
+            }
+            let mut shape = Vec::with_capacity(n);
+            for (cell, &weight) in frame.iter().enumerate() {
+                if !weight.is_finite() || weight < 0.0 || weight > f32::MAX as f64 {
+                    return Err(LegacyBudgetOpportunityErrorV0::InvalidOpportunity {
+                        frame_index,
+                        cell,
+                    });
+                }
+                shape.push(weight as f32);
+            }
+            shapes[frame_index] = shape;
+        }
+
+        let exact_active_steps =
+            params.steps as f64 * (parent_duration_myr / lookback_myr).clamp(0.0, 1.0);
+        let active_steps = exact_active_steps.ceil() as usize;
+        if active_steps < 4 {
+            return Err(LegacyBudgetOpportunityErrorV0::TooFewActiveSteps { active_steps });
+        }
+        let suffix_start_step = params.steps.saturating_sub(active_steps);
+        let areas = tess.cell_areas();
+        let epoch = (params.steps as f32 * params.dt).max(1.0);
+        let inv_slope = 1.0 / isostasy_slope();
+
+        // The land-recovery floor is independent of opportunity and is retained
+        // as a separate source so the audit never mislabels it as RDS forcing.
+        let mut floor_rate: Vec<f32> = (0..n)
+            .map(|i| {
+                if target[i] < 0.0 {
+                    0.0
+                } else {
+                    (EMERGENT_LAND_FLOOR_MARGIN - base[i]).max(0.0) * inv_slope / epoch
+                }
+            })
+            .collect();
+
+        let mut shaped_rate: [Vec<f32>; 4] = std::array::from_fn(|_| Vec::new());
+        let mut frame_audits = Vec::with_capacity(4);
+        for frame_index in 0..4 {
+            let normalization = emergent_shape_normalization(
+                &areas,
+                base,
+                target,
+                &shapes[frame_index],
+                params.rebuild_gain,
+            );
+            if normalization.opportunity_weight_integral <= 0.0 {
+                return Err(LegacyBudgetOpportunityErrorV0::NoPositiveOpportunity { frame_index });
+            }
+            let raw_weight_integral = opportunity_frames[frame_index]
+                .iter()
+                .zip(&areas)
+                .map(|(&weight, &area)| weight.max(0.0) * area as f64)
+                .sum::<f64>();
+            let retained_weight_integral = opportunity_frames[frame_index]
+                .iter()
+                .zip(&areas)
+                .zip(target)
+                .filter(|(_, target)| **target >= 0.0)
+                .map(|((&weight, &area), _)| weight.max(0.0) * area as f64)
+                .sum::<f64>();
+            let rejected_weight_integral =
+                (raw_weight_integral - retained_weight_integral).max(0.0);
+            let physical_area_scale = f64::from(PLANET_RADIUS_KM).powi(2);
+            let retained_fraction = if raw_weight_integral > 0.0 {
+                (retained_weight_integral / raw_weight_integral).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            let c = normalization.shape_scale;
+            let mut rate: Vec<f32> = (0..n)
+                .map(|i| {
+                    if target[i] < 0.0 {
+                        0.0
+                    } else {
+                        c * shapes[frame_index][i].max(0.0) * inv_slope / epoch
+                    }
+                })
+                .collect();
+            if params.uplift_smooth_km > 0.0 {
+                smooth_uplift_source(&mut rate, geom, &areas, target, params.uplift_smooth_km);
+            }
+            shaped_rate[frame_index] = rate;
+
+            let block_start = suffix_start_step + frame_index * active_steps / 4;
+            let block_end = suffix_start_step + (frame_index + 1) * active_steps / 4;
+            let block_steps = block_end - block_start;
+            let ideal_block_steps = exact_active_steps / 4.0;
+            // Retain the exact f32 multiplier used during injection.
+            let temporal_scale_f32 = (ideal_block_steps / block_steps as f64) as f32;
+            let temporal_rate_scale = temporal_scale_f32 as f64;
+
+            let floor_rate_integral = floor_rate
+                .iter()
+                .zip(&areas)
+                .map(|(&rate, &area)| (rate * area) as f64)
+                .sum::<f64>();
+            let shaped_rate_integral = shaped_rate[frame_index]
+                .iter()
+                .zip(&areas)
+                .map(|(&rate, &area)| (rate * area) as f64)
+                .sum::<f64>();
+            let expected_floor = floor_rate
+                .iter()
+                .zip(&areas)
+                .map(|(&rate, &area)| ((rate * temporal_scale_f32 * params.dt) * area) as f64)
+                .sum::<f64>()
+                * block_steps as f64;
+            let expected_shaped = shaped_rate[frame_index]
+                .iter()
+                .zip(&areas)
+                .map(|(&rate, &area)| ((rate * temporal_scale_f32 * params.dt) * area) as f64)
+                .sum::<f64>()
+                * block_steps as f64;
+            let analytical_floor_rate =
+                normalization.floor_elevation_volume * inv_slope as f64 / epoch as f64;
+            let analytical_shaped_rate =
+                normalization.shaped_excess_elevation_volume * inv_slope as f64 / epoch as f64;
+            frame_audits.push(LegacyBudgetOpportunityFrameAuditV0 {
+                frame_index,
+                opportunity_weight_integral: normalization.opportunity_weight_integral,
+                raw_opportunity_integral_km2_per_myr: raw_weight_integral * physical_area_scale,
+                retained_target_land_opportunity_integral_km2_per_myr: retained_weight_integral
+                    * physical_area_scale,
+                rejected_submarine_opportunity_integral_km2_per_myr: rejected_weight_integral
+                    * physical_area_scale,
+                retained_target_land_opportunity_fraction: retained_fraction,
+                rejected_submarine_opportunity_fraction: 1.0 - retained_fraction,
+                demoted_legacy_elevation_volume: normalization.demoted_legacy_elevation_volume,
+                floor_elevation_volume: normalization.floor_elevation_volume,
+                shaped_excess_elevation_volume: normalization.shaped_excess_elevation_volume,
+                instantaneous_floor_thickness_volume_per_time: floor_rate_integral,
+                instantaneous_shaped_thickness_volume_per_time: shaped_rate_integral,
+                instantaneous_budget_closure_residual: (floor_rate_integral
+                    - analytical_floor_rate)
+                    + (shaped_rate_integral - analytical_shaped_rate),
+                block_start_step: block_start,
+                block_end_step: block_end,
+                temporal_rate_scale,
+                expected_floor_injected_volume: expected_floor,
+                expected_shaped_injected_volume: expected_shaped,
+                actual_floor_injected_volume: 0.0,
+                actual_shaped_injected_volume: 0.0,
+            });
+        }
+
+        if params.uplift_smooth_km > 0.0 {
+            smooth_uplift_source(
+                &mut floor_rate,
+                geom,
+                &areas,
+                target,
+                params.uplift_smooth_km,
+            );
+            // Smoothing is conservative but f32 residuals are disclosed from the
+            // exact arrays that will actually be injected.
+            let smoothed_floor = floor_rate
+                .iter()
+                .zip(&areas)
+                .map(|(&rate, &area)| (rate * area) as f64)
+                .sum::<f64>();
+            for frame in &mut frame_audits {
+                frame.instantaneous_floor_thickness_volume_per_time = smoothed_floor;
+                let analytical_floor_rate =
+                    frame.floor_elevation_volume * inv_slope as f64 / epoch as f64;
+                let analytical_shaped_rate =
+                    frame.shaped_excess_elevation_volume * inv_slope as f64 / epoch as f64;
+                frame.instantaneous_budget_closure_residual = (smoothed_floor
+                    - analytical_floor_rate)
+                    + (frame.instantaneous_shaped_thickness_volume_per_time
+                        - analytical_shaped_rate);
+                let steps = frame.block_end_step - frame.block_start_step;
+                let scale = frame.temporal_rate_scale as f32;
+                frame.expected_floor_injected_volume = floor_rate
+                    .iter()
+                    .zip(&areas)
+                    .map(|(&rate, &area)| ((rate * scale * params.dt) * area) as f64)
+                    .sum::<f64>()
+                    * steps as f64;
+            }
+        }
+
+        let expected_total: f64 = frame_audits
+            .iter()
+            .map(|frame| {
+                frame.expected_floor_injected_volume + frame.expected_shaped_injected_volume
+            })
+            .sum();
+        if !expected_total.is_finite() {
+            return Err(LegacyBudgetOpportunityErrorV0::NumericalFailure);
+        }
+        Ok(Self {
+            floor_rate,
+            shaped_rate,
+            audit: LegacyBudgetOpportunityAuditV0 {
+                parent_duration_myr,
+                lookback_myr,
+                suffix_start_step,
+                active_steps,
+                exact_active_steps,
+                completed_steps: 0,
+                frames: frame_audits,
+                expected_total_injected_volume: expected_total,
+                actual_total_injected_volume: 0.0,
+                total_closure_residual: -expected_total,
+            },
+        })
+    }
+
+    fn frame_at_step(&self, step: usize) -> Option<usize> {
+        self.audit
+            .frames
+            .iter()
+            .position(|frame| step >= frame.block_start_step && step < frame.block_end_step)
+    }
+
+    fn inject_step(&mut self, step: usize, dt: f32, areas: &[f32], thick: &mut [f32]) {
+        let Some(frame_index) = self.frame_at_step(step) else {
+            return;
+        };
+        let scale = self.audit.frames[frame_index].temporal_rate_scale as f32;
+        for i in 0..thick.len() {
+            let floor_injected = self.floor_rate[i] * scale * dt;
+            let shaped_injected = self.shaped_rate[frame_index][i] * scale * dt;
+            thick[i] += floor_injected + shaped_injected;
+            self.audit.frames[frame_index].actual_floor_injected_volume +=
+                (floor_injected * areas[i]) as f64;
+            self.audit.frames[frame_index].actual_shaped_injected_volume +=
+                (shaped_injected * areas[i]) as f64;
+        }
+    }
+}
+
 pub(crate) struct ErosionState {
     n: usize,
     slope: f32,
@@ -790,6 +1262,8 @@ pub(crate) struct ErosionState {
     u_thick: Vec<f32>,
     #[cfg(feature = "research-landscape")]
     finite_age_schedule: Option<FiniteAgeSchedule>,
+    #[cfg(feature = "research-landscape")]
+    legacy_budget_opportunity_adapter: Option<LegacyBudgetOpportunityAdapterV0>,
     /// Terminal (endorheic) lake surface per cell (finite => lake sink), or
     /// NEG_INFINITY. Frozen from the pre-erosion hydrology; defines extra sinks
     /// and the per-cell base level the routing grades to.
@@ -977,21 +1451,10 @@ impl ErosionState {
         let shape_c: Option<f32> = match (coarse_target, uplift_shape) {
             (Some(target), Some(shape)) => {
                 let a = tess.cell_areas();
-                let (mut dvol, mut svol, mut fvol) = (0.0f64, 0.0f64, 0.0f64);
-                for i in 0..n {
-                    if target[i] >= 0.0 {
-                        let ai = a[i] as f64;
-                        dvol += (target[i] - base[i]).max(0.0) as f64 * ai;
-                        svol += shape[i].max(0.0) as f64 * ai;
-                        fvol += floor(i) as f64 * ai;
-                    }
-                }
-                let excess_vol = (params.rebuild_gain as f64 * dvol - fvol).max(0.0);
-                Some(if svol > 0.0 {
-                    (excess_vol / svol) as f32
-                } else {
-                    0.0
-                })
+                Some(
+                    emergent_shape_normalization(&a, base, target, shape, params.rebuild_gain)
+                        .shape_scale,
+                )
             }
             _ => None,
         };
@@ -1127,6 +1590,8 @@ impl ErosionState {
             u_thick,
             #[cfg(feature = "research-landscape")]
             finite_age_schedule: None,
+            #[cfg(feature = "research-landscape")]
+            legacy_budget_opportunity_adapter: None,
             lake_base: lake_base.to_vec(),
             areas,
             geom,
@@ -1200,6 +1665,34 @@ impl ErosionState {
             actual_injected_uplift_volume: schedule.actual_injected_uplift_volume,
             completed_steps: self.step,
         }
+    }
+
+    #[cfg(feature = "research-landscape")]
+    fn install_legacy_budget_opportunity_adapter_v0(
+        &mut self,
+        adapter: LegacyBudgetOpportunityAdapterV0,
+    ) {
+        self.finite_age_schedule = None;
+        self.legacy_budget_opportunity_adapter = Some(adapter);
+    }
+
+    #[cfg(feature = "research-landscape")]
+    fn legacy_budget_opportunity_audit_v0(&self) -> LegacyBudgetOpportunityAuditV0 {
+        let mut audit = self
+            .legacy_budget_opportunity_adapter
+            .as_ref()
+            .expect("Legacy-budget opportunity audit requires installed adapter")
+            .audit
+            .clone();
+        audit.completed_steps = self.step;
+        audit.actual_total_injected_volume = audit
+            .frames
+            .iter()
+            .map(|frame| frame.actual_floor_injected_volume + frame.actual_shaped_injected_volume)
+            .sum();
+        audit.total_closure_residual =
+            audit.actual_total_injected_volume - audit.expected_total_injected_volume;
+        audit
     }
 
     /// Current eroded elevation on the fixed sea-level datum (the isostatic delta
@@ -1389,7 +1882,9 @@ impl ErosionState {
         }
         // 6. Uplift source (thickness).
         #[cfg(feature = "research-landscape")]
-        if let Some(schedule) = &mut self.finite_age_schedule {
+        if let Some(adapter) = &mut self.legacy_budget_opportunity_adapter {
+            adapter.inject_step(self.step, self.params.dt, &self.areas, &mut self.thick);
+        } else if let Some(schedule) = &mut self.finite_age_schedule {
             for i in 0..n {
                 if self.step >= schedule.start_step[i] {
                     let injected = self.u_thick[i] * self.params.dt;
@@ -1448,9 +1943,23 @@ impl ErosionState {
             .sum();
         #[cfg(feature = "research-landscape")]
         let uplift_in = self
-            .finite_age_schedule
+            .legacy_budget_opportunity_adapter
             .as_ref()
-            .map(|schedule| schedule.actual_injected_uplift_volume)
+            .map(|adapter| {
+                adapter
+                    .audit
+                    .frames
+                    .iter()
+                    .map(|frame| {
+                        frame.actual_floor_injected_volume + frame.actual_shaped_injected_volume
+                    })
+                    .sum()
+            })
+            .or_else(|| {
+                self.finite_age_schedule
+                    .as_ref()
+                    .map(|schedule| schedule.actual_injected_uplift_volume)
+            })
             .unwrap_or(self.step as f64 * self.params.dt as f64 * per_step_uplift);
         #[cfg(not(feature = "research-landscape"))]
         let uplift_in = self.step as f64 * self.params.dt as f64 * per_step_uplift;
@@ -3032,6 +3541,222 @@ mod tests {
             .map(|((&rate, &area), &start)| (rate * area) as f64 * (10 - start) as f64)
             .sum();
         assert!(scheduled < schedule.target_static_uplift_volume);
+    }
+
+    #[cfg(feature = "research-landscape")]
+    fn opportunity_test_fixture(
+        steps: usize,
+    ) -> (
+        Tessellation,
+        NeighborGeometry,
+        Vec<f32>,
+        Vec<f32>,
+        ErosionParams,
+    ) {
+        use rand::SeedableRng;
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(71);
+        let tess = Tessellation::generate(16, 0, &mut rng);
+        let geom = NeighborGeometry::build(&tess);
+        let n = tess.num_cells();
+        let base: Vec<f32> = (0..n)
+            .map(|cell| if cell % 3 == 0 { -0.03 } else { 0.02 })
+            .collect();
+        let target: Vec<f32> = (0..n)
+            .map(|cell| if cell % 4 == 0 { -0.01 } else { 0.08 })
+            .collect();
+        let mut params = ErosionParams::default();
+        params.steps = steps;
+        params.dt = 0.5;
+        params.uplift_smooth_km = 0.0;
+        (tess, geom, base, target, params)
+    }
+
+    #[cfg(feature = "research-landscape")]
+    #[test]
+    fn opportunity_adapter_uses_contiguous_scaled_integer_blocks() {
+        let (tess, geom, base, target, params) = opportunity_test_fixture(11);
+        let weights = vec![1.0f64; tess.num_cells()];
+        let adapter = LegacyBudgetOpportunityAdapterV0::build(
+            &tess,
+            &base,
+            &target,
+            &geom,
+            params,
+            [&weights, &weights, &weights, &weights],
+            100.0,
+            100.0,
+        )
+        .unwrap();
+        let blocks: Vec<_> = adapter
+            .audit
+            .frames
+            .iter()
+            .map(|frame| (frame.block_start_step, frame.block_end_step))
+            .collect();
+        assert_eq!(blocks, vec![(0, 2), (2, 5), (5, 8), (8, 11)]);
+        for pair in adapter.audit.frames.windows(2) {
+            assert_eq!(pair[0].block_end_step, pair[1].block_start_step);
+        }
+        let scaled_steps: Vec<_> = adapter
+            .audit
+            .frames
+            .iter()
+            .map(|frame| {
+                (frame.block_end_step - frame.block_start_step) as f64 * frame.temporal_rate_scale
+            })
+            .collect();
+        for value in &scaled_steps[1..] {
+            assert!((value - scaled_steps[0]).abs() < 2.0e-7);
+        }
+    }
+
+    #[cfg(feature = "research-landscape")]
+    #[test]
+    fn opportunity_adapter_repeated_control_closes_every_frame_and_actual_total() {
+        let (tess, geom, base, target, params) = opportunity_test_fixture(12);
+        let weights: Vec<f64> = (0..tess.num_cells())
+            .map(|cell| 1.0 + (cell % 5) as f64)
+            .collect();
+        let mut adapter = LegacyBudgetOpportunityAdapterV0::build(
+            &tess,
+            &base,
+            &target,
+            &geom,
+            params,
+            [&weights, &weights, &weights, &weights],
+            60.0,
+            60.0,
+        )
+        .unwrap();
+        for frame in 1..4 {
+            assert_eq!(adapter.shaped_rate[frame], adapter.shaped_rate[0]);
+            assert_eq!(
+                adapter.audit.frames[frame].instantaneous_shaped_thickness_volume_per_time,
+                adapter.audit.frames[0].instantaneous_shaped_thickness_volume_per_time
+            );
+        }
+        let areas = tess.cell_areas();
+        let mut thick = vec![0.0; tess.num_cells()];
+        for step in 0..params.steps {
+            adapter.inject_step(step, params.dt, &areas, &mut thick);
+        }
+        for frame in &adapter.audit.frames {
+            let actual = frame.actual_floor_injected_volume + frame.actual_shaped_injected_volume;
+            let expected =
+                frame.expected_floor_injected_volume + frame.expected_shaped_injected_volume;
+            assert!((actual - expected).abs() <= 2.0e-12 * expected.abs().max(1.0));
+            assert!(
+                frame.instantaneous_budget_closure_residual.abs()
+                    <= 2.0e-6
+                        * (frame.instantaneous_floor_thickness_volume_per_time
+                            + frame.instantaneous_shaped_thickness_volume_per_time)
+                            .abs()
+                            .max(1.0)
+            );
+        }
+        let expected: f64 = adapter
+            .audit
+            .frames
+            .iter()
+            .map(|frame| {
+                frame.expected_floor_injected_volume + frame.expected_shaped_injected_volume
+            })
+            .sum();
+        let actual: f64 = adapter
+            .audit
+            .frames
+            .iter()
+            .map(|frame| frame.actual_floor_injected_volume + frame.actual_shaped_injected_volume)
+            .sum();
+        assert!((actual - expected).abs() <= 2.0e-12 * expected.abs().max(1.0));
+    }
+
+    #[cfg(feature = "research-landscape")]
+    #[test]
+    fn opportunity_adapter_audits_submarine_rejection_without_redirecting_it() {
+        let (tess, geom, base, target, params) = opportunity_test_fixture(8);
+        let weights = vec![2.0f64; tess.num_cells()];
+        let adapter = LegacyBudgetOpportunityAdapterV0::build(
+            &tess,
+            &base,
+            &target,
+            &geom,
+            params,
+            [&weights, &weights, &weights, &weights],
+            40.0,
+            40.0,
+        )
+        .unwrap();
+        let physical_scale = f64::from(PLANET_RADIUS_KM).powi(2);
+        let areas = tess.cell_areas();
+        let raw = weights
+            .iter()
+            .zip(&areas)
+            .map(|(&weight, &area)| weight * area as f64 * physical_scale)
+            .sum::<f64>();
+        let retained = weights
+            .iter()
+            .zip(&areas)
+            .zip(&target)
+            .filter(|(_, target)| **target >= 0.0)
+            .map(|((&weight, &area), _)| weight * area as f64 * physical_scale)
+            .sum::<f64>();
+        for frame in &adapter.audit.frames {
+            assert!((frame.raw_opportunity_integral_km2_per_myr - raw).abs() < 1.0e-8 * raw);
+            assert!(
+                (frame.retained_target_land_opportunity_integral_km2_per_myr - retained).abs()
+                    < 1.0e-8 * raw
+            );
+            assert!(
+                (frame.rejected_submarine_opportunity_integral_km2_per_myr - (raw - retained))
+                    .abs()
+                    < 1.0e-8 * raw
+            );
+            assert!(
+                (frame.retained_target_land_opportunity_fraction
+                    + frame.rejected_submarine_opportunity_fraction
+                    - 1.0)
+                    .abs()
+                    < 1.0e-12
+            );
+        }
+    }
+
+    #[test]
+    fn factored_emergent_normalization_is_bit_neutral() {
+        let areas = [0.2f32, 0.3, 0.5, 0.7];
+        let base = [-0.04f32, 0.01, -0.02, 0.3];
+        let target = [0.08f32, 0.1, -0.01, 0.45];
+        let shape = [0.5f32, 2.0, 8.0, 1.25];
+        let gain = 1.2f32;
+
+        // This is the former inline calculation, retained verbatim as the
+        // regression oracle for the ordinary structured-emergent path.
+        let floor = |i: usize| (EMERGENT_LAND_FLOOR_MARGIN - base[i]).max(0.0);
+        let (mut dvol, mut svol, mut fvol) = (0.0f64, 0.0f64, 0.0f64);
+        for i in 0..base.len() {
+            if target[i] >= 0.0 {
+                let ai = areas[i] as f64;
+                dvol += (target[i] - base[i]).max(0.0) as f64 * ai;
+                svol += shape[i].max(0.0) as f64 * ai;
+                fvol += floor(i) as f64 * ai;
+            }
+        }
+        let excess = (gain as f64 * dvol - fvol).max(0.0);
+        let old_c = if svol > 0.0 {
+            (excess / svol) as f32
+        } else {
+            0.0
+        };
+        let factored = emergent_shape_normalization(&areas, &base, &target, &shape, gain);
+        assert_eq!(factored.shape_scale.to_bits(), old_c.to_bits());
+        let old_source: Vec<u32> = (0..base.len())
+            .map(|i| (floor(i) + old_c * shape[i].max(0.0)).to_bits())
+            .collect();
+        let new_source: Vec<u32> = (0..base.len())
+            .map(|i| (floor(i) + factored.shape_scale * shape[i].max(0.0)).to_bits())
+            .collect();
+        assert_eq!(new_source, old_source);
     }
 
     /// A 1-D chain neighbour geometry (cell i adjacent to i±1) with unit edge

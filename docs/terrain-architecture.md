@@ -359,14 +359,18 @@ reading: only 29 peaks survive into a terrain that reads smooth.
 
 The selected
 [regional deformation program](regional-deformation-support.md) now has a
-source-only RDS0a implementation. On the authoritative coarse material raster,
-its fixed reduced-kinematic sequence conserves the selected parent's work,
-keeps collision sides 50/50, produces additive growth/linkage overlap and has
-no omissions. This narrowly passes the representation gate: it establishes a
-usable two-dimensional source seam, not a mountain or generated history. The
-next seam is conservative transfer to the ordinary process mesh followed by
-the one fixed terrain pair, not another width, source-rate or erosion tuning
-pass and not an immediate jump to Slice B.
+source-only RDS0a implementation and one RDS0b terrain discriminator. The first
+categorical center-owner transfer was rejected as non-surjective on the
+adaptive process mesh. A sparse exact spherical control-volume overlap now
+closes every active donor and provenance ledger without changing the mesh or
+inventing a smoothing width. Under one continuous, fixed demoted-Legacy budget,
+the moving four-frame arm materially changes local relief and 56.6% of support
+drainage receivers. Matched views replace the control roof with finite linked
+lobes, lows and differentiated ends, but also expose possible perforated-amoeba
+or bead grammar and a surviving broad roof. This is a provisional narrow pass,
+not a promoted terrain owner or generated history. Human review and one exact
+source→highland→drainage relationship readout decide whether it earns the
+other fixed worlds; no width, source-rate or erosion tuning is licensed.
 
 ## Slice B — causal dual drainage/divide construction
 
