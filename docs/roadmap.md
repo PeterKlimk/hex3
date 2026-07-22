@@ -219,12 +219,14 @@ complete on seed `8675309`, episode `9`, and the RDS0b process-mesh terrain pair
 is now executed. Exact sparse spherical overlap replaced the rejected
 non-surjective center-owner transfer and closes all five work ledgers. The
 moving arm materially changes relief and drainage and visually creates finite
-linked lobes, lows and differentiated ends, but it also retains a broad roof
-and may introduce perforated or bead-like grammar. Record this as a provisional
-narrow pass pending human review. The next decision is one relationship readout
-on this exact run—source provenance against highland ends/saddles,
-catchments/divides and major trunks—not a generated-history prior, carrier
-replay, parameter ladder, ecology stage or product promotion.
+linked lobes, lows and differentiated ends. The fixed relationship readout
+shows that these gains are not coherent enough: support depressions rise from
+3 to 100, 86 cut the >1.5 km highland, and no highland component contains a
+represented major-river cell. RDS0 is rejected as sufficient terrain ownership.
+Retain its source and exact transfer infrastructure; do not run other worlds,
+generate a history prior, or tune the rejected composition. The next terrain
+design must introduce the missing causal relationship between deformation,
+regional relief topology and drainage rather than another scalar-support pass.
 
 ## Completed bounded decisions
 

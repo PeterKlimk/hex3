@@ -745,34 +745,37 @@ fn main() {
         if rds0_terrain {
             #[cfg(not(feature = "research-landscape"))]
             panic!("rds0-terrain requires --features research-landscape");
-            assert_eq!(
-                sweep_target_stage, 4,
-                "rds0-terrain is a fixed Stage-4 packet"
-            );
-            assert!(
-                cli.seed.is_none() || cli.seed == Some(8_675_309),
-                "rds0-terrain fixes --seed 8675309"
-            );
-            assert_eq!(cli.cells, 100_000, "rds0-terrain fixes --cells 100000");
-            assert!(
-                cli.fine_max == 0 || cli.fine_max == 250_000,
-                "rds0-terrain fixes --fine-max 250000 (zero selects it automatically)"
-            );
-            assert_eq!(cli.fine_scale, 1.0, "rds0-terrain fixes --fine-scale 1");
-            assert!(matches!(cli.voronoi_backend, CliVoronoiBackend::ConvexHull));
-            assert!(matches!(cli.orogen_model, CliOrogenModel::Legacy));
-            assert!(
-                cli.sweep_target.is_empty(),
-                "rds0-terrain cameras are source-derived"
-            );
-            assert_eq!(
-                cli.sweep_display_subdivision, 0,
-                "rds0-terrain does not use display subdivision"
-            );
-            assert!(
-                !cli.rebuild_fine_cache,
-                "rds0-terrain disables the fine cache"
-            );
+            #[cfg(feature = "research-landscape")]
+            {
+                assert_eq!(
+                    sweep_target_stage, 4,
+                    "rds0-terrain is a fixed Stage-4 packet"
+                );
+                assert!(
+                    cli.seed.is_none() || cli.seed == Some(8_675_309),
+                    "rds0-terrain fixes --seed 8675309"
+                );
+                assert_eq!(cli.cells, 100_000, "rds0-terrain fixes --cells 100000");
+                assert!(
+                    cli.fine_max == 0 || cli.fine_max == 250_000,
+                    "rds0-terrain fixes --fine-max 250000 (zero selects it automatically)"
+                );
+                assert_eq!(cli.fine_scale, 1.0, "rds0-terrain fixes --fine-scale 1");
+                assert!(matches!(cli.voronoi_backend, CliVoronoiBackend::ConvexHull));
+                assert!(matches!(cli.orogen_model, CliOrogenModel::Legacy));
+                assert!(
+                    cli.sweep_target.is_empty(),
+                    "rds0-terrain cameras are source-derived"
+                );
+                assert_eq!(
+                    cli.sweep_display_subdivision, 0,
+                    "rds0-terrain does not use display subdivision"
+                );
+                assert!(
+                    !cli.rebuild_fine_cache,
+                    "rds0-terrain disables the fine cache"
+                );
+            }
         }
         if cli.sweep_stack.as_deref() == Some("roof-compiler-counterfactual") {
             assert!(

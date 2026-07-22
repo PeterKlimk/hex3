@@ -1,5 +1,7 @@
 mod coloring;
 pub mod export;
+#[cfg(feature = "research-landscape")]
+mod rds_relationship;
 mod state;
 pub mod sweep;
 mod view;

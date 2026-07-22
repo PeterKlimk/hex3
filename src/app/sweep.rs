@@ -54,7 +54,13 @@ use super::coloring::{
     cell_color_terrain, cell_material, living_surface_blended_color, LIVING_HERBACEOUS_COLOR,
     LIVING_WETLAND_COLOR, LIVING_WOODY_COLOR,
 };
+#[cfg(feature = "research-landscape")]
+use super::rds_relationship::{
+    analyze_rds0_relationships_v0, compress_rds0_schedule_v0, RdsRelationshipAnalysisV0,
+};
 use super::view::{ReliefPreset, RiverMode, SurfacePalette};
+#[cfg(feature = "research-landscape")]
+use super::world::regenerate_diagnostic_surface_colors;
 use super::world::{
     advance_to_stage_2, advance_to_stage_3, advance_to_stage_3_with_cap, advance_to_stage_4,
     create_world_with_orogen_model, generate_world_buffers,
@@ -4976,15 +4982,18 @@ fn render_rds0_surface(
     views: &[CaptureView],
     montage: &mut [u8],
     montage_width: u32,
+    relationship_montage: &mut [u8],
+    relationship_montage_width: u32,
     world: &mut World,
     surface: FineSurface,
+    relationship: &RdsRelationshipAnalysisV0,
     arm: &'static str,
     arm_index: usize,
     retain_surface: bool,
-) -> Vec<Rds0RenderRecord> {
+) -> (Vec<Rds0RenderRecord>, Vec<Rds0RenderRecord>) {
     world.fine.as_mut().expect("RDS0 fine world").eroded = Some(surface);
     world.set_view_stage(4);
-    let buffers = generate_world_buffers(&gpu.device, &gpu.queue, world);
+    let mut buffers = generate_world_buffers(&gpu.device, &gpu.queue, world);
     let presentations = [
         ("physical", PHYSICAL_RELIEF_SCALE),
         ("authentic", RELIEF_SCALE),
@@ -5032,11 +5041,66 @@ fn render_rds0_surface(
             image_filenames: filenames,
         });
     }
+    let relationship_presentations = [
+        (
+            "source-topology",
+            relationship.source_topology_colors.as_slice(),
+        ),
+        (
+            "catchment-divide-basin",
+            relationship.catchment_divide_basin_colors.as_slice(),
+        ),
+    ];
+    let mut relationship_records = Vec::with_capacity(relationship_presentations.len());
+    for (overlay_index, (presentation, colors)) in
+        relationship_presentations.into_iter().enumerate()
+    {
+        regenerate_diagnostic_surface_colors(&gpu.queue, world, &mut buffers, colors)
+            .unwrap_or_else(|error| panic!("RDS0 relationship colors: {error}"));
+        let mut filenames = Vec::with_capacity(views.len().saturating_sub(1));
+        for (regional_index, view) in views.iter().skip(1).enumerate() {
+            render_relief(
+                gpu,
+                renderer,
+                color_view,
+                &buffers,
+                view.view_proj,
+                view.eye,
+                RiverMode::Major,
+                PHYSICAL_RELIEF_SCALE,
+                1.0,
+            );
+            let rgba = read_back_rgba(gpu, color_texture, opts.width, opts.height);
+            let filename = format!("{arm}_relationship-{presentation}_{}.png", view.label);
+            write_png(
+                &opts.out_dir.join(&filename),
+                &rgba,
+                opts.width,
+                opts.height,
+            );
+            blit_tile(
+                relationship_montage,
+                relationship_montage_width,
+                &rgba,
+                opts.width,
+                opts.height,
+                (overlay_index * (views.len() - 1) + regional_index) as u32,
+                arm_index as u32,
+            );
+            filenames.push(filename);
+        }
+        relationship_records.push(Rds0RenderRecord {
+            arm,
+            presentation,
+            relief_scale: PHYSICAL_RELIEF_SCALE,
+            image_filenames: filenames,
+        });
+    }
     drop(buffers);
     if !retain_surface {
         world.fine.as_mut().unwrap().eroded.take();
     }
-    records
+    (records, relationship_records)
 }
 
 /// Fixed RDS0 terrain packet: the source-only four-frame program is transferred
@@ -5278,6 +5342,15 @@ fn run_rds0_terrain_packet(opts: &SweepOptions) {
         std::iter::once(fine_control.ledger.clone())
             .chain(fine_frames.iter().map(|frame| frame.ledger.clone()))
             .collect();
+    let control_source_relationship = {
+        let frames = [&fine_control; RDS0_FRAME_COUNT];
+        compress_rds0_schedule_v0(&frames).expect("RDS0 control relationship source")
+    };
+    let candidate_source_relationship = {
+        let frames: [&RegionalDeformationRasterV0; RDS0_FRAME_COUNT] =
+            std::array::from_fn(|frame| &fine_frames[frame]);
+        compress_rds0_schedule_v0(&frames).expect("RDS0 candidate relationship source")
+    };
     // Erosion consumes density only. Release source meshes and fine transfer
     // provenance before either long Stage-4 arm so this diagnostic does not
     // recreate the high peak-RAM behavior it is meant to replace.
@@ -5320,6 +5393,14 @@ fn run_rds0_terrain_packet(opts: &SweepOptions) {
         &target_land_union_support,
         &control_surface,
     );
+    let control_relationship = analyze_rds0_relationships_v0(
+        &world.fine.as_ref().unwrap().base.tessellation,
+        &control_surface,
+        &target_land_union_support,
+        &control_source_relationship,
+    )
+    .expect("RDS0 control relationship readout");
+    let control_relationship_summary = control_relationship.summary.clone();
     let control_elevation = control_surface.elevation.values.clone();
     let control_drainage = control_surface.hydrology.drainage_dir.clone();
 
@@ -5346,7 +5427,11 @@ fn run_rds0_terrain_packet(opts: &SweepOptions) {
     let montage_width = opts.width * views.len() as u32;
     let montage_height = opts.height * 4;
     let mut montage = vec![0; (montage_width * montage_height * 4) as usize];
-    let mut render_records = render_rds0_surface(
+    let relationship_montage_width = opts.width * (views.len() as u32 - 1) * 2;
+    let relationship_montage_height = opts.height * 2;
+    let mut relationship_montage =
+        vec![0; (relationship_montage_width * relationship_montage_height * 4) as usize];
+    let (mut render_records, mut relationship_render_records) = render_rds0_surface(
         opts,
         &gpu,
         &mut renderer,
@@ -5355,12 +5440,16 @@ fn run_rds0_terrain_packet(opts: &SweepOptions) {
         &views,
         &mut montage,
         montage_width,
+        &mut relationship_montage,
+        relationship_montage_width,
         &mut world,
         control_surface,
+        &control_relationship,
         "control",
         0,
         false,
     );
+    drop(control_relationship);
 
     let (candidate_surface, candidate_audit): (FineSurface, LegacyBudgetOpportunityAuditV0) = {
         let fine = world.fine.as_ref().unwrap();
@@ -5388,7 +5477,15 @@ fn run_rds0_terrain_packet(opts: &SweepOptions) {
         &control_drainage,
         &candidate_surface.hydrology.drainage_dir,
     );
-    render_records.extend(render_rds0_surface(
+    let candidate_relationship = analyze_rds0_relationships_v0(
+        &world.fine.as_ref().unwrap().base.tessellation,
+        &candidate_surface,
+        &target_land_union_support,
+        &candidate_source_relationship,
+    )
+    .expect("RDS0 candidate relationship readout");
+    let candidate_relationship_summary = candidate_relationship.summary.clone();
+    let (candidate_render_records, candidate_relationship_render_records) = render_rds0_surface(
         opts,
         &gpu,
         &mut renderer,
@@ -5397,18 +5494,30 @@ fn run_rds0_terrain_packet(opts: &SweepOptions) {
         &views,
         &mut montage,
         montage_width,
+        &mut relationship_montage,
+        relationship_montage_width,
         &mut world,
         candidate_surface,
+        &candidate_relationship,
         "candidate",
         1,
         true,
-    ));
+    );
+    render_records.extend(candidate_render_records);
+    relationship_render_records.extend(candidate_relationship_render_records);
     write_png(
         &opts.out_dir.join("montage.png"),
         &montage,
         montage_width,
         montage_height,
     );
+    write_png(
+        &opts.out_dir.join("relationships_montage.png"),
+        &relationship_montage,
+        relationship_montage_width,
+        relationship_montage_height,
+    );
+    drop(candidate_relationship);
 
     let sidecar = serde_json::json!({
         "schema": "hex3.rds0-terrain.v0",
@@ -5441,6 +5550,18 @@ fn run_rds0_terrain_packet(opts: &SweepOptions) {
             "candidate": { "global": candidate_summary, "target_land_union_support": candidate_local_summary },
             "candidate_minus_control": surface_delta,
         },
+        "relationships": {
+            "control": control_relationship_summary,
+            "candidate": candidate_relationship_summary,
+            "render_rows": relationship_render_records,
+            "montage_filename": "relationships_montage.png",
+            "montage_row_order": ["control", "candidate"],
+            "montage_column_order": [
+                "source topology q33", "source topology q67",
+                "terminal-mouth catchments / boundary proxies / depressions q33",
+                "terminal-mouth catchments / boundary proxies / depressions q67"
+            ],
+        },
         "cameras": views.iter().map(|view| &view.sidecar).collect::<Vec<_>>(),
         "render": {
             "rows": render_records,
@@ -5457,6 +5578,8 @@ fn run_rds0_terrain_packet(opts: &SweepOptions) {
             "RDS0 consumes no lithospheric inheritance relationships by construction",
             "the ordinary center-owner map omits some active coarse donors and is retained only as preflight evidence; terrain forcing uses one strict exact polygon-overlap map shared by control and all four frames",
             "physical and Authentic rows change renderer displacement only; both show identical semantic terrain state",
+            "relationship colors are renderer-only physical-relief diagnostics over the same terrain state; white catchment boundaries are terminal-mouth graph-label proxies, not geomorphic divide claims",
+            "rigorous saddle extraction is deliberately omitted from this RAM-bounded first readout because the existing exact implementation materializes a second full f64 spherical process-mesh graph",
         ],
         "consumed_inheritance_relationship_ids": [],
     });

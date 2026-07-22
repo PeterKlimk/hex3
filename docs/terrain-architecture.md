@@ -366,11 +366,13 @@ closes every active donor and provenance ledger without changing the mesh or
 inventing a smoothing width. Under one continuous, fixed demoted-Legacy budget,
 the moving four-frame arm materially changes local relief and 56.6% of support
 drainage receivers. Matched views replace the control roof with finite linked
-lobes, lows and differentiated ends, but also expose possible perforated-amoeba
-or bead grammar and a surviving broad roof. This is a provisional narrow pass,
-not a promoted terrain owner or generated history. Human review and one exact
-source→highland→drainage relationship readout decide whether it earns the
-other fixed worlds; no width, source-rate or erosion tuning is licensed.
+lobes, lows and differentiated ends, but the fixed relationship readout shows
+that the apparent intermontane organization is a dense closed-depression
+grammar: 100 support depressions versus 3, 86 entering highland, and no
+represented major-river cell inside any highland component. RDS0 is therefore
+rejected as sufficient terrain ownership. Its source representation and exact
+transfer remain reusable; no other worlds, generated prior, width, source-rate
+or erosion tuning are licensed for this composition.
 
 ## Slice B — causal dual drainage/divide construction
 

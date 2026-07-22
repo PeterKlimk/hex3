@@ -74,8 +74,12 @@ pub struct WorldBuffers {
     pub unified_vertex_buffer: wgpu::Buffer,
     pub unified_index_buffer: wgpu::Buffer,
     pub num_unified_indices: u32,
-    /// Presentation palette currently baked into the unified relief mesh.
+    /// Ordinary presentation palette most recently selected for the unified
+    /// relief mesh. A research diagnostic may temporarily override its baked
+    /// colors; `surface_palette_is_current` prevents this value from suppressing
+    /// the next ordinary palette rebuild.
     pub surface_palette: SurfacePalette,
+    surface_palette_is_current: bool,
     // Relief wireframe: built lazily the first time edges are shown, so its
     // large allocation (hundreds of MiB at the 2.5M-cell fine mesh) never
     // coincides with the fill-mesh rebuild. `None` after every buffer regen.
@@ -183,7 +187,7 @@ pub fn regenerate_surface_palette(
     buffers: &mut WorldBuffers,
     palette: SurfacePalette,
 ) -> Result<(), &'static str> {
-    if buffers.surface_palette == palette {
+    if buffers.surface_palette == palette && buffers.surface_palette_is_current {
         return Ok(());
     }
     let mesh = build_surface_palette_mesh(world, palette)?;
@@ -196,6 +200,47 @@ pub fn regenerate_surface_palette(
     }
     queue.write_buffer(&buffers.unified_vertex_buffer, 0, bytes);
     buffers.surface_palette = palette;
+    buffers.surface_palette_is_current = true;
+    Ok(())
+}
+
+/// Replace the unified relief mesh's colors with one diagnostic color per
+/// active Stage-4 cell.
+///
+/// This is presentation-only: mesh positions still come from the ordinary
+/// physical elevation (including lake/ocean display handling), material IDs
+/// still come from [`cell_material`], and topology still comes from the active
+/// Voronoi surface. The supplied colors are not written into `World`. Calling
+/// [`regenerate_surface_palette`] restores an ordinary palette, including when
+/// it is the same palette selected before this diagnostic override.
+#[cfg(feature = "research-landscape")]
+pub fn regenerate_diagnostic_surface_colors(
+    queue: &wgpu::Queue,
+    world: &World,
+    buffers: &mut WorldBuffers,
+    cell_colors: &[Vec3],
+) -> Result<(), &'static str> {
+    if world.current_stage() < 4 || world.view_stage() < 4 {
+        return Err("diagnostic surface colors require the active Stage-4 surface");
+    }
+    if cell_colors.len() != world.active_tessellation().num_cells() {
+        return Err("diagnostic surface color count must match active cell count");
+    }
+    if cell_colors.iter().any(|color| !color.is_finite()) {
+        return Err("diagnostic surface colors must be finite");
+    }
+
+    let mesh = build_unified_mesh(world, |i| cell_colors[i]);
+    if mesh.indices.len() as u32 != buffers.num_unified_indices {
+        return Err("diagnostic surface colors unexpectedly changed relief topology");
+    }
+    let bytes = bytemuck::cast_slice(&mesh.vertices);
+    if bytes.len() as u64 != buffers.unified_vertex_buffer.size() {
+        return Err("diagnostic surface colors unexpectedly changed relief vertex count");
+    }
+
+    queue.write_buffer(&buffers.unified_vertex_buffer, 0, bytes);
+    buffers.surface_palette_is_current = false;
     Ok(())
 }
 
@@ -1003,6 +1048,7 @@ fn generate_world_buffers_internal(
         unified_index_buffer: create_index_buffer(device, &unified_mesh.indices, "unified_index"),
         num_unified_indices: unified_mesh.indices.len() as u32,
         surface_palette: SurfacePalette::Terrain,
+        surface_palette_is_current: true,
         // Built lazily on first show; see generate_relief_edge_buffers.
         relief_edge: None,
 

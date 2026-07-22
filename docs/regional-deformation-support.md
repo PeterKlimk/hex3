@@ -1,7 +1,7 @@
 # Regional deformation support
 
-Status: **current proposed architecture; coarse source and one process-mesh
-terrain discriminator implemented; provisional narrow pass, not promoted**,
+Status: **coarse source retained; exact-overlap process-mesh discriminator
+implemented and rejected as sufficient terrain ownership, not promoted**,
 2026-07-23.
 
 This document defines the missing seam between corrected plate-boundary work and
@@ -330,21 +330,30 @@ falls `0.331 -> 0.238` and maximum elevation falls `1.526 -> 1.067`. These are
 redistribution signatures, not evidence by themselves of good landforms or
 coherent drainage.
 
-Matched physical and Authentic views give RDS0b a **provisional narrow terrain
-pass, not promotion**. The q33 view changes isolated smooth roofs into a linked,
-forked multi-lobe system; q67 gains an irregular finite arc, supported lows and
-a terminal differentiated chain. No repeated comb or coarse-owner seam is
-apparent. The ambiguity is material: q33 also reads partly as a perforated
-amoeba with round holes or crater-like rims, and q67 retains a broad lower roof.
-Major trunks, catchments and divides are not legible enough to decide whether
-those lows are causal relay/intermontane organization or synthetic beads.
+Matched physical and Authentic views initially gave RDS0b a provisional narrow
+terrain pass: q33 formed linked/forked lobes and q67 gained irregular finite
+ends. The fixed relationship readout rejects that interpretation. Candidate
+support intersects 100 topographic depressions versus 3 in the static control;
+86 candidate depressions enter the physical >1.5 km highland, several with
+3–6.5 km sill relief. Their rendered mask lands directly on the suspicious
+round holes. Source opportunity in depressions rises from 0.24% to 3.38%, and
+many depression boundaries have much stronger source than their interiors.
 
-Human visual judgment remains required. If it agrees that the relationships
-are promising, the next bounded evidence is on this exact run: overlay source
-provenance with highland components/ends/saddles, catchments/divides and major
-trunk crossings. Only coherent relationships earn the other fixed worlds and a
-generated-history prior. Failure kills RDS0 as sufficient terrain ownership;
-it does not license a width, epoch or erosion tuning pass.
+The candidate also merges the two dominant control highlands (3.44 and 3.04
+million km²) into one 8.76 million km² component containing 2,870 depression
+cells and 27 terminal-mouth catchments. None of the highland components in
+either arm contains a represented major-river cell, so changed receiver labels
+do not rescue the holes as coherent trunk/divide organization. The lightweight
+readout deliberately omits the repository's exact spherical saddle hierarchy:
+materializing a second full f64 process-mesh geometry is not justified once the
+cheaper depression and trunk evidence already falsifies the mechanism.
+
+Therefore RDS0a remains useful source representation and the exact overlap
+transfer remains useful infrastructure, but RDS0 is **rejected as sufficient
+terrain ownership**. Do not broaden to other worlds, generate a history prior,
+or tune width, epochs, floors or erosion to rescue it. The next terrain design
+must add a missing causal relationship rather than treating moving positive
+support alone as the owner of regional relief.
 
 ## Deliberate omissions and later representation
 

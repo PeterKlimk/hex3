@@ -223,13 +223,16 @@ budgets; its shared floor is only 9.8%, and the candidate rejects at most 0.70%
 offshore before explicit survivor normalization. Candidate support elevation
 RMSE is `0.305`; 56.6% of drainage receivers change. q33 visibly becomes a
 linked/forked multi-lobe system and q67 gains finite irregular ends and lows,
-so the result is not another unchanged smooth mound. It is not a clean pass:
-round holes/crater-like rims can read as perforated amoeba or beads, q67 retains
-a broad roof, and represented major rivers do not establish coherent
-catchment/divide/trunk relationships. Treat as a provisional narrow mechanism
-pass pending human review. If retained, inspect those exact relationships on
-this run before any other seed or generated prior; if they are synthetic, kill
-RDS0 as sufficient ownership without tuning it.
+so the result is not another unchanged smooth mound. The follow-up relationship
+readout resolves the ambiguity negatively. Candidate support intersects 100
+topographic depressions versus 3 in control; 86 enter the >1.5 km highland and
+several have 3–6.5 km sill relief. The blue depression overlay lands directly
+on the round q33/q67 holes. Candidate source in depressions rises from 0.24% to
+3.38%; its main 8.76 million km² highland contains 2,870 depression cells and
+27 terminal-mouth catchments, yet no highland component contains a represented
+major-river cell. This is perforated support grammar, not demonstrated
+intermontane/trunk/divide organization. Reject RDS0 as sufficient ownership
+without tuning it; retain source semantics and conservative overlap transfer.
 
 The transverse-trunk proxy remains too sparse to attribute later local
 sharpening among incision, hillslopes and capture.

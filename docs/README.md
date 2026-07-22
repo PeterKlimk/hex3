@@ -25,7 +25,8 @@ audits and archived material are evidence, not current policy.
 - [Regional deformation support](regional-deformation-support.md) — selected
   research-only seam between corrected boundary work and landscape response;
   coarse source gate and one fixed process-mesh terrain discriminator
-  implemented; provisional narrow pass awaiting human visual judgment.
+  implemented and rejected as sufficient terrain ownership after the fixed
+  relationship readout exposed dense source-linked closed-depression grammar.
 - [Lithosphere Inheritance V0](lithosphere-inheritance.md)
 - [Structural Mountain V0](structural-mountain.md)
 - [Living Surface V0](living-surface.md)
