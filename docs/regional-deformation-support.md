@@ -1,7 +1,8 @@
 # Regional deformation support
 
-Status: **current proposed architecture; research-only vertical slice selected;
-not implemented or promoted**, 2026-07-23.
+Status: **current proposed architecture; coarse source-representation gate
+implemented and passed narrowly; process-mesh/terrain slice not implemented or
+promoted**, 2026-07-23.
 
 This document defines the missing seam between corrected plate-boundary work and
 the coupled landscape response. It refines the
@@ -35,7 +36,9 @@ and migration without painting final ridges or valleys.
 
 Do not begin with a product framework, a parameter ladder or a multi-seed
 campaign. First run one fixed-budget mechanism discriminator on seed `8675309`,
-episode `9`, at the ordinary fine resolution.
+episode `9`. Its first gate is the terrain-independent authoritative coarse
+source raster; only a valid source representation earns conservative transfer
+to the ordinary process mesh and a terrain comparison.
 
 ## Evidence that changes the decision
 
@@ -220,23 +223,28 @@ not an omission policy.
 
 ## One bounded vertical slice
 
-Use seed `8675309`, episode `9`, the ordinary roughly 256k-cell fine surface and
-the accepted 127 km signed source operation. Compare only:
+Use seed `8675309`, episode `9` and the accepted 127 km signed source operation.
+Compare only:
 
 - **control:** current conservative rate, one nearest present-front owner and
-  static asymmetric profile;
+  static gentle receiver-side profile;
 - **counterfactual:** the identical corrected parent work and age envelope,
   conservatively partitioned among a small finite growth/link/retirement
   sequence with cross-front movement and additive overlap.
 
-Before terrain, show the two-dimensional support, fabric and provenance; prove
-per-parent closure, subdivision invariance and the absence of nearest-owner
-bisector seams. Confirm whether the selected parent consumes any named
-inheritance. If it does not, inheritance must be exactly neutral.
+First evaluate both sources on the 100k-cell authoritative coarse material
+raster. This keeps terrain, adaptive process-mesh density and Legacy state out
+of the source decision. Show two-dimensional support, fabric and provenance;
+prove per-parent closure, continuous edge partition and additive overlap. This
+gate cannot establish coarse-to-fine conservation or terrain morphology.
 
-Then run one terrain pair with identical non-orogenic base, precipitation,
-erosion response, total Legacy-derived builder budget and physical/diagnostic
-presentation. Human review remains necessary.
+Only if the source representation is valid, add a conservative coarse-to-process
+transfer and run one terrain pair on the ordinary roughly 256k-cell surface with
+identical non-orogenic base, precipitation, erosion response, total
+Legacy-derived builder budget and physical/diagnostic presentation. Confirm
+whether the selected parent consumes any named inheritance before that run; if
+it does not, inheritance must be exactly neutral. Human review remains
+necessary.
 
 The counterfactual passes only if it retains comb removal and changes a
 regional object relationship: finite range/massif ends, a supported saddle or
@@ -250,6 +258,47 @@ isolated hot spots, owner seams or only fine texture; if organization depends on
 inheritance absent from the generated source; or if the existing response
 erases materially different support. Do not respond with a width or epoch-count
 sweep.
+
+## RDS0a source-representation result
+
+RDS0a implements one fixed dyadic-relay counterfactual behind the
+`research-landscape` feature. It selects the episode parent with greatest
+corrected positive flux, then evaluates four equal relative frames:
+
+1. two half-length precursors at the boundary;
+2. overlapping grown precursors displaced by one third of the accepted source
+   width;
+3. the two retiring precursors plus one overlapping linked successor; and
+4. one full-length successor displaced by four thirds of the source width.
+
+At every along-strike position the active elements share exactly one unit of
+the corrected source. Collision sides receive an explicit 50/50 partition;
+subduction uses only the receiver. Each element is independently
+area-normalized on the connected plate/material component and contributions
+add. Complete parent geometry remains available through locally zero-rate
+edges. Unsupported work is retained as a typed omission rather than redirected
+to the control.
+
+For seed `8675309`, episode `9`, the selected parent is a 342-edge continental
+collision between plates 1 and 8, `16,588.154 km` long and `100 Myr` old. Its
+corrected positive flux is `442,424.987 km²/Myr`; the four 25 Myr frames close
+to a time integral of `44,242,498.666 km²`. Program residuals are at most
+`5.3e-10 km²/Myr`. The control and all four coarse rasters have zero omissions;
+mesh residuals are at most `1.4e-9 km²/Myr`. Active-cell counts are
+`1626 / 1088 / 1454 / 2283 / 2175` for control then frames 0–3. Additive
+overlap is observed in `10 / 373 / 1041 / 0` frame cells, rather than resolved
+by a nearest-element winner. An exact repeat reproduces the program, raster and
+PNG hashes.
+
+The five matched source panels show a real representation change: finite lobes
+grow, overlap, link and move across the receiving material without periodic
+ribs or an edge-rate comb. This is a **narrow pass of the source-representation
+gate**, not evidence that the prior is geologically sufficient or improves a
+mountain. The coarse raster cannot yet prove process-mesh resampling, final
+relief, drainage organization or human visual value. The next task is therefore
+one conservative coarse-to-process adapter and the already specified terrain
+pair—not another source width, epoch count, seed campaign or generated-history
+framework.
 
 ## Deliberate omissions and later representation
 

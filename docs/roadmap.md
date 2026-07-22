@@ -214,12 +214,13 @@ parameter sweep or jump directly to Slice B.
 The selected next seam is
 [regional deformation support](regional-deformation-support.md): a conservative
 two-dimensional, time-indexed deformation-opportunity program between corrected
-boundary work and the coupled surface response. The first task is one
-seed-`8675309`, episode-`9`, fixed-budget reduced-kinematic counterfactual with
-finite growth, overlap/linkage, retirement and cross-front movement. It is a
-mechanism discriminator, not a reconstructed history or product candidate.
-Only a regional terrain/drainage consequence can justify choosing a generated
-history prior or consuming the carrier replay afterward.
+boundary work and the coupled surface response. Its source-only RDS0a gate is
+complete on seed `8675309`, episode `9`: the fixed growth/linkage/retirement
+sequence closes its program and coarse-raster ledgers, retains explicit 50/50
+collision sides, produces additive overlap and has no omissions. This earns one
+conservative coarse-to-process transfer and fixed terrain pair. It does not yet
+earn a generated-history prior, carrier replay, parameter ladder or product
+promotion; only a regional terrain/drainage consequence can do that.
 
 ## Completed bounded decisions
 

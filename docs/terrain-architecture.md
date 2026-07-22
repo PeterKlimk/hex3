@@ -1,8 +1,8 @@
 # Terrain architecture design space
 
 Status: **current design-space decision; static-support Slice A is insufficient;
-regional deformation support is the selected research seam; no replacement is
-promoted**, 2026-07-23.
+regional deformation source representation has passed its coarse gate; no
+process-mesh terrain replacement is promoted**, 2026-07-23.
 
 This document defines the terrain ownership boundary and the smallest credible
 alternatives to Legacy. It does not change product behavior. Legacy remains the
@@ -357,14 +357,16 @@ rejected as sufficient terrain architecture. The `105` scheduled-source peak
 count is secondary fine-support variation, not visual evidence against that
 reading: only 29 peaks survive into a terrain that reads smooth.
 
-The next seam is the proposed
-[regional deformation program](regional-deformation-support.md), not another
-width, source-rate or erosion tuning pass and not an immediate jump to Slice B.
-It conservatively turns finite boundary work into a sparse, time-indexed,
-two-dimensional deformation-opportunity program with true ends, overlap,
-linkage, retirement and explicit material provenance. Its first step is one
-fixed-budget reduced-kinematic counterfactual on the same seed and episode,
-not a product history claim or broad campaign.
+The selected
+[regional deformation program](regional-deformation-support.md) now has a
+source-only RDS0a implementation. On the authoritative coarse material raster,
+its fixed reduced-kinematic sequence conserves the selected parent's work,
+keeps collision sides 50/50, produces additive growth/linkage overlap and has
+no omissions. This narrowly passes the representation gate: it establishes a
+usable two-dimensional source seam, not a mountain or generated history. The
+next seam is conservative transfer to the ordinary process mesh followed by
+the one fixed terrain pair, not another width, source-rate or erosion tuning
+pass and not an immediate jump to Slice B.
 
 ## Slice B — causal dual drainage/divide construction
 

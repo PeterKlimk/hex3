@@ -56,6 +56,8 @@ mod living_surface;
 mod moisture;
 mod plates;
 mod provenance;
+#[cfg(feature = "research-landscape")]
+mod regional_deformation;
 mod semantics;
 mod shoreline;
 mod structural_attribution;
@@ -136,6 +138,19 @@ pub use living_surface::{
 pub use plates::Plates;
 pub use provenance::{
     BuildProvenance, FineCacheOutcome, FineCacheRecord, RunManifest, UnitManifest,
+};
+#[cfg(feature = "research-landscape")]
+pub use regional_deformation::{
+    build_regional_deformation_rds0_v0, evaluate_regional_deformation_frame_v0,
+    evaluate_regional_deformation_static_control_v0, RegionalDeformationBuildErrorV0,
+    RegionalDeformationCellContributionV0, RegionalDeformationCorrectedRateV0,
+    RegionalDeformationElementFrameV0, RegionalDeformationElementIdV0,
+    RegionalDeformationElementKindV0, RegionalDeformationElementStateV0,
+    RegionalDeformationFrameLedgerV0, RegionalDeformationFrameV0, RegionalDeformationMaterialV0,
+    RegionalDeformationOmissionReasonV0, RegionalDeformationOmissionV0,
+    RegionalDeformationProgramV0, RegionalDeformationRasterErrorV0,
+    RegionalDeformationRasterLedgerV0, RegionalDeformationRasterV0, RegionalDeformationRegimeV0,
+    RegionalDeformationSideV0, RegionalDeformationSourceAllocationV0, RDS0_FRAME_COUNT,
 };
 pub use semantics::{
     RiverMouth, RiverNetwork, RiverReach, RiverSelection, RiverThresholdPolicy, SemanticWaterBody,

@@ -197,6 +197,19 @@ organize an uplift field before erosion. The selected first discriminator is
 one fixed-budget, reduced-kinematic episode-9 counterfactual with those
 consequences. It must conserve the corrected parent work and may not consume
 terrain, current land, absent inheritance or renderer state.
+
+RDS0a now passes that source-representation gate narrowly. The fixed seed and
+episode select a `16,588 km`, 342-edge continental collision parent carrying
+`442,424.987 km²/Myr` for `100 Myr`. Four equal dyadic-relay frames preserve
+the full `44,242,498.666 km²` time integral; collision sides close independently
+at 50/50, all coarse source rasters have zero omissions, and the largest mesh
+residual is `1.4e-9 km²/Myr`. Frame-2 overlap is genuinely additive rather than
+nearest-owned. The matched panels show finite support growth, overlap, linkage
+and movement without the old edge-rate comb or periodic ribs. This does not
+answer whether the ordinary process mesh, terrain response or drainage makes
+the mechanism useful. Next implement one conservative coarse-to-process
+transfer and the fixed terrain pair; do not broaden the source experiment.
+
 The transverse-trunk proxy remains too sparse to attribute later local
 sharpening among incision, hillslopes and capture.
 The clean source-only record is retained in

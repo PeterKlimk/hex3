@@ -45,6 +45,16 @@ path = "src/bin/orogen_organization_graph.rs"
 required-features = ["research-landscape"]
 
 [[bin]]
+name = "rds0_support"
+path = "src/bin/rds0_support.rs"
+required-features = ["research-landscape"]
+
+[[bin]]
+name = "structural_mountain_organization_audit"
+path = "src/bin/structural_mountain_organization_audit.rs"
+required-features = ["research-landscape"]
+
+[[bin]]
 name = "orogen_testbed"
 path = "src/bin/orogen_testbed.rs"
 required-features = ["research-landscape"]
