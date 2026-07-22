@@ -1248,6 +1248,62 @@ impl FineSurface {
         ))
     }
 
+    /// Research-only B0 upper bound: derive a sparse channel graph from the
+    /// product receiver forest, then reconstruct the continuous non-channel
+    /// surface from deformation opportunity as a steady hillslope source.
+    /// The removed Legacy relief contributes only a capped solid/relief budget;
+    /// opportunity is never interpreted as cell height.
+    #[cfg(feature = "research-landscape")]
+    pub fn generate_channel_hillslope_dual_b0(
+        base: &FineBase,
+        pre_hydrology: &Hydrology,
+        params: ErosionParams,
+        mean_opportunity_per_myr: &[f64],
+        axial_fabric: &[Vec3],
+    ) -> Result<(Self, super::erosion::B0DrainageDualResultV0), super::erosion::B0DrainageDualErrorV0>
+    {
+        let structured_base = &base.base_elevation;
+        let lake_base = terminal_lake_base_levels(&base.tessellation, pre_hydrology);
+        let precip = normalize_fine_precipitation(
+            &base.tessellation,
+            structured_base,
+            &base.fields.elevation_fields.continentality,
+            &base.fields.precipitation,
+        );
+        let result = super::erosion::reconstruct_b0_drainage_dual_v0(
+            &base.tessellation,
+            structured_base,
+            &base.coarse_base_elevation,
+            &precip,
+            mean_opportunity_per_myr,
+            axial_fabric,
+            &lake_base,
+            params.m,
+            params.n,
+        )?;
+        let mut final_precip = fine_precipitation(
+            &base.tessellation,
+            &result.elevation,
+            &base.fields.wind,
+            &base.fields.precipitation,
+            params.orographic_precip_strength,
+            params.downwind_shadow_strength,
+        );
+        final_precip = normalize_fine_precipitation(
+            &base.tessellation,
+            &result.elevation,
+            &base.fields.elevation_fields.continentality,
+            &final_precip,
+        );
+        let surface = Self::from_eroded(
+            base,
+            &result.elevation,
+            &final_precip,
+            params.lake_evap_strength,
+        );
+        Ok((surface, result))
+    }
+
     fn generate_impl(
         seed: u64,
         base: &FineBase,

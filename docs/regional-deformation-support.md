@@ -355,16 +355,18 @@ or tune width, epochs, floors or erosion to rescue it. The next terrain design
 must add a missing causal relationship rather than treating moving positive
 support alone as the owner of regional relief.
 
-The selected follow-up is the bounded product-native channel/hillslope dual in
-[terrain architecture](terrain-architecture.md).
-It consumes RDS frames, fabric and additive provenance as conditioning state,
-not as per-frame positive height. Exact overlap transfer therefore survives,
-while the rejected Legacy-budget opportunity adapter does not. The first slice
-separates possible all-cell drainage, promoted channels and non-channel
-hillslopes, then requires one reconciled product surface and hydrology to retain
-their catchment/divide relationships. RDS0's dyadic element schedule remains a
-fixed counterfactual input; passing this follow-up would not make it a generated
-geological prior.
+The bounded product-native channel/hillslope follow-up in
+[terrain architecture](terrain-architecture.md) is now complete and negative.
+It consumes compact RDS opportunity/fabric as conditioning state rather than
+per-frame height, separates all-cell drainage, sparse slope-area channels and a
+finite-volume non-channel surface, and finalizes through product hydrology. Its
+promoted edges are monotonic, but only 41.59% of support receivers and 58.01%
+of promoted-channel receivers survive the final reroute; the terrain becomes
+mostly flat with isolated narrow remnants. Exact overlap and compact RDS state
+therefore survive as infrastructure; neither the rejected
+Legacy-budget opportunity adapter nor B0 terrain ownership does. The dyadic
+element schedule remains a fixed counterfactual, not a generated geological
+prior.
 
 ## Deliberate omissions and later representation
 

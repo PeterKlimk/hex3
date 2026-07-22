@@ -44,7 +44,7 @@ use hex3::world::{
     build_regional_deformation_overlap_map_v0, build_regional_deformation_rds0_v0,
     collect_convergent_fronts, collect_plate_boundaries, evaluate_regional_deformation_frame_v0,
     evaluate_regional_deformation_static_control_v0,
-    transfer_regional_deformation_raster_with_overlap_v0, FineSurface,
+    transfer_regional_deformation_raster_with_overlap_v0, B0DrainageDualResultV0, FineSurface,
     LegacyBudgetOpportunityAuditV0, RegionalDeformationProgramV0,
     RegionalDeformationRasterLedgerV0, RegionalDeformationRasterV0, PHYSICAL_RELIEF_SCALE,
     RDS0_FRAME_COUNT,
@@ -4595,6 +4595,8 @@ const RDS0_TERRAIN_COARSE_CELLS: usize = 100_000;
 const RDS0_TERRAIN_FINE_CAP: usize = 250_000;
 #[cfg(feature = "research-landscape")]
 const RDS0_TERRAIN_EPISODE: usize = 9;
+#[cfg(feature = "research-landscape")]
+const RDS0_TERRAIN_ARM_COUNT: usize = 3;
 
 #[cfg(feature = "research-landscape")]
 #[derive(Debug, Serialize)]
@@ -4644,6 +4646,21 @@ struct Rds0RenderRecord {
     presentation: &'static str,
     relief_scale: f32,
     image_filenames: Vec<String>,
+}
+
+#[cfg(feature = "research-landscape")]
+#[derive(Debug, Serialize)]
+struct B0ScaffoldFinalAuditV0 {
+    scaffold_receiver_fnv1a64: String,
+    promoted_channel_fnv1a64: String,
+    strahler_order_fnv1a64: String,
+    scaffold_terminal_count: usize,
+    final_receiver_agreement_fraction: f64,
+    support_receiver_agreement_fraction: f64,
+    promoted_channel_receiver_agreement_fraction: f64,
+    mismatch_cell_count: usize,
+    montage_filename: &'static str,
+    montage_column_order: [&'static str; 2],
 }
 
 #[cfg(feature = "research-landscape")]
@@ -4972,6 +4989,159 @@ fn rds0_capture_views(opts: &SweepOptions, parent_centers: [Vec3; 2]) -> Vec<Cap
 }
 
 #[cfg(feature = "research-landscape")]
+fn b0_scaffold_colors_and_audit(
+    result: &B0DrainageDualResultV0,
+    surface: &FineSurface,
+    support: &[bool],
+) -> (Vec<Vec3>, B0ScaffoldFinalAuditV0) {
+    let n = result.scaffold_receiver.len();
+    assert_eq!(surface.hydrology.drainage_dir.len(), n);
+    assert_eq!(support.len(), n);
+
+    let mut terminal = vec![usize::MAX; n];
+    for start in 0..n {
+        if terminal[start] != usize::MAX {
+            continue;
+        }
+        let mut path = Vec::new();
+        let mut cell = start;
+        while terminal[cell] == usize::MAX && result.scaffold_receiver[cell] != cell {
+            path.push(cell);
+            cell = result.scaffold_receiver[cell];
+        }
+        let sink = if terminal[cell] != usize::MAX {
+            terminal[cell]
+        } else {
+            terminal[cell] = cell;
+            cell
+        };
+        for member in path {
+            terminal[member] = sink;
+        }
+    }
+
+    let agrees = |cell: usize| {
+        let scaffold = result.scaffold_receiver[cell];
+        surface.hydrology.drainage_dir[cell] == Some(scaffold)
+            || (scaffold == cell && surface.hydrology.drainage_dir[cell].is_none())
+    };
+    let mut agreement = 0usize;
+    let mut support_agreement = 0usize;
+    let mut support_count = 0usize;
+    let mut channel_agreement = 0usize;
+    let mut channel_count = 0usize;
+    let mut colors = Vec::with_capacity(n);
+    for cell in 0..n {
+        let same = agrees(cell);
+        agreement += usize::from(same);
+        if support[cell] {
+            support_count += 1;
+            support_agreement += usize::from(same);
+        }
+        if result.promoted_channel[cell] {
+            channel_count += 1;
+            channel_agreement += usize::from(same);
+        }
+
+        let hash = terminal[cell].wrapping_mul(0x9e37_79b1);
+        let mut color = Vec3::new(
+            0.12 + 0.18 * ((hash & 255) as f32 / 255.0),
+            0.12 + 0.18 * (((hash >> 8) & 255) as f32 / 255.0),
+            0.12 + 0.18 * (((hash >> 16) & 255) as f32 / 255.0),
+        );
+        if result.promoted_channel[cell] {
+            let order = result.scaffold_strahler_order[cell].min(5) as f32;
+            color = Vec3::new(0.05, 0.55 + 0.08 * order, 0.9);
+        }
+        if !same {
+            color = Vec3::new(0.95, 0.08, 0.04);
+        }
+        colors.push(color);
+    }
+    let terminal_count = terminal.iter().copied().collect::<BTreeSet<_>>().len();
+    let audit = B0ScaffoldFinalAuditV0 {
+        scaffold_receiver_fnv1a64: rds0_fnv1a64(
+            result.scaffold_receiver.iter().map(|&cell| cell as u64),
+        ),
+        promoted_channel_fnv1a64: rds0_fnv1a64(
+            result
+                .promoted_channel
+                .iter()
+                .map(|&value| u64::from(value)),
+        ),
+        strahler_order_fnv1a64: rds0_fnv1a64(
+            result
+                .scaffold_strahler_order
+                .iter()
+                .map(|&order| u64::from(order)),
+        ),
+        scaffold_terminal_count: terminal_count,
+        final_receiver_agreement_fraction: agreement as f64 / n.max(1) as f64,
+        support_receiver_agreement_fraction: support_agreement as f64 / support_count.max(1) as f64,
+        promoted_channel_receiver_agreement_fraction: channel_agreement as f64
+            / channel_count.max(1) as f64,
+        mismatch_cell_count: n - agreement,
+        montage_filename: "b0_scaffold_montage.png",
+        montage_column_order: ["selected-parent-q33", "selected-parent-q67"],
+    };
+    (colors, audit)
+}
+
+#[cfg(feature = "research-landscape")]
+#[allow(clippy::too_many_arguments)]
+fn render_b0_scaffold(
+    opts: &SweepOptions,
+    gpu: &GpuContext,
+    renderer: &mut Renderer,
+    color_texture: &wgpu::Texture,
+    color_view: &wgpu::TextureView,
+    views: &[CaptureView],
+    world: &mut World,
+    colors: &[Vec3],
+) {
+    let mut buffers = generate_world_buffers(&gpu.device, &gpu.queue, world);
+    regenerate_diagnostic_surface_colors(&gpu.queue, world, &mut buffers, colors)
+        .unwrap_or_else(|error| panic!("B0 scaffold colors: {error}"));
+    let montage_width = opts.width * (views.len() as u32 - 1);
+    let mut montage = vec![0; (montage_width * opts.height * 4) as usize];
+    for (column, view) in views.iter().skip(1).enumerate() {
+        render_relief(
+            gpu,
+            renderer,
+            color_view,
+            &buffers,
+            view.view_proj,
+            view.eye,
+            RiverMode::Off,
+            PHYSICAL_RELIEF_SCALE,
+            1.0,
+        );
+        let rgba = read_back_rgba(gpu, color_texture, opts.width, opts.height);
+        write_png(
+            &opts.out_dir.join(format!("b0_scaffold_{}.png", view.label)),
+            &rgba,
+            opts.width,
+            opts.height,
+        );
+        blit_tile(
+            &mut montage,
+            montage_width,
+            &rgba,
+            opts.width,
+            opts.height,
+            column as u32,
+            0,
+        );
+    }
+    write_png(
+        &opts.out_dir.join("b0_scaffold_montage.png"),
+        &montage,
+        montage_width,
+        opts.height,
+    );
+}
+
+#[cfg(feature = "research-landscape")]
 #[allow(clippy::too_many_arguments)]
 fn render_rds0_surface(
     opts: &SweepOptions,
@@ -5001,7 +5171,7 @@ fn render_rds0_surface(
     let mut records = Vec::with_capacity(presentations.len());
     for (presentation_index, (presentation, relief_scale)) in presentations.into_iter().enumerate()
     {
-        let montage_row = presentation_index * 2 + arm_index;
+        let montage_row = presentation_index * RDS0_TERRAIN_ARM_COUNT + arm_index;
         let mut filenames = Vec::with_capacity(views.len());
         for (view_index, view) in views.iter().enumerate() {
             render_relief(
@@ -5371,11 +5541,9 @@ fn run_rds0_terrain_packet(opts: &SweepOptions) {
             .expect("history generated")
             .lookback_myr,
     );
-    let control_schedule = [&fine_control; RDS0_FRAME_COUNT];
-    let candidate_schedule: [&RegionalDeformationRasterV0; RDS0_FRAME_COUNT] =
-        std::array::from_fn(|frame| &fine_frames[frame]);
     let (control_surface, control_audit): (FineSurface, LegacyBudgetOpportunityAuditV0) = {
         let fine = world.fine.as_ref().unwrap();
+        let control_schedule = [&fine_control; RDS0_FRAME_COUNT];
         FineSurface::generate_regional_deformation_v0(
             opts.seed,
             &fine.base,
@@ -5425,10 +5593,10 @@ fn run_rds0_terrain_packet(opts: &SweepOptions) {
     let color_view = color_texture.create_view(&Default::default());
     let views = rds0_capture_views(opts, parent_centers);
     let montage_width = opts.width * views.len() as u32;
-    let montage_height = opts.height * 4;
+    let montage_height = opts.height * (2 * RDS0_TERRAIN_ARM_COUNT) as u32;
     let mut montage = vec![0; (montage_width * montage_height * 4) as usize];
     let relationship_montage_width = opts.width * (views.len() as u32 - 1) * 2;
-    let relationship_montage_height = opts.height * 2;
+    let relationship_montage_height = opts.height * RDS0_TERRAIN_ARM_COUNT as u32;
     let mut relationship_montage =
         vec![0; (relationship_montage_width * relationship_montage_height * 4) as usize];
     let (mut render_records, mut relationship_render_records) = render_rds0_surface(
@@ -5453,6 +5621,8 @@ fn run_rds0_terrain_packet(opts: &SweepOptions) {
 
     let (candidate_surface, candidate_audit): (FineSurface, LegacyBudgetOpportunityAuditV0) = {
         let fine = world.fine.as_ref().unwrap();
+        let candidate_schedule: [&RegionalDeformationRasterV0; RDS0_FRAME_COUNT] =
+            std::array::from_fn(|frame| &fine_frames[frame]);
         FineSurface::generate_regional_deformation_v0(
             opts.seed,
             &fine.base,
@@ -5485,6 +5655,8 @@ fn run_rds0_terrain_packet(opts: &SweepOptions) {
     )
     .expect("RDS0 candidate relationship readout");
     let candidate_relationship_summary = candidate_relationship.summary.clone();
+    let candidate_elevation = candidate_surface.elevation.values.clone();
+    let candidate_drainage = candidate_surface.hydrology.drainage_dir.clone();
     let (candidate_render_records, candidate_relationship_render_records) = render_rds0_surface(
         opts,
         &gpu,
@@ -5501,10 +5673,85 @@ fn run_rds0_terrain_packet(opts: &SweepOptions) {
         &candidate_relationship,
         "candidate",
         1,
-        true,
+        false,
     );
     render_records.extend(candidate_render_records);
     relationship_render_records.extend(candidate_relationship_render_records);
+    drop(candidate_relationship);
+    drop(fine_control);
+    drop(fine_frames);
+
+    let (b0_surface, b0_result) = {
+        let fine = world.fine.as_ref().unwrap();
+        FineSurface::generate_channel_hillslope_dual_b0(
+            &fine.base,
+            &fine.pre.hydrology,
+            params,
+            &candidate_source_relationship.mean_source_density_per_myr,
+            &candidate_source_relationship.axial_fabric,
+        )
+        .expect("RDS0 B0 channel/hillslope-dual terrain")
+    };
+    let b0_summary = rds0_surface_summary(&b0_surface);
+    let b0_local_summary = rds0_local_surface_summary(
+        &world.fine.as_ref().unwrap().base.tessellation,
+        &target_land_union_support,
+        &b0_surface,
+    );
+    let b0_minus_control = rds0_surface_delta(
+        &control_elevation,
+        &b0_surface.elevation.values,
+        &target_land_union_support,
+        &control_drainage,
+        &b0_surface.hydrology.drainage_dir,
+    );
+    let b0_minus_candidate = rds0_surface_delta(
+        &candidate_elevation,
+        &b0_surface.elevation.values,
+        &target_land_union_support,
+        &candidate_drainage,
+        &b0_surface.hydrology.drainage_dir,
+    );
+    let b0_relationship = analyze_rds0_relationships_v0(
+        &world.fine.as_ref().unwrap().base.tessellation,
+        &b0_surface,
+        &target_land_union_support,
+        &candidate_source_relationship,
+    )
+    .expect("RDS0 B0 relationship readout");
+    let b0_relationship_summary = b0_relationship.summary.clone();
+    let (b0_scaffold_colors, b0_scaffold_final_audit) =
+        b0_scaffold_colors_and_audit(&b0_result, &b0_surface, &target_land_union_support);
+    let (b0_render_records, b0_relationship_render_records) = render_rds0_surface(
+        opts,
+        &gpu,
+        &mut renderer,
+        &color_texture,
+        &color_view,
+        &views,
+        &mut montage,
+        montage_width,
+        &mut relationship_montage,
+        relationship_montage_width,
+        &mut world,
+        b0_surface,
+        &b0_relationship,
+        "b0",
+        2,
+        true,
+    );
+    render_records.extend(b0_render_records);
+    relationship_render_records.extend(b0_relationship_render_records);
+    render_b0_scaffold(
+        opts,
+        &gpu,
+        &mut renderer,
+        &color_texture,
+        &color_view,
+        &views,
+        &mut world,
+        &b0_scaffold_colors,
+    );
     write_png(
         &opts.out_dir.join("montage.png"),
         &montage,
@@ -5517,11 +5764,11 @@ fn run_rds0_terrain_packet(opts: &SweepOptions) {
         relationship_montage_width,
         relationship_montage_height,
     );
-    drop(candidate_relationship);
+    drop(b0_relationship);
 
     let sidecar = serde_json::json!({
-        "schema": "hex3.rds0-terrain.v0",
-        "status": "research-only fixed-budget causal morphology discriminator; not promoted product terrain",
+        "schema": "hex3.rds0-terrain.v1",
+        "status": "research-only fixed-budget causal morphology discriminator with B0 channel/hillslope upper bound; not promoted product terrain",
         "elapsed_seconds": started.elapsed().as_secs_f64(),
         "config": {
             "seed": RDS0_TERRAIN_SEED,
@@ -5544,18 +5791,35 @@ fn run_rds0_terrain_packet(opts: &SweepOptions) {
         "adapter_ledgers": {
             "control": control_audit,
             "candidate": candidate_audit,
+            "b0": null,
         },
         "surfaces": {
             "control": { "global": control_summary, "target_land_union_support": control_local_summary },
             "candidate": { "global": candidate_summary, "target_land_union_support": candidate_local_summary },
             "candidate_minus_control": surface_delta,
+            "b0": { "global": b0_summary, "target_land_union_support": b0_local_summary },
+            "b0_minus_control": b0_minus_control,
+            "b0_minus_candidate": b0_minus_candidate,
+        },
+        "b0": {
+            "schema": "hex3.channel-hillslope-dual-b0.v0",
+            "semantics": "all-cell product receiver scaffold; sparse opportunity/fabric-conditioned channel graph; reduced steady slope-area profiles integrated from real base levels; affine finite-volume non-channel reconstruction; one solved amplitude under the removed-Legacy solid/relief bounds",
+            "profile": {
+                "unit_slope_law": "S* = max(epsilon, (normalized opportunity / represented drainage area^m)^(1/n))",
+                "stream_power_m": params.m,
+                "stream_power_n": params.n,
+                "amplitude": "one globally solved scalar; maximum value satisfying both positive-solid and maximum-relief bounds",
+            },
+            "audit": b0_result.audit,
+            "scaffold_vs_final": b0_scaffold_final_audit,
         },
         "relationships": {
             "control": control_relationship_summary,
             "candidate": candidate_relationship_summary,
+            "b0": b0_relationship_summary,
             "render_rows": relationship_render_records,
             "montage_filename": "relationships_montage.png",
-            "montage_row_order": ["control", "candidate"],
+            "montage_row_order": ["control", "candidate", "b0"],
             "montage_column_order": [
                 "source topology q33", "source topology q67",
                 "terminal-mouth catchments / boundary proxies / depressions q33",
@@ -5566,7 +5830,7 @@ fn run_rds0_terrain_packet(opts: &SweepOptions) {
         "render": {
             "rows": render_records,
             "montage_filename": "montage.png",
-            "montage_row_order": ["physical control", "physical candidate", "authentic control", "authentic candidate"],
+            "montage_row_order": ["physical control", "physical candidate", "physical b0", "authentic control", "authentic candidate", "authentic b0"],
             "palette": "ordinary Terrain palette",
             "rivers": "major, identical physical catchment selection and width scale 1.0",
         },
@@ -5580,6 +5844,8 @@ fn run_rds0_terrain_packet(opts: &SweepOptions) {
             "physical and Authentic rows change renderer displacement only; both show identical semantic terrain state",
             "relationship colors are renderer-only physical-relief diagnostics over the same terrain state; white catchment boundaries are terminal-mouth graph-label proxies, not geomorphic divide claims",
             "rigorous saddle extraction is deliberately omitted from this RAM-bounded first readout because the existing exact implementation materializes a second full f64 spherical process-mesh graph",
+            "B0 consumes time-integrated RDS opportunity and axial fabric, not chronological source motion or direct per-cell height",
+            "B0 uses the removed Legacy terrain only for a global solid-volume and maximum-relief cap; unused budget is reported rather than concentrated into over-height peaks",
         ],
         "consumed_inheritance_relationship_ids": [],
     });

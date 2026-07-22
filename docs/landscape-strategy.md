@@ -1,7 +1,8 @@
 # Landscape organization strategy
 
-Status: **current architecture decision; channel/hillslope-dual upper bound
-selected after RDS0 terrain rejection**, 2026-07-23.
+Status: **current architecture decision; RDS0 scalar-support and B0
+channel/hillslope-dual ownership both rejected; synthesis reopened before a new
+owner is selected**, 2026-07-23.
 
 This document decides how terrain, drainage and landform meaning fit together.
 It does not promote a terrain replacement. [Structural Mountain V0](structural-mountain.md)
@@ -169,11 +170,14 @@ where the source is genuinely continuous.
 The current [terrain architecture decision](terrain-architecture.md) separates
 forcing, landscape response and multiscale representation. Epochal coupled
 landscape evolution was the first slice. Its scalar-support descendants exposed
-material relief response but not coherent regional drainage/divide ownership,
-so the conditional authentic-hack upper bound is now selected narrowly as one
-product-native channel/hillslope dual. It must separate possible drainage,
-promoted channels and the continuous non-channel surface rather than repeat the
-old graph-depth reconstruction or add rivers after independent ridges.
+material relief response but not coherent regional drainage/divide ownership.
+The conditional product-native channel/hillslope upper bound is now also
+complete and negative: its sparse slope-area channels are valid and descending,
+but the base-level/non-channel reconstruction collapses supported relief and
+final hydrology preserves only 41.59% of support receivers (58.01% on promoted
+channels). Explicit drainage topology alone therefore does not repair a source
+state lacking regional deformation/material organization. No successor terrain
+owner is selected yet.
 
 ## Pareto-important capabilities alongside terrain replacement
 
@@ -205,8 +209,8 @@ old graph-depth reconstruction or add rivers after independent ridges.
 - building a universal landform ontology or artifact bureaucracy; or
 - optimizing an undecided landscape composition.
 
-The near-term goal is bounded: define the replacement ownership boundary and a
-small causal design space, then compare one or two minimal slices with the
-unchanged Legacy control on ordinary worlds. The comparison must test
-range-scale organization and a drainage/divide consequence, not reward a new
-scalar score or attractive rendering in isolation.
+The near-term goal is bounded: synthesize the common causal gap exposed by the
+two failed minimal slices, then revise the small design space before writing
+another owner. Preserve the unchanged Legacy control and require any successor
+to test range-scale organization and a drainage/divide consequence, not reward
+a new scalar score or attractive rendering in isolation.

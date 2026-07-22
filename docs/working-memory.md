@@ -14,9 +14,9 @@ it become a chronological activity log.
 
 ## Active focus
 
-**Build one bounded channel/hillslope-dual upper bound; do not tune RDS0 or
-revive an old owner.** The replacement boundary is now defined, and the first
-coupled/source variants have localized the missing relationship.
+**Synthesize the joint RDS0/B0 failure before selecting another terrain
+owner.** Do not tune either rejected composition, revive an old owner, or let
+the existence of reusable operators choose the next architecture.
 
 RDS0 retains a useful finite deformation representation and exact conservative
 transfer, but its moving scalar positive support is not a terrain owner. The
@@ -27,21 +27,27 @@ highland and no represented major-river cell in any highland component. Do not
 run more worlds, tune source/erosion parameters or generate a prior for this
 composition.
 
-The next slice separates an all-cell receiver/catchment scaffold, a sparse
-promoted channel graph and the continuous non-channel hillslope/interfluve
-surface. Descending channel profiles share real base levels; catchment
-adjacency supplies the divide dual; a short product reroute must preserve the
-relationship. Opportunity conditions topology/relief capacity but is not
-direct height. This is the smallest functional test of the demonstrated gap and
-an explicit authentic-hack upper bound, not a presumption that graph-first
-terrain should win.
+The bounded B0 upper bound is now implemented on the same fixed world. It
+separates all-cell routing, a 7,938-cell promoted channel graph and a
+finite-volume non-channel surface; opportunity shapes reduced
+`S*=(u/A^m)^(1/n)` profiles and is a steady hillslope source rather than height,
+while Legacy contributes only solid/relief caps. Every promoted edge grades
+monotonically, so the mechanism-level contract is real. The composition still
+fails: only 41.59% of support receivers and 58.01% of promoted-channel
+receivers survive final product hydrology; 91,151 cells reroute; only 2.60% of
+the positive relief budget remains while 7.08 million km³ is removed; and the
+matched views are mostly flat with isolated narrow remnants. B0 is a useful
+negative authentic-hack upper bound, not a near-candidate.
 
-Do not reuse old G's graph-depth elevation recurrence, A4's frozen
-trunk/interfluve uplift redistribution, the planar landscape solver package or
-persistent C1 reach state. Reuse RDS frames/fabric/provenance, exact overlap,
-one `FineBase`, product routing/incision/hillslope operators and final
-`FineSurface`/hydrology contracts. Keep rich source state sequential or compact
-to avoid repeating the recent memory failures.
+Retain the compact RDS schedule, exact overlap, product-routing reuse,
+finite-volume reconstruction seam and scaffold-versus-final diagnostic. These
+are operators/evidence, not a license to deepen B0. The next principled pass
+should ask which missing cause is common to both failures: the present source
+state lacks regional deformation/material geometry before response, while the
+response-only construction cannot invent that organization without becoming a
+drawn terrain generator. Keep deeper physics conditional on visible or
+downstream payoff and keep authentic hacks available, but require the next
+candidate to state which missing relationship it owns.
 
 The three-world causal trace passes the terrain reopening gate.
 Collision response blankets the selected ranges; its hard cap is inactive; and

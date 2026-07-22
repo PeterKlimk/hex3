@@ -1,9 +1,8 @@
 # Terrain architecture design space
 
-Status: **current design decision; coupled scalar-support Slice A and RDS0
-terrain ownership are insufficient; a product-native channel/hillslope dual is
-the selected bounded Slice B discriminator; no terrain replacement is
-promoted**, 2026-07-23.
+Status: **current design decision; coupled scalar-support Slice A, RDS0 terrain
+ownership and the bounded B0 channel/hillslope dual are insufficient; no
+terrain replacement or next owner is selected**, 2026-07-23.
 
 This document defines the terrain ownership boundary and the smallest credible
 alternatives to Legacy. It does not change product behavior. Legacy remains the
@@ -50,14 +49,11 @@ Slice A and the subsequent RDS0 moving-support composition have now supplied
 that discriminator. They materially change relief and receivers, but still let
 a scalar positive opportunity field own regional topography. RDS0's apparent
 linked lows resolve into dense source-linked closed depressions rather than a
-coherent drainage/divide system. The condition for B is therefore met.
-
-Implement the minimum **product-native channel/hillslope dual** next. This is
-not a revival of the old graph-depth owner and not permission to author a ridge
-tree. It separates an all-cell drainage scaffold from the sparse channels that
-carry stream-power long profiles and from the continuous hillslope/interfluve
-surface between them. Catchment boundaries supply the divide dual; ridges are
-not drawn independently and rivers are not added after terrain construction.
+coherent drainage/divide system. The condition for B was therefore met. The
+bounded B0 implementation has now tested and rejected that upper bound as
+sufficient ownership. Do not tune B0 or select another terrain owner by
+momentum; the next task is to synthesize what the coupled and constructed
+failures jointly imply.
 
 Three plausible responses to the RDS0 result remain distinct:
 
@@ -65,7 +61,7 @@ Three plausible responses to the RDS0 result remain distinct:
 |---|---|---|
 | Persistent thickness/material state plus coupled evolution | Whether advection, retention and relaxation remove lobe/depression grammar | Physically attractive but does not isolate the newly demonstrated topology defect; existing lifecycle machinery is too broad and unresolved |
 | Source-conditioned erodibility or drainage feedback inside the current loop | Whether fabric or drainage can organize an otherwise valid uplift state | Possible later ingredient; alone it leaves the rejected positive-lobe owner intact and risks repeating A4's circular uplift feedback |
-| Channel/hillslope dual with compatible reconstruction | Whether explicit drainage/base-level relations are the missing cheap causal consequence | **Selected bounded upper bound and next implementation slice** |
+| Channel/hillslope dual with compatible reconstruction | Whether explicit drainage/base-level relations are the missing cheap causal consequence | **Implemented bounded upper bound; rejected as sufficient ownership** |
 
 ## Product outcome and causal reference
 
@@ -483,6 +479,39 @@ grammar, or if tectonic/material counterfactuals do not change the topology in
 the expected direction. A visible valley network is insufficient if it is only
 the provisional scaffold burned into an otherwise unrelated surface. B is an
 explicit authentic hack even if successful.
+
+### B0 outcome
+
+B0 is implemented behind `research-landscape` and evaluated in the original
+fixed seed `8675309`, episode `9`, 100k-coarse/~255k-process world. It uses
+product priority-flood routing, promotes 7,938 sparse channel cells from
+high-order source-intersecting or fabric-aligned paths, grades every promoted
+edge monotonically to a compatible base level, and reconstructs the remaining
+surface with a finite-volume steady hillslope solve. Integrated opportunity is
+the solve's source term; the removed Legacy relief supplies only a global solid
+budget and maximum-relief cap. The local reproducibility packet is
+`artifacts/b0-terrain-2026-07-23/`.
+
+The upper bound fails its declared admission test. Final product hydrology
+agrees with the provisional scaffold on only **41.59%** of
+deformation-support cells and only **58.01%** of promoted-channel cells, with
+91,151 receiver mismatches overall. The solved slope-area amplitude hits the
+Legacy-derived 4.00 km relief cap after retaining only 2.60% of the available
+positive relief budget, while the base-level reconstruction removes 7.08
+million km³ from the demoted substrate. It nearly eliminates the RDS0
+depression grammar, but source-in-highland falls to 9.68%; the largest >1.5 km
+highland is still 0.89 million km² and 579 km mean width, and no highland
+component contains a represented major-river cell. Matched Physical and
+Authentic views are largely flat with a few narrow isolated remnants rather
+than coherent ranges. This is a reroute/relief-collapse failure anticipated by
+the kill rule, not a request for parameter tuning.
+
+Retain the product-routing reuse, compact source schedule, finite-volume
+reconstruction seam and scaffold-versus-final diagnostic as operator evidence.
+Do not promote B0, extend it into a tuning ladder, or infer that a graph-first
+terrain owner is now required. Together, RDS0 and B0 show that neither moving
+positive support nor drainage-first compatible reconstruction supplies the
+missing regional organization from the present source state.
 
 ## Shared comparison and decision rule
 

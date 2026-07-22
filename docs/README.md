@@ -21,8 +21,9 @@ audits and archived material are evidence, not current policy.
 
 - [Landscape organization strategy](landscape-strategy.md)
 - [Terrain architecture design space](terrain-architecture.md) — current
-  replacement boundary and selected bounded channel/hillslope-dual
-  discriminator after coupled scalar-support failure.
+  replacement boundary and joint negative result from the coupled
+  scalar-support and bounded channel/hillslope-dual discriminators; successor
+  ownership is intentionally reopened.
 - [Regional deformation support](regional-deformation-support.md) — selected
   research-only seam between corrected boundary work and landscape response;
   coarse source gate and one fixed process-mesh terrain discriminator

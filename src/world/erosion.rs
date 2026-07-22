@@ -909,6 +909,547 @@ pub(crate) fn drainage_pulse_modifier(
     Some(modifier)
 }
 
+// B0 is a deliberately small topology upper bound, not another uplift model.
+// It derives a sparse channel constraint from the product routing graph and
+// reconciles the remaining surface around that constraint. Opportunity chooses
+// where a drainage path is promoted; it is never converted into positive
+// height, and drainage never redistributes an uplift budget as A4 does.
+#[cfg(feature = "research-landscape")]
+const B0_LONGITUDINAL_MIN_ALIGNMENT: f32 = 0.75;
+#[cfg(feature = "research-landscape")]
+const B0_SUBSIDIARY_STRAHLER_ORDER: u32 = EROSION_PULSE_TRUNK_ORDER - 1;
+#[cfg(feature = "research-landscape")]
+/// Numerical/alluvial grade for source-free downstream closure. This prevents
+/// exact flats; source and drainage area own every material profile slope.
+#[cfg(feature = "research-landscape")]
+const B0_MIN_CHANNEL_GRADE: f32 = 1.0e-5;
+#[cfg(feature = "research-landscape")]
+const B0_HILLSLOPE_RECONSTRUCTION_ITERS: usize = 64;
+
+#[cfg(feature = "research-landscape")]
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+pub struct B0DrainageDualAuditV0 {
+    pub cell_count: usize,
+    pub scaffold_channel_cell_count: usize,
+    pub opportunity_cell_count: usize,
+    pub trunk_seed_cell_count: usize,
+    pub fabric_aligned_seed_cell_count: usize,
+    pub promoted_seed_cell_count: usize,
+    pub promoted_channel_cell_count: usize,
+    pub promoted_channel_edge_count: usize,
+    pub monotonic_constraint_violation_count: usize,
+    pub final_receiver_agreement_count: usize,
+    pub non_channel_changed_cell_count: usize,
+    pub available_relief_volume_km3: f64,
+    pub reconstructed_relief_volume_km3: f64,
+    pub relief_budget_fraction: f64,
+    pub solved_profile_amplitude: f32,
+    pub maximum_reconstructed_relief_km: f32,
+    pub removed_solid_volume_km3: f64,
+    pub maximum_lowering_km: f32,
+}
+
+#[cfg(feature = "research-landscape")]
+#[derive(Clone, Debug, PartialEq)]
+pub struct B0DrainageDualResultV0 {
+    pub elevation: Vec<f32>,
+    /// All-cell SFD scaffold; sinks point to themselves.
+    pub scaffold_receiver: Vec<usize>,
+    pub scaffold_strahler_order: Vec<u32>,
+    /// Source-conditioned starts, distinct from their downstream closure.
+    pub promoted_seed: Vec<bool>,
+    pub promoted_channel: Vec<bool>,
+    /// Meaningful only where `promoted_channel` is true; zero elsewhere.
+    pub channel_bed_constraint: Vec<f32>,
+    pub audit: B0DrainageDualAuditV0,
+}
+
+#[cfg(feature = "research-landscape")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum B0DrainageDualErrorV0 {
+    LengthMismatch { field: &'static str },
+    InvalidBase,
+    InvalidTarget,
+    InvalidRunoff,
+    InvalidOpportunity,
+    InvalidFabric,
+    NoDrainageOutlet,
+}
+
+#[cfg(feature = "research-landscape")]
+impl std::fmt::Display for B0DrainageDualErrorV0 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{self:?}")
+    }
+}
+
+#[cfg(feature = "research-landscape")]
+impl std::error::Error for B0DrainageDualErrorV0 {}
+
+/// Build the minimum B0 drainage/channel dual on one existing product surface.
+///
+/// The all-cell priority-flood routing remains a scaffold. Only source-
+/// intersecting order-3 trunks and source-intersecting, fabric-aligned order-2
+/// paths are promoted, after which their downstream paths are closed to a real
+/// sink. A reduced steady stream-power relation integrates their descending
+/// unit profiles from real base levels; one global solid/relief-bounded
+/// amplitude then scales those profiles and the compatible finite-volume
+/// hillslope response. Opportunity is a source term, never direct height, and
+/// no graph depth is turned into an arbitrary per-edge rise.
+#[cfg(feature = "research-landscape")]
+pub(crate) fn reconstruct_b0_drainage_dual_v0(
+    tessellation: &Tessellation,
+    base_elevation: &[f32],
+    relief_target_elevation: &[f32],
+    runoff: &[f32],
+    integrated_opportunity: &[f64],
+    axial_fabric: &[Vec3],
+    lake_base: &[f32],
+    stream_power_m: f32,
+    stream_power_n: f32,
+) -> Result<B0DrainageDualResultV0, B0DrainageDualErrorV0> {
+    let n = tessellation.num_cells();
+    for (field, actual) in [
+        ("base_elevation", base_elevation.len()),
+        ("relief_target_elevation", relief_target_elevation.len()),
+        ("runoff", runoff.len()),
+        ("integrated_opportunity", integrated_opportunity.len()),
+        ("axial_fabric", axial_fabric.len()),
+        ("lake_base", lake_base.len()),
+    ] {
+        if actual != n {
+            return Err(B0DrainageDualErrorV0::LengthMismatch { field });
+        }
+    }
+    if base_elevation.iter().any(|value| !value.is_finite()) {
+        return Err(B0DrainageDualErrorV0::InvalidBase);
+    }
+    if relief_target_elevation
+        .iter()
+        .any(|value| !value.is_finite())
+    {
+        return Err(B0DrainageDualErrorV0::InvalidTarget);
+    }
+    if runoff
+        .iter()
+        .any(|value| !value.is_finite() || *value < 0.0)
+    {
+        return Err(B0DrainageDualErrorV0::InvalidRunoff);
+    }
+    if integrated_opportunity
+        .iter()
+        .any(|value| !value.is_finite() || *value < 0.0)
+    {
+        return Err(B0DrainageDualErrorV0::InvalidOpportunity);
+    }
+    if axial_fabric.iter().any(|value| !value.is_finite()) {
+        return Err(B0DrainageDualErrorV0::InvalidFabric);
+    }
+    if !stream_power_m.is_finite()
+        || stream_power_m <= 0.0
+        || !stream_power_n.is_finite()
+        || stream_power_n <= 0.0
+    {
+        return Err(B0DrainageDualErrorV0::InvalidOpportunity);
+    }
+
+    let geom = NeighborGeometry::build(tessellation);
+    let areas = tessellation.cell_areas_ref();
+    if lake_base.iter().any(|value| value.is_nan()) {
+        return Err(B0DrainageDualErrorV0::InvalidBase);
+    }
+    let routing = Routing::build(base_elevation, &geom, lake_base, true, 0.0)
+        .ok_or(B0DrainageDualErrorV0::NoDrainageOutlet)?;
+    let receiver_fabric_alignment: Vec<f32> = (0..n)
+        .map(|cell| {
+            let receiver = routing.receiver[cell];
+            let fabric = axial_fabric[cell].normalize_or_zero();
+            if receiver == cell || fabric == Vec3::ZERO {
+                return 0.0;
+            }
+            let center = tessellation.cell_center(cell);
+            let toward_receiver = (tessellation.cell_center(receiver)
+                - center * center.dot(tessellation.cell_center(receiver)))
+            .normalize_or_zero();
+            fabric.dot(toward_receiver).abs()
+        })
+        .collect();
+    reconstruct_b0_drainage_dual_with_geometry_v0(
+        base_elevation,
+        relief_target_elevation,
+        runoff,
+        integrated_opportunity,
+        &receiver_fabric_alignment,
+        areas,
+        &geom,
+        routing,
+        stream_power_m,
+        stream_power_n,
+    )
+}
+
+#[cfg(feature = "research-landscape")]
+#[allow(clippy::too_many_arguments)]
+fn reconstruct_b0_drainage_dual_with_geometry_v0(
+    base_elevation: &[f32],
+    relief_target_elevation: &[f32],
+    runoff: &[f32],
+    integrated_opportunity: &[f64],
+    receiver_fabric_alignment: &[f32],
+    areas: &[f32],
+    geom: &NeighborGeometry,
+    routing: Routing,
+    stream_power_m: f32,
+    stream_power_n: f32,
+) -> Result<B0DrainageDualResultV0, B0DrainageDualErrorV0> {
+    let n = base_elevation.len();
+    debug_assert_eq!(geom.num_cells(), n);
+    debug_assert_eq!(runoff.len(), n);
+    debug_assert_eq!(relief_target_elevation.len(), n);
+    debug_assert_eq!(integrated_opportunity.len(), n);
+    debug_assert_eq!(receiver_fabric_alignment.len(), n);
+    debug_assert_eq!(areas.len(), n);
+
+    let wet_area = accumulate_wet_area(&routing, runoff, areas);
+    let (weighted_runoff, land_area) = (0..n).fold((0.0f64, 0.0f64), |sum, cell| {
+        if base_elevation[cell] >= 0.0 {
+            (
+                sum.0 + f64::from(runoff[cell] * areas[cell]),
+                sum.1 + f64::from(areas[cell]),
+            )
+        } else {
+            sum
+        }
+    });
+    let mean_runoff = if land_area > 0.0 {
+        (weighted_runoff / land_area) as f32
+    } else {
+        0.0
+    };
+    let support_sr = EROSION_CHANNEL_SUPPORT_KM2 / PLANET_RADIUS_KM.powi(2);
+    let channel_threshold = support_sr * mean_runoff;
+    let scaffold_channel: Vec<bool> = (0..n)
+        .map(|cell| {
+            base_elevation[cell] >= 0.0
+                && !routing.is_sink[cell]
+                && wet_area[cell] >= channel_threshold
+        })
+        .collect();
+
+    let mut strahler_order = vec![0u32; n];
+    let mut maximum_upstream = vec![0u32; n];
+    let mut maximum_count = vec![0u32; n];
+    for &cell in routing.order.iter().rev() {
+        if !scaffold_channel[cell] {
+            continue;
+        }
+        let order = if maximum_upstream[cell] == 0 {
+            1
+        } else if maximum_count[cell] >= 2 {
+            maximum_upstream[cell] + 1
+        } else {
+            maximum_upstream[cell]
+        };
+        strahler_order[cell] = order;
+        let receiver = routing.receiver[cell];
+        if receiver != cell {
+            match order.cmp(&maximum_upstream[receiver]) {
+                std::cmp::Ordering::Greater => {
+                    maximum_upstream[receiver] = order;
+                    maximum_count[receiver] = 1;
+                }
+                std::cmp::Ordering::Equal => maximum_count[receiver] += 1,
+                std::cmp::Ordering::Less => {}
+            }
+        }
+    }
+
+    let mut promoted_seed = vec![false; n];
+    let mut trunk_seed_cell_count = 0usize;
+    let mut fabric_aligned_seed_cell_count = 0usize;
+    for cell in 0..n {
+        if integrated_opportunity[cell] <= 0.0 || !scaffold_channel[cell] {
+            continue;
+        }
+        let trunk = strahler_order[cell] >= EROSION_PULSE_TRUNK_ORDER;
+        let longitudinal = strahler_order[cell] >= B0_SUBSIDIARY_STRAHLER_ORDER
+            && receiver_fabric_alignment[cell] >= B0_LONGITUDINAL_MIN_ALIGNMENT;
+        promoted_seed[cell] = trunk || longitudinal;
+        trunk_seed_cell_count += usize::from(trunk);
+        fabric_aligned_seed_cell_count += usize::from(!trunk && longitudinal);
+    }
+
+    let mut promoted_channel = vec![false; n];
+    for seed in 0..n {
+        if !promoted_seed[seed] {
+            continue;
+        }
+        let mut cell = seed;
+        for _ in 0..n {
+            if routing.is_sink[cell] {
+                break;
+            }
+            promoted_channel[cell] = true;
+            let receiver = routing.receiver[cell];
+            if receiver == cell {
+                break;
+            }
+            cell = receiver;
+        }
+    }
+
+    // Reduced steady stream-power profile. With U = K A^m S^n, one global U/K
+    // amplitude can be solved after constructing the dimensionless shape, while
+    // the relative slope is S* = (u/A^m)^(1/n). Opportunity and drainage area
+    // therefore shape the profile; the epsilon only keeps source-free closure
+    // reaches strictly graded. `routing.order` is downstream-first, so every
+    // receiver profile is available before its donor.
+    let maximum_opportunity = (0..n)
+        .filter(|&cell| base_elevation[cell] >= 0.0 && relief_target_elevation[cell] > 0.0)
+        .map(|cell| integrated_opportunity[cell])
+        .fold(0.0f64, f64::max);
+    let normalized_opportunity: Vec<f32> = integrated_opportunity
+        .iter()
+        .map(|&value| {
+            if maximum_opportunity > 0.0 {
+                (value / maximum_opportunity) as f32
+            } else {
+                0.0
+            }
+        })
+        .collect();
+    let theta_denominator = stream_power_n.max(f32::EPSILON);
+    let threshold = channel_threshold.max(f32::EPSILON);
+    let mut unit_channel_profile = vec![0.0f32; n];
+    for &cell in &routing.order {
+        if !promoted_channel[cell] {
+            continue;
+        }
+        let receiver = routing.receiver[cell];
+        let downstream = if receiver != cell && promoted_channel[receiver] {
+            unit_channel_profile[receiver]
+        } else {
+            0.0
+        };
+        let represented_area = (wet_area[cell] / threshold).max(1.0);
+        let relative_slope = (normalized_opportunity[cell] / represented_area.powf(stream_power_m))
+            .max(0.0)
+            .powf(1.0 / theta_denominator)
+            .max(B0_MIN_CHANNEL_GRADE);
+        unit_channel_profile[cell] = downstream + routing.dist[cell] * relative_slope;
+    }
+
+    // Reconstruct absolute cell means as an affine response z = z0 + lambda*z1.
+    // z0 preserves the demoted substrate outside the active footprint and grades
+    // promoted channels to their real base level. z1 carries the slope-area
+    // channel profile plus the opportunity-forced steady hillslope response.
+    // This makes one global lambda the only amplitude degree of freedom.
+    let eligible: Vec<bool> = (0..n)
+        .map(|cell| {
+            relief_target_elevation[cell] > base_elevation[cell]
+                || integrated_opportunity[cell] > 0.0
+                || promoted_channel[cell]
+        })
+        .collect();
+    let mut baseline = base_elevation.to_vec();
+    let mut next_baseline = baseline.clone();
+    for cell in 0..n {
+        if promoted_channel[cell] {
+            baseline[cell] = routing.base_floor[cell];
+            next_baseline[cell] = routing.base_floor[cell];
+        }
+    }
+    for _ in 0..B0_HILLSLOPE_RECONSTRUCTION_ITERS {
+        for cell in 0..n {
+            if routing.is_sink[cell] || !eligible[cell] {
+                next_baseline[cell] = base_elevation[cell];
+            } else if promoted_channel[cell] {
+                next_baseline[cell] = routing.base_floor[cell];
+            } else {
+                let mut neighbor_sum = 0.0f32;
+                let mut weight_sum = 0.0f32;
+                for (edge, &neighbor) in geom.tess_neighbors(cell).iter().enumerate() {
+                    let weight = geom.weight(cell, edge);
+                    neighbor_sum += weight * baseline[neighbor];
+                    weight_sum += weight;
+                }
+                next_baseline[cell] = if weight_sum > 0.0 {
+                    neighbor_sum / weight_sum
+                } else {
+                    base_elevation[cell]
+                };
+            }
+        }
+        std::mem::swap(&mut baseline, &mut next_baseline);
+    }
+
+    let mut response = unit_channel_profile.clone();
+    let mut next_response = response.clone();
+    for _ in 0..B0_HILLSLOPE_RECONSTRUCTION_ITERS {
+        for cell in 0..n {
+            if routing.is_sink[cell] || !eligible[cell] {
+                next_response[cell] = 0.0;
+            } else if promoted_channel[cell] {
+                next_response[cell] = unit_channel_profile[cell];
+            } else {
+                let mut neighbor_sum = 0.0f32;
+                let mut weight_sum = 0.0f32;
+                for (edge, &neighbor) in geom.tess_neighbors(cell).iter().enumerate() {
+                    let weight = geom.weight(cell, edge);
+                    neighbor_sum += weight * response[neighbor];
+                    weight_sum += weight;
+                }
+                next_response[cell] = if weight_sum > 0.0 {
+                    (neighbor_sum + normalized_opportunity[cell] * areas[cell]) / weight_sum
+                } else {
+                    0.0
+                };
+            }
+        }
+        std::mem::swap(&mut response, &mut next_response);
+    }
+
+    let available_relief_volume_sr: f64 = (0..n)
+        .map(|cell| {
+            f64::from((relief_target_elevation[cell] - base_elevation[cell]).max(0.0))
+                * f64::from(areas[cell])
+        })
+        .sum();
+    let maximum_available_relief = (0..n)
+        .map(|cell| (relief_target_elevation[cell] - base_elevation[cell]).max(0.0))
+        .fold(0.0f32, f32::max);
+    let measure = |amplitude: f32| -> (f64, f32) {
+        (0..n).fold((0.0f64, 0.0f32), |(volume, maximum), cell| {
+            let delta =
+                (baseline[cell] + amplitude * response[cell] - base_elevation[cell]).max(0.0);
+            (
+                volume + f64::from(delta) * f64::from(areas[cell]),
+                maximum.max(delta),
+            )
+        })
+    };
+    let mut upper = 1.0f32;
+    for _ in 0..64 {
+        let (volume, maximum) = measure(upper);
+        if volume >= available_relief_volume_sr || maximum >= maximum_available_relief {
+            break;
+        }
+        upper *= 2.0;
+    }
+    let mut lower = 0.0f32;
+    for _ in 0..48 {
+        let middle = 0.5 * (lower + upper);
+        let (volume, maximum) = measure(middle);
+        if volume <= available_relief_volume_sr && maximum <= maximum_available_relief {
+            lower = middle;
+        } else {
+            upper = middle;
+        }
+    }
+    let solved_profile_amplitude = lower;
+    let elevation: Vec<f32> = baseline
+        .iter()
+        .zip(&response)
+        .map(|(&datum, &unit)| datum + solved_profile_amplitude * unit)
+        .collect();
+    let channel_bed_constraint: Vec<f32> = (0..n)
+        .map(|cell| {
+            if promoted_channel[cell] {
+                elevation[cell]
+            } else {
+                0.0
+            }
+        })
+        .collect();
+
+    let final_routing = Routing::build(&elevation, geom, &vec![f32::NEG_INFINITY; n], true, 0.0)
+        .ok_or(B0DrainageDualErrorV0::NoDrainageOutlet)?;
+    let mut promoted_channel_edge_count = 0usize;
+    let mut monotonic_constraint_violation_count = 0usize;
+    let mut final_receiver_agreement_count = 0usize;
+    for cell in 0..n {
+        if !promoted_channel[cell] {
+            continue;
+        }
+        let receiver = routing.receiver[cell];
+        if receiver == cell {
+            continue;
+        }
+        promoted_channel_edge_count += 1;
+        if elevation[cell] <= elevation[receiver] {
+            monotonic_constraint_violation_count += 1;
+        }
+        final_receiver_agreement_count += usize::from(final_routing.receiver[cell] == receiver);
+    }
+    let radius = f64::from(PLANET_RADIUS_KM);
+    let volume_scale_km3 = f64::from(ELEVATION_UNIT_KM) * radius.powi(2);
+    let reconstructed_relief_volume_sr: f64 = elevation
+        .iter()
+        .zip(base_elevation)
+        .zip(areas)
+        .map(|((&height, &base), &area)| f64::from((height - base).max(0.0) * area))
+        .sum();
+    let reconstructed_relief_volume_km3 = reconstructed_relief_volume_sr * volume_scale_km3;
+    let available_relief_volume_km3 = available_relief_volume_sr * volume_scale_km3;
+    let removed_solid_volume_km3 = (0..n)
+        .map(|cell| {
+            f64::from((base_elevation[cell] - elevation[cell]).max(0.0))
+                * f64::from(areas[cell])
+                * volume_scale_km3
+        })
+        .sum();
+    let maximum_lowering_km = (0..n)
+        .map(|cell| (base_elevation[cell] - elevation[cell]).max(0.0) * ELEVATION_UNIT_KM)
+        .fold(0.0, f32::max);
+    let non_channel_changed_cell_count = (0..n)
+        .filter(|&cell| {
+            !promoted_channel[cell] && elevation[cell].to_bits() != base_elevation[cell].to_bits()
+        })
+        .count();
+    let maximum_reconstructed_relief_km = elevation
+        .iter()
+        .zip(base_elevation)
+        .map(|(&height, &base)| (height - base).max(0.0))
+        .fold(0.0f32, f32::max)
+        * ELEVATION_UNIT_KM;
+
+    Ok(B0DrainageDualResultV0 {
+        elevation,
+        scaffold_receiver: routing.receiver,
+        scaffold_strahler_order: strahler_order,
+        promoted_seed: promoted_seed.clone(),
+        promoted_channel: promoted_channel.clone(),
+        channel_bed_constraint,
+        audit: B0DrainageDualAuditV0 {
+            cell_count: n,
+            scaffold_channel_cell_count: scaffold_channel.iter().filter(|&&value| value).count(),
+            opportunity_cell_count: integrated_opportunity
+                .iter()
+                .filter(|&&value| value > 0.0)
+                .count(),
+            trunk_seed_cell_count,
+            fabric_aligned_seed_cell_count,
+            promoted_seed_cell_count: promoted_seed.iter().filter(|&&value| value).count(),
+            promoted_channel_cell_count: promoted_channel.iter().filter(|&&value| value).count(),
+            promoted_channel_edge_count,
+            monotonic_constraint_violation_count,
+            final_receiver_agreement_count,
+            non_channel_changed_cell_count,
+            available_relief_volume_km3,
+            reconstructed_relief_volume_km3,
+            relief_budget_fraction: if available_relief_volume_km3 > 0.0 {
+                reconstructed_relief_volume_km3 / available_relief_volume_km3
+            } else {
+                0.0
+            },
+            solved_profile_amplitude,
+            maximum_reconstructed_relief_km,
+            removed_solid_volume_km3,
+            maximum_lowering_km,
+        },
+    })
+}
+
 /// Resumable erosion. `ErosionState::new(..).step(EROSION_STEPS)` reproduces the
 /// batch `erode()` run bit-for-bit; the UI can instead `step()` in increments to
 /// watch valleys carve. Holds every loop-carried value (working thickness, cached
@@ -4120,6 +4661,67 @@ mod tests {
             dist,
             weight,
         }
+    }
+
+    #[cfg(feature = "research-landscape")]
+    fn b0_tree(opportunity_cell: usize, receiver_alignment: [f32; 8]) -> B0DrainageDualResultV0 {
+        let geom = tree_geom();
+        let elevation = [4.0f32, 4.0, 4.0, 4.0, 3.0, 3.0, 2.0, -1.0];
+        let target = [5.0f32, 5.0, 5.0, 5.0, 4.0, 4.0, 3.0, -1.0];
+        let runoff = [1.0f32; 8];
+        let areas = [1.0f32; 8];
+        let lake_base = [f32::NEG_INFINITY; 8];
+        let routing = Routing::build(&elevation, &geom, &lake_base, true, 0.0).unwrap();
+        let mut opportunity = [0.0f64; 8];
+        opportunity[opportunity_cell] = 1.0;
+        reconstruct_b0_drainage_dual_with_geometry_v0(
+            &elevation,
+            &target,
+            &runoff,
+            &opportunity,
+            &receiver_alignment,
+            &areas,
+            &geom,
+            routing,
+            0.5,
+            2.0,
+        )
+        .unwrap()
+    }
+
+    #[cfg(feature = "research-landscape")]
+    #[test]
+    fn b0_separates_scaffold_from_sparse_descending_channel() {
+        let result = b0_tree(6, [0.0; 8]);
+
+        assert_eq!(result.scaffold_strahler_order[6], 3);
+        assert!(result.promoted_seed[6]);
+        assert!(result.promoted_channel[6]);
+        assert!(!result.promoted_channel[0]);
+        assert_eq!(result.audit.promoted_seed_cell_count, 1);
+        assert_eq!(result.audit.promoted_channel_cell_count, 1);
+        assert_eq!(result.audit.monotonic_constraint_violation_count, 0);
+        assert!(result.elevation[6] > result.elevation[7]);
+        assert!(result.audit.solved_profile_amplitude > 0.0);
+        assert!(result.audit.maximum_reconstructed_relief_km <= ELEVATION_UNIT_KM + 1e-4);
+    }
+
+    #[cfg(feature = "research-landscape")]
+    #[test]
+    fn b0_fabric_can_promote_order_two_slope_area_path() {
+        let mut alignment = [0.0; 8];
+        alignment[4] = 1.0;
+        let result = b0_tree(4, alignment);
+
+        assert_eq!(result.scaffold_strahler_order[4], 2);
+        assert!(result.promoted_seed[4]);
+        assert!(result.promoted_channel[4]);
+        assert!(result.promoted_channel[6]);
+        assert_eq!(result.audit.fabric_aligned_seed_cell_count, 1);
+        assert_eq!(result.audit.monotonic_constraint_violation_count, 0);
+        assert!(result.elevation[4] > result.elevation[6]);
+        assert!(result.elevation[6] > result.elevation[7]);
+        assert!(result.audit.relief_budget_fraction <= 1.0 + 1e-6);
     }
 
     /// A4: the drainage-pulse modifier suppresses uplift on the order-3 trunk,

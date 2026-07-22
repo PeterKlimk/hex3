@@ -154,9 +154,11 @@ they must consume finite deformation/material opportunity where available and
 connect uplift opportunity to drainage/divide organization and nonlinear
 hillslope response. Finite-age coupled landscape evolution on those fixed
 supports was the first discriminator; a causal channel/hillslope dual was its
-conditional authentic-hack upper bound. Slice A and RDS0 have now met the
-condition for that upper bound without promoting a terrain owner. Neither path
-requires deeper physics without visible or downstream payoff.
+conditional authentic-hack upper bound. Both are now complete and negative.
+RDS0 shows that moving positive support does not own coherent terrain; B0 shows
+that a valid sparse channel scaffold plus smooth compatible reconstruction does
+not recover the missing organization from that source. Neither result licenses
+deeper physics without visible or downstream payoff.
 Keep Legacy as the usable control, but stop tuning or further interrogating it
 as a candidate architecture. Paleorifts, transfers, seed selection, relief
 tuning and crest noise are not substitutes.
@@ -228,18 +230,20 @@ generate a history prior, or tune the rejected composition. The next terrain
 design must introduce the missing causal relationship between deformation,
 regional relief topology and drainage rather than another scalar-support pass.
 
-That next design is now selected narrowly as the conditional Slice B upper
-bound from the terrain decision: one product-native **channel/hillslope dual**
-on the same fixed world. It separates an all-cell drainage scaffold from sparse
-channel long profiles and from the smooth non-channel surface; catchment
-adjacency derives divides rather than a separate ridge graph drawing them. The
-candidate consumes retained RDS frames/fabric/provenance and exact transfer,
-but opportunity no longer becomes per-frame positive height. A single short
-product reroute/reconciliation must preserve the intended catchment/channel
-relations. Do not revive graph-depth G, A4 uplift redistribution, the planar
-landscape package or persistent reach identity for this slice. The purpose is
-to establish a cheap topology-aware upper bound before deciding whether the
-authentic hack itself or a leaner coupled physical owner should survive.
+The conditional Slice B upper bound is now implemented and rejected on that
+same world. Its 7,938 opportunity/area-shaped channel cells descend compatibly
+to real base levels, but final product hydrology retains only 41.59% of support
+receivers and 58.01% on promoted channels. The reconstruction nearly removes
+the depression grammar by collapsing relief: only 2.60% of positive budget
+remains while 7.08 million km³ is removed, and Physical views are mostly flat
+with isolated narrow remnants. This closes the cheap topology-aware upper
+bound without selecting the authentic hack or a leaner coupled physical owner.
+
+The immediate terrain task is synthesis, not another implementation rung:
+state the missing cause common to RDS0 and B0, revise the causal design space,
+and only then select a bounded successor. Do not revive graph-depth G, A4
+uplift redistribution, the planar landscape package or persistent reach
+identity by default, and do not tune B0's fixed thresholds.
 
 ## Completed bounded decisions
 

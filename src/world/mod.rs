@@ -98,6 +98,7 @@ pub use elevation::{Elevation, NoiseLayerData, OrogenModel};
 pub use erosion::{roughness_counters, ErosionParams, FiniteAgeFluxModel, RoughnessCounters};
 #[cfg(feature = "research-landscape")]
 pub use erosion::{
+    B0DrainageDualAuditV0, B0DrainageDualErrorV0, B0DrainageDualResultV0,
     LegacyBudgetOpportunityAdapterV0, LegacyBudgetOpportunityAuditV0,
     LegacyBudgetOpportunityErrorV0, LegacyBudgetOpportunityFrameAuditV0,
 };
