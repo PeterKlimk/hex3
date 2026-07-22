@@ -14,9 +14,36 @@ it become a chronological activity log.
 
 ## Active focus
 
-**Define the ownership boundary and causal design space that can replace
-Legacy's long-front-to-direct-height terrain path.** The three-world causal
-trace passes the terrain reopening gate.
+**Build one bounded channel/hillslope-dual upper bound; do not tune RDS0 or
+revive an old owner.** The replacement boundary is now defined, and the first
+coupled/source variants have localized the missing relationship.
+
+RDS0 retains a useful finite deformation representation and exact conservative
+transfer, but its moving scalar positive support is not a terrain owner. The
+fixed relationship readout turns its visually suggestive linked lows into a
+clear negative: 100 support-linked topographic depressions, 86 entering
+highland, several with 3--6.5 km sill relief, one merged 8.76-million-km²
+highland and no represented major-river cell in any highland component. Do not
+run more worlds, tune source/erosion parameters or generate a prior for this
+composition.
+
+The next slice separates an all-cell receiver/catchment scaffold, a sparse
+promoted channel graph and the continuous non-channel hillslope/interfluve
+surface. Descending channel profiles share real base levels; catchment
+adjacency supplies the divide dual; a short product reroute must preserve the
+relationship. Opportunity conditions topology/relief capacity but is not
+direct height. This is the smallest functional test of the demonstrated gap and
+an explicit authentic-hack upper bound, not a presumption that graph-first
+terrain should win.
+
+Do not reuse old G's graph-depth elevation recurrence, A4's frozen
+trunk/interfluve uplift redistribution, the planar landscape solver package or
+persistent C1 reach state. Reuse RDS frames/fabric/provenance, exact overlap,
+one `FineBase`, product routing/incision/hillslope operators and final
+`FineSurface`/hydrology contracts. Keep rich source state sequential or compact
+to avoid repeating the recent memory failures.
+
+The three-world causal trace passes the terrain reopening gate.
 Collision response blankets the selected ranges; its hard cap is inactive; and
 fine synthesis is neutral. Normalization, smoothing and square-root response do
 erase real forcing variation, but the work-matched nearest-source compiler still
@@ -34,11 +61,11 @@ See the [causal-attribution audit](audits/terrain-causal-attribution-2026-07-21.
 
 That design pass is now captured in the
 [terrain architecture decision](terrain-architecture.md). It separates forcing,
-landscape response and representation, selects finite-age coupled evolution as
-the first slice, and retains a dual drainage/divide construction only as a
-conditional low-cost authentic-hack upper bound. Do not begin with multiscale
-detail, adaptive remeshing or a new general framework; first establish regional
-organization on the ordinary roughly 250k-cell surface.
+landscape response and representation. Finite-age coupled evolution was the
+first slice; its scalar-support descendants have now activated the conditional
+low-cost channel/hillslope-dual upper bound described above. Do not begin with
+multiscale detail, adaptive remeshing or a new general framework; first establish
+regional organization on the ordinary roughly 250k-cell surface.
 
 The retained tectonic-history source passes that first slice only narrowly.
 Across seeds `12345`, `8675309` and `9001`, 8--12 derived onset intervals change

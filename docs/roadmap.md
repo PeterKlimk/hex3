@@ -153,11 +153,10 @@ may divide responsibility among explicit cooperating systems, but together
 they must consume finite deformation/material opportunity where available and
 connect uplift opportunity to drainage/divide organization and nonlinear
 hillslope response. Finite-age coupled landscape evolution on those fixed
-supports is first; a causal dual drainage/divide construction is the conditional
-authentic-hack upper bound. If responsive drainage still leaves each component
-as one uniform roof, revisit the upstream deformation-history owner instead of
-tuning the response indefinitely. Neither path requires deeper physics without
-visible or downstream payoff.
+supports was the first discriminator; a causal channel/hillslope dual was its
+conditional authentic-hack upper bound. Slice A and RDS0 have now met the
+condition for that upper bound without promoting a terrain owner. Neither path
+requires deeper physics without visible or downstream payoff.
 Keep Legacy as the usable control, but stop tuning or further interrogating it
 as a candidate architecture. Paleorifts, transfers, seed selection, relief
 tuning and crest noise are not substitutes.
@@ -207,9 +206,10 @@ total-budget correction.
 The matched render packet removes the repeated comb, and human review confirms
 that it replaces the comb with an over-smooth regional mound. Retain the
 operation-order correction as necessary source representation, but reject the
-static nearest-front adapter as sufficient terrain architecture. Do not run a
-broader seed confirmation, tune the width, restore random teeth, begin a
-parameter sweep or jump directly to Slice B.
+static nearest-front adapter as sufficient terrain architecture. At that
+checkpoint the next step was the bounded regional-deformation source seam, not
+a broader seed confirmation, width tuning, restored teeth or an immediate jump
+to Slice B.
 
 The selected next seam is
 [regional deformation support](regional-deformation-support.md): a conservative
@@ -227,6 +227,19 @@ Retain its source and exact transfer infrastructure; do not run other worlds,
 generate a history prior, or tune the rejected composition. The next terrain
 design must introduce the missing causal relationship between deformation,
 regional relief topology and drainage rather than another scalar-support pass.
+
+That next design is now selected narrowly as the conditional Slice B upper
+bound from the terrain decision: one product-native **channel/hillslope dual**
+on the same fixed world. It separates an all-cell drainage scaffold from sparse
+channel long profiles and from the smooth non-channel surface; catchment
+adjacency derives divides rather than a separate ridge graph drawing them. The
+candidate consumes retained RDS frames/fabric/provenance and exact transfer,
+but opportunity no longer becomes per-frame positive height. A single short
+product reroute/reconciliation must preserve the intended catchment/channel
+relations. Do not revive graph-depth G, A4 uplift redistribution, the planar
+landscape package or persistent reach identity for this slice. The purpose is
+to establish a cheap topology-aware upper bound before deciding whether the
+authentic hack itself or a leaner coupled physical owner should survive.
 
 ## Completed bounded decisions
 

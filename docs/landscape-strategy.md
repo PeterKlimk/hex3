@@ -1,6 +1,7 @@
 # Landscape organization strategy
 
-Status: **current architecture decision**, 2026-07-21.
+Status: **current architecture decision; channel/hillslope-dual upper bound
+selected after RDS0 terrain rejection**, 2026-07-23.
 
 This document decides how terrain, drainage and landform meaning fit together.
 It does not promote a terrain replacement. [Structural Mountain V0](structural-mountain.md)
@@ -166,9 +167,13 @@ tune relief, add independent crest texture or fabricate internal segmentation
 where the source is genuinely continuous.
 
 The current [terrain architecture decision](terrain-architecture.md) separates
-forcing, landscape response and multiscale representation. It selects epochal
-coupled landscape evolution as the first slice and a causal dual
-drainage/divide construction as a conditional authentic-hack upper bound.
+forcing, landscape response and multiscale representation. Epochal coupled
+landscape evolution was the first slice. Its scalar-support descendants exposed
+material relief response but not coherent regional drainage/divide ownership,
+so the conditional authentic-hack upper bound is now selected narrowly as one
+product-native channel/hillslope dual. It must separate possible drainage,
+promoted channels and the continuous non-channel surface rather than repeat the
+old graph-depth reconstruction or add rivers after independent ridges.
 
 ## Pareto-important capabilities alongside terrain replacement
 

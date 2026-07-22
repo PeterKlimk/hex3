@@ -1,8 +1,9 @@
 # Terrain architecture design space
 
-Status: **current design-space decision; static-support Slice A is insufficient;
-regional deformation source representation has passed its coarse gate; no
-process-mesh terrain replacement is promoted**, 2026-07-23.
+Status: **current design decision; coupled scalar-support Slice A and RDS0
+terrain ownership are insufficient; a product-native channel/hillslope dual is
+the selected bounded Slice B discriminator; no terrain replacement is
+promoted**, 2026-07-23.
 
 This document defines the terrain ownership boundary and the smallest credible
 alternatives to Legacy. It does not change product behavior. Legacy remains the
@@ -38,16 +39,33 @@ repair a causally uniform forcing program; a more expensive erosion loop cannot
 guarantee missing source organization; and a detailed mesh cannot create a
 range hierarchy absent from both.
 
-Evaluate two architecture families, not another parameter ladder:
+The two architecture families were initially ordered as:
 
 - **A — finite-age coupled landscape evolution**, initially using static
   present-front supports, the reduced physical candidate;
 - **B — causal dual drainage/divide construction**, a cheap authentic-hack
   upper bound and fallback.
 
-Implement A first. Build the minimum B slice only if A cannot expose coherent
-regional organization within a plausible product cost, or if an explicit
-topology upper bound is needed to determine what A still lacks.
+Slice A and the subsequent RDS0 moving-support composition have now supplied
+that discriminator. They materially change relief and receivers, but still let
+a scalar positive opportunity field own regional topography. RDS0's apparent
+linked lows resolve into dense source-linked closed depressions rather than a
+coherent drainage/divide system. The condition for B is therefore met.
+
+Implement the minimum **product-native channel/hillslope dual** next. This is
+not a revival of the old graph-depth owner and not permission to author a ridge
+tree. It separates an all-cell drainage scaffold from the sparse channels that
+carry stream-power long profiles and from the continuous hillslope/interfluve
+surface between them. Catchment boundaries supply the divide dual; ridges are
+not drawn independently and rivers are not added after terrain construction.
+
+Three plausible responses to the RDS0 result remain distinct:
+
+| Response | What it would test | Decision now |
+|---|---|---|
+| Persistent thickness/material state plus coupled evolution | Whether advection, retention and relaxation remove lobe/depression grammar | Physically attractive but does not isolate the newly demonstrated topology defect; existing lifecycle machinery is too broad and unresolved |
+| Source-conditioned erodibility or drainage feedback inside the current loop | Whether fabric or drainage can organize an otherwise valid uplift state | Possible later ingredient; alone it leaves the rejected positive-lobe owner intact and risks repeating A4's circular uplift feedback |
+| Channel/hillslope dual with compatible reconstruction | Whether explicit drainage/base-level relations are the missing cheap causal consequence | **Selected bounded upper bound and next implementation slice** |
 
 ## Product outcome and causal reference
 
@@ -209,7 +227,7 @@ erosion tuning ladder.
 | Legacy height/rebuild variants | Broad tectonic location and cheap usable relief | Generic distance-band grammar; tuning and unsmoothing already discriminated | **Control only** |
 | Finite deformation organizer alone | Honest ends, source provenance and bounded opportunity | Current source may be genuinely continuous; prior finite parents remained smooth massifs | **Input component, not terrain owner** |
 | Finite-age coupled landscape evolution | Uplift–drainage–divide–hillslope feedback and unequal belt maturity | Present supports are frozen; repeated routing can be expensive | **Slice A, narrow source gate passed** |
-| Dual drainage/divide construction | Sparse range hierarchy and hydrologically compatible valleys at low cost | Can paint the answer, repeat a grammar or reconstruct amoebas/steps | **Conditional Slice B** |
+| Channel/hillslope drainage dual | Sparse hydrologically compatible channels, divides and regional relief at low cost | Can paint the answer, repeat a grammar or reconstruct amoebas/steps | **Selected bounded Slice B upper bound after RDS0 rejection** |
 | Multiscale erosion, adaptive cells or sub-grid synthesis | Buys tributaries and local texture after regional structure exists | Patch/LOD drainage seams and self-similar grooves; cannot repair macro grammar | **Later representation strategy** |
 | Thin-sheet/lifecycle/geodynamic depth | Richer deformation and material history | Existing experiments cost heavily and have not earned visible organization | **Reference or source research, not next** |
 
@@ -374,27 +392,97 @@ rejected as sufficient terrain ownership. Its source representation and exact
 transfer remain reusable; no other worlds, generated prior, width, source-rate
 or erosion tuning are licensed for this composition.
 
-## Slice B — causal dual drainage/divide construction
+## Slice B — product-native channel/hillslope dual
 
 Hypothesis: a sparse topology conditioned by tectonic opportunity, base level,
 runoff and supported material state can preserve the important mountain
 consequences much more cheaply than repeated global landscape evolution.
 
-The minimum slice jointly constructs a hierarchical drainage graph and its
-catchment/divide dual, then reconstructs a smooth terrain constrained by base
-levels, saddles, broad uplift opportunity and a bounded relief/solid budget. A
-short erosion/reconciliation pass may make the reconstructed surface and routed
-hydrology agree. This must not reuse the failed graph-depth edge-rise
-reconstruction that produced steps and spikes, and it must not add rivers after
-independently authoring ridges. It must preserve supported endorheic basins and
-must not force every drainage tree to an external outlet.
+The minimum slice jointly constructs a drainage/catchment scaffold and its
+divide dual, then reconstructs a smooth terrain constrained by base levels,
+channel long profiles, broad deformation opportunity and a bounded relief or
+solid budget. A short product-native erosion/reconciliation pass makes the
+reconstructed surface and routed hydrology agree.
+
+The critical representation split is:
+
+```text
+all-cell receiver forest        owns possible drainage and catchment membership
+sparse promoted channel graph   owns descending long profiles and runoff hierarchy
+non-channel surface             owns continuous hillslopes, interfluves and massifs
+catchment adjacency             derives divides and candidate saddles
+```
+
+The old fast G arm collapsed the first three rows: every receiver edge added a
+strict elevation rise, so graph depth became steps and spikes. B may reuse that
+failure as a negative oracle, but not its reconstruction. Likewise A4 may
+remain a drainage-feedback control, but its burn-in topology and
+trunk/interfluve uplift redistribution are not the new owner.
+
+The physical reference remains the reduced landscape equation already used by
+the better scientific precedents: rock uplift competes with drainage-area and
+slope-dependent incision while hillslope transport supplies the non-channel
+surface. Divide migration is then a consequence of unequal erosion and uplift,
+not a separately drawn crest. B makes the drainage scaffold explicit only to
+obtain that relationship cheaply. Analytic/procedural stream-power work shows
+that channel long profiles can be reconstructed without a long whole-surface
+simulation, while drainage-first graphics shows the visual upper bound and the
+risk of obtaining the answer by construction
+([physically based analytical erosion](https://doi.org/10.1111/cgf.15033),
+[Génevaux et al. 2013](https://doi.org/10.1145/2461912.2461996)).
+
+### Selected B0 vertical slice
+
+Use the already fixed seed `8675309`, episode `9` and ordinary process mesh.
+Do not introduce another world, history prior or tuning ladder. The candidate:
+
+1. consumes the retained RDS source frames, axial fabric and additive
+   provenance through the existing exact coarse-to-process overlap; the fixed
+   dyadic history remains a counterfactual, not a generated geological prior;
+2. uses the demoted non-orogenic substrate, real ocean/lake base-level policy,
+   runoff and eligible material to construct one provisional receiver forest;
+   a whole-cell forest is routing scaffolding, not a channel mask;
+3. accumulates runoff and promotes only a sparse, physically scaled channel
+   subset, keeping the channel-versus-hillslope distinction explicit;
+4. integrates monotonically descending channel profiles from their base levels
+   using a reduced slope-area/stream-power relation whose amplitude is bound by
+   one declared regional relief or work budget;
+5. reconstructs non-channel cell means with a smooth conservative hillslope
+   response toward those channel constraints and the broad deformation
+   envelope; it does not recursively add one rise per graph edge;
+6. derives catchments, adjacency divides and candidate saddles from the same
+   scaffold, then performs one short reroute/incision/hillslope reconciliation;
+   and
+7. finalizes once through the ordinary `FineSurface`/product-hydrology path so
+   downstream water, rivers, Living Surface and routes read the same terrain.
+
+The implementation should be one research-only runner over the existing
+`FineBase`, not a new solver framework. Reuse `RegionalDeformationProgramV0`,
+its sparse exact overlap transfer, the product erosion routing/accumulation
+scratch and `FineSurface::from_eroded`. Do not import the planar landscape
+mesh, its artifact machinery, the exact spherical hierarchy into the iterative
+loop, or persistent C1 reach identity. Those remain operator/evidence sources.
+
+Opportunity is not direct height in B0. Its integrated support and fabric may
+condition routing resistance, relief capacity or channel orientation only
+through a named rule with a neutral control. Per-frame scalar positive lobes
+may not be injected and then cosmetically carved. This retains the useful RDS
+state without repeating the failed ownership relation.
+
+The first output is one matched Physical/Diagnostic relationship packet, not a
+campaign. It must show the provisional channel graph, final product receivers,
+catchment/divide ownership, physical depressions and deformation support on the
+same views. The existing lightweight RDS relationship readout is sufficient;
+do not materialize a second full f64 geometry merely to obtain exact saddles.
 
 Kill B if constructed channel edges are not monotonically descending to a
 compatible base level, if rerouting changes catchment/divide ownership
 materially, or if the graph invents cross-basin ridge links. Also kill it if the
 surface contains tents, swollen amoebas, steps, corduroy or repeated graph
 grammar, or if tectonic/material counterfactuals do not change the topology in
-the expected direction. B is an explicit authentic hack even if successful.
+the expected direction. A visible valley network is insufficient if it is only
+the provisional scaffold burned into an otherwise unrelated surface. B is an
+explicit authentic hack even if successful.
 
 ## Shared comparison and decision rule
 
