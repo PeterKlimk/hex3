@@ -357,6 +357,13 @@ struct Cli {
     #[arg(long, default_value_t = false, hide = HIDE_RESEARCH_CLI)]
     finite_age_uplift: bool,
 
+    /// Slice A source-order candidate: conservatively aggregate signed normal
+    /// flux along each causal segment before classifying positive compression.
+    /// Implies --finite-age-uplift. The accepted collision width is fixed by the
+    /// model; this switch deliberately exposes no smoothing parameter.
+    #[arg(long, default_value_t = false, hide = HIDE_RESEARCH_CLI)]
+    finite_age_conservative_flux: bool,
+
     /// O0 structured emergent uplift (asymmetric+segmented vs uniform rebuild).
     /// <0 = default (0=off); 1 = fully structured. Needs --emergent-lambda + --erosion-n~2.
     #[arg(long, default_value_t = -1.0, hide = HIDE_RESEARCH_CLI)]
@@ -618,6 +625,16 @@ mod cli_contract_tests {
         let cli = Cli::try_parse_from(["hex3"]).expect("default CLI should parse");
 
         assert!(matches!(cli.orogen_model, CliOrogenModel::Legacy));
+        assert!(!cli.finite_age_uplift);
+        assert!(!cli.finite_age_conservative_flux);
+    }
+
+    #[test]
+    fn conservative_finite_age_flux_switch_remains_parse_compatible() {
+        let cli = Cli::try_parse_from(["hex3", "--finite-age-conservative-flux"])
+            .expect("conservative finite-age source switch should parse");
+
+        assert!(cli.finite_age_conservative_flux);
     }
 }
 
@@ -639,7 +656,8 @@ fn main() {
     let backend = VoronoiBackend::from(cli.voronoi_backend);
     let orogen_model = OrogenModel::from(cli.orogen_model);
     assert!(
-        !cli.finite_age_uplift || cfg!(feature = "research-landscape"),
+        !(cli.finite_age_uplift || cli.finite_age_conservative_flux)
+            || cfg!(feature = "research-landscape"),
         "finite-age-uplift requires --features research-landscape"
     );
     let named_relief = app::ReliefPreset::from(cli.relief_preset);
@@ -699,7 +717,12 @@ fn main() {
         front_strike_weight: (cli.front_strike_weight >= 0.0).then_some(cli.front_strike_weight),
         margin_contrast: (cli.margin_contrast >= 0.0).then_some(cli.margin_contrast),
         emergent_lambda: (cli.emergent_lambda >= 0.0).then_some(cli.emergent_lambda),
-        finite_age_uplift: cli.finite_age_uplift,
+        finite_age_uplift: cli.finite_age_uplift || cli.finite_age_conservative_flux,
+        finite_age_flux_model: if cli.finite_age_conservative_flux {
+            hex3::world::FiniteAgeFluxModel::ConservativeSignedOneCollisionWidthV0
+        } else {
+            hex3::world::FiniteAgeFluxModel::RawEdgePositiveV0
+        },
         emergent_structured: (cli.emergent_structured >= 0.0).then_some(cli.emergent_structured),
         meso_relief: (cli.meso_relief >= 0.0).then_some(cli.meso_relief),
         meso_irregularity: (cli.meso_irregularity >= 0.0).then_some(cli.meso_irregularity),

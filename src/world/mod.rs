@@ -93,13 +93,14 @@ pub use dossier::{DossierOptions, DossierPacket, DOSSIER_SCHEMA_VERSION};
 pub use dynamics::{Dynamics, EulerPole, TectonicClock};
 pub use ecology::{BiomeKind, EcologicalCell, EcologicalPotentials, EcologySemantics};
 pub use elevation::{Elevation, NoiseLayerData, OrogenModel};
-pub use erosion::{roughness_counters, ErosionParams, RoughnessCounters};
+pub use erosion::{roughness_counters, ErosionParams, FiniteAgeFluxModel, RoughnessCounters};
 #[cfg(feature = "research-landscape")]
 pub use features::LegacyCollisionTrace;
 pub use features::{EpisodeCrustWork, FeatureFields, MaterialEpisodeWork};
 #[cfg(feature = "research-landscape")]
 pub use fine::{
-    frozen_support_uplift, project_owned_front, FrozenSupportUplift, OwnedFrontProjection,
+    apply_conservative_finite_age_flux_v0, frozen_support_uplift, project_owned_front,
+    FiniteAgeFluxAuditV0, FrozenSupportUplift, OwnedFrontProjection,
 };
 pub use fine::{
     FineBase, FineDensityParams, FineFields, FineStructureParams, FineSurface, FineWorld,
@@ -159,7 +160,9 @@ pub use structural_mountain::{
 };
 #[cfg(feature = "research-landscape")]
 pub use structural_mountain::{
-    conservative_signed_flux_profile_v0, ConservativeSignedFluxProfileError,
+    conservative_signed_flux_front_rates_v0, conservative_signed_flux_profile_v0,
+    ConservativeSignedFluxFrontErrorV0, ConservativeSignedFluxFrontLedgerV0,
+    ConservativeSignedFluxFrontRatesV0, ConservativeSignedFluxProfileError,
 };
 pub use structural_source_target::{
     catalog_structural_source_belts, ranked_continental_source_belts,
@@ -570,7 +573,23 @@ impl World {
             .tectonic_history
             .as_ref()
             .expect("tectonic history generated");
-        let fronts = OrogenFronts::build(&self.tessellation, plates, crust, dynamics, history);
+        let mut fronts = OrogenFronts::build(&self.tessellation, plates, crust, dynamics, history);
+        let flux_audit = match params.finite_age_flux_model {
+            erosion::FiniteAgeFluxModel::RawEdgePositiveV0 => None,
+            erosion::FiniteAgeFluxModel::ConservativeSignedOneCollisionWidthV0 => Some(
+                fine::apply_conservative_finite_age_flux_v0(
+                    &mut fronts,
+                    &self.tessellation,
+                    plates,
+                    crust,
+                    dynamics,
+                    history,
+                )
+                .unwrap_or_else(|error| {
+                    panic!("finite-age conservative signed-flux source failed: {error}")
+                }),
+            ),
+        };
         let source = fine::frozen_support_uplift(&fine.base, &fronts);
         assert!(
             source.owned_cells > 0,
@@ -582,6 +601,19 @@ impl World {
             source.owned_cells,
             source.distinct_durations,
         );
+        if let Some(audit) = flux_audit {
+            log::info!(
+                "finite-age signed flux: sigma {:.2} km, segments {}, edges {} + {} untouched, f64 closure {:+.3e}, installed cast {:+.3e}, positive {:.3e} -> {:.3e} km2/Myr; builder budget unchanged",
+                audit.sigma_km,
+                audit.processed_segment_count,
+                audit.processed_edge_count,
+                audit.untouched_omission_edge_count,
+                audit.closure_residual_km2_per_myr,
+                audit.installed_f32_cast_residual_km2_per_myr,
+                audit.input_positive_clipped_flux_km2_per_myr,
+                audit.installed_f32_positive_clipped_flux_km2_per_myr,
+            );
+        }
         self.fine.as_mut().unwrap().rerun_eroded_finite_age(
             seed,
             params,

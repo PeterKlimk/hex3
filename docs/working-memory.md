@@ -152,15 +152,38 @@ benefit does not justify that loss of regional structure. One collision width is
 therefore accepted as the source-representation candidate; three widths is a
 rejecting sensitivity, not a second knob.
 
-Do not smooth plate identity, exact topology or a final terrain field. The next
-implementation boundary is to apply this operation per uninterrupted causal
-segment before compression classification and finite-width uplift, preserving
-edge identity and explicit ledgers. Then run one coupled terrain comparison to
-test whether removing edge-phase source cadence produces more coherent ranges
-without erasing persistent bends and rate gradients. This is still a source
-representation decision, not terrain promotion. The transverse-trunk proxy
-remains too sparse to attribute later local sharpening among incision,
-hillslopes and capture.
+The coupled arm now installs that operation on all open causal segments behind
+the research-only `--finite-age-conservative-flux` selector; raw edge-positive
+Slice A remains the default control. Exact geometry, edge/episode identity,
+owner indices, age and downstream response are unchanged. Across seed
+`8675309`'s complete source, 25 segments and 1,825 edges are transformed while
+four omission edges remain explicit and unchanged. Signed flux closes from
+`2,480,112.125014` to `2,480,112.125014 km²/Myr` (residual `4.7e-9`), and
+positive-clipped flux falls from `2,920,455` to `2,606,738 km²/Myr`. Casting the
+installed signed rates to `f32` changes the global ledger by only
+`-0.0019 km²/Myr`.
+
+This first coupled A/B intentionally holds the terrain builder's global target
+budget fixed: the existing builder normalizes either spatial source back to the
+demoted Legacy mountain volume. It tests spatial grammar, not whether the world
+should also lose the rectification excess. On episode `9`, raw versus
+conservative source-rate maxima fall `73 -> 12`, final-crest maxima fall
+`72 -> 29`, and final mean spacing rises `176 -> 520 km`. Yet the fine
+owner/profile field reports `81 -> 105` scheduled-uplift maxima, so single-owner
+projection and cross-front support retain small-scale variation even after the
+boundary rate is coherent. Only 29 of those maxima survive in final terrain.
+
+The matched packet under
+`artifacts/captures/finite-age-conservative-flux-v0/` passes the numerical gate
+but awaits human visual disposition. Preliminary inspection finds that it
+removes the conspicuous comb of repeated peaks, while at least one regional view
+becomes a broad smooth mound rather than a convincing organized range. Do not
+tune the aggregation width: if human review agrees, the correction is retained
+as a necessary source operation but is insufficient terrain architecture. The
+next owner would be intermediate/regional deformation organization or the
+source-to-support reconstruction, not restored noise or three-width smoothing.
+The transverse-trunk proxy remains too sparse to attribute later local
+sharpening among incision, hillslopes and capture.
 The clean source-only record is retained in
 [`docs/generated`](generated/structural-mountain-seed-8675309-organization-audit-v2.json).
 

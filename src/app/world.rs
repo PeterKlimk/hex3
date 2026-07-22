@@ -279,6 +279,9 @@ pub struct ErosionOverrides {
     pub emergent_lambda: Option<f32>,
     /// Coherent research preset for finite-age frozen-support Slice A.
     pub finite_age_uplift: bool,
+    /// Source-rate operation installed when Slice A builds its exact fronts.
+    /// Raw edge-positive rates remain the control and product default.
+    pub finite_age_flux_model: hex3::world::FiniteAgeFluxModel,
     pub emergent_structured: Option<f32>,
     pub meso_relief: Option<f32>,
     pub meso_irregularity: Option<f32>,
@@ -289,7 +292,10 @@ pub struct ErosionOverrides {
 
 impl ErosionOverrides {
     pub fn apply(&self, world: &mut World) {
-        if self.finite_age_uplift {
+        world.erosion_params.finite_age_flux_model = self.finite_age_flux_model;
+        if self.finite_age_uplift
+            || self.finite_age_flux_model != hex3::world::FiniteAgeFluxModel::RawEdgePositiveV0
+        {
             world.erosion_params.finite_age_uplift = true;
             // Remove the full Legacy convergent height from the starting surface.
             // The candidate supplies exact-front uplift instead; keep independent
@@ -1519,13 +1525,42 @@ pub fn bake_river_texture(world: &World, width: u32, height: u32) -> Vec<u8> {
 
 #[cfg(test)]
 mod allocation_tests {
-    use super::{river_texture_extent, NO_RIVER_TEXEL};
+    use super::{river_texture_extent, ErosionOverrides, NO_RIVER_TEXEL};
+    use hex3::world::{FiniteAgeFluxModel, World};
 
     #[test]
     fn pre_hydrology_river_binding_uses_one_transparent_texel() {
         assert_eq!(river_texture_extent(false), (1, 1));
         assert_eq!(river_texture_extent(true), (8192, 4096));
         assert_eq!(NO_RIVER_TEXEL, [255, 0, 0, 0]);
+    }
+
+    #[test]
+    fn erosion_override_defaults_to_raw_finite_age_flux() {
+        let overrides = ErosionOverrides::default();
+        assert!(!overrides.finite_age_uplift);
+        assert_eq!(
+            overrides.finite_age_flux_model,
+            FiniteAgeFluxModel::RawEdgePositiveV0
+        );
+    }
+
+    #[test]
+    fn conservative_flux_override_implies_coherent_slice_a_preset() {
+        let overrides = ErosionOverrides {
+            finite_age_flux_model: FiniteAgeFluxModel::ConservativeSignedOneCollisionWidthV0,
+            ..ErosionOverrides::default()
+        };
+        let mut world = World::new(12_345, 32, 0);
+        overrides.apply(&mut world);
+
+        assert!(world.erosion_params.finite_age_uplift);
+        assert_eq!(
+            world.erosion_params.finite_age_flux_model,
+            FiniteAgeFluxModel::ConservativeSignedOneCollisionWidthV0
+        );
+        assert_eq!(world.fine_structure_params.emergent_lambda, 1.0);
+        assert_eq!(world.fine_structure_params.emergent_structured, 0.0);
     }
 }
 

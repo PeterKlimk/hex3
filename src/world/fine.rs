@@ -15,8 +15,15 @@ use super::constants::*;
 use super::dynamics::Dynamics;
 use super::elevation::{coarse_elevation_fields, isostasy_slope, ElevationFields, OrogenModel};
 use super::erosion::ErosionParams;
+#[cfg(feature = "research-landscape")]
+use super::erosion::FiniteAgeFluxModel;
 use super::features::build_cell_pair_edge_endpoints;
 use super::fine_cache::{self, FineCacheMode};
+#[cfg(feature = "research-landscape")]
+use super::structural_mountain::{
+    collect_convergent_fronts, conservative_signed_flux_front_rates_v0,
+    ConservativeSignedFluxFrontErrorV0,
+};
 use super::water::connected_ocean_cells;
 use super::{
     Atmosphere, CellWaterState, Crust, Elevation, FeatureFields, FineCacheOutcome, FineCacheRecord,
@@ -271,6 +278,130 @@ impl OrogenFronts {
             convergence_km_per_myr,
         }
     }
+}
+
+/// Realized source ledger for the coupled conservative finite-age arm.
+///
+/// The operator closes its ledger in `f64`, while the final four fields disclose
+/// the `f32` rates actually installed into [`OrogenFronts`] for fine-source
+/// sampling. The downstream builder subsequently normalizes that spatial shape
+/// to the unchanged demoted Legacy target volume.
+#[cfg(feature = "research-landscape")]
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+pub struct FiniteAgeFluxAuditV0 {
+    pub model: FiniteAgeFluxModel,
+    pub status: &'static str,
+    pub builder_budget_semantics: &'static str,
+    pub sigma_km: f64,
+    pub implicit_substeps: usize,
+    pub processed_segment_count: usize,
+    pub processed_edge_count: usize,
+    pub untouched_omission_edge_count: usize,
+    pub input_signed_flux_km2_per_myr: f64,
+    pub output_signed_flux_km2_per_myr: f64,
+    pub input_positive_clipped_flux_km2_per_myr: f64,
+    pub output_positive_clipped_flux_km2_per_myr: f64,
+    pub closure_residual_km2_per_myr: f64,
+    pub installed_f32_signed_flux_km2_per_myr: f64,
+    pub installed_f32_positive_clipped_flux_km2_per_myr: f64,
+    pub installed_f32_cast_residual_km2_per_myr: f64,
+    pub rectification_excess_reduction_km2_per_myr: f64,
+}
+
+/// Install the fixed one-collision-width signed-flux candidate into raw fronts.
+///
+/// Exact front topology, identity, age and ownership geometry stay unchanged.
+/// The adapter only replaces the aligned positive convergence-rate vector after
+/// conservative aggregation within the structural compiler's uninterrupted
+/// causal segments. Compiler omissions retain their raw rate and are explicit
+/// in the returned audit.
+#[cfg(feature = "research-landscape")]
+pub fn apply_conservative_finite_age_flux_v0(
+    fronts: &mut OrogenFronts,
+    coarse: &Tessellation,
+    plates: &Plates,
+    crust: &Crust,
+    dynamics: &Dynamics,
+    history: &TectonicHistory,
+) -> Result<FiniteAgeFluxAuditV0, ConservativeSignedFluxFrontErrorV0> {
+    const IMPLICIT_SUBSTEPS: usize = 8;
+    let sigma_km = f64::from(COLLISION_WIDTH) * f64::from(PLANET_RADIUS_KM);
+    let boundaries = collect_plate_boundaries(coarse, plates, crust, dynamics);
+    let exact_fronts = collect_convergent_fronts(coarse, &boundaries, history)?;
+    let candidate =
+        conservative_signed_flux_front_rates_v0(&exact_fronts, sigma_km, IMPLICIT_SUBSTEPS)?;
+
+    assert_eq!(
+        fronts.edge_id.len(),
+        fronts.convergence_km_per_myr.len(),
+        "finite-age front provenance/rate alignment"
+    );
+    assert_eq!(
+        fronts.edge_id.len(),
+        candidate.signed_rates_km_per_myr.len(),
+        "finite-age front roster must match exact signed source"
+    );
+
+    let length_by_id: std::collections::BTreeMap<_, _> = exact_fronts
+        .edges
+        .iter()
+        .map(|edge| (edge.id, f64::from(edge.length_km)))
+        .collect();
+    let installed_signed_rates: Vec<f32> = fronts
+        .edge_id
+        .iter()
+        .map(|edge_id| {
+            candidate
+                .signed_rates_km_per_myr
+                .get(edge_id)
+                .copied()
+                .unwrap_or_else(|| panic!("candidate omitted exact front {edge_id:?}"))
+                as f32
+        })
+        .collect();
+    let mut installed_signed_flux = 0.0;
+    let mut installed_positive_flux = 0.0;
+    for ((edge_id, &signed_rate), convergence) in fronts
+        .edge_id
+        .iter()
+        .zip(&installed_signed_rates)
+        .zip(&mut fronts.convergence_km_per_myr)
+    {
+        let length_km = length_by_id
+            .get(edge_id)
+            .copied()
+            .unwrap_or_else(|| panic!("missing exact length for front {edge_id:?}"));
+        installed_signed_flux += length_km * f64::from(signed_rate);
+        installed_positive_flux += length_km * f64::from(signed_rate.max(0.0));
+        *convergence = signed_rate.max(0.0);
+    }
+
+    let ledger = candidate.ledger;
+    let input_excess =
+        ledger.input_positive_clipped_flux_km2_per_myr - ledger.input_signed_flux_km2_per_myr;
+    let installed_excess = installed_positive_flux - installed_signed_flux;
+    Ok(FiniteAgeFluxAuditV0 {
+        model: FiniteAgeFluxModel::ConservativeSignedOneCollisionWidthV0,
+        status: "research-selectable; nonpromoted",
+        builder_budget_semantics: "changes finite-age uplift spatial grammar; the coupled builder retains its existing globally normalized demoted-Legacy target budget",
+        sigma_km,
+        implicit_substeps: IMPLICIT_SUBSTEPS,
+        processed_segment_count: ledger.processed_segment_count,
+        processed_edge_count: ledger.processed_edge_count,
+        untouched_omission_edge_count: ledger.untouched_edge_count,
+        input_signed_flux_km2_per_myr: ledger.input_signed_flux_km2_per_myr,
+        output_signed_flux_km2_per_myr: ledger.output_signed_flux_km2_per_myr,
+        input_positive_clipped_flux_km2_per_myr: ledger
+            .input_positive_clipped_flux_km2_per_myr,
+        output_positive_clipped_flux_km2_per_myr: ledger
+            .output_positive_clipped_flux_km2_per_myr,
+        closure_residual_km2_per_myr: ledger.closure_residual_km2_per_myr,
+        installed_f32_signed_flux_km2_per_myr: installed_signed_flux,
+        installed_f32_positive_clipped_flux_km2_per_myr: installed_positive_flux,
+        installed_f32_cast_residual_km2_per_myr: installed_signed_flux
+            - ledger.output_signed_flux_km2_per_myr,
+        rectification_excess_reduction_km2_per_myr: input_excess - installed_excess,
+    })
 }
 
 /// Chain convergent fronts into ordered polylines and assign each front an along-strike

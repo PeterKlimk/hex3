@@ -222,6 +222,139 @@ pub fn conservative_signed_flux_profile_v0(
     Ok(profile)
 }
 
+/// Global conservation record for [`conservative_signed_flux_front_rates_v0`].
+#[cfg(feature = "research-landscape")]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ConservativeSignedFluxFrontLedgerV0 {
+    pub processed_segment_count: usize,
+    pub processed_edge_count: usize,
+    pub untouched_edge_count: usize,
+    pub input_signed_flux_km2_per_myr: f64,
+    pub output_signed_flux_km2_per_myr: f64,
+    pub input_positive_clipped_flux_km2_per_myr: f64,
+    pub output_positive_clipped_flux_km2_per_myr: f64,
+    pub closure_residual_km2_per_myr: f64,
+}
+
+/// Signed rates for every exact source edge plus the aggregation ledger.
+#[cfg(feature = "research-landscape")]
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConservativeSignedFluxFrontRatesV0 {
+    pub signed_rates_km_per_myr: BTreeMap<BoundaryEdgeId, f64>,
+    pub ledger: ConservativeSignedFluxFrontLedgerV0,
+}
+
+/// Failure to build a topology-aware signed-rate bridge.
+#[cfg(feature = "research-landscape")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ConservativeSignedFluxFrontErrorV0 {
+    StructuralMountain(StructuralMountainError),
+    SignedFluxProfile(ConservativeSignedFluxProfileError),
+    MissingSourceEdge(BoundaryEdgeId),
+    DuplicateProcessedEdge(BoundaryEdgeId),
+}
+
+#[cfg(feature = "research-landscape")]
+impl std::fmt::Display for ConservativeSignedFluxFrontErrorV0 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{self:?}")
+    }
+}
+
+#[cfg(feature = "research-landscape")]
+impl std::error::Error for ConservativeSignedFluxFrontErrorV0 {}
+
+#[cfg(feature = "research-landscape")]
+impl From<StructuralMountainError> for ConservativeSignedFluxFrontErrorV0 {
+    fn from(value: StructuralMountainError) -> Self {
+        Self::StructuralMountain(value)
+    }
+}
+
+#[cfg(feature = "research-landscape")]
+impl From<ConservativeSignedFluxProfileError> for ConservativeSignedFluxFrontErrorV0 {
+    fn from(value: ConservativeSignedFluxProfileError) -> Self {
+        Self::SignedFluxProfile(value)
+    }
+}
+
+/// Aggregate signed rates independently along each emitted structural segment.
+///
+/// The existing structural compiler remains the authority for uninterrupted
+/// open-path identity and ordering. This adapter smooths raw signed convergence
+/// using exact source-edge lengths before a caller performs positive
+/// classification. It never reads the compiler's opportunity allocation or
+/// along-strike taper. Edges omitted by the compiler (including closed loops)
+/// remain at their exact input rate and are counted as untouched.
+#[cfg(feature = "research-landscape")]
+pub fn conservative_signed_flux_front_rates_v0(
+    fronts: &ConvergentFrontSet,
+    sigma_km: f64,
+    substeps: usize,
+) -> Result<ConservativeSignedFluxFrontRatesV0, ConservativeSignedFluxFrontErrorV0> {
+    // Validate the declared operator even when this set has no emitted path.
+    conservative_signed_flux_profile_v0(&[], &[], sigma_km, substeps)?;
+    let graph = compile_structural_mountain(fronts)?;
+    let by_id: BTreeMap<_, _> = fronts.edges.iter().map(|edge| (edge.id, edge)).collect();
+    let mut signed_rates_km_per_myr: BTreeMap<_, _> = by_id
+        .iter()
+        .map(|(&id, edge)| (id, f64::from(edge.convergence_km_per_myr)))
+        .collect();
+    let mut processed = BTreeSet::new();
+
+    for segment in &graph.segments {
+        let mut input_rates = Vec::with_capacity(segment.source_edges.len());
+        let mut lengths_km = Vec::with_capacity(segment.source_edges.len());
+        for &edge_id in &segment.source_edges {
+            let edge = by_id.get(&edge_id).ok_or(
+                ConservativeSignedFluxFrontErrorV0::MissingSourceEdge(edge_id),
+            )?;
+            input_rates.push(f64::from(edge.convergence_km_per_myr));
+            lengths_km.push(f64::from(edge.length_km));
+        }
+        let output_rates =
+            conservative_signed_flux_profile_v0(&input_rates, &lengths_km, sigma_km, substeps)?;
+        for (&edge_id, output_rate) in segment.source_edges.iter().zip(output_rates) {
+            if !processed.insert(edge_id) {
+                return Err(ConservativeSignedFluxFrontErrorV0::DuplicateProcessedEdge(
+                    edge_id,
+                ));
+            }
+            *signed_rates_km_per_myr.get_mut(&edge_id).ok_or(
+                ConservativeSignedFluxFrontErrorV0::MissingSourceEdge(edge_id),
+            )? = output_rate;
+        }
+    }
+
+    let mut input_signed_flux = 0.0;
+    let mut output_signed_flux = 0.0;
+    let mut input_positive_clipped_flux = 0.0;
+    let mut output_positive_clipped_flux = 0.0;
+    for (&edge_id, edge) in &by_id {
+        let length_km = f64::from(edge.length_km);
+        let input_rate = f64::from(edge.convergence_km_per_myr);
+        let output_rate = signed_rates_km_per_myr[&edge_id];
+        input_signed_flux += length_km * input_rate;
+        output_signed_flux += length_km * output_rate;
+        input_positive_clipped_flux += length_km * input_rate.max(0.0);
+        output_positive_clipped_flux += length_km * output_rate.max(0.0);
+    }
+
+    Ok(ConservativeSignedFluxFrontRatesV0 {
+        signed_rates_km_per_myr,
+        ledger: ConservativeSignedFluxFrontLedgerV0 {
+            processed_segment_count: graph.segments.len(),
+            processed_edge_count: processed.len(),
+            untouched_edge_count: by_id.len() - processed.len(),
+            input_signed_flux_km2_per_myr: input_signed_flux,
+            output_signed_flux_km2_per_myr: output_signed_flux,
+            input_positive_clipped_flux_km2_per_myr: input_positive_clipped_flux,
+            output_positive_clipped_flux_km2_per_myr: output_positive_clipped_flux,
+            closure_residual_km2_per_myr: output_signed_flux - input_signed_flux,
+        },
+    })
+}
+
 /// Why valid source evidence could not become a finite parent segment.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StructuralMountainOmissionReason {
@@ -890,6 +1023,24 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "research-landscape")]
+    fn flux_edge(
+        cells: [usize; 2],
+        vertices: [u32; 2],
+        episode: usize,
+        length_km: f32,
+        signed_rate_km_per_myr: f32,
+    ) -> ConvergentFrontEdge {
+        let mut result = edge(cells, vertices, episode, 0.0);
+        result.length_km = length_km;
+        result.convergence_km_per_myr = signed_rate_km_per_myr;
+        result.relative_speed_km_per_myr = signed_rate_km_per_myr.abs();
+        result.episode_normal_displacement_km = signed_rate_km_per_myr;
+        result.shortening_area_opportunity_km2 =
+            f64::from(length_km) * f64::from(signed_rate_km_per_myr.max(0.0));
+        result
+    }
+
     fn set(edges: Vec<ConvergentFrontEdge>) -> ConvergentFrontSet {
         let mut degree = BTreeMap::new();
         for edge in &edges {
@@ -1196,6 +1347,91 @@ mod tests {
         assert_eq!(
             conservative_signed_flux_profile_v0(&rates, &lengths, 1.0, 0),
             Err(ConservativeSignedFluxProfileError::InvalidSubsteps)
+        );
+    }
+
+    #[cfg(feature = "research-landscape")]
+    #[test]
+    fn signed_flux_front_bridge_closes_mixed_irregular_chain_and_reduces_rectification() {
+        let fronts = set(vec![
+            flux_edge([0, 10], [1, 2], 4, 3.0, 4.0),
+            flux_edge([1, 11], [2, 3], 4, 11.0, -3.0),
+            flux_edge([2, 12], [3, 4], 4, 5.0, 5.0),
+            flux_edge([3, 13], [4, 5], 4, 17.0, -2.0),
+            flux_edge([4, 14], [5, 6], 4, 7.0, 1.0),
+            flux_edge([5, 15], [6, 7], 4, 23.0, -0.5),
+        ]);
+        let result = conservative_signed_flux_front_rates_v0(&fronts, 20.0, 3).unwrap();
+        assert_eq!(result.signed_rates_km_per_myr.len(), fronts.edges.len());
+        assert_eq!(result.ledger.processed_segment_count, 1);
+        assert_eq!(result.ledger.processed_edge_count, fronts.edges.len());
+        assert_eq!(result.ledger.untouched_edge_count, 0);
+        assert!(
+            result.ledger.closure_residual_km2_per_myr.abs()
+                <= 1e-12 * result.ledger.input_signed_flux_km2_per_myr.abs().max(1.0)
+        );
+        assert!(
+            result.ledger.output_positive_clipped_flux_km2_per_myr
+                < result.ledger.input_positive_clipped_flux_km2_per_myr
+        );
+    }
+
+    #[cfg(feature = "research-landscape")]
+    #[test]
+    fn signed_flux_front_bridge_does_not_exchange_across_episode_transfer() {
+        let fronts = set(vec![
+            flux_edge([0, 10], [1, 2], 4, 1.0, 2.0),
+            flux_edge([1, 11], [2, 3], 5, 3.0, 0.5),
+        ]);
+        let result = conservative_signed_flux_front_rates_v0(&fronts, 127.0, 4).unwrap();
+        assert_eq!(result.ledger.processed_segment_count, 2);
+        assert_eq!(result.ledger.processed_edge_count, 2);
+        for edge in &fronts.edges {
+            assert_eq!(
+                result.signed_rates_km_per_myr[&edge.id],
+                f64::from(edge.convergence_km_per_myr)
+            );
+        }
+    }
+
+    #[cfg(feature = "research-landscape")]
+    #[test]
+    fn signed_flux_front_bridge_leaves_closed_loop_omission_unchanged() {
+        let fronts = set(vec![
+            flux_edge([0, 10], [1, 2], 4, 3.0, 1.0),
+            flux_edge([1, 11], [2, 3], 4, 5.0, -2.0),
+            flux_edge([2, 12], [3, 1], 4, 7.0, 3.0),
+        ]);
+        let result = conservative_signed_flux_front_rates_v0(&fronts, 127.0, 4).unwrap();
+        assert_eq!(result.ledger.processed_segment_count, 0);
+        assert_eq!(result.ledger.processed_edge_count, 0);
+        assert_eq!(result.ledger.untouched_edge_count, 3);
+        for edge in &fronts.edges {
+            assert_eq!(
+                result.signed_rates_km_per_myr[&edge.id],
+                f64::from(edge.convergence_km_per_myr)
+            );
+        }
+        assert_eq!(
+            result.ledger.input_signed_flux_km2_per_myr,
+            result.ledger.output_signed_flux_km2_per_myr
+        );
+        assert_eq!(result.ledger.closure_residual_km2_per_myr, 0.0);
+    }
+
+    #[cfg(feature = "research-landscape")]
+    #[test]
+    fn signed_flux_front_bridge_is_deterministic_under_input_permutation() {
+        let fronts = set(vec![
+            flux_edge([0, 10], [1, 2], 4, 3.0, 4.0),
+            flux_edge([1, 11], [2, 3], 4, 11.0, -3.0),
+            flux_edge([2, 12], [3, 4], 4, 5.0, 5.0),
+        ]);
+        let mut permuted = fronts.clone();
+        permuted.edges.reverse();
+        assert_eq!(
+            conservative_signed_flux_front_rates_v0(&fronts, 31.0, 5).unwrap(),
+            conservative_signed_flux_front_rates_v0(&permuted, 31.0, 5).unwrap()
         );
     }
 }

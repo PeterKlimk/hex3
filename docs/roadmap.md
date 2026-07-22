@@ -196,14 +196,20 @@ maxima and `0.692` raw/output correlation across the 16,588 km segment. The
 collapsing the source to six maxima. This selects one collision width as the
 production-shaped source candidate and rejects three widths as a default.
 
-Next, integrate the accepted operation per uninterrupted causal segment before
-compression classification and positive finite-width uplift, retaining exact
-Voronoi topology, edge identity and signed ledgers. Then run one coupled terrain
-comparison against Slice A to ask the functional question: does removal of
-edge-phase source cadence produce coherent regional ranges without erasing
-persistent bends and rate gradients? This is an operation-order correction, not
-cosmetic smoothing, random source complexity, a parameter sweep, a height
-correction or Slice B.
+That source operation is now integrated as one research-only Slice-A arm. Across
+the complete seed-`8675309` source, its signed ledger closes near roundoff and it
+reduces positive-clipped flux by 10.7%. In the coupled episode-9 trace, source
+maxima fall `73 -> 12`, final maxima fall `72 -> 29` and mean final spacing rises
+`176 -> 520 km`. Because the terrain builder still normalizes both arms to the
+same demoted Legacy volume, this is a spatial-grammar comparison rather than a
+total-budget correction.
+
+The matched render packet removes the repeated comb but may replace it with an
+over-smooth regional mound. Human visual review is now the bounded decision.
+If accepted, proceed to broader source/terrain confirmation; if rejected as
+insufficient, retain the operation-order correction and design the missing
+intermediate/regional deformation or source-to-support owner. Do not tune the
+width, restore random teeth, begin a parameter sweep or jump to Slice B.
 
 ## Completed bounded decisions
 

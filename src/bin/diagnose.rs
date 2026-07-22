@@ -11,6 +11,8 @@ use clap::{Parser, ValueEnum};
 use hex3::world::diagnostics::{
     distance_from_mask, measure_components, ComponentStats, EARTH_RADIUS_KM,
 };
+#[cfg(feature = "research-landscape")]
+use hex3::world::FiniteAgeFluxModel;
 use hex3::world::{
     elevation_to_km, CellWaterState, FineSurface, OrogenModel, RiverSelection,
     RiverThresholdPolicy, World, ELEVATION_UNIT_KM,
@@ -300,6 +302,12 @@ struct Cli {
     #[cfg(feature = "research-landscape")]
     #[arg(long, default_value_t = false)]
     finite_age_uplift: bool,
+    /// Use the accepted source-order arm for Slice A: aggregate signed normal
+    /// flux over each causal segment before positive compression is selected.
+    /// Implies the finite-age preset; the collision-width scale is fixed.
+    #[cfg(feature = "research-landscape")]
+    #[arg(long, default_value_t = false, hide = true)]
+    finite_age_conservative_flux: bool,
     /// O0 structured emergent uplift (orogen-structure): blend of asymmetric+segmented
     /// uplift shape vs uniform rebuild. <0 = default (0=off); 1 = fully structured.
     /// Needs --emergent-lambda >0 and (for the decisive test) --erosion-n ~2.
@@ -396,10 +404,16 @@ fn main() {
     world.generate_atmosphere();
     #[cfg(feature = "research-landscape")]
     if cli.finite_age_uplift
+        || cli.finite_age_conservative_flux
         || cli.finite_age_component_audit
         || cli.finite_age_spatial_episode.is_some()
     {
         world.erosion_params.finite_age_uplift = true;
+        world.erosion_params.finite_age_flux_model = if cli.finite_age_conservative_flux {
+            FiniteAgeFluxModel::ConservativeSignedOneCollisionWidthV0
+        } else {
+            FiniteAgeFluxModel::RawEdgePositiveV0
+        };
         world.fine_structure_params.emergent_lambda = 1.0;
         world.fine_structure_params.emergent_structured = 0.0;
         world.fine_structure_params.interior_relief = 0.0;
@@ -2403,6 +2417,44 @@ fn exact_fronts_match(
     })
 }
 
+/// Rebuild the exact fronts using the same installed source-rate operation as
+/// the coupled finite-age world. Keeping this in one adapter prevents the
+/// component and spatial diagnostics from silently describing the raw control
+/// when Stage 4 was generated from conservative signed aggregation.
+#[cfg(feature = "research-landscape")]
+fn installed_finite_age_fronts(
+    world: &World,
+) -> (
+    hex3::world::OrogenFronts,
+    Option<hex3::world::FiniteAgeFluxAuditV0>,
+) {
+    use hex3::world::{apply_conservative_finite_age_flux_v0, OrogenFronts};
+
+    let plates = world.plates.as_ref().expect("plates generated");
+    let crust = world.crust.as_ref().expect("crust generated");
+    let dynamics = world.dynamics.as_ref().expect("dynamics generated");
+    let history = world
+        .tectonic_history
+        .as_ref()
+        .expect("tectonic history generated");
+    let mut fronts = OrogenFronts::build(&world.tessellation, plates, crust, dynamics, history);
+    let audit = match world.erosion_params.finite_age_flux_model {
+        FiniteAgeFluxModel::RawEdgePositiveV0 => None,
+        FiniteAgeFluxModel::ConservativeSignedOneCollisionWidthV0 => Some(
+            apply_conservative_finite_age_flux_v0(
+                &mut fronts,
+                &world.tessellation,
+                plates,
+                crust,
+                dynamics,
+                history,
+            )
+            .unwrap_or_else(|error| panic!("finite-age source-rate adapter failed: {error}")),
+        ),
+    };
+    (fronts, audit)
+}
+
 #[cfg(feature = "research-landscape")]
 fn run_finite_age_component_audit(
     world: &World,
@@ -2413,9 +2465,7 @@ fn run_finite_age_component_audit(
 ) {
     use std::collections::BTreeMap;
 
-    use hex3::world::{
-        collect_convergent_fronts, collect_plate_boundaries, frozen_support_uplift, OrogenFronts,
-    };
+    use hex3::world::{collect_convergent_fronts, collect_plate_boundaries, frozen_support_uplift};
 
     let fine = world
         .fine
@@ -2457,7 +2507,7 @@ fn run_finite_age_component_audit(
         .iter()
         .map(|edge| (edge.id, edge))
         .collect();
-    let fronts = OrogenFronts::build(&world.tessellation, plates, crust, dynamics, history);
+    let (fronts, _) = installed_finite_age_fronts(world);
     assert!(
         exact_fronts_match(&fronts, &exact_by_id),
         "finite-age owner fronts do not match the exact convergent-front set"
@@ -3112,6 +3162,11 @@ struct FiniteAgeSpatialReport {
     schema: &'static str,
     seed: u64,
     manifest: hex3::world::RunManifest,
+    finite_age_flux_model: FiniteAgeFluxModel,
+    /// Present only for the conservative source-order candidate. This is the
+    /// compact edge/segment ledger produced by the exact adapter installed in
+    /// the coupled world, not per-edge sample output.
+    source_flux_audit: Option<hex3::world::FiniteAgeFluxAuditV0>,
     requested_coarse_cells: usize,
     actual_coarse_cells: usize,
     fine_cells: usize,
@@ -3198,9 +3253,7 @@ fn run_finite_age_spatial_trace(
 ) {
     use std::collections::BTreeMap;
 
-    use hex3::world::{
-        frozen_support_uplift, project_owned_front, OrogenFronts, EMERGENT_LAND_FLOOR_MARGIN,
-    };
+    use hex3::world::{frozen_support_uplift, project_owned_front, EMERGENT_LAND_FLOOR_MARGIN};
 
     let fine = world
         .fine
@@ -3218,14 +3271,11 @@ fn run_finite_age_spatial_trace(
         0.0f32.to_bits()
     );
 
-    let plates = world.plates.as_ref().expect("plates generated");
-    let crust = world.crust.as_ref().expect("crust generated");
-    let dynamics = world.dynamics.as_ref().expect("dynamics generated");
     let history = world
         .tectonic_history
         .as_ref()
         .expect("tectonic history generated");
-    let fronts = OrogenFronts::build(&world.tessellation, plates, crust, dynamics, history);
+    let (fronts, source_flux_audit) = installed_finite_age_fronts(world);
     let source = frozen_support_uplift(&fine.base, &fronts);
     let tess = fine.tessellation();
     let areas = tess.cell_areas_ref();
@@ -3513,9 +3563,11 @@ fn run_finite_age_spatial_trace(
             .total_cmp(&left.scheduled_uplift_volume_km3)
     });
     let report = FiniteAgeSpatialReport {
-        schema: "hex3.finite-age-within-episode-trace.v0",
+        schema: "hex3.finite-age-within-episode-trace.v1",
         seed,
         manifest: world.manifest(),
+        finite_age_flux_model: world.erosion_params.finite_age_flux_model,
+        source_flux_audit,
         requested_coarse_cells: requested_cells,
         actual_coarse_cells: world.tessellation.num_cells(),
         fine_cells: tess.num_cells(),
@@ -7405,6 +7457,30 @@ fn capture_mass_over_indices(
         remaining -= used;
     }
     captured
+}
+
+#[cfg(test)]
+mod cli_contract_tests {
+    use super::Cli;
+    use clap::Parser;
+
+    #[test]
+    fn default_keeps_raw_finite_age_source() {
+        let cli = Cli::try_parse_from(["diagnose"]).expect("default diagnose CLI parses");
+        #[cfg(feature = "research-landscape")]
+        {
+            assert!(!cli.finite_age_uplift);
+            assert!(!cli.finite_age_conservative_flux);
+        }
+    }
+
+    #[cfg(feature = "research-landscape")]
+    #[test]
+    fn conservative_finite_age_source_switch_parses() {
+        let cli = Cli::try_parse_from(["diagnose", "--finite-age-conservative-flux"])
+            .expect("conservative finite-age source switch parses");
+        assert!(cli.finite_age_conservative_flux);
+    }
 }
 
 #[cfg(test)]

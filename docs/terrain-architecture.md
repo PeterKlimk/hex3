@@ -337,13 +337,23 @@ the source to six maxima and `0.601` correlation. Select 127 km as the
 production-shaped source candidate and retain 382 km only as the rejecting
 sensitivity.
 
-This does not promote a terrain or a universal Gaussian prior. Integrate the
-operator per uninterrupted segment before compression classification and
-positive finite-width uplift, retaining exact Voronoi topology, edge identity,
-plate/material ownership and signed ledgers. Then make one coupled comparison
-against the current Slice-A control. Do not smooth a disliked final picture,
-restore a height target, add stochastic source complexity, tune coverage or
-begin Slice B.
+The coupled implementation is now an explicit research-only finite-age source
+model. It applies the fixed 127 km operation to every emitted causal segment,
+maps the signed result back by exact edge ID, then performs positive
+classification in the unchanged frozen-support source. Raw remains the default;
+closed-loop and other omission edges remain explicit and unchanged. On the
+complete seed-`8675309` source the global signed ledger closes to `4.7e-9`
+km²/Myr over 2.48 million km²/Myr, while positive-clipped flux falls 10.7%.
+
+The first coupled comparison is a fixed-budget spatial-grammar test because the
+existing terrain builder normalizes both sources to the demoted Legacy volume.
+For episode `9`, final-crest maxima fall from 72 to 29 and mean spacing expands
+from 176 to 520 km. The matched images remove the repeated comb, but preliminary
+inspection also shows a broad smooth mound in place of one range. Human visual
+review is the remaining gate. This does not promote a terrain or a universal
+Gaussian prior. If the mound reading holds, retain the corrected source order
+but move to the missing intermediate/regional organization owner; do not tune
+width, restore a height target, add stochastic complexity or begin Slice B.
 
 ## Slice B — causal dual drainage/divide construction
 

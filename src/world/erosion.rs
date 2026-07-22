@@ -93,6 +93,10 @@ pub struct ErosionParams {
     /// ages. The ordinary erosion entry ignores this flag; World uses it only to
     /// select `erode_finite_age` in research builds.
     pub finite_age_uplift: bool,
+    /// Signed-front treatment for the research finite-age uplift source. The
+    /// default preserves the existing per-edge positive clipping exactly; the
+    /// conservative arm is selectable evidence, not promoted product behavior.
+    pub finite_age_flux_model: FiniteAgeFluxModel,
     /// Emergent builder over-rebuild gain (see `EMERGENT_REBUILD_GAIN`). >1
     /// builds more volume than the coarse target so erosion carves the excess
     /// into relief; the joint high-relief regime dial (relief-spectrum spec,
@@ -154,6 +158,21 @@ pub struct ErosionParams {
     pub glacial_overdeepen_max: f32,
 }
 
+/// Research finite-age boundary-flux representation.
+///
+/// This is an enum rather than an exposed smoothing distance: the conservative
+/// candidate has one fixed physical support scale and is not a tuning surface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FiniteAgeFluxModel {
+    /// Existing control: clip each exact boundary edge's closing rate locally.
+    #[default]
+    RawEdgePositiveV0,
+    /// Aggregate signed rate conservatively over one collision width before
+    /// positive clipping. Research-selectable and non-promoted.
+    ConservativeSignedOneCollisionWidthV0,
+}
+
 impl Default for ErosionParams {
     fn default() -> Self {
         Self {
@@ -171,6 +190,7 @@ impl Default for ErosionParams {
             confinement_slope: EROSION_CONFINEMENT_SLOPE,
             uplift_scale: EROSION_UPLIFT_SCALE,
             finite_age_uplift: false,
+            finite_age_flux_model: FiniteAgeFluxModel::default(),
             rebuild_gain: EMERGENT_REBUILD_GAIN,
             uplift_smooth_km: EROSION_UPLIFT_SMOOTH_KM,
             deposit_fill_fraction: EROSION_DEPOSIT_FILL_FRACTION,

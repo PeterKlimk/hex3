@@ -1,7 +1,10 @@
 #[cfg(feature = "research-landscape")]
 use glam::Vec3;
 #[cfg(feature = "research-landscape")]
-use hex3::world::{frozen_support_uplift, project_owned_front};
+use hex3::world::{
+    apply_conservative_finite_age_flux_v0, collect_convergent_fronts, collect_plate_boundaries,
+    frozen_support_uplift, project_owned_front, FiniteAgeFluxModel,
+};
 use hex3::world::{
     BiomeKind, EcologySemantics, ErosionParams, FineCacheMode, FineCacheOutcome, FineDensityParams,
     FineStructureParams, FineWorld, LivingSurfaceSemantics, OrogenFronts, RiverNetwork,
@@ -324,6 +327,169 @@ fn finite_age_source_retains_front_and_episode_provenance() {
             "continuous coordinate escaped its retained owner segment"
         );
     }
+}
+
+#[cfg(feature = "research-landscape")]
+#[test]
+fn finite_age_raw_flux_model_preserves_source_bytes() {
+    let world = coarse_world();
+    let fine = generate_pre(&world);
+    let direct_fronts = OrogenFronts::build(
+        &world.tessellation,
+        world.plates.as_ref().unwrap(),
+        world.crust.as_ref().unwrap(),
+        world.dynamics.as_ref().unwrap(),
+        world.tectonic_history.as_ref().unwrap(),
+    );
+    let configured_fronts = OrogenFronts::build(
+        &world.tessellation,
+        world.plates.as_ref().unwrap(),
+        world.crust.as_ref().unwrap(),
+        world.dynamics.as_ref().unwrap(),
+        world.tectonic_history.as_ref().unwrap(),
+    );
+    let params = ErosionParams::default();
+    assert_eq!(
+        params.finite_age_flux_model,
+        FiniteAgeFluxModel::RawEdgePositiveV0
+    );
+    assert_eq!(
+        serde_json::to_value(params).unwrap()["finite_age_flux_model"],
+        "raw-edge-positive-v0"
+    );
+
+    // This is the raw branch used by World: no adapter call between the existing
+    // front constructor and existing frozen-support builder.
+    let direct = frozen_support_uplift(&fine.base, &direct_fronts);
+    let configured = frozen_support_uplift(&fine.base, &configured_fronts);
+    assert_eq!(
+        direct
+            .shape
+            .iter()
+            .map(|value| value.to_bits())
+            .collect::<Vec<_>>(),
+        configured
+            .shape
+            .iter()
+            .map(|value| value.to_bits())
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        direct
+            .duration_myr
+            .iter()
+            .map(|value| value.to_bits())
+            .collect::<Vec<_>>(),
+        configured
+            .duration_myr
+            .iter()
+            .map(|value| value.to_bits())
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(direct.owner_front, configured.owner_front);
+    assert_eq!(direct.owned_cells, configured.owned_cells);
+    assert_eq!(direct.distinct_durations, configured.distinct_durations);
+}
+
+#[cfg(feature = "research-landscape")]
+#[test]
+fn conservative_finite_age_flux_installs_closed_candidate_with_same_provenance() {
+    let world = coarse_world();
+    let mut fronts = OrogenFronts::build(
+        &world.tessellation,
+        world.plates.as_ref().unwrap(),
+        world.crust.as_ref().unwrap(),
+        world.dynamics.as_ref().unwrap(),
+        world.tectonic_history.as_ref().unwrap(),
+    );
+    let raw = fronts.clone();
+    let audit = apply_conservative_finite_age_flux_v0(
+        &mut fronts,
+        &world.tessellation,
+        world.plates.as_ref().unwrap(),
+        world.crust.as_ref().unwrap(),
+        world.dynamics.as_ref().unwrap(),
+        world.tectonic_history.as_ref().unwrap(),
+    )
+    .unwrap();
+
+    assert_eq!(
+        audit.model,
+        FiniteAgeFluxModel::ConservativeSignedOneCollisionWidthV0
+    );
+    assert_eq!(audit.implicit_substeps, 8);
+    assert_eq!(
+        audit.sigma_km.to_bits(),
+        (f64::from(hex3::world::COLLISION_WIDTH) * f64::from(hex3::world::PLANET_RADIUS_KM))
+            .to_bits()
+    );
+    assert!(audit.processed_segment_count > 0);
+    assert!(audit.processed_edge_count > 0);
+    assert_eq!(
+        audit.processed_edge_count + audit.untouched_omission_edge_count,
+        fronts.edge_id.len()
+    );
+    let signed_scale = audit.input_signed_flux_km2_per_myr.abs().max(1.0);
+    assert!(audit.closure_residual_km2_per_myr.abs() <= 1e-10 * signed_scale);
+    assert!(audit.installed_f32_cast_residual_km2_per_myr.abs() <= 1e-5 * signed_scale);
+    assert!(audit.rectification_excess_reduction_km2_per_myr >= -1e-8 * signed_scale);
+
+    // The candidate changes only aligned source rate: topology, exact owner IDs,
+    // age and chain coordinates remain the raw source's provenance.
+    assert_eq!(fronts.points, raw.points);
+    assert_eq!(fronts.seg_a, raw.seg_a);
+    assert_eq!(fronts.seg_b, raw.seg_b);
+    assert_eq!(fronts.accept_plate, raw.accept_plate);
+    assert_eq!(fronts.arc_u, raw.arc_u);
+    assert_eq!(fronts.chain_id, raw.chain_id);
+    assert_eq!(fronts.u_lin, raw.u_lin);
+    assert_eq!(fronts.u_dir, raw.u_dir);
+    assert_eq!(fronts.episode_duration_myr, raw.episode_duration_myr);
+    assert_eq!(fronts.episode_id, raw.episode_id);
+    assert_eq!(fronts.edge_id, raw.edge_id);
+    assert!(fronts
+        .convergence_km_per_myr
+        .iter()
+        .all(|rate| rate.is_finite() && *rate >= 0.0));
+    assert!(fronts
+        .convergence_km_per_myr
+        .iter()
+        .zip(&raw.convergence_km_per_myr)
+        .any(|(&candidate, &control)| candidate.to_bits() != control.to_bits()));
+
+    let boundaries = collect_plate_boundaries(
+        &world.tessellation,
+        world.plates.as_ref().unwrap(),
+        world.crust.as_ref().unwrap(),
+        world.dynamics.as_ref().unwrap(),
+    );
+    let exact = collect_convergent_fronts(
+        &world.tessellation,
+        &boundaries,
+        world.tectonic_history.as_ref().unwrap(),
+    )
+    .unwrap();
+    let length_by_id: std::collections::BTreeMap<_, _> = exact
+        .edges
+        .iter()
+        .map(|edge| (edge.id, f64::from(edge.length_km)))
+        .collect();
+    let installed_positive = fronts
+        .edge_id
+        .iter()
+        .zip(&fronts.convergence_km_per_myr)
+        .map(|(edge_id, &rate)| length_by_id[edge_id] * f64::from(rate))
+        .sum::<f64>();
+    assert_eq!(
+        installed_positive.to_bits(),
+        audit
+            .installed_f32_positive_clipped_flux_km2_per_myr
+            .to_bits()
+    );
+    assert_eq!(
+        serde_json::to_value(audit).unwrap()["model"],
+        "conservative-signed-one-collision-width-v0"
+    );
 }
 
 #[cfg(feature = "research-landscape")]
