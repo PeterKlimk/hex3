@@ -1,7 +1,8 @@
 # Terrain architecture design space
 
-Status: **current design-space decision; source gate passed narrowly; no
-replacement selected or promoted**, 2026-07-21.
+Status: **current design-space decision; static-support Slice A is insufficient;
+regional deformation support is the selected research seam; no replacement is
+promoted**, 2026-07-23.
 
 This document defines the terrain ownership boundary and the smallest credible
 alternatives to Legacy. It does not change product behavior. Legacy remains the
@@ -348,12 +349,22 @@ km²/Myr over 2.48 million km²/Myr, while positive-clipped flux falls 10.7%.
 The first coupled comparison is a fixed-budget spatial-grammar test because the
 existing terrain builder normalizes both sources to the demoted Legacy volume.
 For episode `9`, final-crest maxima fall from 72 to 29 and mean spacing expands
-from 176 to 520 km. The matched images remove the repeated comb, but preliminary
-inspection also shows a broad smooth mound in place of one range. Human visual
-review is the remaining gate. This does not promote a terrain or a universal
-Gaussian prior. If the mound reading holds, retain the corrected source order
-but move to the missing intermediate/regional organization owner; do not tune
-width, restore a height target, add stochastic complexity or begin Slice B.
+from 176 to 520 km. The matched images remove the repeated comb, but human
+review confirms that the candidate replaces it with a broad smooth mound rather
+than a convincing organized range. The corrected operation order is retained
+as necessary source representation; the static nearest-front adapter is
+rejected as sufficient terrain architecture. The `105` scheduled-source peak
+count is secondary fine-support variation, not visual evidence against that
+reading: only 29 peaks survive into a terrain that reads smooth.
+
+The next seam is the proposed
+[regional deformation program](regional-deformation-support.md), not another
+width, source-rate or erosion tuning pass and not an immediate jump to Slice B.
+It conservatively turns finite boundary work into a sparse, time-indexed,
+two-dimensional deformation-opportunity program with true ends, overlap,
+linkage, retirement and explicit material provenance. Its first step is one
+fixed-budget reduced-kinematic counterfactual on the same seed and episode,
+not a product history claim or broad campaign.
 
 ## Slice B — causal dual drainage/divide construction
 

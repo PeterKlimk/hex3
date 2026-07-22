@@ -1,6 +1,6 @@
 # Hex3 roadmap
 
-Status: **current portfolio decision**, 2026-07-22.
+Status: **current portfolio decision**, 2026-07-23.
 
 This roadmap turns the [project thesis](thesis.md), [model strategy](model-strategy.md)
 and [cross-system disposition](system-disposition.md) into a short, revisable
@@ -204,12 +204,22 @@ maxima fall `73 -> 12`, final maxima fall `72 -> 29` and mean final spacing rise
 same demoted Legacy volume, this is a spatial-grammar comparison rather than a
 total-budget correction.
 
-The matched render packet removes the repeated comb but may replace it with an
-over-smooth regional mound. Human visual review is now the bounded decision.
-If accepted, proceed to broader source/terrain confirmation; if rejected as
-insufficient, retain the operation-order correction and design the missing
-intermediate/regional deformation or source-to-support owner. Do not tune the
-width, restore random teeth, begin a parameter sweep or jump to Slice B.
+The matched render packet removes the repeated comb, and human review confirms
+that it replaces the comb with an over-smooth regional mound. Retain the
+operation-order correction as necessary source representation, but reject the
+static nearest-front adapter as sufficient terrain architecture. Do not run a
+broader seed confirmation, tune the width, restore random teeth, begin a
+parameter sweep or jump directly to Slice B.
+
+The selected next seam is
+[regional deformation support](regional-deformation-support.md): a conservative
+two-dimensional, time-indexed deformation-opportunity program between corrected
+boundary work and the coupled surface response. The first task is one
+seed-`8675309`, episode-`9`, fixed-budget reduced-kinematic counterfactual with
+finite growth, overlap/linkage, retirement and cross-front movement. It is a
+mechanism discriminator, not a reconstructed history or product candidate.
+Only a regional terrain/drainage consequence can justify choosing a generated
+history prior or consuming the carrier replay afterward.
 
 ## Completed bounded decisions
 

@@ -174,14 +174,29 @@ projection and cross-front support retain small-scale variation even after the
 boundary rate is coherent. Only 29 of those maxima survive in final terrain.
 
 The matched packet under
-`artifacts/captures/finite-age-conservative-flux-v0/` passes the numerical gate
-but awaits human visual disposition. Preliminary inspection finds that it
-removes the conspicuous comb of repeated peaks, while at least one regional view
-becomes a broad smooth mound rather than a convincing organized range. Do not
-tune the aggregation width: if human review agrees, the correction is retained
-as a necessary source operation but is insufficient terrain architecture. The
-next owner would be intermediate/regional deformation organization or the
-source-to-support reconstruction, not restored noise or three-width smoothing.
+`artifacts/captures/finite-age-conservative-flux-v0/` passes the numerical gate,
+and human review agrees with the preliminary disposition: it removes the
+conspicuous comb of repeated peaks but replaces it with a broad smooth mound
+rather than a convincing organized range. The correction is retained as a
+necessary source operation and rejected as sufficient terrain architecture.
+Do not tune the aggregation width. The next owner is the proposed
+[`RegionalDeformationProgram`](regional-deformation-support.md), not restored
+noise, three-width smoothing or an immediate Slice-B graph.
+
+The source-to-support trace sharpens one earlier inference. The `12 -> 105`
+owner-rate/scheduled-source maxima change does not directly identify the main
+visible failure: the scheduled field also includes the target-land floor,
+profile, masking and support sampling at a low prominence threshold, while only
+29 maxima survive into visually smooth terrain. Treat it as a later support
+decomposition, not the reason to design the next owner.
+
+Scientific landscape models commonly accept `U(x,y,t)` and optional horizontal
+velocity rather than solve geodynamics. Reduced fault studies and graphics
+precedents converge on finite structures that grow, overlap, link, retire and
+organize an uplift field before erosion. The selected first discriminator is
+one fixed-budget, reduced-kinematic episode-9 counterfactual with those
+consequences. It must conserve the corrected parent work and may not consume
+terrain, current land, absent inheritance or renderer state.
 The transverse-trunk proxy remains too sparse to attribute later local
 sharpening among incision, hillslopes and capture.
 The clean source-only record is retained in
