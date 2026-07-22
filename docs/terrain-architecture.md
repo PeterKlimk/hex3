@@ -326,16 +326,24 @@ at ±127/±382 km materially change orientation and reduce local maxima, but als
 increase signed flux by 26.5/33.2%; direct normal replacement is not
 conservative and is rejected.
 
-Signed-rate aggregation before clipping is the principled next arm. The current
-diagnostic Gaussian versions preserve total signed flux within 0.15/0.08%, cut
-rectification excess by 66--71%, and reduce the edge-scale positive maxima to
-22/5 while retaining broad regional variation. They establish the operation,
-not a promoted kernel. Build an exactly conservative along-chain redistribution
-within uninterrupted causal segments, use the declared 127 km collision width
-as the minimum candidate and 382 km only as a sensitivity, then compile positive
-finite-width uplift. Exact Voronoi topology, plate/material ownership and signed
-ledgers remain unchanged. Do not smooth a disliked final picture, restore a
-height target, add stochastic source complexity, tune coverage or begin Slice B.
+Signed-rate aggregation before clipping is the accepted source operation. The
+implemented finite-volume arm redistributes signed rate along one uninterrupted
+causal segment with edge length as conserved measure and no-flux ends. On seed
+`8675309`, episode `9`, both tested scales close the `411,625 km²/Myr` ledger to
+roundoff. The 127 km arm removes 66.0% of rectification excess while retaining
+25 positive maxima and `0.692` raw/output correlation. Broadening to 382 km buys
+only another five percentage points of rectification reduction but collapses
+the source to six maxima and `0.601` correlation. Select 127 km as the
+production-shaped source candidate and retain 382 km only as the rejecting
+sensitivity.
+
+This does not promote a terrain or a universal Gaussian prior. Integrate the
+operator per uninterrupted segment before compression classification and
+positive finite-width uplift, retaining exact Voronoi topology, edge identity,
+plate/material ownership and signed ledgers. Then make one coupled comparison
+against the current Slice-A control. Do not smooth a disliked final picture,
+restore a height target, add stochastic source complexity, tune coverage or
+begin Slice B.
 
 ## Slice B — causal dual drainage/divide construction
 

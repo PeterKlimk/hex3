@@ -1,6 +1,6 @@
 # Hex3 roadmap
 
-Status: **current portfolio decision**, 2026-07-21.
+Status: **current portfolio decision**, 2026-07-22.
 
 This roadmap turns the [project thesis](thesis.md), [model strategy](model-strategy.md)
 and [cross-system disposition](system-disposition.md) into a short, revisable
@@ -189,18 +189,21 @@ The boundary-scale audit is complete. Exact-midpoint evaluation is neutral, and
 direct continuous-normal replacement is rejected because it changes signed work
 by 26--33%. The defect is clipping local face rates before they have been
 aggregated: episode `9` gains 22% positive opportunity from rectification.
-Signed aggregation at the inherited 127/382 km brackets preserves signed flux
-within 0.15% while removing 66--71% of that excess and collapsing the edge-scale
-maxima from roughly 130 to 22/5.
+The source-only conservative arm now closes that ledger to `1e-15` or better.
+At 127 km it removes 66.0% of rectification excess while retaining 25 regional
+maxima and `0.692` raw/output correlation across the 16,588 km segment. The
+382 km sensitivity removes only five percentage points more excess while
+collapsing the source to six maxima. This selects one collision width as the
+production-shaped source candidate and rejects three widths as a default.
 
-Next, implement one source-only conservative signed-flux arm. Retain exact
-Voronoi topology and causal segment boundaries; redistribute signed flux along
-each segment with exact ledger closure, then classify compression and compile
-uplift. Use 127 km as the minimum physical-support candidate and 382 km only as
-a sensitivity. Do not run coupled terrain until the source arm proves that
-edge-phase cadence falls while persistent regional structure survives. This is
-an operation-order correction, not cosmetic smoothing, random source complexity,
-a parameter sweep, a height correction or Slice B.
+Next, integrate the accepted operation per uninterrupted causal segment before
+compression classification and positive finite-width uplift, retaining exact
+Voronoi topology, edge identity and signed ledgers. Then run one coupled terrain
+comparison against Slice A to ask the functional question: does removal of
+edge-phase source cadence produce coherent regional ranges without erasing
+persistent bends and rate gradients? This is an operation-order correction, not
+cosmetic smoothing, random source complexity, a parameter sweep, a height
+correction or Slice B.
 
 ## Completed bounded decisions
 

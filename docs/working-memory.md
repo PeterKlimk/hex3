@@ -133,22 +133,34 @@ positive local maxima to 65/53.
 The actual coupling defect is operation order. The exact chain carries
 `411,625 km²/Myr` signed normal flux but `502,096 km²/Myr` after each edge is
 independently clipped positive: a 22.0% rectification excess. Length-weighted
-Gaussian aggregation of the **signed** rates at 127/382 km preserves signed
-flux within `0.15/0.08%`, reduces clipping excess from `90,471` to
-`30,965/26,407 km²/Myr`, and leaves 22/5 positive maxima instead of the
-edge-scale train. These are diagnostic brackets, not promoted scales or a
-terrain result. The failed 50k comparison selected a different world/source, so
-it is not resolution evidence.
+Gaussian aggregation of the **signed** rates at 127/382 km first identified the
+useful operation: it preserved signed flux within `0.15/0.08%`, reduced clipping
+excess from `90,471` to `30,965/26,407 km²/Myr`, and left 22/5 positive maxima
+instead of the edge-scale train. The failed 50k comparison selected a different
+world/source, so it is not resolution evidence.
+
+The source-only conservative arm now makes that operation exact. Backward-Euler
+finite-volume diffusion on the unchanged 342-edge, 16,588 km episode-9 segment
+uses edge length as conserved measure, no-flux segment ends and signed rates
+before clipping. At the 127 km target diffusion scale it closes the
+`411,625 km²/Myr` signed ledger to `1.4e-16` relative error, removes 66.0% of
+rectification excess and retains 25 positive regional maxima (mean spacing
+571 km, raw/output correlation `0.692`). The deliberately broad 382 km
+sensitivity closes to `8.5e-16` and removes 71.0%, but retains only six maxima
+(mean spacing 2,507 km, correlation `0.601`). The small extra rectification
+benefit does not justify that loss of regional structure. One collision width is
+therefore accepted as the source-representation candidate; three widths is a
+rejecting sensitivity, not a second knob.
 
 Do not smooth plate identity, exact topology or a final terrain field. The next
-bounded source arm should retain exact chains and ledgers, conservatively
-redistribute **signed** normal flux within each uninterrupted causal segment,
-and only then classify compression and compile finite-width uplift. Use the
-existing 127 km collision width as the minimum physical-support candidate and
-382 km only as sensitivity. Advance it to coupled terrain only if it removes
-edge-phase cadence while retaining persistent regional bends/rate gradients and
-closing the signed ledger exactly. The transverse-trunk proxy remains too sparse
-to attribute the later local sharpening among incision, hillslopes and capture.
+implementation boundary is to apply this operation per uninterrupted causal
+segment before compression classification and finite-width uplift, preserving
+edge identity and explicit ledgers. Then run one coupled terrain comparison to
+test whether removing edge-phase source cadence produces more coherent ranges
+without erasing persistent bends and rate gradients. This is still a source
+representation decision, not terrain promotion. The transverse-trunk proxy
+remains too sparse to attribute later local sharpening among incision,
+hillslopes and capture.
 The clean source-only record is retained in
 [`docs/generated`](generated/structural-mountain-seed-8675309-organization-audit-v2.json).
 

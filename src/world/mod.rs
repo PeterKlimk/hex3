@@ -157,6 +157,10 @@ pub use structural_mountain::{
     StructuralMountainOmission, StructuralMountainOmissionReason, StructuralNode,
     StructuralNodeKind, StructuralReadiness, StructuralRegime, StructuralSegment,
 };
+#[cfg(feature = "research-landscape")]
+pub use structural_mountain::{
+    conservative_signed_flux_profile_v0, ConservativeSignedFluxProfileError,
+};
 pub use structural_source_target::{
     catalog_structural_source_belts, ranked_continental_source_belts,
     select_primary_structural_source_belt, StructuralSourceBelt, StructuralSourceTargetError,

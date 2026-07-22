@@ -9,10 +9,11 @@ use clap::Parser;
 use glam::Vec3;
 use hex3::world::{
     catalog_structural_source_belts, collect_convergent_fronts, collect_plate_boundaries,
-    compile_structural_mountain, select_primary_structural_source_belt, BoundaryEdgeId,
-    ConvergentFrontEdge, Dynamics, RunManifest, StructuralMountainGraph, StructuralRegime,
-    StructuralSegment, Tessellation, VoronoiBackend, World, COLLISION_WIDTH,
-    MAX_PLATE_SPEED_KM_PER_MYR, NUM_PLATES_DEFAULT, PLANET_RADIUS_KM, TRANSFORM_NORMAL_THRESHOLD,
+    compile_structural_mountain, conservative_signed_flux_profile_v0,
+    select_primary_structural_source_belt, BoundaryEdgeId, ConvergentFrontEdge, Dynamics,
+    RunManifest, StructuralMountainGraph, StructuralRegime, StructuralSegment, Tessellation,
+    VoronoiBackend, World, COLLISION_WIDTH, MAX_PLATE_SPEED_KM_PER_MYR, NUM_PLATES_DEFAULT,
+    PLANET_RADIUS_KM, TRANSFORM_NORMAL_THRESHOLD,
 };
 use serde::Serialize;
 
@@ -25,12 +26,12 @@ struct Cli {
     cells: usize,
     #[arg(
         long,
-        default_value = "docs/generated/structural-mountain-seed-12345-organization-audit-v2.json"
+        default_value = "docs/generated/structural-mountain-seed-12345-organization-audit-v3.json"
     )]
     output: PathBuf,
     #[arg(
         long,
-        default_value = "docs/generated/structural-mountain-seed-12345-organization-audit-v2.svg"
+        default_value = "docs/generated/structural-mountain-seed-12345-organization-audit-v3.svg"
     )]
     svg_output: PathBuf,
 }
@@ -56,7 +57,36 @@ struct Report {
     broad_bend_candidates: Vec<BendReport>,
     inherited_material: InheritedMaterialReport,
     boundary_normal_diagnostic: BoundaryNormalDiagnosticReport,
+    conservative_signed_flux_diagnostic: ConservativeSignedFluxDiagnosticReport,
     samples: Vec<SampleReport>,
+}
+
+#[derive(Serialize)]
+struct ConservativeSignedFluxDiagnosticReport {
+    status_note: &'static str,
+    boundary_condition_note: &'static str,
+    operator_order_note: &'static str,
+    substeps_note: &'static str,
+    one_collision_width: ConservativeSignedFluxArmReport,
+    three_collision_widths: ConservativeSignedFluxArmReport,
+}
+
+#[derive(Serialize)]
+struct ConservativeSignedFluxArmReport {
+    target_diffusion_sigma_km: f64,
+    implicit_substeps: usize,
+    input_signed_flux_km2_per_myr: f64,
+    output_signed_flux_km2_per_myr: f64,
+    absolute_closure_error_km2_per_myr: f64,
+    relative_closure_error: Option<f64>,
+    output_positive_flux_km2_per_myr: f64,
+    output_rectification_excess_km2_per_myr: f64,
+    rectification_excess_reduction_vs_raw_km2_per_myr: f64,
+    rectification_excess_reduction_fraction_vs_raw: Option<f64>,
+    output_rate_km_per_myr: ScalarSummary,
+    positive_local_maxima: usize,
+    maximum_spacing_km: Option<SpacingReport>,
+    raw_output_weighted_correlation: Option<f32>,
 }
 
 #[derive(Serialize)]
@@ -334,6 +364,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     let convergence_one = smooth(&profile, &profile.convergence, one_width);
     let convergence_broad = smooth(&profile, &profile.convergence, three_widths);
+    const CONSERVATIVE_IMPLICIT_SUBSTEPS: usize = 8;
+    let conservative_one_width = conservative_signed_flux_arm_report(
+        &profile,
+        f64::from(one_width),
+        CONSERVATIVE_IMPLICIT_SUBSTEPS,
+    )?;
+    let conservative_three_widths = conservative_signed_flux_arm_report(
+        &profile,
+        f64::from(three_widths),
+        CONSERVATIVE_IMPLICIT_SUBSTEPS,
+    )?;
     // Edge shear sign belongs to the canonical cell-pair frame, not the
     // ordered parent direction. Magnitude is valid; along-strike signed
     // cancellation is not recoverable from this record.
@@ -395,7 +436,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mean_edge_length = profile.lengths.iter().sum::<f32>() / profile.lengths.len() as f32;
 
     let report = Report {
-        schema: "hex3-structural-mountain-organization-audit-v2",
+        schema: "hex3-structural-mountain-organization-audit-v3",
         seed: cli.seed,
         requested_coarse_cells: cli.cells,
         elapsed_seconds: started.elapsed().as_secs_f32(),
@@ -491,6 +532,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             one_collision_width: one_width_reprojection,
             three_collision_widths: three_widths_reprojection,
         },
+        conservative_signed_flux_diagnostic: ConservativeSignedFluxDiagnosticReport {
+            status_note: "Source-only research diagnostic; this operator is not promoted terrain or product behavior.",
+            boundary_condition_note: "The selected ordered parent is treated as one causal segment with no-flux conditions at both segment ends.",
+            operator_order_note: "Signed edge flux is conservatively aggregated before positive clipping, so canceling edge-scale orientations do not become positive work first.",
+            substeps_note: "Eight backward-Euler implicit substeps are fixed numerical-accuracy control, not a world-generation parameter.",
+            one_collision_width: conservative_one_width,
+            three_collision_widths: conservative_three_widths,
+        },
         samples: profile
             .edges
             .iter()
@@ -557,6 +606,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         report.three_width_summary.convergence_km_per_myr.min,
         report.three_width_summary.convergence_km_per_myr.max,
     );
+    for arm in [
+        &report
+            .conservative_signed_flux_diagnostic
+            .one_collision_width,
+        &report
+            .conservative_signed_flux_diagnostic
+            .three_collision_widths,
+    ] {
+        println!(
+            "conservative_signed_flux sigma={:.2}km substeps={} closure={:.3e} ({:.3e} relative) positive={:.3} excess={:.3} reduction={:.1}% maxima={}",
+            arm.target_diffusion_sigma_km,
+            arm.implicit_substeps,
+            arm.absolute_closure_error_km2_per_myr,
+            arm.relative_closure_error.unwrap_or(f64::NAN),
+            arm.output_positive_flux_km2_per_myr,
+            arm.output_rectification_excess_km2_per_myr,
+            100.0 * arm
+                .rectification_excess_reduction_fraction_vs_raw
+                .unwrap_or(f64::NAN),
+            arm.positive_local_maxima,
+        );
+    }
     Ok(())
 }
 
@@ -926,6 +997,76 @@ fn scalar_aggregation_report(
         positive_local_maxima: maxima.len(),
         maximum_spacing_km: contiguous_spacing_report(profile, &maxima, &original_indices),
     }
+}
+
+fn conservative_signed_flux_arm_report(
+    profile: &Profile,
+    sigma_km: f64,
+    implicit_substeps: usize,
+) -> Result<ConservativeSignedFluxArmReport, hex3::world::ConservativeSignedFluxProfileError> {
+    let input_rates: Vec<_> = profile
+        .convergence
+        .iter()
+        .map(|&value| f64::from(value))
+        .collect();
+    let lengths: Vec<_> = profile
+        .lengths
+        .iter()
+        .map(|&value| f64::from(value))
+        .collect();
+    let output_rates =
+        conservative_signed_flux_profile_v0(&input_rates, &lengths, sigma_km, implicit_substeps)?;
+
+    let input_signed_flux = signed_flux_f64(&input_rates, &lengths);
+    let input_positive_flux = positive_flux_f64(&input_rates, &lengths);
+    let raw_rectification_excess = input_positive_flux - input_signed_flux;
+    let output_signed_flux = signed_flux_f64(&output_rates, &lengths);
+    let output_positive_flux = positive_flux_f64(&output_rates, &lengths);
+    let output_rectification_excess = output_positive_flux - output_signed_flux;
+    let closure_error = (output_signed_flux - input_signed_flux).abs();
+    let output_rates_f32: Vec<_> = output_rates.iter().map(|&value| value as f32).collect();
+    let original_indices: Vec<_> = (0..output_rates_f32.len()).collect();
+    let maxima = contiguous_positive_maxima(&output_rates_f32, &original_indices);
+    let rectification_reduction = raw_rectification_excess - output_rectification_excess;
+
+    Ok(ConservativeSignedFluxArmReport {
+        target_diffusion_sigma_km: sigma_km,
+        implicit_substeps,
+        input_signed_flux_km2_per_myr: input_signed_flux,
+        output_signed_flux_km2_per_myr: output_signed_flux,
+        absolute_closure_error_km2_per_myr: closure_error,
+        relative_closure_error: (input_signed_flux.abs() > 1e-12)
+            .then_some(closure_error / input_signed_flux.abs()),
+        output_positive_flux_km2_per_myr: output_positive_flux,
+        output_rectification_excess_km2_per_myr: output_rectification_excess,
+        rectification_excess_reduction_vs_raw_km2_per_myr: rectification_reduction,
+        rectification_excess_reduction_fraction_vs_raw: (raw_rectification_excess > 1e-12)
+            .then_some(rectification_reduction / raw_rectification_excess),
+        output_rate_km_per_myr: scalar_summary(&output_rates_f32, &profile.lengths),
+        positive_local_maxima: maxima.len(),
+        maximum_spacing_km: contiguous_spacing_report(profile, &maxima, &original_indices),
+        raw_output_weighted_correlation: weighted_pearson(
+            &profile.convergence,
+            &output_rates_f32,
+            &profile.lengths,
+        ),
+    })
+}
+
+fn signed_flux_f64(rates: &[f64], lengths: &[f64]) -> f64 {
+    rates
+        .iter()
+        .zip(lengths)
+        .map(|(&rate, &length)| rate * length)
+        .sum()
+}
+
+fn positive_flux_f64(rates: &[f64], lengths: &[f64]) -> f64 {
+    rates
+        .iter()
+        .zip(lengths)
+        .map(|(&rate, &length)| rate.max(0.0) * length)
+        .sum()
 }
 
 fn positive_denominator_ratio(numerator: f64, denominator: f64) -> Option<f64> {

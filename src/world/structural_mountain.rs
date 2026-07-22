@@ -83,6 +83,145 @@ impl std::fmt::Display for StructuralMountainError {
 
 impl std::error::Error for StructuralMountainError {}
 
+/// Invalid input to [`conservative_signed_flux_profile_v0`].
+#[cfg(feature = "research-landscape")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConservativeSignedFluxProfileError {
+    LengthRateCountMismatch,
+    InvalidLength(usize),
+    InvalidRate(usize),
+    InvalidSigmaKm,
+    InvalidSubsteps,
+    NumericalFailure,
+}
+
+#[cfg(feature = "research-landscape")]
+impl std::fmt::Display for ConservativeSignedFluxProfileError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{self:?}")
+    }
+}
+
+#[cfg(feature = "research-landscape")]
+impl std::error::Error for ConservativeSignedFluxProfileError {}
+
+/// Aggregate an ordered signed edge-rate profile without changing its topology.
+///
+/// This research operator applies backward-Euler finite-volume diffusion with
+/// no-flux segment ends. Control-volume lengths are the conserved measure and
+/// the conductance between adjacent controls is
+/// `2 / (lengths_km[i] + lengths_km[i + 1])`. The total diffusion time is
+/// `sigma_km.powi(2) / 2`, divided into the caller-declared `substeps`.
+///
+/// The result has exactly one value per input edge and preserves
+/// `sum(length * signed_rate)` to floating-point roundoff. Signs are deliberately
+/// not clipped here: any positive-part rectification belongs *after* this
+/// conservative aggregation, so canceling edge-scale flux is not converted into
+/// spurious positive work first. A zero sigma returns an exact copy and permits
+/// zero substeps; a positive sigma requires at least one substep.
+#[cfg(feature = "research-landscape")]
+pub fn conservative_signed_flux_profile_v0(
+    rates: &[f64],
+    lengths_km: &[f64],
+    sigma_km: f64,
+    substeps: usize,
+) -> Result<Vec<f64>, ConservativeSignedFluxProfileError> {
+    if rates.len() != lengths_km.len() {
+        return Err(ConservativeSignedFluxProfileError::LengthRateCountMismatch);
+    }
+    for (index, &length) in lengths_km.iter().enumerate() {
+        if !length.is_finite() || length <= 0.0 {
+            return Err(ConservativeSignedFluxProfileError::InvalidLength(index));
+        }
+    }
+    for (index, &rate) in rates.iter().enumerate() {
+        if !rate.is_finite() {
+            return Err(ConservativeSignedFluxProfileError::InvalidRate(index));
+        }
+    }
+    if !sigma_km.is_finite() || sigma_km < 0.0 {
+        return Err(ConservativeSignedFluxProfileError::InvalidSigmaKm);
+    }
+    if sigma_km == 0.0 {
+        return Ok(rates.to_vec());
+    }
+    if substeps == 0 {
+        return Err(ConservativeSignedFluxProfileError::InvalidSubsteps);
+    }
+    if rates.len() <= 1 {
+        return Ok(rates.to_vec());
+    }
+
+    let total_time_km2 = 0.5 * sigma_km * sigma_km;
+    let step_time_km2 = total_time_km2 / substeps as f64;
+    if !total_time_km2.is_finite() || !step_time_km2.is_finite() {
+        return Err(ConservativeSignedFluxProfileError::InvalidSigmaKm);
+    }
+
+    let mut conductance = Vec::with_capacity(rates.len() - 1);
+    for lengths in lengths_km.windows(2) {
+        let value = 2.0 / (lengths[0] + lengths[1]);
+        if !value.is_finite() || value <= 0.0 {
+            return Err(ConservativeSignedFluxProfileError::NumericalFailure);
+        }
+        conductance.push(value);
+    }
+
+    let mut profile = rates.to_vec();
+    let mut diagonal = vec![0.0; rates.len()];
+    let mut rhs = vec![0.0; rates.len()];
+    let mut off_diagonal = vec![0.0; rates.len() - 1];
+    for _ in 0..substeps {
+        for index in 0..profile.len() {
+            let left = index
+                .checked_sub(1)
+                .map_or(0.0, |interface| conductance[interface]);
+            let right = conductance.get(index).copied().unwrap_or(0.0);
+            diagonal[index] = lengths_km[index] + step_time_km2 * (left + right);
+            rhs[index] = lengths_km[index] * profile[index];
+            if !diagonal[index].is_finite() || !rhs[index].is_finite() {
+                return Err(ConservativeSignedFluxProfileError::NumericalFailure);
+            }
+        }
+        for (coefficient, &interface_conductance) in off_diagonal.iter_mut().zip(&conductance) {
+            *coefficient = -step_time_km2 * interface_conductance;
+            if !coefficient.is_finite() {
+                return Err(ConservativeSignedFluxProfileError::NumericalFailure);
+            }
+        }
+
+        // Thomas elimination for the symmetric tridiagonal finite-volume
+        // system. Positive lengths and conductances make every pivot positive.
+        for index in 1..profile.len() {
+            let previous_pivot = diagonal[index - 1];
+            if !previous_pivot.is_finite() || previous_pivot <= 0.0 {
+                return Err(ConservativeSignedFluxProfileError::NumericalFailure);
+            }
+            let multiplier = off_diagonal[index - 1] / previous_pivot;
+            diagonal[index] -= multiplier * off_diagonal[index - 1];
+            rhs[index] -= multiplier * rhs[index - 1];
+        }
+
+        let last = profile.len() - 1;
+        if !diagonal[last].is_finite() || diagonal[last] <= 0.0 {
+            return Err(ConservativeSignedFluxProfileError::NumericalFailure);
+        }
+        profile[last] = rhs[last] / diagonal[last];
+        for index in (0..last).rev() {
+            if !diagonal[index].is_finite() || diagonal[index] <= 0.0 {
+                return Err(ConservativeSignedFluxProfileError::NumericalFailure);
+            }
+            profile[index] =
+                (rhs[index] - off_diagonal[index] * profile[index + 1]) / diagonal[index];
+        }
+        if !profile.iter().all(|value| value.is_finite()) {
+            return Err(ConservativeSignedFluxProfileError::NumericalFailure);
+        }
+    }
+
+    Ok(profile)
+}
+
 /// Why valid source evidence could not become a finite parent segment.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StructuralMountainOmissionReason {
@@ -933,5 +1072,130 @@ mod tests {
         }));
         let graph = compile_structural_mountain(&fronts).unwrap();
         assert!(graph.ledger.residual_km2.abs() <= 1e-9 * graph.ledger.declared_km2.max(1.0));
+    }
+
+    #[cfg(feature = "research-landscape")]
+    fn weighted_signed_flux(rates: &[f64], lengths: &[f64]) -> f64 {
+        rates
+            .iter()
+            .zip(lengths)
+            .map(|(&rate, &length)| rate * length)
+            .sum()
+    }
+
+    #[cfg(feature = "research-landscape")]
+    fn weighted_positive_flux(rates: &[f64], lengths: &[f64]) -> f64 {
+        rates
+            .iter()
+            .zip(lengths)
+            .map(|(&rate, &length)| rate.max(0.0) * length)
+            .sum()
+    }
+
+    #[cfg(feature = "research-landscape")]
+    fn total_variation(rates: &[f64]) -> f64 {
+        rates.windows(2).map(|pair| (pair[1] - pair[0]).abs()).sum()
+    }
+
+    #[cfg(feature = "research-landscape")]
+    #[test]
+    fn signed_flux_diffusion_preserves_an_irregular_constant_profile() {
+        let lengths = [3.0, 17.0, 5.0, 29.0, 11.0];
+        let rates = [2.75; 5];
+        let result = conservative_signed_flux_profile_v0(&rates, &lengths, 127.0, 4).unwrap();
+        assert!(result.iter().all(|&value| (value - 2.75).abs() < 1e-12));
+        assert!(
+            (weighted_signed_flux(&result, &lengths) - weighted_signed_flux(&rates, &lengths))
+                .abs()
+                < 1e-11
+        );
+    }
+
+    #[cfg(feature = "research-landscape")]
+    #[test]
+    fn signed_flux_diffusion_closes_and_reduces_rectification_and_variation() {
+        let lengths = [3.0, 11.0, 5.0, 17.0, 7.0, 23.0];
+        let rates = [4.0, -3.0, 5.0, -2.0, 1.0, -0.5];
+        let result = conservative_signed_flux_profile_v0(&rates, &lengths, 20.0, 3).unwrap();
+        let before = weighted_signed_flux(&rates, &lengths);
+        let after = weighted_signed_flux(&result, &lengths);
+        assert!((after - before).abs() <= 1e-12 * before.abs().max(1.0));
+        assert!(
+            weighted_positive_flux(&result, &lengths) < weighted_positive_flux(&rates, &lengths)
+        );
+        assert!(total_variation(&result) < total_variation(&rates));
+        assert!(result.iter().all(|&value| (-3.0..=5.0).contains(&value)));
+    }
+
+    #[cfg(feature = "research-landscape")]
+    #[test]
+    fn signed_flux_diffusion_is_reversal_invariant_to_roundoff() {
+        let lengths = [2.0, 13.0, 7.0, 19.0, 5.0];
+        let rates = [-1.0, 4.0, -2.0, 3.0, 0.5];
+        let forward = conservative_signed_flux_profile_v0(&rates, &lengths, 31.0, 5).unwrap();
+        let mut reversed_lengths = lengths;
+        let mut reversed_rates = rates;
+        reversed_lengths.reverse();
+        reversed_rates.reverse();
+        let mut reversed =
+            conservative_signed_flux_profile_v0(&reversed_rates, &reversed_lengths, 31.0, 5)
+                .unwrap();
+        reversed.reverse();
+        for (&left, &right) in forward.iter().zip(&reversed) {
+            assert!((left - right).abs() < 1e-12);
+        }
+    }
+
+    #[cfg(feature = "research-landscape")]
+    #[test]
+    fn signed_flux_diffusion_has_expected_two_cell_solution_and_is_positive_linear() {
+        let fixture =
+            conservative_signed_flux_profile_v0(&[1.0, 0.0], &[1.0, 3.0], 2.0_f64.sqrt(), 1)
+                .unwrap();
+        assert!((fixture[0] - 0.7).abs() < 1e-15);
+        assert!((fixture[1] - 0.1).abs() < 1e-15);
+
+        let lengths = [2.0, 13.0, 7.0, 19.0, 5.0];
+        let impulse = [0.0, 0.0, 4.0, 0.0, 0.0];
+        let positive = conservative_signed_flux_profile_v0(&impulse, &lengths, 9.0, 3).unwrap();
+        assert!(positive.iter().all(|&value| (0.0..=4.0).contains(&value)));
+
+        let negative_impulse = impulse.map(|value| -value);
+        let negative =
+            conservative_signed_flux_profile_v0(&negative_impulse, &lengths, 9.0, 3).unwrap();
+        for (&positive_value, &negative_value) in positive.iter().zip(&negative) {
+            assert!((positive_value + negative_value).abs() < 1e-14);
+        }
+    }
+
+    #[cfg(feature = "research-landscape")]
+    #[test]
+    fn signed_flux_diffusion_zero_sigma_and_bad_inputs_are_explicit() {
+        let rates = [-0.0, 2.0, -3.0];
+        let lengths = [2.0, 5.0, 11.0];
+        assert_eq!(
+            conservative_signed_flux_profile_v0(&rates, &lengths, 0.0, 0).unwrap(),
+            rates
+        );
+        assert_eq!(
+            conservative_signed_flux_profile_v0(&rates[..2], &lengths, 1.0, 1),
+            Err(ConservativeSignedFluxProfileError::LengthRateCountMismatch)
+        );
+        assert_eq!(
+            conservative_signed_flux_profile_v0(&rates, &[2.0, 0.0, 11.0], 1.0, 1),
+            Err(ConservativeSignedFluxProfileError::InvalidLength(1))
+        );
+        assert_eq!(
+            conservative_signed_flux_profile_v0(&[0.0, f64::NAN, 1.0], &lengths, 1.0, 1),
+            Err(ConservativeSignedFluxProfileError::InvalidRate(1))
+        );
+        assert_eq!(
+            conservative_signed_flux_profile_v0(&rates, &lengths, -1.0, 1),
+            Err(ConservativeSignedFluxProfileError::InvalidSigmaKm)
+        );
+        assert_eq!(
+            conservative_signed_flux_profile_v0(&rates, &lengths, 1.0, 0),
+            Err(ConservativeSignedFluxProfileError::InvalidSubsteps)
+        );
     }
 }
